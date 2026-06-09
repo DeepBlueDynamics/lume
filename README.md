@@ -69,7 +69,7 @@ graph TD
 The system is organized into the following core Rust and Python modules:
 
 *   **FST-Backed Phrase Tagger**: Performs longest-dominant-right matching using Lucene-style separator bytes. Built on [Tagger](file:///workspace/lume/src/lib.rs#L111) and [Entry](file:///workspace/lume/src/lib.rs#L43) in [src/lib.rs](file:///workspace/lume/src/lib.rs).
-*   **Hybrid Search Engine**: Integrates BM25 lexical retrieval ([Bm25Index](file:///workspace/lume/src/bm25.rs)), spelling correction ([SpellIndex](file:///workspace/lume/src/spelling.rs)), and dense embeddings ([src/hybrid.rs](file:///workspace/lume/src/hybrid.rs)) with Semantic Knowledge Graph boost ([src/graph_search.rs](file:///workspace/lume/src/graph_search.rs)).
+*   **Hybrid Search Engine**: Integrates BM25 lexical retrieval ([Bm25Index](file:///workspace/lume/src/bm25.rs)), spelling correction ([SpellIndex](file:///workspace/lume/src/spelling.rs)), and dense embeddings ([src/hybrid.rs](file:///workspace/lume/src/hybrid.rs)) with graph-steered query expansion ([src/graph_search.rs](file:///workspace/lume/src/graph_search.rs)) to boost matches based on Semantic Knowledge Graph connections.
 *   **Steered Markov Chain Synthesizer**: Under the hood, Lume uses a trigram [MarkovChain](file:///workspace/lume/src/semantic_mesh.rs#L129) to generate text. However, it goes beyond random walks by steering/biasing trigram transitions using FST tags, local attention feedback, and GTR-T5 semantic vector inversion ([src/inversion.rs](file:///workspace/lume/src/inversion.rs)).
 *   **Agent & Summarization Engine**: Runs autonomous query planning, search exploration, and structured synthesis. Main entry points are [run_agent_loop](file:///workspace/lume/src/agent.rs#L703) and [summarize_document](file:///workspace/lume/src/agent.rs#L926) in [src/agent.rs](file:///workspace/lume/src/agent.rs).
 *   **Model Context Protocol (MCP)**: Implements an MCP server over HTTP transport in [serve](file:///workspace/lume/src/agent.rs#L651) to expose indexing and search tools directly to AI agents.
@@ -127,7 +127,7 @@ Search the persisted index using lexical (BM25) or hybrid search:
 ```
 *   **Options**:
     *   `-a, --alpha <VAL>`: Hybrid weight. `0.0` is lexical-only; `1.0` is semantic-only [default: `0.5`].
-    *   `-g, --graph <VAL>`: Entity graph boost weight [default: `0.4`].
+    *   `-g, --graph <VAL>`: Entity graph boost weight [default: `0.4`]. Enables **graph-steered expansion**: Lume resolves entities in the query, walks one hop to their strongest neighbors in `entity_graph.json`, and boosts matching passage scores by the related-entity mass.
     *   `-l, --limit <LIMIT>`: Maximum search hits [default: `10`].
 
 ---
