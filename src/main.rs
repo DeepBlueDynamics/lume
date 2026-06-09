@@ -107,9 +107,17 @@ fn main() {
             }
         }
         "crawl" => {
+            if args.iter().any(|a| a == "-h" || a == "--help") {
+                print_crawl_help();
+                return;
+            }
             lume::crawl::run(args[2..].to_vec());
         }
         "serve" | "--serve" => {
+            if args.iter().any(|a| a == "-h" || a == "--help") {
+                print_serve_help();
+                return;
+            }
             let mut port = 8000u16;
             if let Some(pos) = args.iter().position(|a| a == "--port" || a == "-p") {
                 if pos + 1 < args.len() {
@@ -124,6 +132,10 @@ fn main() {
             }
         }
         "agent" | "chat" => {
+            if args.iter().any(|a| a == "-h" || a == "--help") {
+                print_agent_help();
+                return;
+            }
             let mut ollama_url = String::from("http://localhost:11434");
             let mut ollama_model = String::from("gemma4:2b");
             let mut verbose = false;
@@ -1457,5 +1469,52 @@ OPTIONS:
   -v, --verbose             Print verbose execution traces
 
 If FILE is omitted, Lume will summarize the largest file in the index database.
+"#);
+}
+
+fn print_serve_help() {
+    println!(r#"lume serve
+Start the Model Context Protocol (MCP) server over HTTP.
+
+USAGE:
+  lume serve [OPTIONS]
+
+OPTIONS:
+  -p, --port <PORT>      Port to bind the HTTP server to [default: 8000]
+  -h, --help             Prints help information
+"#);
+}
+
+fn print_agent_help() {
+    println!(r#"lume agent
+Run a stateful autonomous research agent loop to resolve a question.
+
+USAGE:
+  lume agent [OPTIONS] <QUESTION>
+
+OPTIONS:
+  --db <DIR>                Path to the persisted index database [default: .lume-index]
+  --ollama-url <URL>        Ollama API URL [default: http://localhost:11434]
+  --ollama-model <MODEL>    Ollama model name [default: gemma4:2b]
+  -v, --verbose             Print verbose reasoning and tool logs
+  -h, --help                Prints help information
+
+ARGS:
+  <QUESTION>                The query or question to research
+"#);
+}
+
+fn print_crawl_help() {
+    println!(r#"lume crawl
+Stealth crawl webpage content and save it to the personal search collection.
+
+USAGE:
+  lume crawl [FLAGS] <URL>
+
+FLAGS:
+  -h, --help             Prints help information
+
+ARGS:
+  <URL>                  The webpage URL (or Hacker News story URL) to crawl
 "#);
 }
