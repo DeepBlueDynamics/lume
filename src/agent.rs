@@ -978,6 +978,35 @@ pub fn summarize_document(
     println!("[🧠] Target Document: {}", selected_file);
     let semantic_enabled = state.get("semantic_enabled").and_then(|v| v.as_bool()).unwrap_or(false);
 
+    // Read the entity graph to find key concepts/entities
+    let mut top_entities = Vec::new();
+    let graph_path = std::path::Path::new(db_dir).join("entity_graph.json");
+    if graph_path.exists() {
+        if let Ok(graph_content) = std::fs::read_to_string(&graph_path) {
+            if let Ok(graph_val) = serde_json::from_str::<serde_json::Value>(&graph_content) {
+                if let Some(nodes) = graph_val.get("nodes").and_then(|n| n.as_array()) {
+                    let mut sorted_nodes = nodes.clone();
+                    // Sort by frequency descending
+                    sorted_nodes.sort_by(|a, b| {
+                        let freq_a = a.get("frequency").and_then(|v| v.as_u64()).unwrap_or(0);
+                        let freq_b = b.get("frequency").and_then(|v| v.as_u64()).unwrap_or(0);
+                        freq_b.cmp(&freq_a)
+                    });
+                    
+                    for node in sorted_nodes.iter().take(12) {
+                        if let Some(label) = node.get("label").and_then(|v| v.as_str()) {
+                            top_entities.push(label.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if !top_entities.is_empty() {
+        println!("[🧠] Central entities identified in Knowledge Graph: {}", top_entities.join(", "));
+    }
+
     let resolved_url = if ollama_url.is_empty() || ollama_url == "http://localhost:11434" {
         let endpoints = ["http://host.docker.internal:11434", "http://localhost:11434", "http://172.17.0.1:11434"];
         let mut found = "http://localhost:11434".to_string();
@@ -1004,11 +1033,22 @@ pub fn summarize_document(
         .and_then(|s| s.to_str())
         .unwrap_or(&selected_file);
 
+    let graph_guide = if !top_entities.is_empty() {
+        format!(
+            "\nThe Knowledge Graph of the document identifies the following central entities and key concepts as highly important:\n\
+            {}\n\
+            Make sure your planned search queries specifically target these entities/concepts to extract the most relevant passages.",
+            top_entities.join(", ")
+        )
+    } else {
+        "".to_string()
+    };
+
     let prompt = format!(
         "You are an agentic search planner. Your task is to generate exactly {} distinct search queries to discover the structure, main themes, key arguments, and conclusions of the document named '{}'.\n\n\
         Rules:\n\
         1. Each query should focus on a different aspect of the document (e.g., table of contents/preface, core thesis/introduction, main theoretical chapters, final summary/conclusions).\n\
-        2. The queries should be designed to return the most informative passage hits when run against a search engine.\n\
+        2. The queries should be designed to return the most informative passage hits when run against a search engine.{}\n\
         3. The response MUST be a valid JSON array of strings:\n\
         [\n\
           \"query 1\",\n\
@@ -1016,7 +1056,7 @@ pub fn summarize_document(
           ...\n\
         ]\n\
         Do not return any conversational text, only the JSON array.",
-        num_queries, filename
+        num_queries, filename, graph_guide
     );
 
     let payload = serde_json::json!({
