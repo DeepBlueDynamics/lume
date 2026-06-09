@@ -239,3 +239,9 @@ pub fn run_agent_loop(
 ) -> Result<(), String> {
     let url = format!("{}/api/chat", ollama_url.trim_end_matches('/'));
 ```
+
+---
+
+## 💡 Acknowledgements & Inspiration
+
+Lume was forked from and inspired by the foundational FST-based tagging work in [jsclosures/rust-fstguardrails](https://github.com/jsclosures/rust-fstguardrails).
