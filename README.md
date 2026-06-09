@@ -22,7 +22,28 @@ graph TD
     Synthesis --> Output([Coherent, Style-Faithful Response])
 ```
 
-### 2. Autonomous Agent Loop Architecture
+### 2. Keyterm Extraction & Graph-Guided Summarization Architecture
+This diagram shows how keyterms are extracted during indexing and later used to guide query planning during document summarization:
+
+```mermaid
+graph TD
+    subgraph Indexing [1. Indexing & Extraction Phase]
+        Doc[Raw Documents] --> Parse[Text Chunking]
+        Parse -->|If -o flag enabled| EntExt[LLM Keyterm & Entity Extraction]
+        EntExt -->|Build Entity Edges| SKG[(entity_graph.json)]
+    end
+
+    subgraph Summarization [2. Summarization Phase]
+        SKG -->|Extract Top 12 Keyterms by Freq| Prior[Keyterm Priority Prior]
+        Prior -->|Inject as prompt guide| Planner[LLM Search Planner]
+        Planner -->|Generate Guided Queries| Queries[Search Queries]
+        Queries -->|Execute Hybrid Search| Retrieval[Retrieve Passage Snippets]
+        Retrieval -->|Deduplicate & Aggregate| Context[Aggregated Context]
+        Context -->|Synthesize Summary| FinalSummary[Executive Summary]
+    end
+```
+
+### 3. Autonomous Agent Loop Architecture
 This diagram represents the stateful tool-calling loop (`lume agent`) where the LLM plans and executes commands iteratively:
 
 ```mermaid
