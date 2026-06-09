@@ -183,7 +183,7 @@ Write a professional, detailed, and cohesive summary. Do not refer to the fact t
 def main():
     parser = argparse.ArgumentParser(description="Lume Agentic Document Summarizer")
     parser.add_argument("--db", type=str, default=".lume-index", help="Lume index database path")
-    parser.add_argument("--model", type=str, default="gpt-4o-mini:latest", help="Ollama model name")
+    parser.add_argument("--model", type=str, default="gemma4:31b-cloud", help="Ollama model name")
     parser.add_argument("--url", type=str, default=None, help="Ollama API URL")
     parser.add_argument("--queries", type=int, default=4, help="Number of planned search queries")
     parser.add_argument("--hits-per-query", type=int, default=8, help="Number of hits to retrieve per search query")
