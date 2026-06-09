@@ -340,6 +340,22 @@ fn execute_tool_by_name(name: &str, args: serde_json::Value, default_db: &str) -
             }
             run_lume_cli(cli_args)
         }
+        "lume_not_found" => {
+            let reason = args.get("reason").and_then(|v| v.as_str()).unwrap_or("");
+            let attempted = args.get("attempted_queries")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(", "))
+                .unwrap_or_default();
+            Ok(format!(
+                "Guidance: The previous search queries did not yield the answer. \
+                Reason provided: '{}'. \
+                Attempted queries: [{}]. \
+                Please try a different search query focusing on specific exact phrases or key words from the question \
+                (e.g., search for exact phrases in quotes like \"fancies himself\" or related words like \"captain\"). \
+                Do not repeat the same queries.",
+                reason, attempted
+            ))
+        }
         _ => Err(format!("Unknown tool: {}", name))
     }
 }
@@ -426,6 +442,18 @@ fn handle_mcp_request(req_val: serde_json::Value) -> serde_json::Value {
                                     "attempts": { "type": "integer", "description": "Number of attempts for steered/inverted generation [default: 6]" },
                                     "threshold": { "type": "number", "description": "Quality threshold for GTR match [default: 0.75]" }
                                 }
+                            }
+                        },
+                        {
+                            "name": "lume_not_found",
+                            "description": "Call this tool if you have executed search queries but the retrieved passages do not contain the answer to the user's question. Explain what you were looking for and what you searched. The system will respond with guidance.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "reason": { "type": "string", "description": "Why the current retrieved snippets are insufficient or what is missing." },
+                                    "attempted_queries": { "type": "array", "items": { "type": "string" }, "description": "The search queries you have already tried." }
+                                },
+                                "required": ["reason"]
                             }
                         }
                     ]
@@ -721,7 +749,7 @@ CRITICAL RULES: \
    - Synonyms, nouns, or specific verbs. \
    - Broadening/narrowing the query (e.g. searching for just \"fancies himself\"). \
 4. ALWAYS SEARCH FIRST. You do not have any pre-existing knowledge of the document. You MUST begin the conversation by calling the lume_search tool with a query based on the user's question. Do not attempt to answer or say you do not have the information before performing at least one search. \
-5. If you have searched multiple times with different queries and still cannot find the answer, state that you cannot find the answer in the text. Never make up an answer. \
+5. If you have searched multiple times with different queries and still cannot find the answer, call the lume_not_found tool to report the failure. Do not write a plain text response stating you cannot find the answer before doing this. \
 6. The target search index is located at: '{}'. If you call lume_search, you should query this index. \
 Keep your final answer concise and factual.", db_dir),
             tool_calls: None,
@@ -794,6 +822,21 @@ Keep your final answer concise and factual.", db_dir),
                 }),
             },
         },
+        Tool {
+            tool_type: "function".to_string(),
+            function: Function {
+                name: "lume_not_found".to_string(),
+                description: "Call this tool if you have executed search queries but the retrieved passages do not contain the answer to the user's question. Explain what you were looking for and what you searched. The system will respond with guidance on what queries or terms to try next. Only output a final answer saying the text doesn't contain the information after calling this tool and receiving its guidance.".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {
+                        "reason": { "type": "string", "description": "Why the current retrieved snippets are insufficient or what is missing." },
+                        "attempted_queries": { "type": "array", "items": { "type": "string" }, "description": "The search queries you have already tried." }
+                    },
+                    "required": ["reason"]
+                }),
+            },
+        },
     ];
 
     println!("[Agent] Starting task: {}", question);
@@ -853,15 +896,6 @@ Keep your final answer concise and factual.", db_dir),
             if tool_calls.is_empty() {
                 // No tool calls but text content was returned
                 if !assistant_msg.content.trim().is_empty() {
-                    if is_negative_response(&assistant_msg.content) && turn < max_turns {
-                        println!("[Agent Guidance] Negative/uncertain answer detected. Requesting alternative search query.");
-                        messages.push(AgentMessage {
-                            role: "user".to_string(),
-                            content: "The previous search did not yield the answer. Please try a different search query focusing on specific exact phrases or key words from the question (e.g. search for exact phrases in quotes like \"fancies himself\" or related words like \"captain\").".to_string(),
-                            tool_calls: None,
-                        });
-                        continue;
-                    }
                     println!("\n[Agent Final Answer]\n{}", assistant_msg.content);
                     return Ok(());
                 }
@@ -892,15 +926,6 @@ Keep your final answer concise and factual.", db_dir),
         } else {
             // No tool calls, just text
             if !assistant_msg.content.trim().is_empty() {
-                if is_negative_response(&assistant_msg.content) && turn < max_turns {
-                    println!("[Agent Guidance] Negative/uncertain answer detected. Requesting alternative search query.");
-                    messages.push(AgentMessage {
-                        role: "user".to_string(),
-                        content: "The previous search did not yield the answer. Please try a different search query focusing on specific exact phrases or key words from the question (e.g. search for exact phrases in quotes like \"fancies himself\" or related words like \"captain\").".to_string(),
-                        tool_calls: None,
-                    });
-                    continue;
-                }
                 println!("\n[Agent Final Answer]\n{}", assistant_msg.content);
                 return Ok(());
             }
@@ -908,19 +933,6 @@ Keep your final answer concise and factual.", db_dir),
     }
 
     Err(format!("Agent exceeded maximum turns ({}) without finding a final answer.", max_turns))
-}
-
-fn is_negative_response(content: &str) -> bool {
-    let lower = content.to_lowercase();
-    lower.contains("not contain")
-        || lower.contains("not explicitly")
-        || lower.contains("not mentioned")
-        || lower.contains("cannot find")
-        || lower.contains("no mention")
-        || lower.contains("no information")
-        || lower.contains("sorry")
-        || lower.contains("don't find")
-        || lower.contains("do not find")
 }
 
 pub fn summarize_document(
