@@ -1,6 +1,7 @@
 # Lume Search Index & Caches
 .lume-index/
 .lume-index.bak/
+.lume-code-index/
 .lume-semantic-cache.json
 .lume-session-cache.json
 .nemesis8.toml
