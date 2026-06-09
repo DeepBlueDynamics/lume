@@ -70,7 +70,7 @@ The system is organized into the following core Rust and Python modules:
 
 *   **FST-Backed Phrase Tagger**: Performs longest-dominant-right matching using Lucene-style separator bytes. Built on [Tagger](file:///workspace/lume/src/lib.rs#L111) and [Entry](file:///workspace/lume/src/lib.rs#L43) in [src/lib.rs](file:///workspace/lume/src/lib.rs).
 *   **Hybrid Search Engine**: Integrates BM25 lexical retrieval ([Bm25Index](file:///workspace/lume/src/bm25.rs)), spelling correction ([SpellIndex](file:///workspace/lume/src/spelling.rs)), and dense embeddings ([src/hybrid.rs](file:///workspace/lume/src/hybrid.rs)) with Semantic Knowledge Graph boost ([src/graph_search.rs](file:///workspace/lume/src/graph_search.rs)).
-*   **Markov Chain Style Synthesizer**: Generates style-faithful, concept-steered text from the indexed corpus using [MarkovChain](file:///workspace/lume/src/semantic_mesh.rs#L129) and vector inversion ([src/inversion.rs](file:///workspace/lume/src/inversion.rs)).
+*   **Steered Markov Chain Synthesizer**: Under the hood, Lume uses a trigram [MarkovChain](file:///workspace/lume/src/semantic_mesh.rs#L129) to generate text. However, it goes beyond random walks by steering/biasing trigram transitions using FST tags, local attention feedback, and GTR-T5 semantic vector inversion ([src/inversion.rs](file:///workspace/lume/src/inversion.rs)).
 *   **Agent & Summarization Engine**: Runs autonomous query planning, search exploration, and structured synthesis. Main entry points are [run_agent_loop](file:///workspace/lume/src/agent.rs#L703) and [summarize_document](file:///workspace/lume/src/agent.rs#L926) in [src/agent.rs](file:///workspace/lume/src/agent.rs).
 *   **Model Context Protocol (MCP)**: Implements an MCP server over HTTP transport in [serve](file:///workspace/lume/src/agent.rs#L651) to expose indexing and search tools directly to AI agents.
 *   **Python Document Extractor**: A high-efficiency parser ([lib/lume_extractor.py](file:///workspace/lume/lib/lume_extractor.py)) that handles PDF page text extraction and generates Q&A benchmark datasets using concurrent Ollama threads.
@@ -153,11 +153,14 @@ Spawn an autonomous agent to research and resolve a complex question by executin
 
 ---
 
-### 5. Markov Chain Generation
-Synthesize style-faithful text based on your indexed corpus:
+### 5. Steered Markov Chain Generation
+Generates style-faithful text based on the indexed corpus using a trigram Markov Chain whose transitions are guided by concept tags and vector inversion:
 ```bash
+# Standard generation steered with specific tags
 ./target/release/lume generate "Dantes" --steer "revenge,castle"
 ```
+*   **Tag-Steered Mode**: Biases transitions towards the `--steer` tags using co-occurrence weights from the index's posting lists.
+*   **Vector-Steered Inversion Mode**: Automatically embeds the target seed, inverts it into its closest semantic tags, and runs multiple candidate generation rounds to find the closest cosine-similarity match to the target prompt.
 
 ---
 
