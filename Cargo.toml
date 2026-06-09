@@ -1,0 +1,20 @@
+[package]
+name = "lume"
+version = "0.10.0"
+edition = "2021"
+description = "Lume: A high-performance, zero-dependency, FST-backed tagger and on-demand BM25 hybrid search engine."
+
+[dependencies]
+tantivy-fst = "0.5"
+ureq = { version = "2.9", features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+
+[[bin]]
+name = "lume"
+path = "src/main.rs"
+
+[profile.release]
+lto = true
+codegen-units = 1

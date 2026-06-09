@@ -1,0 +1,10 @@
+# Lume Search Index & Caches
+.lume-index/
+.lume-index.bak/
+.lume-semantic-cache.json
+.lume-session-cache.json
+.nemesis8.toml
+
+# Build and archive directories
+target/
+archive/
