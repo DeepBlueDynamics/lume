@@ -6,38 +6,42 @@ Lume is a high-performance, FST-backed tagger, hybrid lexical/semantic search en
 
 ## 📐 Architecture & Core Components
 
+All capabilities of Lume are exposed to the autonomous agent as JSON RPC tools and map directly to CLI commands that a user can run manually to see the raw results.
+
 ### 1. Hybrid Search Architecture
-This diagram represents the static hybrid search compilation and LLM synthesis pipeline:
+This diagram represents the hybrid search pipeline executed by the `lume_search` tool:
 
 ```mermaid
 graph TD
-    User([User Prompt / Query]) --> Search[Hybrid Search Engine]
-    Search -->|1. BM25 Lexical Search| BM25[(BM25 Index)]
-    Search -->|2. Dense Semantic Embeddings| Vector[(Semantic Vector Cache)]
-    Search -->|3. Graph Boost| Graph[(Semantic Knowledge Graph)]
-    BM25 --> Hits[Merged & Scored Hits]
-    Vector --> Hits
-    Graph --> Hits
+    subgraph lume_search [Tool: lume_search | CLI: lume search]
+        User([User Prompt / Query]) --> Search[Hybrid Search Engine]
+        Search -->|1. BM25 Lexical Search| BM25[(BM25 Index)]
+        Search -->|2. Dense Semantic Embeddings| Vector[(Semantic Vector Cache)]
+        Search -->|3. Graph Boost| Graph[(Semantic Knowledge Graph)]
+        BM25 --> Hits[Merged & Scored Hits]
+        Vector --> Hits
+        Graph --> Hits
+    end
     Hits --> Synthesis[Ollama/Cloud LLM Synthesis]
-    Synthesis --> Output([Coherent, Style-Faithful Response])
+    Synthesis --> Output([Coherent Response])
 ```
 
 ### 2. Keyterm Extraction & Graph-Guided Summarization Architecture
-This diagram shows how keyterms are extracted during indexing and later used to guide query planning during document summarization:
+This diagram shows how keyterms are extracted via `lume_index` and later used to guide query planning during document summarization:
 
 ```mermaid
 graph TD
-    subgraph Indexing [1. Indexing & Extraction Phase]
+    subgraph Indexing [Tool: lume_index | CLI: lume index]
         Doc[Raw Documents] --> Parse[Text Chunking]
         Parse -->|If -o flag enabled| EntExt[LLM Keyterm & Entity Extraction]
         EntExt -->|Build Entity Edges| SKG[(entity_graph.json)]
     end
 
-    subgraph Summarization [2. Summarization Phase]
+    subgraph Summarization [CLI: lume summarize]
         SKG -->|Extract Top 12 Keyterms by Freq| Prior[Keyterm Priority Prior]
         Prior -->|Inject as prompt guide| Planner[LLM Search Planner]
         Planner -->|Generate Guided Queries| Queries[Search Queries]
-        Queries -->|Execute Hybrid Search| Retrieval[Retrieve Passage Snippets]
+        Queries -->|Execute lume_search Tool| Retrieval[Retrieve Passage Snippets]
         Retrieval -->|Deduplicate & Aggregate| Context[Aggregated Context]
         Context -->|Synthesize Summary| FinalSummary[Executive Summary]
     end
@@ -52,9 +56,9 @@ graph TD
     Agent --> LLM{Ollama / Cloud LLM}
     
     LLM -->|Wants to call a tool| Tool[Tool Dispatcher]
-    Tool -->|query| SearchTool[lume_search tool]
-    Tool -->|dir, db| IndexTool[lume_index tool]
-    Tool -->|seed, steer| GenTool[lume_generate tool]
+    Tool -->|query| SearchTool[Tool: lume_search | CLI: lume search]
+    Tool -->|dir, db| IndexTool[Tool: lume_index | CLI: lume index]
+    Tool -->|seed, steer| GenTool[Tool: lume_generate | CLI: lume generate]
     
     SearchTool --> Result[Capture CLI Output]
     IndexTool --> Result
@@ -93,19 +97,20 @@ The compiled binary will be located at `target/release/lume`.
 
 ---
 
-## 🛠️ CLI Subcommands & Flags
+## 🛠️ CLI Subcommands & Tool Execution Reference
 
-Lume is controlled through a unified command-line interface defined in [src/main.rs](file:///workspace/lume/src/main.rs).
+Each tool exposed to the agent maps to a CLI subcommand. A user can run these directly to see raw search hits, index logs, or Markov generated texts.
 
-### 1. Indexing a Corpus
-Index a directory containing plain text, markdown, or PDF files.
+### 1. `lume_index` Tool $\rightarrow$ `lume index` CLI Command
+Indexes a directory containing text, markdown, or PDF files.
 ```bash
-# Basic lexical index
+# Basic lexical indexing
 ./target/release/lume index docs/my_documents
 
-# Semantic index with dense vectors (-s) and Ollama Entity Graph extraction (-o)
+# Semantic indexing with dense vectors (-s) and Ollama Entity Graph extraction (-o)
 ./target/release/lume index -s -o docs/my_documents
 ```
+*   **Raw Output**: Prints file indexing progress, chunk counts, semantic cache updates, and entity extraction timings.
 *   **Flags**:
     *   `-s, --semantic`: Enables dense vector search (requires a NUTS token).
     *   `-o, --ollama-entities`: Extract central entities and construct `entity_graph.json`.
@@ -116,8 +121,8 @@ Index a directory containing plain text, markdown, or PDF files.
 
 ---
 
-### 2. Querying the Index
-Search the persisted index using lexical (BM25) or hybrid search:
+### 2. `lume_search` Tool $\rightarrow$ `lume search` CLI Command
+Queries the persisted index using lexical (BM25) or hybrid search:
 ```bash
 # Basic BM25 search
 ./target/release/lume search "Edmond Dantes"
@@ -125,6 +130,7 @@ Search the persisted index using lexical (BM25) or hybrid search:
 # Hybrid search (weighting: 0.5 BM25, 0.5 vector semantic) with spelling correction (-c)
 ./target/release/lume search -c -a 0.5 "Edmond Dantes"
 ```
+*   **Raw Output**: Prints raw retrieved document passages accompanied by match scores (BM25 + Semantic + SKG Boost).
 *   **Options**:
     *   `-a, --alpha <VAL>`: Hybrid weight. `0.0` is lexical-only; `1.0` is semantic-only [default: `0.5`].
     *   `-g, --graph <VAL>`: Entity graph boost weight [default: `0.4`]. Enables **graph-steered expansion**: Lume resolves entities in the query, walks one hop to their strongest neighbors in `entity_graph.json`, and boosts matching passage scores by the related-entity mass.
@@ -132,7 +138,20 @@ Search the persisted index using lexical (BM25) or hybrid search:
 
 ---
 
-### 3. Graph-Guided Summarization
+### 3. `lume_generate` Tool $\rightarrow$ `lume generate` CLI Command
+Synthesizes style-faithful text based on the indexed corpus using a trigram Markov Chain:
+```bash
+# Generate styled text starting with Dantes and guided by concept keywords
+./target/release/lume generate "Dantes" --steer "revenge,castle"
+```
+*   **Raw Output**: Prints a block of synthesized text in the style of the indexed corpus.
+*   **Modes**:
+    *   **Tag-Steered Mode**: Biases transitions towards the `--steer` tags using co-occurrence weights from the index's posting lists.
+    *   **Vector-Steered Inversion Mode**: Automatically embeds the target seed, inverts it into its closest semantic tags, and runs multiple candidate generation rounds to find the closest cosine-similarity match to the target prompt.
+
+---
+
+### 4. Graph-Guided Summarization (`lume summarize` Command)
 Summarize an entire document using an agentic planning-and-retrieval loop guided by the highest-ranking nodes in the Semantic Knowledge Graph:
 ```bash
 ./target/release/lume summarize docs/my_documents/book.pdf
@@ -145,7 +164,7 @@ Summarize an entire document using an agentic planning-and-retrieval loop guided
 
 ---
 
-### 4. Autonomous Agent Chat Loop
+### 5. Autonomous Agent Chat Loop (`lume agent` Command)
 Spawn an autonomous agent to research and resolve a complex question by executing indexing and search tools iteratively:
 ```bash
 ./target/release/lume agent "Explain the relationship between Villefort and Mercedes"
@@ -153,18 +172,7 @@ Spawn an autonomous agent to research and resolve a complex question by executin
 
 ---
 
-### 5. Steered Markov Chain Generation
-Generates style-faithful text based on the indexed corpus using a trigram Markov Chain whose transitions are guided by concept tags and vector inversion:
-```bash
-# Standard generation steered with specific tags
-./target/release/lume generate "Dantes" --steer "revenge,castle"
-```
-*   **Tag-Steered Mode**: Biases transitions towards the `--steer` tags using co-occurrence weights from the index's posting lists.
-*   **Vector-Steered Inversion Mode**: Automatically embeds the target seed, inverts it into its closest semantic tags, and runs multiple candidate generation rounds to find the closest cosine-similarity match to the target prompt.
-
----
-
-### 6. Starting the MCP Server
+### 6. Starting the MCP Server (`lume serve` Command)
 Start the Model Context Protocol HTTP server to connect Lume to external AI agents:
 ```bash
 ./target/release/lume serve --port 8080
