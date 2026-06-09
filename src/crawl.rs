@@ -152,121 +152,162 @@ pub fn crawl_url(url: &str) -> Result<(String, String), String> {
         return crawl_hn_via_api(&hn_id);
     }
 
-    // Load nuts.services token
+    let api_url = std::env::var("GRUB_BASE_URL")
+        .unwrap_or_else(|_| "http://localhost:6792".to_string());
+    
     let token = load_nuts_token();
+    let is_local = api_url.contains("localhost") 
+        || api_url.contains("127.0.0.1") 
+        || api_url.contains("host.docker.internal") 
+        || api_url.contains("172.");
 
-    if let Some(tok) = token {
-        let api_url = std::env::var("GRUB_BASE_URL")
-            .unwrap_or_else(|_| "https://grub.nuts.services".to_string());
-        let endpoint = format!("{}/api/markdown", api_url.trim_end_matches('/'));
-
-        let payload = CrawlPayload {
-            url,
-            javascript_enabled: true,
-        };
-
-        // Send HTTP POST request via ureq (set long timeout e.g. 60 seconds since crawling might take time)
-        let agent = ureq::AgentBuilder::new()
-            .timeout(std::time::Duration::from_secs(60))
-            .build();
-
-        let auth_header = format!("Bearer {}", tok);
-
-        let res = agent.post(&endpoint)
-            .set("Content-Type", "application/json")
-            .set("Authorization", &auth_header)
-            .send_json(&payload)
-            .map_err(|e| format!("Connection error: {}", e))?;
-
-        let status = res.status();
-        if status != 200 {
-            let err_body = res.into_string().unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(format!("Crawl failed (Status {}): {}", status, err_body));
-        }
-
-        let response_data: CrawlResponse = res.into_json()
-            .map_err(|e| format!("Failed to parse response JSON: {}", e))?;
-
-        if let Some(err) = response_data.error {
-            return Err(format!("Crawl server error: {}", err));
-        }
-
-        // Extract the markdown content
-        let markdown = response_data.markdown
-            .or(response_data.markdown_plain)
-            .or(response_data.content);
-
-        let content = match markdown {
-            Some(c) => c,
-            None => return Err("Crawl returned empty content.".to_string()),
-        };
-
-        // Save to personal search engine (examples/crawled/)
-        let save_dir = "examples/crawled";
-        if let Err(e) = fs::create_dir_all(save_dir) {
-            return Err(format!("Failed to create directory '{}': {}", save_dir, e));
-        }
-
-        // Create slug
-        let safe_slug = make_safe_slug(url);
-        let filename = format!("{}/{}.md", save_dir, safe_slug);
-        
-        let page_title = response_data.title.unwrap_or_else(|| "Crawled Document".to_string());
-
-        // Prep file content with title and source URL header
-        let file_content = format!(
-            "# {}\n\n*   **Source URL**: {}\n*   **Crawl Timestamp**: {}\n\n---\n\n{}",
-            page_title,
-            url,
-            chrono_timestamp(),
-            content
-        );
-
-        fs::write(&filename, &file_content)
-            .map_err(|e| format!("Failed to write markdown file to '{}': {}", filename, e))?;
-
-        Ok((filename, file_content))
+    if is_local {
+        println!("  ➔ Dispatching stealth crawl agent to local Grub ({api_url})...");
     } else {
-        println!("  ⚠️  NUTS_SERVICES_TOKEN not set. Falling back to direct HTTP GET (no JavaScript evaluation)...");
-        io::stdout().flush().unwrap();
-
-        let agent = ureq::AgentBuilder::new()
-            .timeout(std::time::Duration::from_secs(15))
-            .build();
-
-        let res = agent.get(url)
-            .call()
-            .map_err(|e| format!("Direct fallback connection failed: {}", e))?;
-
-        let status = res.status();
-        if status != 200 {
-            return Err(format!("Direct fallback request failed (Status {}).", status));
-        }
-
-        let content = res.into_string()
-            .map_err(|e| format!("Failed to parse direct response body: {}", e))?;
-
-        // Save raw content as HTML or text
-        let save_dir = "examples/crawled";
-        if let Err(e) = fs::create_dir_all(save_dir) {
-            return Err(format!("Failed to create directory '{}': {}", save_dir, e));
-        }
-
-        let safe_slug = make_safe_slug(url);
-        let filename = format!("{}/{}.html", save_dir, safe_slug);
-
-        let file_content = format!(
-            "<!-- Source URL: {} -->\n<!-- Timestamp: {} -->\n{}",
-            url,
-            chrono_timestamp(),
-            content
-        );
-
-        fs::write(&filename, &file_content)
-            .map_err(|e| format!("Failed to write direct crawl content to '{}': {}", filename, e))?;
-
-        Ok((filename, file_content))
+        println!("  ➔ Dispatching stealth crawl agent to remote Grub ({api_url})...");
     }
+    io::stdout().flush().unwrap();
+
+    if token.is_none() && !is_local {
+        println!("  ⚠️  NUTS_SERVICES_TOKEN not set and remote server detected. Falling back to direct HTTP GET (no JavaScript evaluation)...");
+        io::stdout().flush().unwrap();
+        return crawl_direct_get(url);
+    }
+
+    let endpoint = format!("{}/api/markdown", api_url.trim_end_matches('/'));
+    let payload = CrawlPayload {
+        url,
+        javascript_enabled: true,
+    };
+
+    let agent = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(60))
+        .build();
+
+    let mut req = agent.post(&endpoint)
+        .set("Content-Type", "application/json");
+
+    if let Some(ref tok) = token {
+        req = req.set("Authorization", &format!("Bearer {}", tok));
+    }
+
+    match req.send_json(&payload) {
+        Ok(res) => {
+            let status = res.status();
+            if status != 200 {
+                let err_body = res.into_string().unwrap_or_else(|_| "Unknown error".to_string());
+                return Err(format!("Crawl failed (Status {}): {}", status, err_body));
+            }
+
+            let response_data: CrawlResponse = res.into_json()
+                .map_err(|e| format!("Failed to parse response JSON: {}", e))?;
+
+            if let Some(err) = response_data.error {
+                return Err(format!("Crawl server error: {}", err));
+            }
+
+            let markdown = response_data.markdown
+                .or(response_data.markdown_plain)
+                .or(response_data.content);
+
+            let content = match markdown {
+                Some(c) => c,
+                None => return Err("Crawl returned empty content.".to_string()),
+            };
+
+            let save_dir = "examples/crawled";
+            if let Err(e) = fs::create_dir_all(save_dir) {
+                return Err(format!("Failed to create directory '{}': {}", save_dir, e));
+            }
+
+            let safe_slug = make_safe_slug(url);
+            let filename = format!("{}/{}.md", save_dir, safe_slug);
+            let page_title = response_data.title.unwrap_or_else(|| "Crawled Document".to_string());
+
+            let file_content = format!(
+                "# {}\n\n*   **Source URL**: {}\n*   **Crawl Timestamp**: {}\n\n---\n\n{}",
+                page_title, url, chrono_timestamp(), content
+            );
+
+            fs::write(&filename, &file_content)
+                .map_err(|e| format!("Failed to write markdown file to '{}': {}", filename, e))?;
+
+            Ok((filename, file_content))
+        }
+        Err(e) => {
+            if is_local && api_url.contains("localhost") {
+                println!("  ➔ Localhost connection failed. Retrying crawl via host.docker.internal:6792...");
+                io::stdout().flush().unwrap();
+                let retry_url = "http://host.docker.internal:6792";
+                let retry_endpoint = format!("{}/api/markdown", retry_url);
+                let mut retry_req = agent.post(&retry_endpoint)
+                    .set("Content-Type", "application/json");
+                if let Some(ref tok) = token {
+                    retry_req = retry_req.set("Authorization", &format!("Bearer {}", tok));
+                }
+                if let Ok(res) = retry_req.send_json(&payload) {
+                    if res.status() == 200 {
+                        if let Ok(response_data) = res.into_json::<CrawlResponse>() {
+                            if let Some(content) = response_data.markdown.or(response_data.markdown_plain).or(response_data.content) {
+                                let save_dir = "examples/crawled";
+                                let _ = fs::create_dir_all(save_dir);
+                                let safe_slug = make_safe_slug(url);
+                                let filename = format!("{}/{}.md", save_dir, safe_slug);
+                                let page_title = response_data.title.unwrap_or_else(|| "Crawled Document".to_string());
+                                let file_content = format!(
+                                    "# {}\n\n*   **Source URL**: {}\n*   **Crawl Timestamp**: {}\n\n---\n\n{}",
+                                    page_title, url, chrono_timestamp(), content
+                                );
+                                let _ = fs::write(&filename, &file_content);
+                                return Ok((filename, file_content));
+                            }
+                        }
+                    }
+                }
+            }
+            println!("  ⚠️  Crawler connection failed ({}). Falling back to direct HTTP GET...", e);
+            io::stdout().flush().unwrap();
+            crawl_direct_get(url)
+        }
+    }
+}
+
+fn crawl_direct_get(url: &str) -> Result<(String, String), String> {
+    let agent = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(15))
+        .build();
+
+    let res = agent.get(url)
+        .call()
+        .map_err(|e| format!("Direct fallback connection failed: {}", e))?;
+
+    let status = res.status();
+    if status != 200 {
+        return Err(format!("Direct fallback request failed (Status {}).", status));
+    }
+
+    let content = res.into_string()
+        .map_err(|e| format!("Failed to parse direct response body: {}", e))?;
+
+    let save_dir = "examples/crawled";
+    if let Err(e) = fs::create_dir_all(save_dir) {
+        return Err(format!("Failed to create directory '{}': {}", save_dir, e));
+    }
+
+    let safe_slug = make_safe_slug(url);
+    let filename = format!("{}/{}.html", save_dir, safe_slug);
+
+    let file_content = format!(
+        "<!-- Source URL: {} -->\n<!-- Timestamp: {} -->\n{}",
+        url,
+        chrono_timestamp(),
+        content
+    );
+
+    fs::write(&filename, &file_content)
+        .map_err(|e| format!("Failed to write direct crawl content to '{}': {}", filename, e))?;
+
+    Ok((filename, file_content))
 }
 
 pub fn run(args: Vec<String>) {
@@ -283,7 +324,6 @@ pub fn run(args: Vec<String>) {
     let url = &args[0];
 
     println!("\x1B[1;36m🕷️  Lume Crawler starting for: {}\x1B[0m", url);
-    println!("  ➔ Dispatching stealth crawl agent to grub.nuts.services...");
     io::stdout().flush().unwrap();
 
     let start = std::time::Instant::now();

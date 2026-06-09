@@ -181,6 +181,22 @@ Start the Model Context Protocol HTTP server to connect Lume to external AI agen
 
 ---
 
+### 7. Crawling Web Pages (`lume crawl` Command)
+Crawls a target website to extract its text/markdown representation and saves the file to the local personal search engine directory (`examples/crawled/`):
+```bash
+# Crawl a webpage
+./target/release/lume crawl https://example.com
+
+# Crawl a Hacker News story
+./target/release/lume crawl https://news.ycombinator.com/item?id=8863
+```
+*   **How it works**:
+    *   **Local Crawling (Tokenless)**: If `GRUB_BASE_URL` is set to a local endpoint (such as `http://localhost:6792` or when running locally), Lume connects to the local Grub instance and crawls without requiring any authentication or `NUTS_SERVICES_TOKEN`.
+    *   **Remote Crawling (Authenticated)**: If `GRUB_BASE_URL` points to a remote endpoint (e.g. `grub.nuts.services`), Lume uses the `NUTS_SERVICES_TOKEN` environment variable to authenticate. If the token is missing, it falls back to direct HTTP GET (no JavaScript execution).
+    *   **Hacker News Special Handling**: If a Hacker News story URL is detected, Lume queries the public HN Firebase API to retrieve both the story post and its top-level discussion comments, assembling them into a clean Markdown file.
+
+---
+
 ## 🐍 Python Extractor & Q&A Generator
 
 Located at [lib/lume_extractor.py](file:///workspace/lume/lib/lume_extractor.py), this tool can extract text and generate Q&A evaluation datasets from document chunks:
