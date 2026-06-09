@@ -1,6 +1,46 @@
-# 📖 Lume: Stylistic Synthesis & Retrieval-Augmented Generation Suite
+# Lume: Stylistic Synthesis & Retrieval-Augmented Generation Suite
 
-Lume is a high-performance, FST-backed tagger, hybrid lexical/semantic search engine, and agentic document exploration suite. Written in Rust, it supports hybrid retrieval, semantic knowledge graph walks, autonomous agent loops, and document summarization.
+A high-performance Rust library and CLI suite featuring an FST-backed phrase matcher, hybrid lexical/semantic search engine, and agentic document exploration loop.
+
+<div align="center">
+
+[![Steve Harris](https://img.shields.io/badge/Steve%20Harris-jsclosures-00D2FF?style=for-the-badge&logo=github)](https://github.com/jsclosures)
+[![Kord Campbell](https://img.shields.io/badge/Kord%20Campbell-kordless-9F44FF?style=for-the-badge&logo=github)](https://github.com/kordless)
+
+</div>
+
+---
+
+## 📖 The Backstory: How Lume Connects
+
+Lume is the story of ideas moving from one person to another—a search meme carried through years of crawling systems, open-source heritage, industrial search consulting, and modern AI capability.
+
+### 🐧 The Seed: It Began with Crawling (Grub)
+It all started with web crawling. Back in the early days of distributed search, [Kord Campbell](https://github.com/kordless) created **Grub**—a massively distributed web crawler. After installing Lucene, Kord sent an email to Eric Schmidt (then-CEO of Google), saying: *"Hey, I've got this super fast distributed crawler."* Schmidt replied with a classic search insight: *"That's not the problem. We've got crawling figured out. Indexing is the challenge."*
+
+Decades later, that conversation has come full circle. In the age of AI, **crawling is everything again**. To feed frontier LLMs, you have to crawl to get the content, and you need a crawler that you can control. 
+
+But once you crawl it, where do you put it? 
+
+### 🧠 The Memory Challenge
+You can't crawl the web fresh every single time you need an answer. Web pages are a type of document memory. Unlike bot or conversational memory (like an LLM remembering that a user's parrot is blue), document memory is about capturing the precise text you just saw. Some of these pages never update, while others update every minute. You need a dedicated, extremely fast local document store to hold and index this memory.
+
+That's when the pieces fell into place. Kord was watching LinkedIn and saw [Steve Harris](https://github.com/jsclosures) post about porting his zero-dependency JavaScript FST tagger to Rust (released as [rust-fstguardrails](https://github.com/jsclosures/rust-fstguardrails)). Steve had run [Portaltown](https://www.portaltown.com), a search consultancy, and had worked for **Lucidworks**. His background as a U.S. Marine Corps air traffic controller deeply influenced how he designed systems: a focus on safety, extreme precision, and bare-metal performance. 
+
+Kord saw Steve's post and realized: *"That FST tagger is the first part of our document index."*
+
+### 💡 The "Aha" Moments (Erik Hatcher & Trey Grainger)
+To turn that FST tagger into a complete, lightweight search engine, Kord drew on years of shared search history. During his time consulting at **Lucidworks**, Kord had met OG search veterans [Trey Grainger](https://github.com/treygrainger) and [Erik Hatcher](https://github.com/erikhatcher). 
+
+Trey's work on Solr's **Semantic Knowledge Graph (SKG)** had always stuck with Kord. The concept seemed complex, but Erik Hatcher had delivered the ultimate "aha" moment by putting it simply: 
+> *Facets are just counts of the occurrences of something in a document. The Knowledge Graph is simply looking at those counts across all documents to perform document intersections. It is just counting the counts of things.*
+
+That was the magic of Erik Hatcher—he has always had the unique gift of taking complex technology and showing everyone how it actually works under the hood. (We throw affectionate shade at Trey for making it look complicated, and at Eric for making it look too simple!)
+
+Understanding that primitive meant realizing a high-speed search engine didn't need millions of lines of code. It just needed to do simple things incredibly fast: FSTs for words, roaring bitmaps for set intersections, spell correction for misspellings, and additive hybrid boosting for vector context.
+
+### 🚀 The AI pair-programming
+Working in a continuous human-AI feedback loop, Lume's core and extended capabilities (like its stateful agent loops, MCP servers, and HTML/markdown crawling module) were constructed using state-of-the-art AI coding assistants (like Google's pair-programmer Antigravity). 
 
 ---
 
@@ -13,7 +53,7 @@ This diagram represents the hybrid search pipeline executed by the `lume_search`
 
 ```mermaid
 graph TD
-    subgraph lume_search [Tool: lume_search | CLI: lume search]
+    subgraph lume_search ["Tool: lume_search | CLI: lume search"]
         User([User Prompt / Query]) --> Search[Hybrid Search Engine]
         Search -->|1. BM25 Lexical Search| BM25[(BM25 Index)]
         Search -->|2. Dense Semantic Embeddings| Vector[(Semantic Vector Cache)]
@@ -31,13 +71,13 @@ This diagram shows how keyterms are extracted via `lume_index` and later used to
 
 ```mermaid
 graph TD
-    subgraph Indexing [Tool: lume_index | CLI: lume index]
+    subgraph Indexing ["Tool: lume_index | CLI: lume index"]
         Doc[Raw Documents] --> Parse[Text Chunking]
         Parse -->|If -o flag enabled| EntExt[LLM Keyterm & Entity Extraction]
         EntExt -->|Build Entity Edges| SKG[(entity_graph.json)]
     end
 
-    subgraph Summarization [CLI: lume summarize]
+    subgraph Summarization ["CLI: lume summarize"]
         SKG -->|Extract Top 12 Keyterms by Freq| Prior[Keyterm Priority Prior]
         Prior -->|Inject as prompt guide| Planner[LLM Search Planner]
         Planner -->|Generate Guided Queries| Queries[Search Queries]
@@ -56,9 +96,9 @@ graph TD
     Agent --> LLM{Ollama / Cloud LLM}
     
     LLM -->|Wants to call a tool| Tool[Tool Dispatcher]
-    Tool -->|query| SearchTool[Tool: lume_search | CLI: lume search]
-    Tool -->|dir, db| IndexTool[Tool: lume_index | CLI: lume index]
-    Tool -->|seed, steer| GenTool[Tool: lume_generate | CLI: lume generate]
+    Tool -->|query| SearchTool["Tool: lume_search | CLI: lume search"]
+    Tool -->|dir, db| IndexTool["Tool: lume_index | CLI: lume index"]
+    Tool -->|seed, steer| GenTool["Tool: lume_generate | CLI: lume generate"]
     
     SearchTool --> Result[Capture CLI Output]
     IndexTool --> Result
