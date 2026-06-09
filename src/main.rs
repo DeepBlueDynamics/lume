@@ -106,6 +106,9 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        "crawl" => {
+            lume::crawl::run(args[2..].to_vec());
+        }
         "serve" | "--serve" => {
             let mut port = 8000u16;
             if let Some(pos) = args.iter().position(|a| a == "--port" || a == "-p") {
@@ -195,6 +198,7 @@ SUBCOMMANDS:
   serve      Start the MCP server over HTTP transport (alias: --serve)
   agent      Run an autonomous agent loop to answer a question (alias: chat)
   summarize  Agentic document summarizer via planning, search exploration, and synthesis
+  crawl      Stealth crawl webpage content and save to personal search collection
 "#);
 }
 

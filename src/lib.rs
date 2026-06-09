@@ -30,6 +30,7 @@ pub mod spelling;
 pub mod inversion;
 pub mod hybrid;
 pub mod agent;
+pub mod crawl;
 // pub mod cli;
 
 /// Token separator used inside FST keys. Matches Lucene's

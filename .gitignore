@@ -2,10 +2,13 @@
 .lume-index/
 .lume-index.bak/
 .lume-code-index/
+.lume-crawled-index/
 .lume-semantic-cache.json
 .lume-session-cache.json
 .nemesis8.toml
+crawl_cache/
 
 # Build and archive directories
 target/
 archive/
+examples/crawled/
