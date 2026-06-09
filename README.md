@@ -6,6 +6,9 @@ Lume is a high-performance, FST-backed tagger, hybrid lexical/semantic search en
 
 ## 📐 Architecture & Core Components
 
+### 1. Hybrid Search Architecture
+This diagram represents the static hybrid search compilation and LLM synthesis pipeline:
+
 ```mermaid
 graph TD
     User([User Prompt / Query]) --> Search[Hybrid Search Engine]
@@ -17,6 +20,29 @@ graph TD
     Graph --> Hits
     Hits --> Synthesis[Ollama/Cloud LLM Synthesis]
     Synthesis --> Output([Coherent, Style-Faithful Response])
+```
+
+### 2. Autonomous Agent Loop Architecture
+This diagram represents the stateful tool-calling loop (`lume agent`) where the LLM plans and executes commands iteratively:
+
+```mermaid
+graph TD
+    User([User Question]) --> Agent[Agent Chat Loop]
+    Agent --> LLM{Ollama / Cloud LLM}
+    
+    LLM -->|Wants to call a tool| Tool[Tool Dispatcher]
+    Tool -->|query| SearchTool[lume_search tool]
+    Tool -->|dir, db| IndexTool[lume_index tool]
+    Tool -->|seed, steer| GenTool[lume_generate tool]
+    
+    SearchTool --> Result[Capture CLI Output]
+    IndexTool --> Result
+    GenTool --> Result
+    
+    Result -->|Feed output back into history| Agent
+    
+    LLM -->|Decides it has the answer| Answer[Return Final Response]
+    Answer --> Output([Coherent, Fact-Verified Answer])
 ```
 
 The system is organized into the following core Rust and Python modules:
