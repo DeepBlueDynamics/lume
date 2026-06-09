@@ -923,3 +923,257 @@ fn is_negative_response(content: &str) -> bool {
         || lower.contains("do not find")
 }
 
+pub fn summarize_document(
+    db_dir: &str,
+    ollama_url: &str,
+    ollama_model: &str,
+    target_file: Option<&str>,
+    num_queries: usize,
+    hits_per_query: usize,
+    verbose: bool,
+) -> Result<(), String> {
+    let state_path = std::path::Path::new(db_dir).join("state.json");
+    if !state_path.exists() {
+        return Err(format!("Lume index state file not found at {}. Index a directory first.", state_path.display()));
+    }
+    let file_content = std::fs::read_to_string(&state_path)
+        .map_err(|e| format!("Failed to read state.json: {}", e))?;
+    let state: serde_json::Value = serde_json::from_str(&file_content)
+        .map_err(|e| format!("Failed to parse state.json: {}", e))?;
+
+    let cached_files = state.get("cached_files")
+        .and_then(|v| v.as_object())
+        .ok_or("No cached files found in state.json")?;
+
+    let selected_file = match target_file {
+        Some(f) => {
+            if !cached_files.contains_key(f) {
+                return Err(format!("File '{}' not found in Lume index cached files.", f));
+            }
+            f.to_string()
+        }
+        None => {
+            let mut best_file = String::new();
+            let mut max_sections = 0;
+            for (fname, val) in cached_files {
+                if let Some(arr) = val.as_array() {
+                    if arr.len() >= 2 {
+                        if let Some(sections) = arr[1].as_array() {
+                            if sections.len() > max_sections {
+                                max_sections = sections.len();
+                                best_file = fname.clone();
+                            }
+                        }
+                    }
+                }
+            }
+            if best_file.is_empty() {
+                cached_files.keys().next().ok_or("No cached files in index")?.clone()
+            } else {
+                best_file
+            }
+        }
+    };
+
+    println!("[🧠] Target Document: {}", selected_file);
+    let semantic_enabled = state.get("semantic_enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+
+    let resolved_url = if ollama_url.is_empty() || ollama_url == "http://localhost:11434" {
+        let endpoints = ["http://host.docker.internal:11434", "http://localhost:11434", "http://172.17.0.1:11434"];
+        let mut found = "http://localhost:11434".to_string();
+        for ep in &endpoints {
+            if let Ok(res) = ureq::get(&format!("{}/api/tags", ep)).timeout(std::time::Duration::from_secs(2)).call() {
+                if res.status() == 200 {
+                    found = ep.to_string();
+                    break;
+                }
+            }
+        }
+        found
+    } else {
+        ollama_url.to_string()
+    };
+
+    println!("[🧠] Ollama Endpoint: {}", resolved_url);
+    println!("[🧠] Ollama Model: {}", ollama_model);
+
+    // 1. Generate Search Plan
+    println!("[🧠] Planning search queries to explore the document...");
+    let filename = std::path::Path::new(&selected_file)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(&selected_file);
+
+    let prompt = format!(
+        "You are an agentic search planner. Your task is to generate exactly {} distinct search queries to discover the structure, main themes, key arguments, and conclusions of the document named '{}'.\n\n\
+        Rules:\n\
+        1. Each query should focus on a different aspect of the document (e.g., table of contents/preface, core thesis/introduction, main theoretical chapters, final summary/conclusions).\n\
+        2. The queries should be designed to return the most informative passage hits when run against a search engine.\n\
+        3. The response MUST be a valid JSON array of strings:\n\
+        [\n\
+          \"query 1\",\n\
+          \"query 2\",\n\
+          ...\n\
+        ]\n\
+        Do not return any conversational text, only the JSON array.",
+        num_queries, filename
+    );
+
+    let payload = serde_json::json!({
+        "model": ollama_model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a search query planner outputting strictly structured JSON. You must return only a JSON array of strings."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "format": "json",
+        "stream": false,
+        "options": {
+            "temperature": 0.2,
+            "num_ctx": 4096
+        }
+    });
+
+    let url = format!("{}/api/chat", resolved_url.trim_end_matches('/'));
+    let response = ureq::post(&url)
+        .set("Content-Type", "application/json")
+        .timeout(std::time::Duration::from_secs(60))
+        .send_json(&payload)
+        .map_err(|e| format!("Failed to call Ollama planner: {}", e))?;
+
+    let res_val: serde_json::Value = response.into_json()
+        .map_err(|e| format!("Failed to parse planner JSON response: {}", e))?;
+    let content = res_val["message"]["content"].as_str().ok_or("No message content in planner response")?.trim();
+
+    let clean_content = extract_json_block(content);
+    let queries: Vec<String> = serde_json::from_str(&clean_content)
+        .map_err(|e| format!("Failed to parse query plan JSON: {}. Raw content was:\n{}", e, content))?;
+
+    for (idx, q) in queries.iter().enumerate() {
+        println!("  Query {}: \"{}\"", idx + 1, q);
+    }
+
+    // 2. Execute searches and gather unique contexts
+    println!("\n[🔍] Executing searches against the Lume index...");
+    let mut unique_snippets = std::collections::HashSet::new();
+
+    for q in &queries {
+        let mut cli_args = vec![
+            "search".to_string(),
+            "--db".to_string(),
+            db_dir.to_string(),
+            "-l".to_string(),
+            hits_per_query.to_string(),
+        ];
+        if semantic_enabled {
+            cli_args.push("-a".to_string());
+            cli_args.push("0.5".to_string());
+        }
+        cli_args.push(q.clone());
+
+        let output = run_lume_cli(cli_args)?;
+        
+        let mut current_snippet = Vec::new();
+        let mut collecting = false;
+        for line in output.lines() {
+            if line.starts_with('[') && line.contains("Score:") {
+                if collecting && !current_snippet.is_empty() {
+                    unique_snippets.insert(current_snippet.join("\n").trim().to_string());
+                    current_snippet.clear();
+                }
+                collecting = true;
+            } else if collecting {
+                current_snippet.push(line);
+            }
+        }
+        if collecting && !current_snippet.is_empty() {
+            unique_snippets.insert(current_snippet.join("\n").trim().to_string());
+        }
+        
+        if verbose {
+            println!("  Ran query: \"{}\" (Retrieved snippets)", q);
+        }
+    }
+
+    println!("\n[📊] Gathered {} unique passage snippets.", unique_snippets.len());
+
+    // 3. Synthesize summary
+    println!("[🧠] Synthesizing comprehensive summary...");
+    let context_text = unique_snippets.into_iter().collect::<Vec<String>>().join("\n\n---\n\n");
+
+    let synth_prompt = format!(
+        "You are a senior document analyst. Below is a collection of retrieved text passages from the document '{}'.\n\
+        Use these passages to synthesize a comprehensive, high-quality, structured summary of the entire document.\n\n\
+        Retrieved Passages:\n\
+        \"\"\"\n\
+        {}\n\
+        \"\"\"\n\n\
+        Your summary should include:\n\
+        1. **Document Overview**: A high-level description of what the document is about.\n\
+        2. **Key Themes and Arguments**: Detailed bullet points explaining the core concepts, theories, or topics discussed.\n\
+        3. **Structure & Organization**: An outline of how the document is structured (if a table of contents or chapter names were retrieved).\n\
+        4. **Conclusions**: The main takeaways or final thoughts of the document.\n\n\
+        Write a professional, detailed, and cohesive summary. Do not refer to the fact that you read 'snippets' or 'passages'; write the summary as if you have read the complete document.",
+        filename, context_text
+    );
+
+    let payload = serde_json::json!({
+        "model": ollama_model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a professional summarization assistant. You must write a cohesive, comprehensive summary based only on the provided context."
+            },
+            {
+                "role": "user",
+                "content": synth_prompt
+            }
+        ],
+        "stream": false,
+        "options": {
+            "temperature": 0.3,
+            "num_ctx": 16384
+        }
+    });
+
+    let response = ureq::post(&url)
+        .set("Content-Type", "application/json")
+        .timeout(std::time::Duration::from_secs(240))
+        .send_json(&payload)
+        .map_err(|e| format!("Failed to call Ollama synthesizer: {}", e))?;
+
+    let res_val: serde_json::Value = response.into_json()
+        .map_err(|e| format!("Failed to parse synthesizer JSON response: {}", e))?;
+    let summary = res_val["message"]["content"].as_str().ok_or("No message content in synthesizer response")?.trim();
+
+    println!("\n# Executive Summary: {}\n", filename);
+    println!("{}", summary);
+
+    Ok(())
+}
+
+fn extract_json_block(text: &str) -> String {
+    let text = text.trim();
+    let first_bracket = text.find('[');
+    let last_bracket = text.rfind(']');
+    if let (Some(fb), Some(lb)) = (first_bracket, last_bracket) {
+        if lb > fb {
+            return text[fb..=lb].to_string();
+        }
+    }
+    let first_brace = text.find('{');
+    let last_brace = text.rfind('}');
+    if let (Some(fb), Some(lb)) = (first_brace, last_brace) {
+        if lb > fb {
+            return text[fb..=lb].to_string();
+        }
+    }
+    text.to_string()
+}
+
+

@@ -100,6 +100,12 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        "summarize" => {
+            if let Err(e) = handle_summarize(&args[2..]) {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
         "serve" | "--serve" => {
             let mut port = 8000u16;
             if let Some(pos) = args.iter().position(|a| a == "--port" || a == "-p") {
@@ -188,6 +194,7 @@ SUBCOMMANDS:
   generate   Generate style-faithful text from the indexed corpus
   serve      Start the MCP server over HTTP transport (alias: --serve)
   agent      Run an autonomous agent loop to answer a question (alias: chat)
+  summarize  Agentic document summarizer via planning, search exploration, and synthesis
 "#);
 }
 
@@ -1372,4 +1379,79 @@ fn run_inversion_steered_generate(
     println!("{}", best_text);
     println!("----------------------\n");
     Ok(())
+}
+
+fn handle_summarize(args: &[String]) -> Result<(), String> {
+    if args.iter().any(|a| a == "-h" || a == "--help") {
+        print_summarize_help();
+        return Ok(());
+    }
+
+    let mut db_dir = String::from(".lume-index");
+    let mut ollama_url = String::from("http://localhost:11434");
+    let mut ollama_model = String::from("gemma4:31b-cloud");
+    let mut queries = 4usize;
+    let mut hits_per_query = 8usize;
+    let mut verbose = false;
+    let mut target_file: Option<String> = None;
+
+    let mut idx = 0;
+    while idx < args.len() {
+        let arg = &args[idx];
+        if arg == "--db" && idx + 1 < args.len() {
+            db_dir = args[idx + 1].clone();
+            idx += 2;
+        } else if arg == "--ollama-url" && idx + 1 < args.len() {
+            ollama_url = args[idx + 1].clone();
+            idx += 2;
+        } else if arg == "--ollama-model" && idx + 1 < args.len() {
+            ollama_model = args[idx + 1].clone();
+            idx += 2;
+        } else if arg == "--queries" && idx + 1 < args.len() {
+            queries = args[idx + 1].parse::<usize>().map_err(|_| format!("Invalid queries count: {}", args[idx + 1]))?;
+            idx += 2;
+        } else if arg == "--hits-per-query" && idx + 1 < args.len() {
+            hits_per_query = args[idx + 1].parse::<usize>().map_err(|_| format!("Invalid hits per query: {}", args[idx + 1]))?;
+            idx += 2;
+        } else if arg == "-v" || arg == "-V" || arg == "--verbose" {
+            verbose = true;
+            idx += 1;
+        } else if arg.starts_with('-') {
+            return Err(format!("Unknown option: {}", arg));
+        } else {
+            if target_file.is_some() {
+                return Err(format!("Too many files specified: {}", arg));
+            }
+            target_file = Some(arg.clone());
+            idx += 1;
+        }
+    }
+
+    lume::agent::summarize_document(
+        &db_dir,
+        &ollama_url,
+        &ollama_model,
+        target_file.as_deref(),
+        queries,
+        hits_per_query,
+        verbose,
+    )
+}
+
+fn print_summarize_help() {
+    println!(r#"Lume Agentic Document Summarizer
+
+USAGE:
+  lume summarize [OPTIONS] [FILE]
+
+OPTIONS:
+  --db <DIR>                Path to the persisted index metadata [default: .lume-index]
+  --ollama-url <URL>        Ollama API URL [default: http://localhost:11434]
+  --ollama-model <MODEL>    Ollama model name [default: gemma4:31b-cloud]
+  --queries <NUM>           Number of distinct search queries to plan [default: 4]
+  --hits-per-query <NUM>    Number of snippets to retrieve per query [default: 8]
+  -v, --verbose             Print verbose execution traces
+
+If FILE is omitted, Lume will summarize the largest file in the index database.
+"#);
 }
