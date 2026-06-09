@@ -191,3 +191,34 @@ python lib/lume_extractor.py pdf my_doc.pdf
 # Generate a Q&A evaluation benchmark using Ollama
 python lib/lume_extractor.py qna my_doc.txt output_qna.json --model gemma4:31b-cloud
 ```
+
+---
+
+## 💻 Codebase Indexing & Search Demo
+
+Lume can index and search programming code repositories (like Lume's own Rust source files).
+
+### 1. Indexing the Codebase
+Index the `src/` directory containing Lume's Rust modules into a separate index database folder:
+```bash
+./target/release/lume index --db .lume-code-index src
+```
+
+### 2. Searching the Codebase for a Symbol
+Query the code index for the `run_agent_loop` function to find raw code definitions:
+```bash
+./target/release/lume search --db .lume-code-index "run_agent_loop"
+```
+
+### Example Raw Output
+```text
+[1] Score: 8.4109 | Lines 700-725 (File: src/agent.rs, Line: 703)
+pub fn run_agent_loop(
+    question: &str,
+    ollama_url: &str,
+    ollama_model: &str,
+    db_dir: &str,
+    verbose: bool,
+) -> Result<(), String> {
+    let url = format!("{}/api/chat", ollama_url.trim_end_matches('/'));
+```
