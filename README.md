@@ -298,7 +298,7 @@ Understanding that primitive meant realizing a high-speed search engine didn't n
 This design philosophy directly tackles the [AI Slop Effort Problem](https://deepbluedynamics.com/blog/ai-slop-effort-problem)—the realization that as AI makes low-effort text generation trivial, high-performance, deterministic search primitives are critical to anchor agents to actual facts. This hybrid approach aligns with the pioneering search relevance ideas championed by [Doug Turnbull](https://softwaredoug.com/), demonstrating that combining precise keyword matching, semantic embeddings, and structural graphs yields a far more reliable context than simple vector retrieval.
 
 ### 🚀 The AI pair-programming
-Working in a continuous human-AI feedback loop, Lume's core and extended capabilities (like its stateful agent loops, MCP servers, and HTML/markdown crawling module) were constructed using state-of-the-art AI coding assistants (like Google's pair-programmer Antigravity). 
+Working in a continuous human-AI feedback loop, Lume's core and extended capabilities (like its stateful agent loops, MCP servers, and HTML/markdown crawling module) were constructed using state-of-the-art AI coding assistants (like Google's pair-programmer Antigravity). This collaborative process exemplifies the [AI Slop Effort Problem](https://deepbluedynamics.com/blog/ai-slop-effort-problem): AI-generated code is not bad by default if it is carefully annealed, iterated, and fact-checked; what is sloppy is the quick, dismissive use of the term "slop" by software engineers who have yet to throw themselves into the deep end of human-AI pair programming. 
 
 ---
 
