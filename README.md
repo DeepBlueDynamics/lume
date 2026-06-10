@@ -285,7 +285,7 @@ That's when the pieces fell into place. Kord was watching LinkedIn and saw [Stev
 
 Kord saw Steve's post and realized: *"That FST tagger is the first part of our document index."*
 
-### 💡 The "Aha" Moments (Erik Hatcher & Trey Grainger)
+### 💡 Credit for the "Aha" Moments
 To turn that FST tagger into a complete, lightweight search engine, Kord drew on years of shared search history. During his time consulting at **Lucidworks**, Kord had met OG search veterans [Trey Grainger](https://github.com/treygrainger) and [Erik Hatcher](https://github.com/erikhatcher). 
 
 Trey's work on Solr's **Semantic Knowledge Graph (SKG)** had always stuck with Kord. The concept seemed complex, but Erik Hatcher had delivered the ultimate "aha" moment by putting it simply: 
