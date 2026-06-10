@@ -272,7 +272,7 @@ pub fn run_agent_loop(
 Lume is the story of ideas moving from one person to another—a search meme carried through years of crawling systems, open-source heritage, industrial search consulting, and modern AI capability.
 
 ### 🐧 The Seed: It Began with Crawling (Grub)
-It all started with web crawling. Back in the early days of distributed search, [Kord Campbell](https://github.com/kordless) created **Grub**—a massively distributed web crawler. After installing Lucene, Kord sent an email to Eric Schmidt (then-CEO of Google), saying: *"Hey, I've got this super fast distributed crawler."* Schmidt replied with a classic search insight: *"That's not the problem. We've got crawling figured out. Indexing is the challenge."*
+It all started with web crawling. Back in the early days of distributed search, [Kord Campbell](https://github.com/kordless) created **Grub**—a massively distributed web crawler. After installing Lucene and thinking about how to search all that data, Kord sent an email to Eric Schmidt (then-CEO of Google), saying: *"Hey, I've got this super fast distributed crawler."* Schmidt replied with a classic search insight: *"That's not the problem. We've got crawling figured out. Indexing is the challenge."*
 
 Decades later, that conversation has come full circle. In the age of AI, **crawling is everything again**. To feed frontier LLMs, you have to crawl to get the content, and you need a crawler that you can control. 
 
