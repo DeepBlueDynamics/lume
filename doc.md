@@ -84,6 +84,36 @@ To produce a clean final answer, the raw output from the overfit model is sent t
 
 ---
 
+## 🕷️ Web Crawling & Personal Document Collection
+
+Lume features an integrated crawler (`lume crawl`) designed to expand the local document store dynamically:
+*   **Stealth Web Scraper**: Submits target URLs to the Grub crawl agent, which evaluates JavaScript-heavy pages and extracts a clean text/markdown representation.
+*   **Tokenless Local Operations**: To support fully local development without external dependencies, Lume automatically detects local Grub endpoints (e.g. `http://localhost:6792`) and executes crawler calls without requiring a `NUTS_SERVICES_TOKEN`.
+*   **Remote/Direct Fallbacks**: For remote Grub servers, Lume uses the `NUTS_SERVICES_TOKEN` to authenticate. If the token is missing, it falls back to a direct HTTP GET parser.
+*   **Hacker News Integration**: Story item URLs are intercepted and fetched using the public Hacker News Firebase API to retrieve both the story description and top-level comment threads.
+
+---
+
+## 🗄️ Database & Multi-Collection Architecture
+
+Lume leverages directory-based isolation to implement isolated search "collections":
+*   **Collection Isolation**: To separate different datasets (e.g., crawled documents, book libraries, or codebase repositories), you index them into independent directories using the `--db <PATH>` option. Each directory houses its own isolated search metadata:
+    *   `state.json`: tracks indexed files, modification times, and settings.
+    *   `bm25.json`: stores the lexical BM25 term frequencies.
+    *   `spelling.json`: vocabulary spelling corrector index.
+    *   `entity_graph.json`: central entity co-occurrence edges.
+*   **Flat Unified Indexing**: Within a single database directory, all text, markdown, and PDF pages are indexed into a unified BM25 index and semantic vector cache. Document chunks retain their source file origins in their metadata, allowing search results to display exact matching file references.
+
+---
+
+## 🤖 Stateful Agent Loop & Structured Recovery
+
+For complex queries, Lume spawns an autonomous research agent (`lume agent`) that iteratively executes indexing and search tools:
+*   **Ollama Tool Calling**: The agent plans and runs search queries using `lume_search` and `lume_index` to gather facts.
+*   **Structured Failure Recovery (`lume_not_found`)**: If the agent's initial searches fail to return the desired information, it calls the `lume_not_found` tool. The system then intercepts the call and injects recovery advice (such as query keyword refinement, spelling corrections, or broader query variations), guiding the agent to try alternative approaches and preventing false or premature answers.
+
+---
+
 ## 📊 Final Training Results
 
 The local Transformer model trained on the augmented Monte Cristo dataset achieved the following metrics:
