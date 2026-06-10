@@ -113,12 +113,12 @@ graph TD
 
 The system is organized into the following core Rust and Python modules:
 
-*   **FST-Backed Phrase Tagger**: Performs longest-dominant-right matching using Lucene-style separator bytes. Built on [Tagger](file:///workspace/lume/src/lib.rs#L111) and [Entry](file:///workspace/lume/src/lib.rs#L43) in [src/lib.rs](file:///workspace/lume/src/lib.rs).
-*   **Hybrid Search Engine**: Integrates BM25 lexical retrieval ([Bm25Index](file:///workspace/lume/src/bm25.rs)), spelling correction ([SpellIndex](file:///workspace/lume/src/spelling.rs)), and dense embeddings ([src/hybrid.rs](file:///workspace/lume/src/hybrid.rs)) with graph-steered query expansion ([src/graph_search.rs](file:///workspace/lume/src/graph_search.rs)) to boost matches based on Semantic Knowledge Graph connections.
-*   **Steered Markov Chain Synthesizer**: Under the hood, Lume uses a trigram [MarkovChain](file:///workspace/lume/src/semantic_mesh.rs#L129) to generate text. However, it goes beyond random walks by steering/biasing trigram transitions using FST tags, local attention feedback, and GTR-T5 semantic vector inversion ([src/inversion.rs](file:///workspace/lume/src/inversion.rs)).
-*   **Agent & Summarization Engine**: Runs autonomous query planning, search exploration, and structured synthesis. Main entry points are [run_agent_loop](file:///workspace/lume/src/agent.rs#L703) and [summarize_document](file:///workspace/lume/src/agent.rs#L926) in [src/agent.rs](file:///workspace/lume/src/agent.rs). Supports failure recovery via [lume_not_found](file:///workspace/lume/src/agent.rs#L791).
-*   **Model Context Protocol (MCP)**: Implements an MCP server over HTTP transport in [serve](file:///workspace/lume/src/agent.rs#L651) to expose indexing and search tools directly to AI agents.
-*   **Python Document Extractor**: A high-efficiency parser ([lib/lume_extractor.py](file:///workspace/lume/lib/lume_extractor.py)) that handles PDF page text extraction and generates Q&A benchmark datasets using concurrent Ollama threads.
+*   **FST-Backed Phrase Tagger**: Performs longest-dominant-right matching using Lucene-style separator bytes. Built on [Tagger](src/lib.rs#L112) and [Entry](src/lib.rs#L45) in [src/lib.rs](src/lib.rs).
+*   **Hybrid Search Engine**: Integrates BM25 lexical retrieval ([Bm25Index](src/bm25.rs)), spelling correction ([SpellIndex](src/spelling.rs)), and dense embeddings ([src/hybrid.rs](src/hybrid.rs)) with graph-steered query expansion ([src/graph_search.rs](src/graph_search.rs)) to boost matches based on Semantic Knowledge Graph connections.
+*   **Steered Markov Chain Synthesizer**: Under the hood, Lume uses a trigram [MarkovChain](src/semantic_mesh.rs#L129) to generate text. However, it goes beyond random walks by steering/biasing trigram transitions using FST tags, local attention feedback, and GTR-T5 semantic vector inversion ([src/inversion.rs](src/inversion.rs)).
+*   **Agent & Summarization Engine**: Runs autonomous query planning, search exploration, and structured synthesis. Main entry points are [run_agent_loop](src/agent.rs#L731) and [summarize_document](src/agent.rs#L938) in [src/agent.rs](src/agent.rs). Supports failure recovery via [lume_not_found](src/agent.rs#L828).
+*   **Model Context Protocol (MCP)**: Implements an MCP server over HTTP transport in [serve](src/agent.rs#L679) to expose indexing and search tools directly to AI agents.
+*   **Python Document Extractor**: A high-efficiency parser ([lib/lume_extractor.py](lib/lume_extractor.py)) that handles PDF page text extraction and generates Q&A benchmark datasets using concurrent Ollama threads.
 
 ---
 
@@ -126,7 +126,7 @@ The system is organized into the following core Rust and Python modules:
 
 Each tool exposed to the agent maps to a CLI subcommand. A user can run these directly to see raw search hits, index logs, or Markov generated texts.
 
-### <a name="cli-index"></a>1. `lume_index` Tool $\rightarrow$ `lume index` CLI Command
+### <a name="cli-index"></a>1. `lume_index` Tool → `lume index` CLI Command
 Indexes a directory containing text, markdown, or PDF files.
 ```bash
 # Basic lexical indexing
@@ -146,7 +146,7 @@ Indexes a directory containing text, markdown, or PDF files.
 
 ---
 
-### <a name="cli-search"></a>2. `lume_search` Tool $\rightarrow$ `lume search` CLI Command
+### <a name="cli-search"></a>2. `lume_search` Tool → `lume search` CLI Command
 Queries the persisted index using lexical (BM25) or hybrid search:
 ```bash
 # Basic BM25 search
@@ -163,7 +163,7 @@ Queries the persisted index using lexical (BM25) or hybrid search:
 
 ---
 
-### <a name="cli-generate"></a>3. `lume_generate` Tool $\rightarrow$ `lume generate` CLI Command
+### <a name="cli-generate"></a>3. `lume_generate` Tool → `lume generate` CLI Command
 Synthesizes style-faithful text based on the indexed corpus using a trigram Markov Chain:
 ```bash
 # Generate styled text starting with Dantes and guided by concept keywords
@@ -224,7 +224,7 @@ Crawls a target website to extract its text/markdown representation and saves th
 
 ## <a name="python-extractor"></a>🐍 Python Extractor & Q&A Generator
 
-Located at [lib/lume_extractor.py](file:///workspace/lume/lib/lume_extractor.py), this tool can extract text and generate Q&A evaluation datasets from document chunks:
+Located at [lib/lume_extractor.py](lib/lume_extractor.py), this tool can extract text and generate Q&A evaluation datasets from document chunks:
 
 ```bash
 # Extract text from a PDF
@@ -291,7 +291,7 @@ To turn that FST tagger into a complete, lightweight search engine, Kord drew on
 Trey's work on Solr's **Semantic Knowledge Graph (SKG)** had always stuck with Kord. The concept seemed complex, but Erik Hatcher had delivered the ultimate "aha" moment by putting it simply: 
 > *Facets are just counts of the occurrences of something in a document. The Knowledge Graph is simply looking at those counts across all documents to perform document intersections. It is just counting the counts of things.*
 
-That was the magic of Erik Hatcher—he has always had the unique gift of taking complex technology and showing everyone how it actually works under the hood. (We throw affectionate shade at Trey for making it look complicated, and at Eric for making it look too simple!)
+That was the magic of Erik Hatcher—he has always had the unique gift of taking complex technology and showing everyone how it actually works under the hood. (We throw affectionate shade at Trey for making it look complicated, and at Erik for making it look too simple!)
 
 Understanding that primitive meant realizing a high-speed search engine didn't need millions of lines of code. It just needed to do simple things incredibly fast: FSTs for words, roaring bitmaps for set intersections, spell correction for misspellings, and additive hybrid boosting for vector context.
 
