@@ -11,7 +11,25 @@ A high-performance Rust library and CLI suite featuring an FST-backed phrase mat
 
 ---
 
-## 🚀 Installation & Quick Start
+## 🗺️ Table of Contents
+*   [🚀 Installation & Quick Start](#installation)
+*   [📐 Architecture & Core Components](#architecture)
+*   [🛠️ CLI Subcommands & Tool Reference](#cli-reference)
+    *   [1. Indexing (`lume index`)](#cli-index)
+    *   [2. Searching (`lume search`)](#cli-search)
+    *   [3. Generation (`lume generate`)](#cli-generate)
+    *   [4. Graph-Guided Summarization (`lume summarize`)](#cli-summarize)
+    *   [5. Autonomous Agent Chat Loop (`lume agent`)](#cli-agent)
+    *   [6. Starting the MCP Server (`lume serve`)](#cli-serve)
+    *   [7. Crawling Web Pages (`lume crawl`)](#cli-crawl)
+*   [🐍 Python Extractor & Q&A Generator](#python-extractor)
+*   [💻 Codebase Indexing & Search Demo](#codebase-demo)
+*   [📖 The Backstory: How Lume Connects](#backstory)
+*   [💡 Acknowledgements & Inspiration](#acknowledgements)
+
+---
+
+## <a name="installation"></a>🚀 Installation & Quick Start
 
 ### Prerequisites
 *   [Rust & Cargo](https://rustup.rs/) (v1.75+ recommended)
@@ -27,7 +45,7 @@ The compiled binary will be located at `target/release/lume`.
 
 ---
 
-## 📐 Architecture & Core Components
+## <a name="architecture"></a>📐 Architecture & Core Components
 
 All capabilities of Lume are exposed to the autonomous agent as JSON RPC tools and map directly to CLI commands that a user can run manually to see the raw results.
 
@@ -104,11 +122,11 @@ The system is organized into the following core Rust and Python modules:
 
 ---
 
-## 🛠️ CLI Subcommands & Tool Execution Reference
+## <a name="cli-reference"></a>🛠️ CLI Subcommands & Tool Execution Reference
 
 Each tool exposed to the agent maps to a CLI subcommand. A user can run these directly to see raw search hits, index logs, or Markov generated texts.
 
-### 1. `lume_index` Tool $\rightarrow$ `lume index` CLI Command
+### <a name="cli-index"></a>1. `lume_index` Tool $\rightarrow$ `lume index` CLI Command
 Indexes a directory containing text, markdown, or PDF files.
 ```bash
 # Basic lexical indexing
@@ -128,7 +146,7 @@ Indexes a directory containing text, markdown, or PDF files.
 
 ---
 
-### 2. `lume_search` Tool $\rightarrow$ `lume search` CLI Command
+### <a name="cli-search"></a>2. `lume_search` Tool $\rightarrow$ `lume search` CLI Command
 Queries the persisted index using lexical (BM25) or hybrid search:
 ```bash
 # Basic BM25 search
@@ -145,7 +163,7 @@ Queries the persisted index using lexical (BM25) or hybrid search:
 
 ---
 
-### 3. `lume_generate` Tool $\rightarrow$ `lume generate` CLI Command
+### <a name="cli-generate"></a>3. `lume_generate` Tool $\rightarrow$ `lume generate` CLI Command
 Synthesizes style-faithful text based on the indexed corpus using a trigram Markov Chain:
 ```bash
 # Generate styled text starting with Dantes and guided by concept keywords
@@ -158,7 +176,7 @@ Synthesizes style-faithful text based on the indexed corpus using a trigram Mark
 
 ---
 
-### 4. Graph-Guided Summarization (`lume summarize` Command)
+### <a name="cli-summarize"></a>4. Graph-Guided Summarization (`lume summarize` Command)
 Summarize an entire document using an agentic planning-and-retrieval loop guided by the highest-ranking nodes in the Semantic Knowledge Graph:
 ```bash
 ./target/release/lume summarize docs/my_documents/book.pdf
@@ -171,7 +189,7 @@ Summarize an entire document using an agentic planning-and-retrieval loop guided
 
 ---
 
-### 5. Autonomous Agent Chat Loop (`lume agent` Command)
+### <a name="cli-agent"></a>5. Autonomous Agent Chat Loop (`lume agent` Command)
 Spawn an autonomous agent to research and resolve a complex question by executing indexing and search tools iteratively:
 ```bash
 ./target/release/lume agent "Explain the relationship between Villefort and Mercedes"
@@ -180,7 +198,7 @@ Spawn an autonomous agent to research and resolve a complex question by executin
 
 ---
 
-### 6. Starting the MCP Server (`lume serve` Command)
+### <a name="cli-serve"></a>6. Starting the MCP Server (`lume serve` Command)
 Start the Model Context Protocol HTTP server to connect Lume to external AI agents:
 ```bash
 ./target/release/lume serve --port 8080
@@ -188,7 +206,7 @@ Start the Model Context Protocol HTTP server to connect Lume to external AI agen
 
 ---
 
-### 7. Crawling Web Pages (`lume crawl` Command)
+### <a name="cli-crawl"></a>7. Crawling Web Pages (`lume crawl` Command)
 Crawls a target website to extract its text/markdown representation and saves the file to the local personal search engine directory (`examples/crawled/`):
 ```bash
 # Crawl a webpage
@@ -204,7 +222,7 @@ Crawls a target website to extract its text/markdown representation and saves th
 
 ---
 
-## 🐍 Python Extractor & Q&A Generator
+## <a name="python-extractor"></a>🐍 Python Extractor & Q&A Generator
 
 Located at [lib/lume_extractor.py](file:///workspace/lume/lib/lume_extractor.py), this tool can extract text and generate Q&A evaluation datasets from document chunks:
 
@@ -218,7 +236,7 @@ python lib/lume_extractor.py qna my_doc.txt output_qna.json --model gemma4:31b-c
 
 ---
 
-## 💻 Codebase Indexing & Search Demo
+## <a name="codebase-demo"></a>💻 Codebase Indexing & Search Demo
 
 Lume can index and search programming code repositories (like Lume's own Rust source files).
 
@@ -249,7 +267,7 @@ pub fn run_agent_loop(
 
 ---
 
-## 📖 The Backstory: How Lume Connects
+## <a name="backstory"></a>📖 The Backstory: How Lume Connects
 
 Lume is the story of ideas moving from one person to another—a search meme carried through years of crawling systems, open-source heritage, industrial search consulting, and modern AI capability.
 
@@ -284,6 +302,6 @@ Working in a continuous human-AI feedback loop, Lume's core and extended capabil
 
 ---
 
-## 💡 Acknowledgements & Inspiration
+## <a name="acknowledgements"></a>💡 Acknowledgements & Inspiration
 
 Lume was forked from and inspired by the foundational FST-based tagging work in [jsclosures/rust-fstguardrails](https://github.com/jsclosures/rust-fstguardrails).
