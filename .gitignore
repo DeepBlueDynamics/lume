@@ -10,5 +10,7 @@ crawl_cache/
 
 # Build and archive directories
 target/
+target-verify/
 archive/
 examples/crawled/
+__pycache__/

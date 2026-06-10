@@ -142,7 +142,8 @@ Indexes a directory containing text, markdown, or PDF files.
     *   `-f, --force`: Forces re-indexing of all documents.
 *   **Options**:
     *   `--db <PATH>`: Destination directory for the index metadata [default: `.lume-index`].
-    *   `--ollama-model <MODEL>`: Ollama model for entity extraction [default: `gemma4:2b`].
+    *   `--ollama-model <MODEL>`: Ollama model for entity extraction [default: `gpt-4o-mini:latest`].
+    *   `LUME_EXTRACT_WORKERS` (env): concurrent extraction threads [default: `10`] — lower it for local models bound by `OLLAMA_NUM_PARALLEL`.
 
 ---
 
