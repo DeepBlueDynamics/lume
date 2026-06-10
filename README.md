@@ -304,4 +304,4 @@ Working in a continuous human-AI feedback loop, Lume's core and extended capabil
 
 ## <a name="acknowledgements"></a>💡 Acknowledgements & Inspiration
 
-Lume was forked from and inspired by the foundational FST-based tagging work in [jsclosures/rust-fstguardrails](https://github.com/jsclosures/rust-fstguardrails).
+Lume was inspired by the foundational FST-based tagging work in [jsclosures/rust-fstguardrails](https://github.com/jsclosures/rust-fstguardrails).
