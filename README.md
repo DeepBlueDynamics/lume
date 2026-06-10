@@ -1,4 +1,4 @@
-# Lume: Stylistic Synthesis & Retrieval-Augmented Generation Suite
+# Lume: Hybrid Search Engine & Agentic Document Memory
 
 A high-performance Rust library and CLI suite featuring an FST-backed phrase matcher, hybrid lexical/semantic search engine, and agentic document exploration loop.
 
