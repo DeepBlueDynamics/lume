@@ -11,38 +11,19 @@ A high-performance Rust library and CLI suite featuring an FST-backed phrase mat
 
 ---
 
-## 📖 The Backstory: How Lume Connects
+## 🚀 Installation & Quick Start
 
-Lume is the story of ideas moving from one person to another—a search meme carried through years of crawling systems, open-source heritage, industrial search consulting, and modern AI capability.
+### Prerequisites
+*   [Rust & Cargo](https://rustup.rs/) (v1.75+ recommended)
+*   [Ollama](https://ollama.com/) running locally or accessible in your environment (defaults to using the cloud-backed model `gemma4:31b-cloud`).
+*   [Python 3.10+](https://www.python.org/) with `requests` and `pypdf` installed (for PDF indexing/Q&A generation).
 
-### 🐧 The Seed: It Began with Crawling (Grub)
-It all started with web crawling. Back in the early days of distributed search, [Kord Campbell](https://github.com/kordless) created **Grub**—a massively distributed web crawler. After installing Lucene, Kord sent an email to Eric Schmidt (then-CEO of Google), saying: *"Hey, I've got this super fast distributed crawler."* Schmidt replied with a classic search insight: *"That's not the problem. We've got crawling figured out. Indexing is the challenge."*
-
-Decades later, that conversation has come full circle. In the age of AI, **crawling is everything again**. To feed frontier LLMs, you have to crawl to get the content, and you need a crawler that you can control. 
-
-But once you crawl it, where do you put it? 
-
-### 🧠 The Memory Challenge
-You can't crawl the web fresh every single time you need an answer. Web pages are a type of document memory. Unlike bot or conversational memory (like an LLM remembering that a user's parrot is blue), document memory is about capturing the precise text you just saw. Some of these pages never update, while others update every minute. You need a dedicated, extremely fast local document store to hold and index this memory.
-
-That's when the pieces fell into place. Kord was watching LinkedIn and saw [Steve Harris](https://github.com/jsclosures) post about porting his zero-dependency JavaScript FST tagger to Rust (released as [rust-fstguardrails](https://github.com/jsclosures/rust-fstguardrails)). Steve had run [Portaltown](https://www.portaltown.com), a search consultancy, and had worked for **Lucidworks**. His background as a U.S. Marine Corps air traffic controller deeply influenced how he designed systems: a focus on safety, extreme precision, and bare-metal performance. 
-
-Kord saw Steve's post and realized: *"That FST tagger is the first part of our document index."*
-
-### 💡 The "Aha" Moments (Erik Hatcher & Trey Grainger)
-To turn that FST tagger into a complete, lightweight search engine, Kord drew on years of shared search history. During his time consulting at **Lucidworks**, Kord had met OG search veterans [Trey Grainger](https://github.com/treygrainger) and [Erik Hatcher](https://github.com/erikhatcher). 
-
-Trey's work on Solr's **Semantic Knowledge Graph (SKG)** had always stuck with Kord. The concept seemed complex, but Erik Hatcher had delivered the ultimate "aha" moment by putting it simply: 
-> *Facets are just counts of the occurrences of something in a document. The Knowledge Graph is simply looking at those counts across all documents to perform document intersections. It is just counting the counts of things.*
-
-That was the magic of Erik Hatcher—he has always had the unique gift of taking complex technology and showing everyone how it actually works under the hood. (We throw affectionate shade at Trey for making it look complicated, and at Eric for making it look too simple!)
-
-Understanding that primitive meant realizing a high-speed search engine didn't need millions of lines of code. It just needed to do simple things incredibly fast: FSTs for words, roaring bitmaps for set intersections, spell correction for misspellings, and additive hybrid boosting for vector context.
-
-This design philosophy directly tackles the [AI Slop Effort Problem](https://deepbluedynamics.com/blog/ai-slop-effort-problem)—the realization that as AI makes low-effort text generation trivial, high-performance, deterministic search primitives are critical to anchor agents to actual facts. This hybrid approach aligns with the pioneering search relevance ideas championed by [Doug Turnbull](https://softwaredoug.com/), demonstrating that combining precise keyword matching, semantic embeddings, and structural graphs yields a far more reliable context than simple vector retrieval.
-
-### 🚀 The AI pair-programming
-Working in a continuous human-AI feedback loop, Lume's core and extended capabilities (like its stateful agent loops, MCP servers, and HTML/markdown crawling module) were constructed using state-of-the-art AI coding assistants (like Google's pair-programmer Antigravity). 
+### Building the CLI
+Build the release profile binary:
+```bash
+cargo build --release
+```
+The compiled binary will be located at `target/release/lume`.
 
 ---
 
@@ -120,22 +101,6 @@ The system is organized into the following core Rust and Python modules:
 *   **Agent & Summarization Engine**: Runs autonomous query planning, search exploration, and structured synthesis. Main entry points are [run_agent_loop](file:///workspace/lume/src/agent.rs#L703) and [summarize_document](file:///workspace/lume/src/agent.rs#L926) in [src/agent.rs](file:///workspace/lume/src/agent.rs). Supports failure recovery via [lume_not_found](file:///workspace/lume/src/agent.rs#L791).
 *   **Model Context Protocol (MCP)**: Implements an MCP server over HTTP transport in [serve](file:///workspace/lume/src/agent.rs#L651) to expose indexing and search tools directly to AI agents.
 *   **Python Document Extractor**: A high-efficiency parser ([lib/lume_extractor.py](file:///workspace/lume/lib/lume_extractor.py)) that handles PDF page text extraction and generates Q&A benchmark datasets using concurrent Ollama threads.
-
----
-
-## 🚀 Installation & Quick Start
-
-### Prerequisites
-*   [Rust & Cargo](https://rustup.rs/) (v1.75+ recommended)
-*   [Ollama](https://ollama.com/) running locally or accessible in your environment (defaults to using the cloud-backed model `gemma4:31b-cloud`).
-*   [Python 3.10+](https://www.python.org/) with `requests` and `pypdf` installed (for PDF indexing/Q&A generation).
-
-### Building the CLI
-Build the release profile binary:
-```bash
-cargo build --release
-```
-The compiled binary will be located at `target/release/lume`.
 
 ---
 
@@ -281,6 +246,41 @@ pub fn run_agent_loop(
 ) -> Result<(), String> {
     let url = format!("{}/api/chat", ollama_url.trim_end_matches('/'));
 ```
+
+---
+
+## 📖 The Backstory: How Lume Connects
+
+Lume is the story of ideas moving from one person to another—a search meme carried through years of crawling systems, open-source heritage, industrial search consulting, and modern AI capability.
+
+### 🐧 The Seed: It Began with Crawling (Grub)
+It all started with web crawling. Back in the early days of distributed search, [Kord Campbell](https://github.com/kordless) created **Grub**—a massively distributed web crawler. After installing Lucene, Kord sent an email to Eric Schmidt (then-CEO of Google), saying: *"Hey, I've got this super fast distributed crawler."* Schmidt replied with a classic search insight: *"That's not the problem. We've got crawling figured out. Indexing is the challenge."*
+
+Decades later, that conversation has come full circle. In the age of AI, **crawling is everything again**. To feed frontier LLMs, you have to crawl to get the content, and you need a crawler that you can control. 
+
+But once you crawl it, where do you put it? 
+
+### 🧠 The Memory Challenge
+You can't crawl the web fresh every single time you need an answer. Web pages are a type of document memory. Unlike bot or conversational memory (like an LLM remembering that a user's parrot is blue), document memory is about capturing the precise text you just saw. Some of these pages never update, while others update every minute. You need a dedicated, extremely fast local document store to hold and index this memory.
+
+That's when the pieces fell into place. Kord was watching LinkedIn and saw [Steve Harris](https://github.com/jsclosures) post about porting his zero-dependency JavaScript FST tagger to Rust (released as [rust-fstguardrails](https://github.com/jsclosures/rust-fstguardrails)). Steve had run [Portaltown](https://www.portaltown.com), a search consultancy, and had worked for **Lucidworks**. His background as a U.S. Marine Corps air traffic controller deeply influenced how he designed systems: a focus on safety, extreme precision, and bare-metal performance. 
+
+Kord saw Steve's post and realized: *"That FST tagger is the first part of our document index."*
+
+### 💡 The "Aha" Moments (Erik Hatcher & Trey Grainger)
+To turn that FST tagger into a complete, lightweight search engine, Kord drew on years of shared search history. During his time consulting at **Lucidworks**, Kord had met OG search veterans [Trey Grainger](https://github.com/treygrainger) and [Erik Hatcher](https://github.com/erikhatcher). 
+
+Trey's work on Solr's **Semantic Knowledge Graph (SKG)** had always stuck with Kord. The concept seemed complex, but Erik Hatcher had delivered the ultimate "aha" moment by putting it simply: 
+> *Facets are just counts of the occurrences of something in a document. The Knowledge Graph is simply looking at those counts across all documents to perform document intersections. It is just counting the counts of things.*
+
+That was the magic of Erik Hatcher—he has always had the unique gift of taking complex technology and showing everyone how it actually works under the hood. (We throw affectionate shade at Trey for making it look complicated, and at Eric for making it look too simple!)
+
+Understanding that primitive meant realizing a high-speed search engine didn't need millions of lines of code. It just needed to do simple things incredibly fast: FSTs for words, roaring bitmaps for set intersections, spell correction for misspellings, and additive hybrid boosting for vector context.
+
+This design philosophy directly tackles the [AI Slop Effort Problem](https://deepbluedynamics.com/blog/ai-slop-effort-problem)—the realization that as AI makes low-effort text generation trivial, high-performance, deterministic search primitives are critical to anchor agents to actual facts. This hybrid approach aligns with the pioneering search relevance ideas championed by [Doug Turnbull](https://softwaredoug.com/), demonstrating that combining precise keyword matching, semantic embeddings, and structural graphs yields a far more reliable context than simple vector retrieval.
+
+### 🚀 The AI pair-programming
+Working in a continuous human-AI feedback loop, Lume's core and extended capabilities (like its stateful agent loops, MCP servers, and HTML/markdown crawling module) were constructed using state-of-the-art AI coding assistants (like Google's pair-programmer Antigravity). 
 
 ---
 
