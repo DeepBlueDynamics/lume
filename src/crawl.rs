@@ -272,6 +272,139 @@ pub fn crawl_url(url: &str) -> Result<(String, String), String> {
     }
 }
 
+pub fn clean_html_to_markdown(html: &str) -> (String, String) {
+    let mut result = String::new();
+    let mut title = String::new();
+    let mut in_tag = false;
+    let mut in_script = false;
+    let mut in_style = false;
+    let mut in_title = false;
+    let mut current_tag = String::new();
+    let mut in_quotes: Option<char> = None;
+
+    let chars: Vec<char> = html.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '<' {
+            in_tag = true;
+            in_quotes = None;
+            current_tag.clear();
+        } else if in_tag {
+            if let Some(quote_char) = in_quotes {
+                if c == quote_char {
+                    in_quotes = None;
+                }
+                current_tag.push(c);
+            } else if c == '\'' || c == '"' {
+                in_quotes = Some(c);
+                current_tag.push(c);
+            } else if c == '>' {
+                in_tag = false;
+                let tag_lower = current_tag.trim().to_lowercase();
+                if tag_lower.starts_with("script") {
+                    in_script = true;
+                } else if tag_lower.starts_with("/script") {
+                    in_script = false;
+                } else if tag_lower.starts_with("style") {
+                    in_style = true;
+                } else if tag_lower.starts_with("/style") {
+                    in_style = false;
+                } else if tag_lower.starts_with("title") {
+                    in_title = true;
+                } else if tag_lower.starts_with("/title") {
+                    in_title = false;
+                } else if matches!(
+                    tag_lower.as_str(),
+                    "p" | "/p" | "div" | "/div" | "tr" | "/tr" | "br" | "/br" | "h1" | "/h1" | "h2" | "/h2" | "h3" | "/h3" | "h4" | "/h4" | "h5" | "/h5" | "h6" | "/h6" | "li" | "/li" | "blockquote" | "/blockquote"
+                ) {
+                    if !result.ends_with('\n') {
+                        result.push('\n');
+                    }
+                }
+            } else {
+                current_tag.push(c);
+            }
+        } else if !in_script && !in_style {
+            if in_title {
+                title.push(c);
+            } else {
+                result.push(c);
+            }
+        }
+        i += 1;
+    }
+
+    let decode_entities = |s: &str| -> String {
+        // 1. Decode numeric entities (hex and decimal) first
+        let mut temp = String::new();
+        let s_chars: Vec<char> = s.chars().collect();
+        let mut idx = 0;
+        while idx < s_chars.len() {
+            if s_chars[idx] == '&' && idx + 2 < s_chars.len() && s_chars[idx + 1] == '#' {
+                let mut end = idx + 2;
+                let mut is_hex = false;
+                if s_chars[end] == 'x' || s_chars[end] == 'X' {
+                    is_hex = true;
+                    end += 1;
+                }
+                let start_digits = end;
+                while end < s_chars.len() && s_chars[end] != ';' {
+                    let digit = s_chars[end];
+                    if (is_hex && digit.is_ascii_hexdigit()) || (!is_hex && digit.is_ascii_digit()) {
+                        end += 1;
+                    } else {
+                        break;
+                    }
+                }
+                if end < s_chars.len() && s_chars[end] == ';' && end > start_digits {
+                    let digit_str: String = s_chars[start_digits..end].iter().collect();
+                    let num_val = if is_hex {
+                        u32::from_str_radix(&digit_str, 16)
+                    } else {
+                        digit_str.parse::<u32>()
+                    };
+                    if let Ok(val) = num_val {
+                        if let Some(decoded_char) = std::char::from_u32(val) {
+                            temp.push(decoded_char);
+                            idx = end + 1;
+                            continue;
+                        }
+                    }
+                }
+            }
+            temp.push(s_chars[idx]);
+            idx += 1;
+        }
+
+        // 2. Decode common named entities, decoding &amp; last
+        temp.replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&nbsp;", " ")
+            .replace("&apos;", "'")
+            .replace("&amp;", "&")
+    };
+
+    let cleaned_title = decode_entities(title.trim());
+    let final_title = if cleaned_title.is_empty() {
+        "Crawled Document".to_string()
+    } else {
+        cleaned_title
+    };
+
+    let cleaned_body = decode_entities(&result);
+    let mut lines = Vec::new();
+    for line in cleaned_body.lines() {
+        let trimmed = line.trim();
+        if !trimmed.is_empty() {
+            lines.push(trimmed.to_string());
+        }
+    }
+
+    (final_title, lines.join("\n\n"))
+}
+
 fn crawl_direct_get(url: &str) -> Result<(String, String), String> {
     let agent = ureq::AgentBuilder::new()
         .timeout(std::time::Duration::from_secs(15))
@@ -294,14 +427,13 @@ fn crawl_direct_get(url: &str) -> Result<(String, String), String> {
         return Err(format!("Failed to create directory '{}': {}", save_dir, e));
     }
 
+    let (title, markdown) = clean_html_to_markdown(&content);
     let safe_slug = make_safe_slug(url);
-    let filename = format!("{}/{}.html", save_dir, safe_slug);
+    let filename = format!("{}/{}.md", save_dir, safe_slug);
 
     let file_content = format!(
-        "<!-- Source URL: {} -->\n<!-- Timestamp: {} -->\n{}",
-        url,
-        chrono_timestamp(),
-        content
+        "# {}\n\n*   **Source URL**: {}\n*   **Crawl Timestamp**: {}\n\n---\n\n{}",
+        title, url, chrono_timestamp(), markdown
     );
 
     fs::write(&filename, &file_content)

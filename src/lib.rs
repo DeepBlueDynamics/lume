@@ -407,7 +407,7 @@ impl Tagger {
         }
 
         // 3. Resolve overlaps if policy is LongestOnly
-        match policy {
+        let resolved = match policy {
             OverlapPolicy::All => {
                 out.sort_by(|a, b| {
                     a.start.cmp(&b.start).then_with(|| {
@@ -419,7 +419,8 @@ impl Tagger {
                 out
             }
             OverlapPolicy::LongestOnly => resolve_longest_only(out),
-        }
+        };
+        dedup_identical_tags(resolved)
     }
 
     fn emit(
@@ -464,6 +465,17 @@ fn char_to_byte_offsets(text: &str, char_spans: &[(usize, usize)]) -> Vec<(usize
         byte_spans.push((start_byte, end_byte));
     }
     byte_spans
+}
+
+/// Drops tags that are duplicates in EVERY field (span + output + kind + id),
+/// i.e. duplicate dictionary rows that collapsed to the same FST key. Synonym
+/// records sharing a span but carrying distinct ids are a feature and survive.
+fn dedup_identical_tags(tags: Vec<Tag>) -> Vec<Tag> {
+    let mut seen: std::collections::HashSet<(usize, usize, String, String, String)> =
+        std::collections::HashSet::new();
+    tags.into_iter()
+        .filter(|t| seen.insert((t.start, t.end, t.output.clone(), t.kind.clone(), t.id.clone())))
+        .collect()
 }
 
 fn resolve_longest_only(mut tags: Vec<Tag>) -> Vec<Tag> {

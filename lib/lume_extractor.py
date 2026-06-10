@@ -18,18 +18,92 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pypdf
 import requests
 
+# Short words that legitimately stand alone; never treated as broken fragments.
+COMMON_SHORT_WORDS = {
+    "a", "i", "an", "am", "as", "at", "be", "by", "do", "go", "he", "if", "in",
+    "is", "it", "me", "my", "no", "of", "on", "or", "so", "to", "up", "us",
+    "we", "all", "and", "any", "are", "but", "can", "did", "for", "get", "had",
+    "has", "her", "him", "his", "how", "its", "let", "may", "new", "not",
+    "now", "off", "old", "one", "our", "out", "own", "per", "she", "the",
+    "too", "two", "was", "who", "why", "yet", "you",
+}
+
+
+def build_vocab(pages_text):
+    """Counts alphabetic words (3+ chars) across all pages. Used as the
+    reference vocabulary for repairing extraction-broken words."""
+    vocab = {}
+    for text in pages_text:
+        for w in re.findall(r"[A-Za-z]+", text):
+            lw = w.lower()
+            if len(lw) >= 3:
+                vocab[lw] = vocab.get(lw, 0) + 1
+    return vocab
+
+
+def repair_split_words(text, vocab):
+    """Repairs pypdf artifacts like 'l aw of t he' -> 'law of the'.
+
+    Conservative: two adjacent fragments are merged only when the merged word
+    appears intact at least twice elsewhere in the document AND at least one
+    fragment is not a plausible standalone word.
+    """
+    def is_suspicious(frag):
+        lf = frag.lower()
+        if lf in COMMON_SHORT_WORDS:
+            return False
+        return vocab.get(lf, 0) < 2
+
+    def try_merge(m):
+        left, right = m.group(1), m.group(2)
+        merged = left + right
+        if vocab.get(merged.lower(), 0) >= 2 and (is_suspicious(left) or is_suspicious(right)):
+            return merged
+        return m.group(0)
+
+    # Rejoin words hyphenated across line breaks when the joined form is known.
+    def fix_hyphen(m):
+        merged = m.group(1) + m.group(2)
+        if vocab.get(merged.lower(), 0) >= 1:
+            return merged
+        return m.group(0)
+
+    text = re.sub(r"([A-Za-z]+)-\s*\n\s*([A-Za-z]+)", fix_hyphen, text)
+
+    # Triple splits like 't h e' first: requires both leading fragments to be
+    # suspicious, so phrases of real short words are never collapsed.
+    def try_merge3(m):
+        a, b, c = m.group(1), m.group(2), m.group(3)
+        merged = a + b + c
+        if vocab.get(merged.lower(), 0) >= 2 and is_suspicious(a) and is_suspicious(b):
+            return merged
+        return m.group(0)
+
+    text = re.sub(r"\b([A-Za-z]{1,2}) ([A-Za-z]{1,2}) ([A-Za-z]{1,12})\b", try_merge3, text)
+
+    # Then pair splits, iterated to a fixpoint. Each merge strictly shrinks
+    # the text, so this terminates.
+    prev = None
+    while prev != text:
+        prev = text
+        text = re.sub(r"\b([A-Za-z]{1,3}) ([A-Za-z]{1,12})\b", try_merge, text)
+    return text
+
+
 def extract_pdf(pdf_path):
     """Extracts text from a PDF file and returns a list of pages with text."""
     try:
         reader = pypdf.PdfReader(pdf_path)
-        pages = []
+        raw_pages = []
         for i, page in enumerate(reader.pages):
             text = page.extract_text()
             if text:
-                pages.append({
-                    "page_number": i + 1,
-                    "text": text
-                })
+                raw_pages.append((i + 1, text))
+        vocab = build_vocab(t for _, t in raw_pages)
+        pages = [
+            {"page_number": n, "text": repair_split_words(t, vocab)}
+            for n, t in raw_pages
+        ]
         return {"success": True, "pages": pages}
     except Exception as e:
         return {"success": False, "error": str(e)}

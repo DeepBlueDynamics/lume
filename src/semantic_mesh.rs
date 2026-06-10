@@ -546,23 +546,35 @@ impl EntityGraph {
             }
         }
 
-        // 2. Compute pairwise Jaccard similarities
+        // 2. Compute pairwise Jaccard similarities.
+        // Cardinalities are precomputed: Jaccard is bounded above by
+        // min(|A|,|B|)/max(|A|,|B|), so most pairs are pruned without touching
+        // their containers, and the union size comes from inclusion-exclusion.
+        let lens: Vec<usize> = entity_keys.iter().map(|k| posting_lists[*k].len()).collect();
         for i in 0..entity_keys.len() {
             for j in (i + 1)..entity_keys.len() {
-                let key_a = entity_keys[i];
-                let key_b = entity_keys[j];
-                
-                let list_a = &posting_lists[key_a];
-                let list_b = &posting_lists[key_b];
+                let (len_a, len_b) = (lens[i], lens[j]);
+                if len_a == 0 || len_b == 0 {
+                    continue;
+                }
+                let jaccard_upper_bound = len_a.min(len_b) as f64 / len_a.max(len_b) as f64;
+                if jaccard_upper_bound < min_similarity {
+                    continue;
+                }
 
-                let similarity = list_a.jaccard_similarity(list_b);
-                if similarity >= min_similarity && similarity > 0.0 {
-                    let intersection = list_a.intersect(list_b).len();
-                    let union_size = list_a.union(list_b).len();
+                let list_a = &posting_lists[entity_keys[i]];
+                let list_b = &posting_lists[entity_keys[j]];
 
+                let intersection = list_a.intersection_count(list_b);
+                if intersection == 0 {
+                    continue;
+                }
+                let union_size = len_a + len_b - intersection;
+                let similarity = intersection as f64 / union_size as f64;
+                if similarity >= min_similarity {
                     edges.push(EntityEdge {
-                        source: key_a.clone(),
-                        target: key_b.clone(),
+                        source: entity_keys[i].clone(),
+                        target: entity_keys[j].clone(),
                         similarity,
                         intersection,
                         union_size,

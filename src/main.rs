@@ -674,6 +674,13 @@ fn run_indexing(
             let mut sections = if ext == "pdf" {
                 println!("[⚙️] Processing PDF file: {}", path_str);
                 run_extractor_pdf(file_path)?
+            } else if ext == "html" || ext == "htm" {
+                let content = fs::read_to_string(file_path)
+                    .map_err(|e| format!("Failed to read file {}: {}", path_str, e))?;
+                let (_title, cleaned) = lume::crawl::clean_html_to_markdown(&content);
+                let chunks = chunk_text_file(file_path, &cleaned);
+                println!("[⚙️] Processing HTML file (cleaned): {} (parsed into {} chunks)", path_str, chunks.len());
+                chunks
             } else {
                 let content = fs::read_to_string(file_path)
                     .map_err(|e| format!("Failed to read file {}: {}", path_str, e))?;
@@ -941,6 +948,11 @@ fn handle_search(args: &[String]) -> Result<(), String> {
     let state: IndexState = load_json(&state_file_path)?;
     let bm25: Bm25Index = load_json(&db_path.join("bm25.json"))?;
     let spelling: SpellIndex = load_json(&db_path.join("spelling.json"))?;
+
+    println!(
+        "Searching corpus: {} ({} sections, db: {})",
+        state.target_dir, bm25.sections.len(), db_dir
+    );
 
     let mut corrected_query = query.clone();
     if spell_check {

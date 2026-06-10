@@ -61,6 +61,37 @@ struct FunctionCall {
     arguments: serde_json::Value,
 }
 
+/// Resolves the effective Ollama endpoint. When the caller passes the default
+/// (or empty) URL, probes common local endpoints (Docker host bridge vs native
+/// localhost) and caches the winner for the life of the process so repeated
+/// calls don't re-probe.
+pub fn resolve_ollama_url(ollama_url: &str) -> String {
+    if !ollama_url.is_empty() && ollama_url != "http://localhost:11434" {
+        return ollama_url.trim_end_matches('/').to_string();
+    }
+    static RESOLVED: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    RESOLVED
+        .get_or_init(|| {
+            let endpoints = [
+                "http://host.docker.internal:11434",
+                "http://localhost:11434",
+                "http://172.17.0.1:11434",
+            ];
+            for ep in &endpoints {
+                if let Ok(res) = ureq::get(&format!("{}/api/tags", ep))
+                    .timeout(std::time::Duration::from_secs(2))
+                    .call()
+                {
+                    if res.status() == 200 {
+                        return ep.to_string();
+                    }
+                }
+            }
+            "http://localhost:11434".to_string()
+        })
+        .clone()
+}
+
 /// Calls local/remote Ollama chat endpoint to extract key concepts,
 /// proper names, organizations, locations, and terms from a text chunk.
 pub fn extract_entities(
@@ -68,7 +99,7 @@ pub fn extract_entities(
     ollama_url: &str,
     ollama_model: &str,
 ) -> Result<Vec<String>, String> {
-    let url = format!("{}/api/chat", ollama_url.trim_end_matches('/'));
+    let url = format!("{}/api/chat", resolve_ollama_url(ollama_url));
 
     let payload = ChatPayload {
         model: ollama_model,
@@ -676,18 +707,36 @@ fn handle_connection(mut stream: TcpStream) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Cap on simultaneously-handled connections; excess requests get an
+/// immediate 503 instead of an unbounded thread spawn.
+const MAX_CONCURRENT_CONNECTIONS: usize = 64;
+
 pub fn serve(port: u16) -> Result<(), String> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port))
         .map_err(|e| format!("Failed to bind to port {}: {}", port, e))?;
     println!("Lume MCP HTTP server listening on http://0.0.0.0:{}", port);
 
+    let active = Arc::new(AtomicUsize::new(0));
     for stream in listener.incoming() {
         match stream {
-            Ok(stream) => {
+            Ok(mut stream) => {
+                if active.load(Ordering::Acquire) >= MAX_CONCURRENT_CONNECTIONS {
+                    let busy = "HTTP/1.1 503 Service Unavailable\r\n\
+                                Retry-After: 1\r\n\
+                                Content-Length: 0\r\n\r\n";
+                    let _ = stream.write_all(busy.as_bytes());
+                    continue;
+                }
+                active.fetch_add(1, Ordering::AcqRel);
+                let active = Arc::clone(&active);
                 std::thread::spawn(move || {
                     if let Err(e) = handle_connection(stream) {
                         eprintln!("Error handling connection: {}", e);
                     }
+                    active.fetch_sub(1, Ordering::AcqRel);
                 });
             }
             Err(e) => {
@@ -735,7 +784,7 @@ pub fn run_agent_loop(
     db_dir: &str,
     verbose: bool,
 ) -> Result<(), String> {
-    let url = format!("{}/api/chat", ollama_url.trim_end_matches('/'));
+    let url = format!("{}/api/chat", resolve_ollama_url(ollama_url));
 
     let mut messages = vec![
         AgentMessage {
@@ -1019,21 +1068,7 @@ pub fn summarize_document(
         println!("[🧠] Central entities identified in Knowledge Graph: {}", top_entities.join(", "));
     }
 
-    let resolved_url = if ollama_url.is_empty() || ollama_url == "http://localhost:11434" {
-        let endpoints = ["http://host.docker.internal:11434", "http://localhost:11434", "http://172.17.0.1:11434"];
-        let mut found = "http://localhost:11434".to_string();
-        for ep in &endpoints {
-            if let Ok(res) = ureq::get(&format!("{}/api/tags", ep)).timeout(std::time::Duration::from_secs(2)).call() {
-                if res.status() == 200 {
-                    found = ep.to_string();
-                    break;
-                }
-            }
-        }
-        found
-    } else {
-        ollama_url.to_string()
-    };
+    let resolved_url = resolve_ollama_url(ollama_url);
 
     println!("[🧠] Ollama Endpoint: {}", resolved_url);
     println!("[🧠] Ollama Model: {}", ollama_model);

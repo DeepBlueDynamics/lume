@@ -299,12 +299,50 @@ impl MiniRoaring {
         count
     }
 
-    /// Computes the Jaccard similarity index (intersection size / union size) between two roaring bitmaps
+    /// Counts the intersection cardinality without materializing a result bitmap.
+    pub fn intersection_count(&self, other: &Self) -> usize {
+        let mut count = 0;
+        for (key, self_c) in &self.containers {
+            if let Some(other_c) = other.containers.get(key) {
+                count += match (self_c, other_c) {
+                    (Container::Array(a), Container::Array(b)) => {
+                        let (mut i, mut j, mut c) = (0, 0, 0);
+                        while i < a.len() && j < b.len() {
+                            match a[i].cmp(&b[j]) {
+                                std::cmp::Ordering::Equal => {
+                                    c += 1;
+                                    i += 1;
+                                    j += 1;
+                                }
+                                std::cmp::Ordering::Less => i += 1,
+                                std::cmp::Ordering::Greater => j += 1,
+                            }
+                        }
+                        c
+                    }
+                    (Container::Bitmap(a), Container::Bitmap(b)) => {
+                        let mut c = 0;
+                        for i in 0..1024 {
+                            c += (a[i] & b[i]).count_ones() as usize;
+                        }
+                        c
+                    }
+                    (Container::Array(arr), Container::Bitmap(bitmap))
+                    | (Container::Bitmap(bitmap), Container::Array(arr)) => arr
+                        .iter()
+                        .filter(|&&v| (bitmap[(v >> 6) as usize] & (1 << (v & 63))) != 0)
+                        .count(),
+                };
+            }
+        }
+        count
+    }
+
+    /// Computes the Jaccard similarity index (intersection size / union size) between two roaring bitmaps.
+    /// The union size is derived by inclusion-exclusion, so no result bitmap is ever allocated.
     pub fn jaccard_similarity(&self, other: &Self) -> f64 {
-        let intersection = self.intersect(other);
-        let union_set = self.union(other);
-        let intersection_count = intersection.len();
-        let union_count = union_set.len();
+        let intersection_count = self.intersection_count(other);
+        let union_count = self.len() + other.len() - intersection_count;
         if union_count == 0 {
             0.0
         } else {
@@ -480,6 +518,52 @@ mod tests {
         let jaccard = a.jaccard_similarity(&b);
         // intersection / union = 2 / 4 = 0.5
         assert!((jaccard - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_intersection_count_matches_materialized() {
+        // Cover all container pairings: array/array, bitmap/bitmap, array/bitmap.
+        let mut sparse_a = MiniRoaring::new();
+        let mut sparse_b = MiniRoaring::new();
+        for i in 0..500 {
+            sparse_a.insert(i * 3);
+            sparse_b.insert(i * 5);
+        }
+        let mut dense_a = MiniRoaring::new();
+        let mut dense_b = MiniRoaring::new();
+        for i in 0..3000 {
+            dense_a.insert(i * 2);
+            dense_b.insert(i * 3);
+        }
+        // Spread across multiple containers (high bits differ)
+        for i in 0..100 {
+            sparse_a.insert(70000 + i * 7);
+            dense_b.insert(70000 + i * 2);
+        }
+
+        let pairs = [
+            (&sparse_a, &sparse_b),
+            (&dense_a, &dense_b),
+            (&sparse_a, &dense_b),
+            (&dense_a, &sparse_b),
+        ];
+        for (a, b) in pairs {
+            let materialized = a.intersect(b).len();
+            assert_eq!(a.intersection_count(b), materialized);
+            let union_materialized = a.union(b).len();
+            assert_eq!(a.len() + b.len() - materialized, union_materialized);
+            let expected_jaccard = if union_materialized == 0 {
+                0.0
+            } else {
+                materialized as f64 / union_materialized as f64
+            };
+            assert!((a.jaccard_similarity(b) - expected_jaccard).abs() < 1e-12);
+        }
+
+        // Disjoint and empty edge cases
+        let empty = MiniRoaring::new();
+        assert_eq!(empty.intersection_count(&sparse_a), 0);
+        assert_eq!(empty.jaccard_similarity(&empty), 0.0);
     }
 
     #[test]
