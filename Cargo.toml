@@ -3,6 +3,7 @@ name = "lume"
 version = "0.12.0"
 edition = "2021"
 description = "Lume: A high-performance, zero-dependency, FST-backed tagger and on-demand BM25 hybrid search engine."
+license = "BSD-3-Clause"
 
 [dependencies]
 tantivy-fst = "0.5"

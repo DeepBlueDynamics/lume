@@ -9,6 +9,8 @@
   co-occur with everything are damped toward zero; genuine associations rise.
   Computed directly from the roaring-bitmap intersection counts already used for
   Jaccard (no extra scan). New `cooccurrence_relatedness` in `semantic_mesh.rs`.
+  The z-score is log-compressed before the tanh bound so strong edges on large
+  corpora keep their gradation instead of all saturating at ±1.
 - **`--scoring` flag** on `lume search` (and `lume eval`): choose `relatedness`
   (significance, default) or `jaccard` (raw overlap) for the SKG walk. The graph
   walk and edge sort now key on significance by default, Jaccard as tie-breaker.
@@ -21,6 +23,28 @@
   labels), so it needs no chunk-id alignment. `--compare` runs both SKG scoring
   modes and prints the delta. New `src/eval.rs` (pure, unit-tested) plus
   `handle_eval` wiring. UTF-8-tolerant Q&A loading (cp1252 files don't abort).
+
+### Agentic answering
+- **`lume answer` + viz "Ask" mode**: an agentic plan → retrieve → evaluate →
+  refine → answer loop over a local Ollama model (default gpt-4o-mini). The model
+  plans search queries, the field is retrieved and animated, the model judges
+  whether the passages suffice and refines the queries if not (up to N rounds),
+  then synthesizes a **cited** answer. Streams NDJSON events (`question`, `plan`,
+  `evaluate`, relaxation frames, `answer`) through the same bridge. In the viz,
+  the answer panel shows the per-round plan log and the answer; nodes fed to the
+  model get a soft halo, the ones it **cited** glow, and clicking a source chip
+  highlights its orb. New `src/answer.rs`.
+
+### Visualization
+- **`lume stream` + `viz/`**: live 3D visualizer for the search dynamics.
+  `lume stream <query>` runs a phase-binding + Weber relaxation over the query's
+  top-K candidates (shivvr embeddings, read-only) and emits one NDJSON frame per
+  step on stdout — each node's 3D PCA position, velocity, **acceleration**, phase,
+  cluster, and **approach-acceleration toward the query** (the `d̈` static cosine
+  discards). `viz/` is a Node WebSocket bridge + React/three.js app that renders
+  it: candidates as a force field, green/red arrows for accelerating toward/away
+  from the query, emergent phase clusters, and a Kuramoto coherence meter. New
+  `src/stream.rs`; no new Rust dependencies (std + existing serde_json).
 
 ### Tests
 - New unit tests for the significance function, hub down-weighting (significance

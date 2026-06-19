@@ -106,6 +106,18 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        "stream" => {
+            if let Err(e) = handle_stream(&args[2..]) {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
+        "answer" => {
+            if let Err(e) = handle_answer(&args[2..]) {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
         "summarize" => {
             if let Err(e) = handle_summarize(&args[2..]) {
                 eprintln!("Error: {}", e);
@@ -223,6 +235,8 @@ SUBCOMMANDS:
   summarize  Agentic document summarizer via planning, search exploration, and synthesis
   crawl      Stealth crawl webpage content and save to personal search collection
   eval       Measure retrieval quality (Hit@k, MRR, nDCG@k) against a Q&A file
+  stream     Stream the live phase/Weber search relaxation as NDJSON for the 3D visualizer
+  answer     Agentic plan→retrieve→answer loop with citations, streamed for the visualizer
 "#, env!("CARGO_PKG_VERSION"));
 }
 
@@ -1622,6 +1636,287 @@ fn print_eval_compare(jac: &lume::eval::EvalAggregate, rel: &lume::eval::EvalAgg
     println!("  │ nDCG@{:<7} │ {:>8.4} │ {:>12.4} │ {} │", k, jac.ndcg(), rel.ndcg(), d(jac.ndcg(), rel.ndcg()));
     println!("  └──────────────┴──────────┴──────────────┴───────────┘");
     println!("  Δ = relatedness − jaccard (positive favors significance scoring).");
+}
+
+/// `lume stream <query>` — streams the phase-binding + Weber relaxation over the
+/// query's top-K candidates as NDJSON frames on stdout (one per step). Diagnostics
+/// go to stderr so stdout stays a clean frame stream for the viz bridge.
+fn handle_stream(args: &[String]) -> Result<(), String> {
+    if args.is_empty() || args.iter().any(|a| a == "-h" || a == "--help") {
+        print_stream_help();
+        return Ok(());
+    }
+
+    let mut db_dir = String::from(".lume-index");
+    let mut candidates = 24usize;
+    let mut steps = 160usize;
+    let mut beta = 0.4f64;
+    let mut queries: Vec<String> = Vec::new();
+
+    let mut idx = 0;
+    while idx < args.len() {
+        let arg = &args[idx];
+        match arg.as_str() {
+            "--db" if idx + 1 < args.len() => { db_dir = args[idx + 1].clone(); idx += 2; }
+            "-k" | "--candidates" if idx + 1 < args.len() => {
+                candidates = args[idx + 1].parse().map_err(|_| format!("Invalid candidates: {}", args[idx + 1]))?; idx += 2;
+            }
+            "--steps" if idx + 1 < args.len() => {
+                steps = args[idx + 1].parse().map_err(|_| format!("Invalid steps: {}", args[idx + 1]))?; idx += 2;
+            }
+            "-g" | "--graph" if idx + 1 < args.len() => {
+                beta = args[idx + 1].parse().map_err(|_| format!("Invalid graph weight: {}", args[idx + 1]))?; idx += 2;
+            }
+            "--add" if idx + 1 < args.len() => { queries.push(args[idx + 1].clone()); idx += 2; }
+            other if other.starts_with('-') => return Err(format!("Unknown option: {}", other)),
+            _ => { queries.push(arg.clone()); idx += 1; }
+        }
+    }
+    if queries.is_empty() {
+        return Err(String::from("Missing search query"));
+    }
+
+    let db_path = Path::new(&db_dir);
+    let state_file_path = db_path.join("state.json");
+    if !state_file_path.exists() {
+        return Err(format!("Index state file not found at {}. Index the corpus first.", state_file_path.display()));
+    }
+    lume::hybrid::set_cache_dir(db_path);
+    let _state: IndexState = load_json(&state_file_path)?;
+    let bm25: Bm25Index = load_json(&db_path.join("bm25.json"))?;
+
+    // Quiet candidate retrieval per query (BM25 + optional SKG), unioned with
+    // overlap membership. Nothing here touches stdout (the NDJSON channel).
+    let graph: Option<EntityGraph> = if beta > 0.0 { load_json(&db_path.join("entity_graph.json")).ok() } else { None };
+    let cands = retrieve_union(&bm25, graph.as_ref(), beta, &queries, candidates);
+    if cands.is_empty() {
+        return Err("no candidates retrieved for any query".to_string());
+    }
+
+    let sp = lume::stream::StreamParams { steps, candidates, ..Default::default() };
+    eprintln!("[stream] queries={:?}  union_candidates={}  steps={}", queries, cands.len(), steps);
+    lume::stream::run(&bm25, &queries, &cands, &sp, true)
+}
+
+/// Per-query BM25 (+ optional SKG) retrieval, unioned by section id with the set
+/// of query indices that surfaced each (the overlap membership). Order is first-
+/// seen. Shared by `lume stream` and the `lume answer` loop.
+fn retrieve_union(
+    bm25: &Bm25Index,
+    graph: Option<&EntityGraph>,
+    beta: f64,
+    queries: &[String],
+    candidates: usize,
+) -> Vec<lume::stream::Candidate> {
+    use std::collections::HashMap;
+    let params = Bm25Params::default();
+    let mut union: HashMap<usize, (f64, Vec<usize>)> = HashMap::new();
+    let mut order: Vec<usize> = Vec::new();
+    for (qi, q) in queries.iter().enumerate() {
+        let mut hits = bm25.search(q, SearchVariant::Classic, &params, None);
+        if let Some(g) = graph {
+            if beta > 0.0 {
+                let skg = lume::graph_search::SkgBoostParams { beta, ..Default::default() };
+                let walk = lume::graph_search::compute_skg_scores(bm25, g, q, &skg);
+                lume::graph_search::apply_skg_boost(&mut hits, &walk.scores, beta);
+            }
+        }
+        hits.truncate(candidates);
+        for h in &hits {
+            let e = union.entry(h.section_index).or_insert_with(|| { order.push(h.section_index); (h.score, Vec::new()) });
+            if h.score > e.0 { e.0 = h.score; }
+            if !e.1.contains(&qi) { e.1.push(qi); }
+        }
+    }
+    order.iter().map(|sid| {
+        let (score, members) = union[sid].clone();
+        lume::stream::Candidate { section_id: *sid, score, members }
+    }).collect()
+}
+
+/// `lume answer <question>` — agentic plan → retrieve → evaluate → refine →
+/// answer loop over a local Ollama model, streaming NDJSON events (plan rounds,
+/// the relaxation frames, and a cited answer) for the visualizer.
+fn handle_answer(args: &[String]) -> Result<(), String> {
+    if args.is_empty() || args.iter().any(|a| a == "-h" || a == "--help") {
+        print_answer_help();
+        return Ok(());
+    }
+
+    let mut db_dir = String::from(".lume-index");
+    let mut candidates = 18usize;
+    let mut steps = 140usize;
+    let mut beta = 0.4f64;
+    let mut max_rounds = 3usize;
+    let mut model = String::from("gpt-4o-mini:latest");
+    let mut ollama_url = std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".to_string());
+    let mut words: Vec<String> = Vec::new();
+
+    let mut idx = 0;
+    while idx < args.len() {
+        let arg = &args[idx];
+        match arg.as_str() {
+            "--db" if idx + 1 < args.len() => { db_dir = args[idx + 1].clone(); idx += 2; }
+            "-k" | "--candidates" if idx + 1 < args.len() => { candidates = args[idx + 1].parse().map_err(|_| "bad -k")?; idx += 2; }
+            "--steps" if idx + 1 < args.len() => { steps = args[idx + 1].parse().map_err(|_| "bad --steps")?; idx += 2; }
+            "-g" | "--graph" if idx + 1 < args.len() => { beta = args[idx + 1].parse().map_err(|_| "bad -g")?; idx += 2; }
+            "--rounds" if idx + 1 < args.len() => { max_rounds = args[idx + 1].parse().map_err(|_| "bad --rounds")?; idx += 2; }
+            "--model" if idx + 1 < args.len() => { model = args[idx + 1].clone(); idx += 2; }
+            "--ollama-url" if idx + 1 < args.len() => { ollama_url = args[idx + 1].clone(); idx += 2; }
+            other if other.starts_with('-') => return Err(format!("Unknown option: {}", other)),
+            _ => { words.push(arg.clone()); idx += 1; }
+        }
+    }
+    let question = words.join(" ");
+    if question.trim().is_empty() {
+        return Err(String::from("Missing question"));
+    }
+
+    let db_path = Path::new(&db_dir);
+    if !db_path.join("state.json").exists() {
+        return Err(format!("Index not found at {}. Index the corpus first.", db_dir));
+    }
+    lume::hybrid::set_cache_dir(db_path);
+    let bm25: Bm25Index = load_json(&db_path.join("bm25.json"))?;
+    let graph: Option<EntityGraph> = if beta > 0.0 { load_json(&db_path.join("entity_graph.json")).ok() } else { None };
+
+    let emit = |v: serde_json::Value| println!("{}", v);
+    emit(serde_json::json!({ "type": "question", "text": question, "model": model }));
+    eprintln!("[answer] question={:?} model={}", question, model);
+
+    // --- Plan ---
+    let mut queries = match lume::answer::plan_queries(&ollama_url, &model, &question) {
+        Ok(q) => q,
+        Err(e) => { eprintln!("[answer] planner failed ({e}); using the question verbatim"); vec![question.clone()] }
+    };
+    emit(serde_json::json!({ "type": "plan", "round": 1, "queries": queries, "note": "" }));
+
+    let sp = lume::stream::StreamParams { steps, candidates, ..Default::default() };
+    // Passages handed to the model. Scale with -k (capped) so raising candidates
+    // actually widens what the evaluator/answerer can see, instead of a fixed 10.
+    let n_feed = candidates.clamp(10, 20);
+
+    let mut cands: Vec<lume::stream::Candidate> = Vec::new();
+    let mut round = 1usize;
+    loop {
+        cands = retrieve_union(&bm25, graph.as_ref(), beta, &queries, candidates);
+        if cands.is_empty() {
+            emit(serde_json::json!({ "type": "evaluate", "round": round, "sufficient": false, "note": "no candidates retrieved" }));
+            break;
+        }
+        // Animate this round's field (no terminal "done" — the loop continues).
+        lume::stream::run(&bm25, &queries, &cands, &sp, false)?;
+
+        if round >= max_rounds { break; }
+        let passages = numbered_passages(&bm25, &cands, n_feed);
+        match lume::answer::evaluate(&ollama_url, &model, &question, &passages) {
+            Ok(v) => {
+                emit(serde_json::json!({ "type": "evaluate", "round": round, "sufficient": v.sufficient, "note": v.note }));
+                if v.sufficient || v.queries.is_empty() { break; }
+                let mut added = false;
+                for q in v.queries {
+                    if !queries.iter().any(|e| e.eq_ignore_ascii_case(&q)) { queries.push(q); added = true; }
+                }
+                if !added { break; }
+                round += 1;
+                emit(serde_json::json!({ "type": "plan", "round": round, "queries": queries, "note": "refined" }));
+            }
+            Err(e) => { eprintln!("[answer] evaluate failed ({e}); answering with what we have"); break; }
+        }
+    }
+
+    // --- Answer over the final field ---
+    let nq = queries.len();
+    // Feed top-N candidates by score; track marker(1-based) -> node id (= nq + cands index).
+    let mut ranked: Vec<usize> = (0..cands.len()).collect();
+    ranked.sort_by(|&a, &b| cands[b].score.partial_cmp(&cands[a].score).unwrap_or(std::cmp::Ordering::Equal));
+    let fed: Vec<usize> = ranked.into_iter().take(n_feed).collect();
+    let mut numbered = String::new();
+    for (k, &ci) in fed.iter().enumerate() {
+        if let Some(sec) = bm25.sections.get(cands[ci].section_id) {
+            let snip: String = sec.body.split_whitespace().take(180).collect::<Vec<_>>().join(" ");
+            numbered.push_str(&format!("[{}] {}: {}\n", k + 1, sec.title.trim(), snip));
+        }
+    }
+    let used_ids: Vec<usize> = fed.iter().map(|&ci| nq + ci).collect();
+
+    let answer_text = lume::answer::synthesize(&ollama_url, &model, &question, &numbered)
+        .unwrap_or_else(|e| format!("(answer generation failed: {})", e));
+    let cite_markers = lume::answer::parse_citations(&answer_text, fed.len());
+    let cited_ids: Vec<usize> = cite_markers.iter().map(|&m| nq + fed[m - 1]).collect();
+
+    emit(serde_json::json!({
+        "type": "answer", "text": answer_text, "model": model,
+        "used": used_ids, "cites": cited_ids,
+    }));
+    emit(serde_json::json!({ "type": "done" }));
+    Ok(())
+}
+
+/// Numbered passage block for the evaluator/answerer prompts (top-N by score).
+fn numbered_passages(bm25: &Bm25Index, cands: &[lume::stream::Candidate], n: usize) -> String {
+    let mut ranked: Vec<usize> = (0..cands.len()).collect();
+    ranked.sort_by(|&a, &b| cands[b].score.partial_cmp(&cands[a].score).unwrap_or(std::cmp::Ordering::Equal));
+    let mut s = String::new();
+    for (k, &ci) in ranked.iter().take(n).enumerate() {
+        if let Some(sec) = bm25.sections.get(cands[ci].section_id) {
+            let snip: String = sec.body.split_whitespace().take(180).collect::<Vec<_>>().join(" ");
+            s.push_str(&format!("[{}] {}: {}\n", k + 1, sec.title.trim(), snip));
+        }
+    }
+    s
+}
+
+fn print_answer_help() {
+    println!(r#"lume-answer
+Agentic question answering over the index: plan search queries, retrieve and
+animate the field, evaluate/refine, then synthesize a cited answer with a local
+Ollama model. Streams NDJSON (question, plan, evaluate, relaxation frames, answer)
+for the 3D visualizer.
+
+USAGE:
+  lume answer [OPTIONS] <QUESTION...>
+
+OPTIONS:
+  --db <PATH>            Persisted index metadata [default: .lume-index]
+  -k, --candidates <N>   Top-N candidates per query [default: 18]
+  --steps <N>            Relaxation steps per round [default: 140]
+  -g, --graph <VAL>      SKG graph boost weight [default: 0.4]
+  --rounds <N>           Max plan/refine rounds [default: 3]
+  --model <NAME>         Ollama model [default: gpt-4o-mini:latest]
+  --ollama-url <URL>     Ollama endpoint [default: $OLLAMA_URL or http://localhost:11434]
+  --shivvr-url <URL>     Shivvr endpoint URL [default: http://localhost:8085]
+
+ARGS:
+  <QUESTION...>          The question to answer (remaining args joined)
+"#);
+}
+
+fn print_stream_help() {
+    println!(r#"lume-stream
+Stream the live phase-binding + Weber search relaxation as NDJSON frames (one per
+step) on stdout, for the 3D vector visualizer. Requires a reachable shivvr
+endpoint (used read-only to embed the query and candidates).
+
+USAGE:
+  lume stream [OPTIONS] <QUERY> [--add <QUERY> ...]
+
+OPTIONS:
+  --db <PATH>            Path to the persisted index metadata [default: .lume-index]
+  -k, --candidates <N>   Top-N retrieved candidates per query to animate [default: 24]
+  --steps <N>            Relaxation steps (frames) to emit [default: 160]
+  -g, --graph <VAL>      SKG graph boost weight for candidate selection [default: 0.4]
+  --add <QUERY>          Additional query (additive search); results union into one field
+  --shivvr-url <URL>     Shivvr endpoint URL [default: http://localhost:8085]
+
+ARGS:
+  <QUERY>                Search query string (more via --add); candidates retrieved by
+                         more than one query are flagged as overlaps (members)
+
+Each frame is a JSON object: {{type:"frame", step, r_global, nodes:[{{id, pos[3],
+vel[3], acc[3], phase, cos_q, approach_vel, approach_acc, cluster, is_query}}]}}.
+A leading {{type:"meta"}} frame carries node labels; a trailing {{type:"done"}}.
+"#);
 }
 
 /// Loads the SKG graph and walks it for `query`, returning per-section boost
