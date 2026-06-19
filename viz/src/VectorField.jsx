@@ -162,7 +162,8 @@ export default function VectorField({ nodes, accScale, warp, queryCount, hovered
       <gridHelper args={[50, 50, "#10131f", "#0a0c14"]} position={[0, -7, 0]} />
 
       {nodes.map((n) => (
-        <Node key={n.id} node={n} color={colorOf(n)} halo={haloOf(n)} accScale={accScale} warp={warp} onHover={setHovered} />
+        <Node key={n.id} node={n} color={colorOf(n)} halo={haloOf(n)} accScale={accScale} warp={warp}
+          onHover={(node) => onHover(node ? node.id : null)} />
       ))}
       <Tooltip node={hoveredLive} color={hoveredLive ? colorOf(hoveredLive) : "#888"} />
 
