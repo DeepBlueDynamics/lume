@@ -243,6 +243,7 @@ OPTIONS:
 
 ENV:
   LUME_EXTRACT_WORKERS   Concurrent entity-extraction threads [default: 10]
+  LUME_EXTRACTOR_PATH    Explicit path to lume_extractor.py (default: auto-detect next to the executable)
 
 ARGS:
   <DIR>                  Directory to index (omitted when running 'update')
@@ -266,6 +267,10 @@ OPTIONS:
   -a, --alpha <VAL>     Hybrid blending weight: 0.0 (BM25 only) to 1.0 (semantic only) [default: 0.5]
   -g, --graph <VAL>     SKG entity-graph boost weight; 0 disables [default: 0.4, env GRAPH_ALPHA]
   --shivvr-url <URL>    Shivvr endpoint URL [default: http://localhost:8085]
+
+ENV:
+  LUME_QUERY_INVERSION  Set to 1 to print the query's embedding inversion (debug; costs an extra round-trip)
+  LUME_BLEND_NORM       Set to 1 for normalized blending (bm25/max + α·sem + β·skg)
 
 ARGS:
   <QUERY>               Search query string
@@ -427,7 +432,39 @@ fn handle_index_update(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn scan_directory(dir: &Path, db_dir: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
+/// Reads `.lumeignore` from the target directory root: one entry per line,
+/// either a bare name (matches any dir/file with that name) or a path
+/// relative to the target root. `#` lines and blanks are skipped.
+fn load_lumeignore(root: &Path) -> Vec<String> {
+    let Ok(content) = fs::read_to_string(root.join(".lumeignore")) else {
+        return Vec::new();
+    };
+    content
+        .lines()
+        .map(|l| l.trim().trim_end_matches('/').replace('\\', "/"))
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect()
+}
+
+fn is_ignored(path: &Path, root: &Path, ignores: &[String]) -> bool {
+    if ignores.is_empty() {
+        return false;
+    }
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let rel = path
+        .strip_prefix(root)
+        .map(|p| p.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_default();
+    ignores.iter().any(|pat| name == pat || rel == *pat)
+}
+
+fn scan_directory(
+    dir: &Path,
+    root: &Path,
+    db_dir: &Path,
+    ignores: &[String],
+    files: &mut Vec<PathBuf>,
+) -> io::Result<()> {
     if !dir.is_dir() {
         return Ok(());
     }
@@ -439,8 +476,14 @@ fn scan_directory(dir: &Path, db_dir: &Path, files: &mut Vec<PathBuf>) -> io::Re
             if name == ".git" || name == "target" || name == ".venv" || name == ".lume-index" || path == db_dir {
                 continue;
             }
-            scan_directory(&path, db_dir, files)?;
+            if is_ignored(&path, root, ignores) {
+                continue;
+            }
+            scan_directory(&path, root, db_dir, ignores, files)?;
         } else if path.is_file() {
+            if is_ignored(&path, root, ignores) {
+                continue;
+            }
             if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                 let ext_lower = ext.to_lowercase();
                 if matches!(
@@ -455,14 +498,39 @@ fn scan_directory(dir: &Path, db_dir: &Path, files: &mut Vec<PathBuf>) -> io::Re
     Ok(())
 }
 
+/// Locates lib/lume_extractor.py. The script ships with the lume source tree,
+/// so a cwd-relative path only works when invoked from the repo root — resolve
+/// against the executable's location instead (target/release/lume.exe →
+/// ancestors → repo root), with LUME_EXTRACTOR_PATH as an explicit override
+/// for installs that relocate the script.
+fn find_extractor_script() -> PathBuf {
+    if let Ok(p) = env::var("LUME_EXTRACTOR_PATH") {
+        let p = PathBuf::from(p);
+        if p.exists() {
+            return p;
+        }
+        eprintln!("[⚠️] LUME_EXTRACTOR_PATH is set but {} does not exist; falling back to auto-detection", p.display());
+    }
+    if let Ok(exe) = env::current_exe() {
+        for dir in exe.ancestors().skip(1) {
+            let candidate = dir.join("lib").join("lume_extractor.py");
+            if candidate.exists() {
+                return candidate;
+            }
+        }
+    }
+    PathBuf::from("lib/lume_extractor.py")
+}
+
 fn run_extractor_pdf(pdf_path: &Path) -> Result<Vec<Section>, String> {
+    let script = find_extractor_script();
     let output = Command::new("uv")
         .arg("run")
-        .arg("lib/lume_extractor.py")
+        .arg(&script)
         .arg("pdf")
         .arg(pdf_path)
         .output()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("Failed to spawn `uv run {}`: {}", script.display(), e))?;
 
     if !output.status.success() {
         return Err(format!("Python extractor failed: {}", String::from_utf8_lossy(&output.stderr)));
@@ -680,16 +748,27 @@ fn read_text_tolerant(path: &Path) -> Result<Option<String>, String> {
 /// the db dir. Called periodically during long `-o`/`-s` runs so the index is
 /// searchable while indexing is still in progress, and once at the end.
 /// Returns the number of sections written.
+/// Flattens cached per-file sections into one Vec in path-sorted order.
+/// Section ordering MUST be deterministic: semantic hits map back to sections
+/// by index (`source` = section idx), so the ingest pass and every bm25
+/// rebuild have to agree on the order. HashMap iteration does not.
+fn collect_all_sections(cached_files: &HashMap<String, (u64, Vec<Section>)>) -> Vec<Section> {
+    let mut paths: Vec<&String> = cached_files.keys().collect();
+    paths.sort();
+    let mut all_sections = Vec::new();
+    for path in paths {
+        all_sections.extend(cached_files[path].1.clone());
+    }
+    all_sections
+}
+
 fn flush_searchable_indexes(
     cached_files: &HashMap<String, (u64, Vec<Section>)>,
     tagger: Option<&Tagger>,
     tagger_phrases: &[String],
     db_path: &Path,
 ) -> Result<usize, String> {
-    let mut all_sections = Vec::new();
-    for (_, sections) in cached_files.values() {
-        all_sections.extend(sections.clone());
-    }
+    let all_sections = collect_all_sections(cached_files);
     if all_sections.is_empty() {
         return Ok(0);
     }
@@ -712,6 +791,19 @@ fn flush_searchable_indexes(
 /// Minimum time between mid-run searchable-index flushes.
 const FLUSH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// Formats a duration in seconds as a compact human-readable ETA ("47s",
+/// "3m12s", "1h05m").
+fn format_eta(secs: f64) -> String {
+    let s = secs.max(0.0) as u64;
+    if s >= 3600 {
+        format!("{}h{:02}m", s / 3600, (s % 3600) / 60)
+    } else if s >= 60 {
+        format!("{}m{:02}s", s / 60, s % 60)
+    } else {
+        format!("{}s", s)
+    }
+}
+
 fn run_indexing(
     target_dir: &str,
     db_dir: &str,
@@ -732,10 +824,16 @@ fn run_indexing(
 
     let db_path = Path::new(db_dir);
     fs::create_dir_all(db_path).map_err(|e| format!("Failed to create db dir: {}", e))?;
+    // Session/semantic caches live with the index, not in the process cwd.
+    lume::hybrid::set_cache_dir(db_path);
 
     let scan_start = Instant::now();
+    let ignores = load_lumeignore(target_path);
+    if !ignores.is_empty() {
+        println!("[🚫] .lumeignore active ({} patterns): {}", ignores.len(), ignores.join(", "));
+    }
     let mut files = Vec::new();
-    scan_directory(target_path, db_path, &mut files).map_err(|e| format!("Failed to scan directory: {}", e))?;
+    scan_directory(target_path, target_path, db_path, &ignores, &mut files).map_err(|e| format!("Failed to scan directory: {}", e))?;
     let scan_duration = scan_start.elapsed();
     let total_files = files.len();
     println!("[📁] Scanned {} indexable files in {:?}", total_files, scan_duration);
@@ -826,170 +924,6 @@ fn run_indexing(
                 }
             }
 
-            if ollama_entities {
-                let num_sections = sections.len();
-                let ollama_start_all = Instant::now();
-
-                struct ExtractTask {
-                    sec_idx: usize,
-                    title: String,
-                    body: String,
-                }
-
-                let mut skipped = 0usize;
-                let mut tasks: Vec<ExtractTask> = Vec::new();
-                for (sec_idx, sec) in sections.iter().enumerate() {
-                    let chunk_num = sec_idx + 1;
-                    if let Some((start, end)) = chunk_range {
-                        if chunk_num < start || chunk_num > end {
-                            continue;
-                        }
-                    }
-                    if !sec.entities.is_empty() {
-                        skipped += 1;
-                        continue;
-                    }
-                    tasks.push(ExtractTask {
-                        sec_idx,
-                        title: sec.title.clone(),
-                        body: sec.body.clone(),
-                    });
-                }
-
-                let total = tasks.len();
-                println!(
-                    "[🧠] Extracting AI entities using Ollama ({}) — {} pending, {} cached, {} chunks total...",
-                    ollama_model, total, skipped, num_sections
-                );
-
-                if total > 0 {
-                    use std::sync::{mpsc, Arc, Mutex};
-
-                    // Default 10 concurrent Ollama calls; tune with
-                    // LUME_EXTRACT_WORKERS (e.g. lower for local models bound
-                    // by OLLAMA_NUM_PARALLEL, higher for cloud relays).
-                    const EXTRACT_WORKERS: usize = 10;
-                    let num_workers = std::env::var("LUME_EXTRACT_WORKERS")
-                        .ok()
-                        .and_then(|s| s.parse::<usize>().ok())
-                        .filter(|&n| n >= 1)
-                        .unwrap_or(EXTRACT_WORKERS)
-                        .min(total);
-                    let tasks = Arc::new(tasks);
-                    let next_task = Arc::new(Mutex::new(0usize));
-                    let (tx, rx) = mpsc::channel();
-
-                    let mut ok_count = 0usize;
-                    let mut fail_count = 0usize;
-
-                    std::thread::scope(|s| {
-                        for worker_id in 0..num_workers {
-                            let tasks = Arc::clone(&tasks);
-                            let next_task = Arc::clone(&next_task);
-                            let tx = tx.clone();
-                            let ollama_url = &ollama_url;
-                            let ollama_model = &ollama_model;
-                            s.spawn(move || loop {
-                                let idx = {
-                                    let mut lock = next_task.lock().unwrap();
-                                    let idx = *lock;
-                                    if idx >= tasks.len() {
-                                        break;
-                                    }
-                                    *lock += 1;
-                                    idx
-                                };
-                                let task = &tasks[idx];
-                                let started = Instant::now();
-                                let result = run_extractor_entities(&task.body, ollama_url, ollama_model);
-                                if tx
-                                    .send((worker_id, task.sec_idx, task.title.clone(), result, started.elapsed()))
-                                    .is_err()
-                                {
-                                    break;
-                                }
-                            });
-                        }
-                        drop(tx);
-
-                        // Collector: the only thread that touches `sections`,
-                        // `cached_files`, and stdout, so progress lines stay
-                        // whole and state.json checkpoints never race. The
-                        // receiver loop ends when every worker has dropped its
-                        // sender.
-                        let mut done = 0usize;
-                        for (worker_id, sec_idx, title, result, elapsed) in rx.iter() {
-                            done += 1;
-                            match result {
-                                Ok(mut ents) => {
-                                    ok_count += 1;
-                                    if ents.is_empty() {
-                                        ents.push("__LUME_PROCESSED__".to_string());
-                                        println!(
-                                            "  [🧠] [{}/{}] [w{}] '{}' — no entities (marked processed) in {:?}",
-                                            done, total, worker_id, title, elapsed
-                                        );
-                                    } else {
-                                        println!(
-                                            "  [🧠] [{}/{}] [w{}] '{}' — {} entities in {:?}: {:?}",
-                                            done, total, worker_id, title, ents.len(), elapsed, ents
-                                        );
-                                    }
-                                    sections[sec_idx].entities = ents;
-
-                                    // Checkpoint state.json so an interrupted
-                                    // run resumes from the last completed chunk.
-                                    cached_files.insert(path_str.clone(), (mtime, sections.clone()));
-                                    let temp_state = IndexState {
-                                        target_dir: target_dir.to_string(),
-                                        db_dir: db_dir.to_string(),
-                                        semantic_enabled,
-                                        ollama_entities,
-                                        ollama_model: ollama_model.clone(),
-                                        ollama_url: ollama_url.clone(),
-                                        tag_dict_path: tag_dict_path.clone(),
-                                        semantic_session_id: None,
-                                        cached_files: cached_files.clone(),
-                                    };
-                                    let _ = save_json(&db_path.join("state.json"), &temp_state);
-
-                                    // Periodically rewrite the searchable
-                                    // indexes so long extraction runs can be
-                                    // queried while still in progress.
-                                    if last_flush.elapsed() >= FLUSH_INTERVAL {
-                                        match flush_searchable_indexes(&cached_files, tagger.as_ref(), &tagger_phrases, db_path) {
-                                            Ok(n) => println!("  [💾] Searchable index flushed mid-run ({} sections)", n),
-                                            Err(e) => eprintln!("  [⚠️] Mid-run index flush failed: {}", e),
-                                        }
-                                        last_flush = Instant::now();
-                                    }
-                                }
-                                Err(err) => {
-                                    fail_count += 1;
-                                    println!(
-                                        "  [🧠] [{}/{}] [w{}] '{}' — Failed in {:?}: {}",
-                                        done, total, worker_id, title, elapsed, err
-                                    );
-                                }
-                            }
-                        }
-                    });
-
-                    let elapsed_all = ollama_start_all.elapsed();
-                    let rate = if elapsed_all.as_secs_f64() > 0.0 {
-                        ok_count as f64 / elapsed_all.as_secs_f64()
-                    } else {
-                        0.0
-                    };
-                    println!(
-                        "[🕒] Entity extraction for {}: {} extracted, {} cached, {} failed in {:?} ({:.2} chunks/s, {} workers)",
-                        path_str, ok_count, skipped, fail_count, elapsed_all, rate, num_workers
-                    );
-                } else {
-                    println!("[🕒] Entity extraction for {}: all {} eligible chunks already cached.", path_str, skipped);
-                }
-            }
-
             cached_files.insert(path_str, (mtime, sections));
             files_indexed += 1;
 
@@ -1011,10 +945,7 @@ fn run_indexing(
         }
     }
 
-    let mut all_sections = Vec::new();
-    for (_, sections) in cached_files.values() {
-        all_sections.extend(sections.clone());
-    }
+    let all_sections = collect_all_sections(&cached_files);
 
     if all_sections.is_empty() {
         println!("[⚠️] No sections to index.");
@@ -1026,6 +957,10 @@ fn run_indexing(
         all_sections.len(), files_indexed, files_skipped_binary, total_files
     );
 
+    // ── Pass 2: semantic ingest BEFORE entity extraction ──
+    // Embeddings depend only on chunked text, not on entities, so with -s -o
+    // the dense vectors are available for hybrid search while extraction is
+    // still grinding.
     let mut semantic_session_id = None;
     if semantic_enabled {
         let semantic_start = Instant::now();
@@ -1039,7 +974,7 @@ fn run_indexing(
             // matched and every hybrid search silently re-ingested the corpus.
             let (corpus_size, corpus_mtime) =
                 lume::hybrid::get_corpus_metadata(target_path).unwrap_or((0, 0));
-            match lume::hybrid::initialize_and_ingest_session(
+            match lume::hybrid::ensure_semantic_session(
                 target_dir,
                 &all_sections,
                 corpus_size,
@@ -1056,6 +991,209 @@ fn run_indexing(
             }
         } else {
             eprintln!("[⚠️] NUTS_SERVICES_TOKEN not found. Semantic indexing skipped.");
+        }
+    }
+
+    // Make the db searchable (and the semantic session visible to the search
+    // gate) before the slow extraction pass begins.
+    let early_flush_start = Instant::now();
+    let early_count = flush_searchable_indexes(&cached_files, tagger.as_ref(), &tagger_phrases, db_path)?;
+    let early_state = IndexState {
+        target_dir: target_dir.to_string(),
+        db_dir: db_dir.to_string(),
+        semantic_enabled,
+        ollama_entities,
+        ollama_model: ollama_model.clone(),
+        ollama_url: ollama_url.clone(),
+        tag_dict_path: tag_dict_path.clone(),
+        semantic_session_id: semantic_session_id.clone(),
+        cached_files: cached_files.clone(),
+    };
+    save_json(&db_path.join("state.json"), &early_state)?;
+    println!(
+        "[💾] Index searchable: {} sections written to {} in {:?}",
+        early_count, db_dir, early_flush_start.elapsed()
+    );
+    last_flush = Instant::now();
+
+    // ── Pass 3: corpus-wide entity extraction ──
+    // One worklist across every file keeps all workers busy even when the
+    // corpus is thousands of small files.
+    if ollama_entities {
+        struct ExtractTask {
+            file_path: String,
+            sec_idx: usize,
+            title: String,
+            body: String,
+        }
+
+        let mut skipped = 0usize;
+        let mut tasks: Vec<ExtractTask> = Vec::new();
+        {
+            let mut paths: Vec<&String> = cached_files.keys().collect();
+            paths.sort();
+            for path in paths {
+                for (sec_idx, sec) in cached_files[path].1.iter().enumerate() {
+                    // Chunk-range numbering stays per-file, as before.
+                    let chunk_num = sec_idx + 1;
+                    if let Some((start, end)) = chunk_range {
+                        if chunk_num < start || chunk_num > end {
+                            continue;
+                        }
+                    }
+                    if !sec.entities.is_empty() {
+                        skipped += 1;
+                        continue;
+                    }
+                    tasks.push(ExtractTask {
+                        file_path: path.clone(),
+                        sec_idx,
+                        title: sec.title.clone(),
+                        body: sec.body.clone(),
+                    });
+                }
+            }
+        }
+
+        let total = tasks.len();
+        let ollama_start_all = Instant::now();
+        println!(
+            "[🧠] Extracting AI entities using Ollama ({}) — {} pending, {} cached, across {} files...",
+            ollama_model, total, skipped, cached_files.len()
+        );
+
+        if total > 0 {
+            use std::sync::{mpsc, Arc, Mutex};
+
+            // Default 10 concurrent Ollama calls; tune with
+            // LUME_EXTRACT_WORKERS (e.g. lower for local models bound by
+            // OLLAMA_NUM_PARALLEL, higher for cloud relays).
+            const EXTRACT_WORKERS: usize = 10;
+            let num_workers = std::env::var("LUME_EXTRACT_WORKERS")
+                .ok()
+                .and_then(|s| s.parse::<usize>().ok())
+                .filter(|&n| n >= 1)
+                .unwrap_or(EXTRACT_WORKERS)
+                .min(total);
+            let tasks = Arc::new(tasks);
+            let next_task = Arc::new(Mutex::new(0usize));
+            let (tx, rx) = mpsc::channel();
+
+            let mut ok_count = 0usize;
+            let mut fail_count = 0usize;
+
+            std::thread::scope(|s| {
+                for worker_id in 0..num_workers {
+                    let tasks = Arc::clone(&tasks);
+                    let next_task = Arc::clone(&next_task);
+                    let tx = tx.clone();
+                    let ollama_url = &ollama_url;
+                    let ollama_model = &ollama_model;
+                    s.spawn(move || loop {
+                        let idx = {
+                            let mut lock = next_task.lock().unwrap();
+                            let idx = *lock;
+                            if idx >= tasks.len() {
+                                break;
+                            }
+                            *lock += 1;
+                            idx
+                        };
+                        let started = Instant::now();
+                        let result = run_extractor_entities(&tasks[idx].body, ollama_url, ollama_model);
+                        if tx.send((worker_id, idx, result, started.elapsed())).is_err() {
+                            break;
+                        }
+                    });
+                }
+                drop(tx);
+
+                // Collector: the only thread that touches `cached_files` and
+                // stdout, so progress lines stay whole and state.json
+                // checkpoints never race. The receiver loop ends when every
+                // worker has dropped its sender.
+                let mut done = 0usize;
+                for (worker_id, task_idx, result, elapsed) in rx.iter() {
+                    let task = &tasks[task_idx];
+                    let file_label = Path::new(&task.file_path)
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or(task.file_path.as_str());
+                    done += 1;
+                    // ETA from observed throughput: remaining chunks × average
+                    // seconds per completed chunk this run.
+                    let run_elapsed = ollama_start_all.elapsed().as_secs_f64();
+                    let eta = format_eta((total - done) as f64 * run_elapsed / done as f64);
+                    match result {
+                        Ok(mut ents) => {
+                            ok_count += 1;
+                            if ents.is_empty() {
+                                ents.push("__LUME_PROCESSED__".to_string());
+                                println!(
+                                    "  [🧠] [{}/{}] [w{}] {} '{}' — no entities (marked processed) in {:?} | ETA {}",
+                                    done, total, worker_id, file_label, task.title, elapsed, eta
+                                );
+                            } else {
+                                println!(
+                                    "  [🧠] [{}/{}] [w{}] {} '{}' — {} entities in {:?} | ETA {} : {:?}",
+                                    done, total, worker_id, file_label, task.title, ents.len(), elapsed, eta, ents
+                                );
+                            }
+                            if let Some((_, sections)) = cached_files.get_mut(&task.file_path) {
+                                if let Some(sec) = sections.get_mut(task.sec_idx) {
+                                    sec.entities = ents;
+                                }
+                            }
+
+                            // Checkpoint state.json (preserving the semantic
+                            // session id) so an interrupted run resumes from
+                            // the last completed chunk.
+                            let temp_state = IndexState {
+                                target_dir: target_dir.to_string(),
+                                db_dir: db_dir.to_string(),
+                                semantic_enabled,
+                                ollama_entities,
+                                ollama_model: ollama_model.clone(),
+                                ollama_url: ollama_url.clone(),
+                                tag_dict_path: tag_dict_path.clone(),
+                                semantic_session_id: semantic_session_id.clone(),
+                                cached_files: cached_files.clone(),
+                            };
+                            let _ = save_json(&db_path.join("state.json"), &temp_state);
+
+                            // Periodically rewrite the searchable indexes so
+                            // long extraction runs can be queried mid-flight.
+                            if last_flush.elapsed() >= FLUSH_INTERVAL {
+                                match flush_searchable_indexes(&cached_files, tagger.as_ref(), &tagger_phrases, db_path) {
+                                    Ok(n) => println!("  [💾] Searchable index flushed mid-run ({} sections)", n),
+                                    Err(e) => eprintln!("  [⚠️] Mid-run index flush failed: {}", e),
+                                }
+                                last_flush = Instant::now();
+                            }
+                        }
+                        Err(err) => {
+                            fail_count += 1;
+                            println!(
+                                "  [🧠] [{}/{}] [w{}] {} '{}' — Failed in {:?} | ETA {} : {}",
+                                done, total, worker_id, file_label, task.title, elapsed, eta, err
+                            );
+                        }
+                    }
+                }
+            });
+
+            let elapsed_all = ollama_start_all.elapsed();
+            let rate = if elapsed_all.as_secs_f64() > 0.0 {
+                ok_count as f64 / elapsed_all.as_secs_f64()
+            } else {
+                0.0
+            };
+            println!(
+                "[🕒] Entity extraction: {} extracted, {} cached, {} failed in {:?} ({:.2} chunks/s, {} workers)",
+                ok_count, skipped, fail_count, elapsed_all, rate, num_workers
+            );
+        } else {
+            println!("[🕒] Entity extraction: all {} eligible chunks already cached.", skipped);
         }
     }
 
@@ -1154,6 +1292,8 @@ fn handle_search(args: &[String]) -> Result<(), String> {
     if !state_file_path.exists() {
         return Err(format!("Index state file not found at {}. Index the directory first.", state_file_path.display()));
     }
+    // Session/semantic caches live with the index, not in the process cwd.
+    lume::hybrid::set_cache_dir(db_path);
 
     let state: IndexState = load_json(&state_file_path)?;
     let bm25: Bm25Index = load_json(&db_path.join("bm25.json"))?;
@@ -1183,6 +1323,13 @@ fn handle_search(args: &[String]) -> Result<(), String> {
     let skg_scores = compute_skg_for_search(&bm25, db_path, &corrected_query, beta);
 
     let token_opt = lume::hybrid::load_nuts_token();
+    // Tell the caller explicitly when the semantic leg can't engage — an MCP
+    // client asking for alpha > 0 must be able to see it got lexical-only.
+    if alpha > 0.0 && state.semantic_session_id.is_none() {
+        println!("[⚠️] Semantic search unavailable for this index (no semantic session — index with -s); falling back to lexical BM25.");
+    } else if alpha > 0.0 && token_opt.is_none() {
+        println!("[⚠️] Semantic search unavailable (no NUTS_SERVICES_TOKEN and shivvr endpoint is not local); falling back to lexical BM25.");
+    }
     if let (Some(_sess_id), Some(_token)) = (&state.semantic_session_id, token_opt) {
         if alpha > 0.0 {
             println!("Executing hybrid search (alpha={}, graph={})...", alpha, beta);
