@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef } from "react";
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, Line, Html, Billboard, Text } from "@react-three/drei";
 import * as THREE from "three";
 import { qHsl, OVERLAP, nodeColors, colorOfNode } from "./colors.js";
@@ -10,6 +10,24 @@ const UP = new THREE.Vector3(0, 1, 0);
 const _v = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const EMPTY = new Set();
+
+// --- Hyperspace warp-in ---
+// On each new field the orbs jump in: they start flung far out along their radial
+// direction (stretched into thin streaks) and decelerate hard into place.
+const WARP_DUR = 0.85;      // seconds per orb
+const WARP_STAGGER = 0.30;  // max extra delay, spread across orbs for a cascade
+const easeOutExpo = (p) => (p >= 1 ? 1 : 1 - Math.pow(2, -10 * p));
+// Deterministic 0..1 hash from an integer id (for per-orb stagger / fallback dir).
+const hash01 = (n) => { const x = Math.sin((n + 1) * 12.9898) * 43758.5453; return x - Math.floor(x); };
+
+// Sets the shared warp start-time the first frame after a new field arrives.
+// Registered before the orbs so their useFrame reads a fresh t0 the same frame.
+function WarpClock({ warpRef }) {
+  useFrame(({ clock }) => {
+    if (warpRef.current.pending) { warpRef.current.t0 = clock.elapsedTime; warpRef.current.pending = false; }
+  });
+  return null;
+}
 
 // One white radial-gradient texture, tinted per-halo via the material colour.
 function radialTexture() {
@@ -39,10 +57,44 @@ function Halo({ pos, r, color, k = 1 }) {
   );
 }
 
-function Node({ node, color, halo, haloK, accScale, warp, onHover }) {
+function Node({ node, color, halo, haloK, accScale, warp, onHover, warpRef, center }) {
   const pos = node.pos;
   const isQ = node.is_query;
   const r = node.r ?? (isQ ? 0.3 : 0.2);
+
+  const grpRef = useRef();
+  const meshRef = useRef();
+
+  // Where this orb starts its hyperspace jump: far out along its radial line
+  // from the field centre (random direction if it sits dead-centre), plus its
+  // stagger delay and the unit radial used to orient the streak.
+  const warpIn = useMemo(() => {
+    let dx = pos[0] - center[0], dy = pos[1] - center[1], dz = pos[2] - center[2];
+    let m = Math.hypot(dx, dy, dz);
+    if (m < 1e-3) { // dead-centre: pick a stable pseudo-random direction
+      const a = hash01(node.id) * Math.PI * 2, b = hash01(node.id + 7) * Math.PI - Math.PI / 2;
+      dx = Math.cos(a) * Math.cos(b); dy = Math.sin(b); dz = Math.sin(a) * Math.cos(b); m = 1;
+    }
+    const nx = dx / m, ny = dy / m, nz = dz / m;
+    const dist = 12 + m * 5;
+    const quat = new THREE.Quaternion().setFromUnitVectors(UP, _v.set(nx, ny, nz));
+    return { off: [nx * dist, ny * dist, nz * dist], quat, delay: hash01(node.id) * WARP_STAGGER };
+  }, [pos[0], pos[1], pos[2], center[0], center[1], center[2], node.id]);
+
+  useFrame(({ clock }) => {
+    const g = grpRef.current;
+    if (!g) return;
+    const t0 = warpRef.current.t0;
+    let p = t0 <= -100 ? 1 : (clock.elapsedTime - t0 - warpIn.delay) / WARP_DUR;
+    p = p < 0 ? 0 : p > 1 ? 1 : p;
+    const k = 1 - easeOutExpo(p); // 1 → 0 over the jump
+    g.position.set(warpIn.off[0] * k, warpIn.off[1] * k, warpIn.off[2] * k);
+    if (p < 1 && meshRef.current) {
+      // Streak: stretch along the radial travel axis, thinning out the sides.
+      meshRef.current.quaternion.copy(warpIn.quat);
+      meshRef.current.scale.set(1 / (1 + 2.2 * k), 1 + 7 * k, 1 / (1 + 2.2 * k));
+    }
+  });
 
   // Warp the orb to show motion through the vector space: stretch into an
   // ellipsoid along velocity (with an acceleration pulse).
@@ -70,9 +122,10 @@ function Node({ node, color, halo, haloK, accScale, warp, onHover }) {
   }, [node.acc, pos, accScale]);
 
   return (
-    <group>
+    <group ref={grpRef}>
       {halo && <Halo pos={pos} r={r} color={halo} k={haloK ?? (isQ ? 1 : 0.85)} />}
       <mesh
+        ref={meshRef}
         position={pos}
         quaternion={isQ ? [0, 0, 0, 1] : quat}
         scale={isQ ? [1, 1, 1] : scale}
@@ -140,9 +193,21 @@ function Tooltip({ node, color }) {
   );
 }
 
-export default function VectorField({ nodes, accScale, warp, queryCount, hoveredId, onHover, usedIds, citedIds }) {
+export default function VectorField({ nodes, accScale, warp, queryCount, hoveredId, onHover, usedIds, citedIds, warpKey }) {
   const multi = (queryCount || 1) > 1;
   const used = usedIds || EMPTY, cited = citedIds || EMPTY;
+
+  // Warp-in clock: arm a fresh start time whenever a new field arrives.
+  const warpRef = useRef({ t0: -999, pending: false });
+  useEffect(() => { warpRef.current.pending = true; }, [warpKey]);
+
+  // Field centre the orbs jump in toward (mean of current positions).
+  const center = useMemo(() => {
+    if (!nodes.length) return [0, 0, 0];
+    let x = 0, y = 0, z = 0;
+    for (const n of nodes) { x += n.pos[0]; y += n.pos[1]; z += n.pos[2]; }
+    return [x / nodes.length, y / nodes.length, z / nodes.length];
+  }, [nodes]);
 
   // Shared colour logic (see colors.js) so list + orbs match.
   const colorById = useMemo(() => nodeColors(nodes, multi), [nodes, multi]);
@@ -168,9 +233,10 @@ export default function VectorField({ nodes, accScale, warp, queryCount, hovered
       <pointLight position={[-10, -6, -8]} intensity={50} color="#3344ff" />
       <gridHelper args={[50, 50, "#10131f", "#0a0c14"]} position={[0, -7, 0]} />
 
+      <WarpClock warpRef={warpRef} />
       {nodes.map((n) => (
         <Node key={n.id} node={n} color={colorOf(n)} halo={haloOf(n)} haloK={haloK(n)} accScale={accScale} warp={warp}
-          onHover={(node) => onHover(node ? node.id : null)} />
+          onHover={(node) => onHover(node ? node.id : null)} warpRef={warpRef} center={center} />
       ))}
       <Tooltip node={hoveredLive} color={hoveredLive ? colorOf(hoveredLive) : "#888"} />
 

@@ -97,6 +97,7 @@ export default function App() {
   const [answer, setAnswer] = useState(null);   // { text, used:Set, cites:[ids], model }
   const [agentLog, setAgentLog] = useState([]); // plan/evaluate round lines
   const [question, setQuestion] = useState("");
+  const [warpKey, setWarpKey] = useState(0);    // bumps per new field → triggers warp-in
 
   const wsRef = useRef(null);
 
@@ -120,6 +121,7 @@ export default function App() {
         setStatus("answered");
       } else if (m.type === "meta") {
         setMeta(m);
+        setWarpKey((k) => k + 1); // new field jumps in via hyperspace
         framesRef.current = []; setFrameCount(0); setIdx(0); setPlaying(true);
         const nq = m.nodes.filter((n) => n.is_query).length;
         setStatus(`running · ${nq} quer${nq === 1 ? "y" : "ies"} · ${m.nodes.length - nq} candidates`);
@@ -184,7 +186,7 @@ export default function App() {
     <div className="app">
       <div className="canvas-wrap">
         <VectorField nodes={nodes} accScale={accScale} warp={warp} queryCount={queries.length || 1}
-          hoveredId={hoveredId} onHover={setHoveredId} usedIds={usedIds} citedIds={citedIds} />
+          hoveredId={hoveredId} onHover={setHoveredId} usedIds={usedIds} citedIds={citedIds} warpKey={warpKey} />
       </div>
 
       <div className="panel">

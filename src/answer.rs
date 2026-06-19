@@ -18,7 +18,7 @@ pub fn ollama_chat(url: &str, model: &str, system: &str, user: &str, temperature
             { "role": "user", "content": user },
         ],
         "stream": false,
-        "options": { "temperature": temperature },
+        "options": { "temperature": temperature, "num_ctx": 16384 },
     });
     let resp = ureq::post(&endpoint)
         .set("Content-Type", "application/json")
@@ -47,9 +47,15 @@ fn first_json_span(s: &str, open: char, close: char) -> Option<&str> {
 
 /// Plans 1–3 search queries for the question.
 pub fn plan_queries(url: &str, model: &str, question: &str) -> Result<Vec<String>, String> {
-    let sys = "You are a search query planner for a document search engine. Given a question, \
-output a JSON array of 1 to 3 short keyword search queries (not full sentences) that would \
-retrieve passages answering it. Output ONLY the JSON array, nothing else.";
+    let sys = "You are a search query planner for a full-text search engine over a long narrative \
+document. Given a question, output a JSON array of 2 to 4 SHORT keyword queries (3-6 words each, \
+NOT full sentences) that would retrieve the passage answering it. The text usually describes what \
+happens WITHOUT repeating the question's proper nouns, so DIVERSIFY the queries: \
+(a) one using the key names/entities from the question; \
+(b) one or two using SYNONYMS and the EVENT or ACTION itself, phrased the way the narrative would \
+(e.g. for a death: 'died of starvation grief', 'passed away in poverty'); \
+(c) one naming a likely SECONDARY character, place, or concrete detail involved in the scene. \
+Do NOT repeat the same proper noun in every query. Output ONLY the JSON array, nothing else.";
     let out = ollama_chat(url, model, sys, question, 0.1)?;
     let arr = first_json_span(&out, '[', ']').ok_or_else(|| format!("planner gave no JSON array: {}", out.trim()))?;
     let v: Value = serde_json::from_str(arr).map_err(|e| format!("planner JSON invalid: {}", e))?;
@@ -72,7 +78,9 @@ pub fn evaluate(url: &str, model: &str, question: &str, passages: &str) -> Resul
     let sys = "You judge whether retrieved passages can answer a question. Respond with ONLY a \
 JSON object: {\"sufficient\": true|false, \"queries\": [..], \"note\": \"..\"}. If the passages \
 clearly contain the answer, set sufficient=true and queries=[]. If not, set sufficient=false and \
-give 1-2 NEW short keyword search queries likely to find the missing information.";
+give 2-3 NEW short keyword queries that approach from a DIFFERENT angle than what evidently failed: \
+use synonyms, the event/action as the narrative would phrase it, or a secondary character, place, \
+or concrete detail — rather than rephrasing the question's proper nouns again.";
     let user = format!("QUESTION: {}\n\nPASSAGES:\n{}", question, passages);
     let out = ollama_chat(url, model, sys, &user, 0.1)?;
     let obj = first_json_span(&out, '{', '}').ok_or_else(|| format!("evaluator gave no JSON object: {}", out.trim()))?;

@@ -17,6 +17,9 @@ eval-tmp/
 viz/node_modules/
 viz/dist/
 
+# Secrets (NUTS_SERVICES_TOKEN, etc.) — never commit
+.env
+
 # Build and archive directories
 target/
 target-cli/

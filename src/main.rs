@@ -1792,7 +1792,9 @@ fn handle_answer(args: &[String]) -> Result<(), String> {
     emit(serde_json::json!({ "type": "plan", "round": 1, "queries": queries, "note": "" }));
 
     let sp = lume::stream::StreamParams { steps, candidates, ..Default::default() };
-    let n_feed = 10usize; // passages handed to the model
+    // Passages handed to the model. Scale with -k (capped) so raising candidates
+    // actually widens what the evaluator/answerer can see, instead of a fixed 10.
+    let n_feed = candidates.clamp(10, 20);
 
     let mut cands: Vec<lume::stream::Candidate> = Vec::new();
     let mut round = 1usize;
@@ -1832,7 +1834,7 @@ fn handle_answer(args: &[String]) -> Result<(), String> {
     let mut numbered = String::new();
     for (k, &ci) in fed.iter().enumerate() {
         if let Some(sec) = bm25.sections.get(cands[ci].section_id) {
-            let snip: String = sec.body.split_whitespace().take(130).collect::<Vec<_>>().join(" ");
+            let snip: String = sec.body.split_whitespace().take(180).collect::<Vec<_>>().join(" ");
             numbered.push_str(&format!("[{}] {}: {}\n", k + 1, sec.title.trim(), snip));
         }
     }
@@ -1858,7 +1860,7 @@ fn numbered_passages(bm25: &Bm25Index, cands: &[lume::stream::Candidate], n: usi
     let mut s = String::new();
     for (k, &ci) in ranked.iter().take(n).enumerate() {
         if let Some(sec) = bm25.sections.get(cands[ci].section_id) {
-            let snip: String = sec.body.split_whitespace().take(130).collect::<Vec<_>>().join(" ");
+            let snip: String = sec.body.split_whitespace().take(180).collect::<Vec<_>>().join(" ");
             s.push_str(&format!("[{}] {}: {}\n", k + 1, sec.title.trim(), snip));
         }
     }
