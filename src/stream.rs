@@ -64,6 +64,15 @@ fn wrap_phase(a: f64) -> f64 {
 /// A concept node: its 768-D vector plus oscillator state.
 struct Node {
     label: String,
+    /// Retrieval weight (BM25 + SKG score) shown as the node's label.
+    score: f64,
+    /// Full-ish passage text, surfaced on hover in the viz.
+    text: String,
+    /// Constant per-node display offset so near-identical vectors (which project
+    /// to nearly the same point) don't stack. Applied only to the emitted
+    /// position — kinematics use the true projection, so velocity/acceleration
+    /// (constant-offset-invariant) are unaffected.
+    jitter: [f64; 3],
     v: Vec<f64>,
     theta: f64,
     omega: f64,
@@ -159,6 +168,9 @@ pub fn run(
     let mut nodes: Vec<Node> = Vec::new();
     nodes.push(Node {
         label: format!("◆ {}", truncate(query, 48)),
+        score: 0.0,
+        text: query.to_string(),
+        jitter: [0.0, 0.0, 0.0],
         v: qv.clone(),
         theta: 0.0,
         omega: 0.0,
@@ -172,7 +184,7 @@ pub fn run(
     });
 
     let mut rng = SimpleRng::new();
-    for (sid, _score) in candidate_hits {
+    for (sid, score) in candidate_hits {
         let sec = match bm25.sections.get(*sid) {
             Some(s) => s,
             None => continue,
@@ -183,8 +195,14 @@ pub fn run(
             Err(_) => continue,
         };
         let label = section_label(sec, *sid);
+        // Longer excerpt for the hover tooltip.
+        let text: String = sec.body.split_whitespace().take(70).collect::<Vec<_>>().join(" ");
+        let jitter = jitter_for(*sid);
         nodes.push(Node {
             label,
+            score: *score,
+            text: truncate(&text, 320),
+            jitter,
             v,
             theta: (rng.next_u64() as f64 / u64::MAX as f64) * 2.0 * std::f64::consts::PI - std::f64::consts::PI,
             omega: (rng.next_u64() as f64 / u64::MAX as f64 - 0.5) * 0.1,
@@ -218,7 +236,7 @@ pub fn run(
         ds.sort_by(|a, b| a.partial_cmp(b).unwrap());
         if let Some(med) = ds.get(ds.len() / 2) {
             if *med > EPS {
-                scale = 3.0 / med;
+                scale = 5.5 / med;
             }
         }
     }
@@ -243,7 +261,7 @@ pub fn run(
         "query": query,
         "steps": params.steps,
         "nodes": nodes.iter().enumerate().map(|(i, n)| serde_json::json!({
-            "id": i, "label": n.label, "is_query": n.is_query
+            "id": i, "label": n.label, "score": n.score, "text": n.text, "is_query": n.is_query
         })).collect::<Vec<_>>(),
     }));
 
@@ -370,7 +388,9 @@ pub fn run(
             "nodes": nodes.iter().enumerate().map(|(i, n)| {
                 serde_json::json!({
                     "id": i,
-                    "pos": n.pos,
+                    // Display position carries the constant declutter offset;
+                    // vel/acc are computed from the true projection above.
+                    "pos": [n.pos[0] + n.jitter[0], n.pos[1] + n.jitter[1], n.pos[2] + n.jitter[2]],
                     "vel": n.vel,
                     "acc": n.acc,
                     "phase": n.theta,
@@ -418,6 +438,20 @@ fn cluster_ids(nodes: &[Node]) -> Vec<usize> {
         let next = remap.len();
         *remap.entry(r).or_insert(next)
     }).collect()
+}
+
+/// Deterministic small 3D offset per section id, so near-identical candidate
+/// vectors (e.g. adjacent parts of the same chapter) don't render on top of each
+/// other. Splits a hash into three signed components in ~[-0.6, 0.6].
+fn jitter_for(sid: usize) -> [f64; 3] {
+    let mut h = (sid as u64).wrapping_mul(0x9E3779B97F4A7C15).wrapping_add(0x123456789);
+    let mut comp = || {
+        h ^= h >> 33;
+        h = h.wrapping_mul(0xFF51AFD7ED558CCD);
+        h ^= h >> 33;
+        ((h as f64 / u64::MAX as f64) - 0.5) * 1.2
+    };
+    [comp(), comp(), comp()]
 }
 
 fn truncate(s: &str, max: usize) -> String {

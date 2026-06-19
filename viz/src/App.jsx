@@ -11,10 +11,12 @@ function interpolate(meta, a, b, t) {
   const lerp3 = (p, q) => [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t, p[2] + (q[2] - p[2]) * t];
   return a.nodes.map((na, i) => {
     const nb = (b && b.nodes[i]) || na;
-    const label = meta?.nodes?.[i]?.label;
+    const mn = meta?.nodes?.[i] || {};
     return {
       id: na.id,
-      label,
+      label: mn.label,
+      score: mn.score ?? 0,
+      text: mn.text || "",
       is_query: na.is_query,
       pos: lerp3(na.pos, nb.pos),
       acc: lerp3(na.acc, nb.acc),
@@ -38,7 +40,6 @@ export default function App() {
   const [playing, setPlaying] = useState(true);
   const [speed, setSpeed] = useState(1.2);
   const [accScale, setAccScale] = useState(120);
-  const [showLabels, setShowLabels] = useState(true);
   const [conn, setConn] = useState("connecting");
   const [status, setStatus] = useState("");
 
@@ -103,7 +104,7 @@ export default function App() {
   return (
     <div className="app">
       <div className="canvas-wrap">
-        <VectorField nodes={nodes} accScale={accScale} showLabels={showLabels} />
+        <VectorField nodes={nodes} accScale={accScale} />
       </div>
 
       <div className="panel">
@@ -122,8 +123,7 @@ export default function App() {
             onChange={(e) => setSteps(e.target.value)} title="steps" />
         </div>
         <div className="row">
-          <button onClick={search} disabled={conn !== "connected"}>▶ Search</button>
-          <button className="ghost" onClick={() => setShowLabels((s) => !s)}>{showLabels ? "Hide" : "Show"} labels</button>
+          <button onClick={search} disabled={conn !== "connected"} style={{ flex: 1 }}>▶ Search</button>
         </div>
 
         <div className="stat"><span>phase coherence (R)</span><b>{rGlobal.toFixed(3)}</b></div>
@@ -135,10 +135,11 @@ export default function App() {
           onChange={(e) => setAccScale(Number(e.target.value))} />
 
         <div className="legend">
+          <div>labels = retrieval <b>weight</b> · <b>hover</b> a node for the passage</div>
           <div><span className="dot" style={{ background: "#ffffff" }} /> query · sphere size = cosine to query</div>
           <div><span className="dot" style={{ background: "#36d399" }} /> accelerating <b>toward</b> query &nbsp;
             <span className="dot" style={{ background: "#ff5b6e" }} /> away</div>
-          <div>colors = emergent phase clusters (assemblies)</div>
+          <div>colors = phase clusters · drag = rotate · <b>Ctrl-drag = pan</b> · right-drag = pan · scroll = zoom</div>
         </div>
       </div>
 
