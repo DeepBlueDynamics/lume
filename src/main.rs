@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::env;
 use std::fs::{self, File};
-use std::io::{self, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, Instant};
@@ -100,6 +100,12 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        "eval" => {
+            if let Err(e) = handle_eval(&args[2..]) {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
         "summarize" => {
             if let Err(e) = handle_summarize(&args[2..]) {
                 eprintln!("Error: {}", e);
@@ -118,7 +124,9 @@ fn main() {
                 print_serve_help();
                 return;
             }
-            let mut port = 8000u16;
+            // 5863 = "LUME" on a phone keypad. Unassigned by IANA, and unlike
+            // 8000 nothing else grabs it by default.
+            let mut port = 5863u16;
             if let Some(pos) = args.iter().position(|a| a == "--port" || a == "-p") {
                 if pos + 1 < args.len() {
                     if let Ok(p) = args[pos + 1].parse::<u16>() {
@@ -137,7 +145,7 @@ fn main() {
                 return;
             }
             let mut ollama_url = String::from("http://localhost:11434");
-            let mut ollama_model = String::from("gemma4:2b");
+            let mut ollama_model = String::from("gemma4:31b-cloud");
             let mut verbose = false;
             let mut db_dir = String::from(".lume-index");
             let mut question_parts = Vec::new();
@@ -177,6 +185,9 @@ fn main() {
         "help" | "-h" | "--help" => {
             print_global_help();
         }
+        "version" | "-v" | "--version" => {
+            println!("lume {}", env!("CARGO_PKG_VERSION"));
+        }
         _ => {
             eprintln!("Unknown subcommand: {}", args[1]);
             print_global_help();
@@ -191,7 +202,7 @@ fn print_global_help() {
   | |    | |  | | \  / | |__
   | |    | |  | | |\/| |  __|
   | |____| |__| | |  | | |____
-  |______|\____/|_|  |_|______|  v0.10.0
+  |______|\____/|_|  |_|______|  v{}
 
 High-performance, stateful FST-backed tagger & BM25 hybrid search engine suite.
 
@@ -211,7 +222,8 @@ SUBCOMMANDS:
   agent      Run an autonomous agent loop to answer a question (alias: chat)
   summarize  Agentic document summarizer via planning, search exploration, and synthesis
   crawl      Stealth crawl webpage content and save to personal search collection
-"#);
+  eval       Measure retrieval quality (Hit@k, MRR, nDCG@k) against a Q&A file
+"#, env!("CARGO_PKG_VERSION"));
 }
 
 fn print_index_help() {
@@ -231,10 +243,14 @@ FLAGS:
 OPTIONS:
   --db <PATH>            Path to store the persisted index metadata [default: .lume-index]
   --tag-dict <PATH>      Path to FST phrase dictionary CSV
-  --ollama-model <NAME>  Local Ollama model to use for entity extraction [default: gemma4:2b]
+  --ollama-model <NAME>  Local Ollama model to use for entity extraction [default: gpt-4o-mini:latest]
   --ollama-url <URL>     Ollama API endpoint [default: http://localhost:11434]
   --shivvr-url <URL>     Shivvr endpoint URL [default: http://localhost:8085]
   --chunks <RANGE>       Specific chunk(s) to run entity extraction on (e.g., "2", "1-5", "2-")
+
+ENV:
+  LUME_EXTRACT_WORKERS   Concurrent entity-extraction threads [default: 10]
+  LUME_EXTRACTOR_PATH    Explicit path to lume_extractor.py (default: auto-detect next to the executable)
 
 ARGS:
   <DIR>                  Directory to index (omitted when running 'update')
@@ -257,10 +273,44 @@ OPTIONS:
   -l, --limit <LIMIT>   Max number of search hits [default: 10]
   -a, --alpha <VAL>     Hybrid blending weight: 0.0 (BM25 only) to 1.0 (semantic only) [default: 0.5]
   -g, --graph <VAL>     SKG entity-graph boost weight; 0 disables [default: 0.4, env GRAPH_ALPHA]
+  --scoring <MODE>      SKG edge weighting: 'relatedness' (significance, default) or 'jaccard' (overlap)
   --shivvr-url <URL>    Shivvr endpoint URL [default: http://localhost:8085]
+
+ENV:
+  LUME_QUERY_INVERSION  Set to 1 to print the query's embedding inversion (debug; costs an extra round-trip)
+  LUME_BLEND_NORM       Set to 1 for normalized blending (bm25/max + α·sem + β·skg)
 
 ARGS:
   <QUERY>               Search query string
+"#);
+}
+
+fn print_eval_help() {
+    println!(r#"lume-eval
+Measure retrieval quality against a Q&A file using the lexical BM25 + SKG-graph
+pipeline. Relevance is judged by answer-token containment (no human labels
+needed): a retrieved section counts as relevant when it contains at least
+--threshold of the answer's content tokens.
+
+USAGE:
+  lume eval [FLAGS] [OPTIONS] <QNA_JSON>
+
+FLAGS:
+  -h, --help              Prints help information
+  -c, --spell-check       Spell-correct each question before searching
+  --compare               Run both scoring modes and print the Jaccard vs. relatedness delta
+
+OPTIONS:
+  --db <PATH>             Path to the persisted index metadata [default: .lume-index]
+  -k, --limit <K>         Cut-off for Hit@k / nDCG@k and results retrieved [default: 10]
+  -g, --graph <VAL>       SKG entity-graph boost weight; 0 disables the graph [default: 0.4]
+  --scoring <MODE>        SKG edge weighting: 'relatedness' (default) or 'jaccard' (ignored with --compare)
+  -t, --threshold <VAL>   Answer-token recall needed to count a section relevant [default: 0.5]
+  -n, --max-questions <N> Evaluate only the first N questions (smoke test)
+
+ARGS:
+  <QNA_JSON>              Q&A file: a JSON array of {{question, answer}} objects
+                         (as produced by 'python lib/lume_extractor.py qna')
 "#);
 }
 
@@ -274,7 +324,7 @@ fn handle_index_init(args: &[String]) -> Result<(), String> {
     let mut tag_dict_path: Option<String> = None;
     let mut semantic_enabled = false;
     let mut ollama_entities = false;
-    let mut ollama_model = String::from("gemma4:2b");
+    let mut ollama_model = String::from("gpt-4o-mini:latest");
     let mut ollama_url = String::from("http://localhost:11434");
     let mut force = false;
     let mut dir_to_index: Option<String> = None;
@@ -419,7 +469,39 @@ fn handle_index_update(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn scan_directory(dir: &Path, db_dir: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
+/// Reads `.lumeignore` from the target directory root: one entry per line,
+/// either a bare name (matches any dir/file with that name) or a path
+/// relative to the target root. `#` lines and blanks are skipped.
+fn load_lumeignore(root: &Path) -> Vec<String> {
+    let Ok(content) = fs::read_to_string(root.join(".lumeignore")) else {
+        return Vec::new();
+    };
+    content
+        .lines()
+        .map(|l| l.trim().trim_end_matches('/').replace('\\', "/"))
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect()
+}
+
+fn is_ignored(path: &Path, root: &Path, ignores: &[String]) -> bool {
+    if ignores.is_empty() {
+        return false;
+    }
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let rel = path
+        .strip_prefix(root)
+        .map(|p| p.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_default();
+    ignores.iter().any(|pat| name == pat || rel == *pat)
+}
+
+fn scan_directory(
+    dir: &Path,
+    root: &Path,
+    db_dir: &Path,
+    ignores: &[String],
+    files: &mut Vec<PathBuf>,
+) -> io::Result<()> {
     if !dir.is_dir() {
         return Ok(());
     }
@@ -431,8 +513,14 @@ fn scan_directory(dir: &Path, db_dir: &Path, files: &mut Vec<PathBuf>) -> io::Re
             if name == ".git" || name == "target" || name == ".venv" || name == ".lume-index" || path == db_dir {
                 continue;
             }
-            scan_directory(&path, db_dir, files)?;
+            if is_ignored(&path, root, ignores) {
+                continue;
+            }
+            scan_directory(&path, root, db_dir, ignores, files)?;
         } else if path.is_file() {
+            if is_ignored(&path, root, ignores) {
+                continue;
+            }
             if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                 let ext_lower = ext.to_lowercase();
                 if matches!(
@@ -447,14 +535,39 @@ fn scan_directory(dir: &Path, db_dir: &Path, files: &mut Vec<PathBuf>) -> io::Re
     Ok(())
 }
 
+/// Locates lib/lume_extractor.py. The script ships with the lume source tree,
+/// so a cwd-relative path only works when invoked from the repo root — resolve
+/// against the executable's location instead (target/release/lume.exe →
+/// ancestors → repo root), with LUME_EXTRACTOR_PATH as an explicit override
+/// for installs that relocate the script.
+fn find_extractor_script() -> PathBuf {
+    if let Ok(p) = env::var("LUME_EXTRACTOR_PATH") {
+        let p = PathBuf::from(p);
+        if p.exists() {
+            return p;
+        }
+        eprintln!("[⚠️] LUME_EXTRACTOR_PATH is set but {} does not exist; falling back to auto-detection", p.display());
+    }
+    if let Ok(exe) = env::current_exe() {
+        for dir in exe.ancestors().skip(1) {
+            let candidate = dir.join("lib").join("lume_extractor.py");
+            if candidate.exists() {
+                return candidate;
+            }
+        }
+    }
+    PathBuf::from("lib/lume_extractor.py")
+}
+
 fn run_extractor_pdf(pdf_path: &Path) -> Result<Vec<Section>, String> {
+    let script = find_extractor_script();
     let output = Command::new("uv")
         .arg("run")
-        .arg("lib/lume_extractor.py")
+        .arg(&script)
         .arg("pdf")
         .arg(pdf_path)
         .output()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("Failed to spawn `uv run {}`: {}", script.display(), e))?;
 
     if !output.status.success() {
         return Err(format!("Python extractor failed: {}", String::from_utf8_lossy(&output.stderr)));
@@ -616,6 +729,119 @@ fn load_tagger_csv(path: &Path) -> io::Result<Tagger> {
     Tagger::build(entries)
 }
 
+/// Reads a file as text, tolerating non-UTF-8 content. UTF-16 files (BOM) are
+/// decoded properly; other encodings are decoded lossily; content that still
+/// looks binary (>5% undecodable) yields Ok(None) so the caller can skip the
+/// file instead of aborting the whole indexing run.
+fn read_text_tolerant(path: &Path) -> Result<Option<String>, String> {
+    // Accept the decoded text only if <5% of it is replacement chars / NULs;
+    // otherwise the file is treated as binary.
+    fn accept(s: String) -> Option<String> {
+        let total = s.chars().count();
+        let bad = s.chars().filter(|&c| c == '\u{FFFD}' || c == '\0').count();
+        if total == 0 || bad * 20 > total {
+            None
+        } else if bad > 0 {
+            Some(s.chars().filter(|&c| c != '\u{FFFD}' && c != '\0').collect())
+        } else {
+            Some(s)
+        }
+    }
+
+    let bytes = fs::read(path).map_err(|e| format!("Failed to read file {}: {}", path.display(), e))?;
+    if bytes.is_empty() {
+        return Ok(Some(String::new()));
+    }
+    if bytes.len() >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE {
+        let utf16: Vec<u16> = bytes[2..].chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+        return Ok(accept(String::from_utf16_lossy(&utf16)));
+    }
+    if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
+        let utf16: Vec<u16> = bytes[2..].chunks_exact(2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect();
+        return Ok(accept(String::from_utf16_lossy(&utf16)));
+    }
+    // BOM-less UTF-16: NUL bytes are valid UTF-8, so a UTF-16 file of mostly
+    // ASCII text decodes "successfully" as UTF-8 with a NUL between every
+    // character. If >25% of bytes are NUL, infer endianness from whether the
+    // NULs sit at odd (LE) or even (BE) offsets and decode as UTF-16.
+    let nul_total = bytes.iter().filter(|&&b| b == 0).count();
+    if nul_total * 4 > bytes.len() {
+        let odd_nuls = bytes.iter().skip(1).step_by(2).filter(|&&b| b == 0).count();
+        let utf16: Vec<u16> = if odd_nuls * 2 >= nul_total {
+            bytes.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect()
+        } else {
+            bytes.chunks_exact(2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect()
+        };
+        return Ok(accept(String::from_utf16_lossy(&utf16)));
+    }
+    match String::from_utf8(bytes) {
+        Ok(s) => Ok(accept(s)),
+        Err(e) => Ok(accept(String::from_utf8_lossy(e.as_bytes()).into_owned())),
+    }
+}
+
+/// Rebuilds the searchable index files (bm25.json, spelling.json,
+/// entity_graph.json) from the currently cached sections and writes them to
+/// the db dir. Called periodically during long `-o`/`-s` runs so the index is
+/// searchable while indexing is still in progress, and once at the end.
+/// Returns the number of sections written.
+/// Flattens cached per-file sections into one Vec in path-sorted order.
+/// Section ordering MUST be deterministic: semantic hits map back to sections
+/// by index (`source` = section idx), so the ingest pass and every bm25
+/// rebuild have to agree on the order. HashMap iteration does not.
+fn collect_all_sections(cached_files: &HashMap<String, (u64, Vec<Section>)>) -> Vec<Section> {
+    let mut paths: Vec<&String> = cached_files.keys().collect();
+    paths.sort();
+    let mut all_sections = Vec::new();
+    for path in paths {
+        all_sections.extend(cached_files[path].1.clone());
+    }
+    all_sections
+}
+
+fn flush_searchable_indexes(
+    cached_files: &HashMap<String, (u64, Vec<Section>)>,
+    tagger: Option<&Tagger>,
+    tagger_phrases: &[String],
+    db_path: &Path,
+) -> Result<usize, String> {
+    let all_sections = collect_all_sections(cached_files);
+    if all_sections.is_empty() {
+        return Ok(0);
+    }
+    let count = all_sections.len();
+    let bm25 = Bm25Index::build(all_sections, tagger);
+    let corpus_terms: Vec<Vec<u8>> = bm25.posting_lists.keys().cloned().collect();
+    let spelling = SpellIndex::build(tagger_phrases, &corpus_terms);
+    let entity_graph = EntityGraph::build(
+        &bm25.entity_posting_lists,
+        &bm25.entity_kinds,
+        &bm25.entity_labels,
+        0.1,
+        bm25.sections.len(),
+    );
+    save_json(&db_path.join("bm25.json"), &bm25)?;
+    save_json(&db_path.join("spelling.json"), &spelling)?;
+    save_json(&db_path.join("entity_graph.json"), &entity_graph)?;
+    Ok(count)
+}
+
+/// Minimum time between mid-run searchable-index flushes.
+const FLUSH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Formats a duration in seconds as a compact human-readable ETA ("47s",
+/// "3m12s", "1h05m").
+fn format_eta(secs: f64) -> String {
+    let s = secs.max(0.0) as u64;
+    if s >= 3600 {
+        format!("{}h{:02}m", s / 3600, (s % 3600) / 60)
+    } else if s >= 60 {
+        format!("{}m{:02}s", s / 60, s % 60)
+    } else {
+        format!("{}s", s)
+    }
+}
+
 fn run_indexing(
     target_dir: &str,
     db_dir: &str,
@@ -636,16 +862,42 @@ fn run_indexing(
 
     let db_path = Path::new(db_dir);
     fs::create_dir_all(db_path).map_err(|e| format!("Failed to create db dir: {}", e))?;
+    // Session/semantic caches live with the index, not in the process cwd.
+    lume::hybrid::set_cache_dir(db_path);
 
     let scan_start = Instant::now();
+    let ignores = load_lumeignore(target_path);
+    if !ignores.is_empty() {
+        println!("[🚫] .lumeignore active ({} patterns): {}", ignores.len(), ignores.join(", "));
+    }
     let mut files = Vec::new();
-    scan_directory(target_path, db_path, &mut files).map_err(|e| format!("Failed to scan directory: {}", e))?;
+    scan_directory(target_path, target_path, db_path, &ignores, &mut files).map_err(|e| format!("Failed to scan directory: {}", e))?;
     let scan_duration = scan_start.elapsed();
-    println!("[📁] Scanned {} indexable files in {:?}", files.len(), scan_duration);
+    let total_files = files.len();
+    println!("[📁] Scanned {} indexable files in {:?}", total_files, scan_duration);
+
+    // Tagger is loaded up front so mid-run index flushes can use it.
+    let mut tagger = None;
+    let mut tagger_phrases = Vec::new();
+    if let Some(ref tag_dict) = tag_dict_path {
+        let tag_dict_p = Path::new(tag_dict);
+        if tag_dict_p.exists() {
+            println!("[📊] Loading tagger dictionary from: {}", tag_dict);
+            let t = load_tagger_csv(tag_dict_p).map_err(|e| format!("Failed to load tagger dictionary: {}", e))?;
+            tagger_phrases = t.phrases().to_vec();
+            tagger = Some(t);
+        } else {
+            eprintln!("[⚠️] Dictionary path {} does not exist. Skipping tagger.", tag_dict);
+        }
+    }
 
     let mut processed_paths = std::collections::HashSet::new();
+    let mut last_flush = Instant::now();
+    let mut files_indexed = 0usize;
+    let mut files_skipped_binary = 0usize;
 
-    for file_path in &files {
+    for (file_num, file_path) in files.iter().enumerate() {
+        let file_progress = format!("[file {}/{}]", file_num + 1, total_files);
         let path_str = file_path.to_string_lossy().to_string();
         processed_paths.insert(path_str.clone());
 
@@ -672,21 +924,27 @@ fn run_indexing(
             let file_start = Instant::now();
             let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
             let mut sections = if ext == "pdf" {
-                println!("[⚙️] Processing PDF file: {}", path_str);
+                println!("[⚙️] {} Processing PDF file: {}", file_progress, path_str);
                 run_extractor_pdf(file_path)?
-            } else if ext == "html" || ext == "htm" {
-                let content = fs::read_to_string(file_path)
-                    .map_err(|e| format!("Failed to read file {}: {}", path_str, e))?;
-                let (_title, cleaned) = lume::crawl::clean_html_to_markdown(&content);
-                let chunks = chunk_text_file(file_path, &cleaned);
-                println!("[⚙️] Processing HTML file (cleaned): {} (parsed into {} chunks)", path_str, chunks.len());
-                chunks
             } else {
-                let content = fs::read_to_string(file_path)
-                    .map_err(|e| format!("Failed to read file {}: {}", path_str, e))?;
-                let chunks = chunk_text_file(file_path, &content);
-                println!("[⚙️] Processing text file: {} (parsed into {} chunks)", path_str, chunks.len());
-                chunks
+                let content = match read_text_tolerant(file_path)? {
+                    Some(c) => c,
+                    None => {
+                        println!("[⚠️] {} Skipping {}: content is not text (binary or undecodable)", file_progress, path_str);
+                        files_skipped_binary += 1;
+                        continue;
+                    }
+                };
+                if ext == "html" || ext == "htm" {
+                    let (_title, cleaned) = lume::crawl::clean_html_to_markdown(&content);
+                    let chunks = chunk_text_file(file_path, &cleaned);
+                    println!("[⚙️] {} Processing HTML file (cleaned): {} (parsed into {} chunks)", file_progress, path_str, chunks.len());
+                    chunks
+                } else {
+                    let chunks = chunk_text_file(file_path, &content);
+                    println!("[⚙️] {} Processing text file: {} (parsed into {} chunks)", file_progress, path_str, chunks.len());
+                    chunks
+                }
             };
             
             let parse_duration = file_start.elapsed();
@@ -704,61 +962,16 @@ fn run_indexing(
                 }
             }
 
-            if ollama_entities {
-                let num_sections = sections.len();
-                let ollama_start_all = Instant::now();
-                println!("[🧠] Extracting AI entities using Ollama ({}) for {} chunks...", ollama_model, num_sections);
-                let mut saved_sections = sections.clone();
-                for (sec_idx, sec) in sections.iter_mut().enumerate() {
-                    let chunk_num = sec_idx + 1;
-                    if let Some((start, end)) = chunk_range {
-                        if chunk_num < start || chunk_num > end {
-                            continue;
-                        }
-                    }
-                    if !sec.entities.is_empty() {
-                        println!("  [🧠] [{}/{}] Skipping '{}' (already extracted)", chunk_num, num_sections, sec.title);
-                        continue;
-                    }
-                    let chunk_start = Instant::now();
-                    print!("  [🧠] [{}/{}] Extracting for '{}'... ", chunk_num, num_sections, sec.title);
-                    let _ = std::io::stdout().flush();
-                    match run_extractor_entities(&sec.body, &ollama_url, &ollama_model) {
-                        Ok(mut ents) => {
-                            let chunk_duration = chunk_start.elapsed();
-                            if ents.is_empty() {
-                                ents.push("__LUME_PROCESSED__".to_string());
-                                println!("Done in {:?} (No entities found, marked processed)", chunk_duration);
-                            } else {
-                                println!("Done in {:?} (Found {} entities: {:?})", chunk_duration, ents.len(), ents);
-                            }
-                            sec.entities = ents.clone();
-                            saved_sections[sec_idx].entities = ents;
-
-                            // Save intermediate state to state.json
-                            cached_files.insert(path_str.clone(), (mtime, saved_sections.clone()));
-                            let temp_state = IndexState {
-                                target_dir: target_dir.to_string(),
-                                db_dir: db_dir.to_string(),
-                                semantic_enabled,
-                                ollama_entities,
-                                ollama_model: ollama_model.clone(),
-                                ollama_url: ollama_url.clone(),
-                                tag_dict_path: tag_dict_path.clone(),
-                                semantic_session_id: None,
-                                cached_files: cached_files.clone(),
-                            };
-                            let _ = save_json(&db_path.join("state.json"), &temp_state);
-                        }
-                        Err(err) => {
-                            println!("Failed: {}", err);
-                        }
-                    }
-                }
-                println!("[🕒] Completed entity extraction for {} in {:?}", path_str, ollama_start_all.elapsed());
-            }
-
             cached_files.insert(path_str, (mtime, sections));
+            files_indexed += 1;
+
+            if last_flush.elapsed() >= FLUSH_INTERVAL {
+                match flush_searchable_indexes(&cached_files, tagger.as_ref(), &tagger_phrases, db_path) {
+                    Ok(n) => println!("[💾] {} Searchable index flushed mid-run ({} sections)", file_progress, n),
+                    Err(e) => eprintln!("[⚠️] Mid-run index flush failed: {}", e),
+                }
+                last_flush = Instant::now();
+            }
         }
     }
 
@@ -770,50 +983,22 @@ fn run_indexing(
         }
     }
 
-    let mut all_sections = Vec::new();
-    for (_, sections) in cached_files.values() {
-        all_sections.extend(sections.clone());
-    }
+    let all_sections = collect_all_sections(&cached_files);
 
     if all_sections.is_empty() {
         println!("[⚠️] No sections to index.");
         return Ok(());
     }
 
-    println!("[📊] Indexing {} sections total...", all_sections.len());
-
-    let mut tagger = None;
-    let mut tagger_phrases = Vec::new();
-    if let Some(ref tag_dict) = tag_dict_path {
-        let tag_dict_p = Path::new(tag_dict);
-        if tag_dict_p.exists() {
-            println!("[📊] Loading tagger dictionary from: {}", tag_dict);
-            let t = load_tagger_csv(tag_dict_p).map_err(|e| format!("Failed to load tagger dictionary: {}", e))?;
-            tagger_phrases = t.phrases().to_vec();
-            tagger = Some(t);
-        } else {
-            eprintln!("[⚠️] Dictionary path {} does not exist. Skipping tagger.", tag_dict);
-        }
-    }
-
-    let bm25_build_start = Instant::now();
-    let bm25 = Bm25Index::build(all_sections.clone(), tagger.as_ref());
-    println!("[📊] BM25 Index built in {:?}", bm25_build_start.elapsed());
-
-    let spelling_build_start = Instant::now();
-    let corpus_terms: Vec<Vec<u8>> = bm25.posting_lists.keys().cloned().collect();
-    let spelling = SpellIndex::build(&tagger_phrases, &corpus_terms);
-    println!("[📊] Spelling Index built in {:?}", spelling_build_start.elapsed());
-
-    let graph_build_start = Instant::now();
-    let entity_graph = EntityGraph::build(
-        &bm25.entity_posting_lists,
-        &bm25.entity_kinds,
-        &bm25.entity_labels,
-        0.1,
+    println!(
+        "[📊] Indexing {} sections total ({} files indexed this run, {} skipped as binary, {} files in corpus)...",
+        all_sections.len(), files_indexed, files_skipped_binary, total_files
     );
-    println!("[📊] Entity Graph built in {:?}", graph_build_start.elapsed());
 
+    // ── Pass 2: semantic ingest BEFORE entity extraction ──
+    // Embeddings depend only on chunked text, not on entities, so with -s -o
+    // the dense vectors are available for hybrid search while extraction is
+    // still grinding.
     let mut semantic_session_id = None;
     if semantic_enabled {
         let semantic_start = Instant::now();
@@ -827,7 +1012,7 @@ fn run_indexing(
             // matched and every hybrid search silently re-ingested the corpus.
             let (corpus_size, corpus_mtime) =
                 lume::hybrid::get_corpus_metadata(target_path).unwrap_or((0, 0));
-            match lume::hybrid::initialize_and_ingest_session(
+            match lume::hybrid::ensure_semantic_session(
                 target_dir,
                 &all_sections,
                 corpus_size,
@@ -847,7 +1032,212 @@ fn run_indexing(
         }
     }
 
+    // Make the db searchable (and the semantic session visible to the search
+    // gate) before the slow extraction pass begins.
+    let early_flush_start = Instant::now();
+    let early_count = flush_searchable_indexes(&cached_files, tagger.as_ref(), &tagger_phrases, db_path)?;
+    let early_state = IndexState {
+        target_dir: target_dir.to_string(),
+        db_dir: db_dir.to_string(),
+        semantic_enabled,
+        ollama_entities,
+        ollama_model: ollama_model.clone(),
+        ollama_url: ollama_url.clone(),
+        tag_dict_path: tag_dict_path.clone(),
+        semantic_session_id: semantic_session_id.clone(),
+        cached_files: cached_files.clone(),
+    };
+    save_json(&db_path.join("state.json"), &early_state)?;
+    println!(
+        "[💾] Index searchable: {} sections written to {} in {:?}",
+        early_count, db_dir, early_flush_start.elapsed()
+    );
+    last_flush = Instant::now();
+
+    // ── Pass 3: corpus-wide entity extraction ──
+    // One worklist across every file keeps all workers busy even when the
+    // corpus is thousands of small files.
+    if ollama_entities {
+        struct ExtractTask {
+            file_path: String,
+            sec_idx: usize,
+            title: String,
+            body: String,
+        }
+
+        let mut skipped = 0usize;
+        let mut tasks: Vec<ExtractTask> = Vec::new();
+        {
+            let mut paths: Vec<&String> = cached_files.keys().collect();
+            paths.sort();
+            for path in paths {
+                for (sec_idx, sec) in cached_files[path].1.iter().enumerate() {
+                    // Chunk-range numbering stays per-file, as before.
+                    let chunk_num = sec_idx + 1;
+                    if let Some((start, end)) = chunk_range {
+                        if chunk_num < start || chunk_num > end {
+                            continue;
+                        }
+                    }
+                    if !sec.entities.is_empty() {
+                        skipped += 1;
+                        continue;
+                    }
+                    tasks.push(ExtractTask {
+                        file_path: path.clone(),
+                        sec_idx,
+                        title: sec.title.clone(),
+                        body: sec.body.clone(),
+                    });
+                }
+            }
+        }
+
+        let total = tasks.len();
+        let ollama_start_all = Instant::now();
+        println!(
+            "[🧠] Extracting AI entities using Ollama ({}) — {} pending, {} cached, across {} files...",
+            ollama_model, total, skipped, cached_files.len()
+        );
+
+        if total > 0 {
+            use std::sync::{mpsc, Arc, Mutex};
+
+            // Default 10 concurrent Ollama calls; tune with
+            // LUME_EXTRACT_WORKERS (e.g. lower for local models bound by
+            // OLLAMA_NUM_PARALLEL, higher for cloud relays).
+            const EXTRACT_WORKERS: usize = 10;
+            let num_workers = std::env::var("LUME_EXTRACT_WORKERS")
+                .ok()
+                .and_then(|s| s.parse::<usize>().ok())
+                .filter(|&n| n >= 1)
+                .unwrap_or(EXTRACT_WORKERS)
+                .min(total);
+            let tasks = Arc::new(tasks);
+            let next_task = Arc::new(Mutex::new(0usize));
+            let (tx, rx) = mpsc::channel();
+
+            let mut ok_count = 0usize;
+            let mut fail_count = 0usize;
+
+            std::thread::scope(|s| {
+                for worker_id in 0..num_workers {
+                    let tasks = Arc::clone(&tasks);
+                    let next_task = Arc::clone(&next_task);
+                    let tx = tx.clone();
+                    let ollama_url = &ollama_url;
+                    let ollama_model = &ollama_model;
+                    s.spawn(move || loop {
+                        let idx = {
+                            let mut lock = next_task.lock().unwrap();
+                            let idx = *lock;
+                            if idx >= tasks.len() {
+                                break;
+                            }
+                            *lock += 1;
+                            idx
+                        };
+                        let started = Instant::now();
+                        let result = run_extractor_entities(&tasks[idx].body, ollama_url, ollama_model);
+                        if tx.send((worker_id, idx, result, started.elapsed())).is_err() {
+                            break;
+                        }
+                    });
+                }
+                drop(tx);
+
+                // Collector: the only thread that touches `cached_files` and
+                // stdout, so progress lines stay whole and state.json
+                // checkpoints never race. The receiver loop ends when every
+                // worker has dropped its sender.
+                let mut done = 0usize;
+                for (worker_id, task_idx, result, elapsed) in rx.iter() {
+                    let task = &tasks[task_idx];
+                    let file_label = Path::new(&task.file_path)
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or(task.file_path.as_str());
+                    done += 1;
+                    // ETA from observed throughput: remaining chunks × average
+                    // seconds per completed chunk this run.
+                    let run_elapsed = ollama_start_all.elapsed().as_secs_f64();
+                    let eta = format_eta((total - done) as f64 * run_elapsed / done as f64);
+                    match result {
+                        Ok(mut ents) => {
+                            ok_count += 1;
+                            if ents.is_empty() {
+                                ents.push("__LUME_PROCESSED__".to_string());
+                                println!(
+                                    "  [🧠] [{}/{}] [w{}] {} '{}' — no entities (marked processed) in {:?} | ETA {}",
+                                    done, total, worker_id, file_label, task.title, elapsed, eta
+                                );
+                            } else {
+                                println!(
+                                    "  [🧠] [{}/{}] [w{}] {} '{}' — {} entities in {:?} | ETA {} : {:?}",
+                                    done, total, worker_id, file_label, task.title, ents.len(), elapsed, eta, ents
+                                );
+                            }
+                            if let Some((_, sections)) = cached_files.get_mut(&task.file_path) {
+                                if let Some(sec) = sections.get_mut(task.sec_idx) {
+                                    sec.entities = ents;
+                                }
+                            }
+
+                            // Checkpoint state.json (preserving the semantic
+                            // session id) so an interrupted run resumes from
+                            // the last completed chunk.
+                            let temp_state = IndexState {
+                                target_dir: target_dir.to_string(),
+                                db_dir: db_dir.to_string(),
+                                semantic_enabled,
+                                ollama_entities,
+                                ollama_model: ollama_model.clone(),
+                                ollama_url: ollama_url.clone(),
+                                tag_dict_path: tag_dict_path.clone(),
+                                semantic_session_id: semantic_session_id.clone(),
+                                cached_files: cached_files.clone(),
+                            };
+                            let _ = save_json(&db_path.join("state.json"), &temp_state);
+
+                            // Periodically rewrite the searchable indexes so
+                            // long extraction runs can be queried mid-flight.
+                            if last_flush.elapsed() >= FLUSH_INTERVAL {
+                                match flush_searchable_indexes(&cached_files, tagger.as_ref(), &tagger_phrases, db_path) {
+                                    Ok(n) => println!("  [💾] Searchable index flushed mid-run ({} sections)", n),
+                                    Err(e) => eprintln!("  [⚠️] Mid-run index flush failed: {}", e),
+                                }
+                                last_flush = Instant::now();
+                            }
+                        }
+                        Err(err) => {
+                            fail_count += 1;
+                            println!(
+                                "  [🧠] [{}/{}] [w{}] {} '{}' — Failed in {:?} | ETA {} : {}",
+                                done, total, worker_id, file_label, task.title, elapsed, eta, err
+                            );
+                        }
+                    }
+                }
+            });
+
+            let elapsed_all = ollama_start_all.elapsed();
+            let rate = if elapsed_all.as_secs_f64() > 0.0 {
+                ok_count as f64 / elapsed_all.as_secs_f64()
+            } else {
+                0.0
+            };
+            println!(
+                "[🕒] Entity extraction: {} extracted, {} cached, {} failed in {:?} ({:.2} chunks/s, {} workers)",
+                ok_count, skipped, fail_count, elapsed_all, rate, num_workers
+            );
+        } else {
+            println!("[🕒] Entity extraction: all {} eligible chunks already cached.", skipped);
+        }
+    }
+
     let save_start = Instant::now();
+    let section_count = flush_searchable_indexes(&cached_files, tagger.as_ref(), &tagger_phrases, db_path)?;
+
     let state = IndexState {
         target_dir: target_dir.to_string(),
         db_dir: db_dir.to_string(),
@@ -859,12 +1249,8 @@ fn run_indexing(
         semantic_session_id,
         cached_files,
     };
-
     save_json(&db_path.join("state.json"), &state)?;
-    save_json(&db_path.join("bm25.json"), &bm25)?;
-    save_json(&db_path.join("spelling.json"), &spelling)?;
-    save_json(&db_path.join("entity_graph.json"), &entity_graph)?;
-    println!("[💾] Index files written to {} in {:?}", db_dir, save_start.elapsed());
+    println!("[💾] Index files written to {} ({} sections) in {:?}", db_dir, section_count, save_start.elapsed());
 
     println!("[⏱️] Total indexing job completed in {:?}", total_start.elapsed());
     Ok(())
@@ -906,6 +1292,8 @@ fn handle_search(args: &[String]) -> Result<(), String> {
         .and_then(|s| s.parse::<f32>().ok())
         .unwrap_or(0.5f32);
     let mut graph_beta: Option<f64> = None;
+    // SKG edge scoring: significance (default) vs legacy Jaccard.
+    let mut use_relatedness = true;
     let mut query_opt: Option<String> = None;
 
     let mut idx = 0;
@@ -926,6 +1314,13 @@ fn handle_search(args: &[String]) -> Result<(), String> {
         } else if (arg == "-g" || arg == "--graph") && idx + 1 < args.len() {
             graph_beta = Some(args[idx + 1].parse::<f64>().map_err(|_| format!("Invalid graph weight: {}", args[idx + 1]))?);
             idx += 2;
+        } else if arg == "--scoring" && idx + 1 < args.len() {
+            use_relatedness = match args[idx + 1].to_lowercase().as_str() {
+                "relatedness" | "significance" | "skg" => true,
+                "jaccard" | "overlap" => false,
+                other => return Err(format!("Invalid --scoring '{}': expected 'relatedness' or 'jaccard'", other)),
+            };
+            idx += 2;
         } else if arg.starts_with('-') {
             return Err(format!("Unknown option: {}", arg));
         } else {
@@ -944,6 +1339,8 @@ fn handle_search(args: &[String]) -> Result<(), String> {
     if !state_file_path.exists() {
         return Err(format!("Index state file not found at {}. Index the directory first.", state_file_path.display()));
     }
+    // Session/semantic caches live with the index, not in the process cwd.
+    lume::hybrid::set_cache_dir(db_path);
 
     let state: IndexState = load_json(&state_file_path)?;
     let bm25: Bm25Index = load_json(&db_path.join("bm25.json"))?;
@@ -970,9 +1367,16 @@ fn handle_search(args: &[String]) -> Result<(), String> {
         Some(v) => v,
         None => std::env::var("GRAPH_ALPHA").ok().and_then(|s| s.parse().ok()).unwrap_or(0.4),
     };
-    let skg_scores = compute_skg_for_search(&bm25, db_path, &corrected_query, beta);
+    let skg_scores = compute_skg_for_search(&bm25, db_path, &corrected_query, beta, use_relatedness);
 
     let token_opt = lume::hybrid::load_nuts_token();
+    // Tell the caller explicitly when the semantic leg can't engage — an MCP
+    // client asking for alpha > 0 must be able to see it got lexical-only.
+    if alpha > 0.0 && state.semantic_session_id.is_none() {
+        println!("[⚠️] Semantic search unavailable for this index (no semantic session — index with -s); falling back to lexical BM25.");
+    } else if alpha > 0.0 && token_opt.is_none() {
+        println!("[⚠️] Semantic search unavailable (no NUTS_SERVICES_TOKEN and shivvr endpoint is not local); falling back to lexical BM25.");
+    }
     if let (Some(_sess_id), Some(_token)) = (&state.semantic_session_id, token_opt) {
         if alpha > 0.0 {
             println!("Executing hybrid search (alpha={}, graph={})...", alpha, beta);
@@ -1025,6 +1429,201 @@ fn handle_search(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// `lume eval <qna.json>` — measures retrieval quality (Hit@k, MRR, nDCG@k) of
+/// the lexical BM25 + SKG-graph pipeline against a Q&A file. Relevance is judged
+/// by answer-token containment (see `lume::eval`). `--compare` runs both SKG
+/// scoring modes so the significance-vs-Jaccard delta is visible.
+fn handle_eval(args: &[String]) -> Result<(), String> {
+    if args.is_empty() || args.iter().any(|a| a == "-h" || a == "--help") {
+        print_eval_help();
+        return Ok(());
+    }
+
+    let mut db_dir = String::from(".lume-index");
+    let mut k = 10usize;
+    let mut beta = 0.4f64;
+    let mut threshold = 0.5f64;
+    let mut use_relatedness = true;
+    let mut compare = false;
+    let mut spell_check = false;
+    let mut max_questions: Option<usize> = None;
+    let mut qna_path_opt: Option<String> = None;
+
+    let mut idx = 0;
+    while idx < args.len() {
+        let arg = &args[idx];
+        match arg.as_str() {
+            "--db" if idx + 1 < args.len() => { db_dir = args[idx + 1].clone(); idx += 2; }
+            "-k" | "--limit" if idx + 1 < args.len() => {
+                k = args[idx + 1].parse().map_err(|_| format!("Invalid limit: {}", args[idx + 1]))?; idx += 2;
+            }
+            "-g" | "--graph" if idx + 1 < args.len() => {
+                beta = args[idx + 1].parse().map_err(|_| format!("Invalid graph weight: {}", args[idx + 1]))?; idx += 2;
+            }
+            "-t" | "--threshold" if idx + 1 < args.len() => {
+                threshold = args[idx + 1].parse().map_err(|_| format!("Invalid threshold: {}", args[idx + 1]))?; idx += 2;
+            }
+            "-n" | "--max-questions" if idx + 1 < args.len() => {
+                max_questions = Some(args[idx + 1].parse().map_err(|_| format!("Invalid count: {}", args[idx + 1]))?); idx += 2;
+            }
+            "--scoring" if idx + 1 < args.len() => {
+                use_relatedness = match args[idx + 1].to_lowercase().as_str() {
+                    "relatedness" | "significance" | "skg" => true,
+                    "jaccard" | "overlap" => false,
+                    other => return Err(format!("Invalid --scoring '{}': expected 'relatedness' or 'jaccard'", other)),
+                };
+                idx += 2;
+            }
+            "--compare" => { compare = true; idx += 1; }
+            "-c" | "--spell-check" => { spell_check = true; idx += 1; }
+            other if other.starts_with('-') => return Err(format!("Unknown option: {}", other)),
+            _ => {
+                if qna_path_opt.is_some() {
+                    return Err(format!("Too many positional arguments: {}", arg));
+                }
+                qna_path_opt = Some(arg.clone());
+                idx += 1;
+            }
+        }
+    }
+
+    let qna_path = qna_path_opt.ok_or_else(|| String::from("Missing Q&A file path"))?;
+
+    // Load the Q&A set (UTF-8-tolerant: cp1252 smart quotes won't abort).
+    let qna_bytes = std::fs::read(&qna_path).map_err(|e| format!("Failed to read {}: {}", qna_path, e))?;
+    let mut questions = lume::eval::parse_qna(&qna_bytes)?;
+    if let Some(n) = max_questions {
+        questions.truncate(n);
+    }
+
+    // Load the index.
+    let db_path = Path::new(&db_dir);
+    let state_file_path = db_path.join("state.json");
+    if !state_file_path.exists() {
+        return Err(format!("Index state file not found at {}. Index the corpus first.", state_file_path.display()));
+    }
+    lume::hybrid::set_cache_dir(db_path);
+    let state: IndexState = load_json(&state_file_path)?;
+    let bm25: Bm25Index = load_json(&db_path.join("bm25.json"))?;
+    let spelling: SpellIndex = load_json(&db_path.join("spelling.json"))?;
+    let graph: Option<EntityGraph> = load_json(&db_path.join("entity_graph.json")).ok();
+
+    let mut tagger = None;
+    if let Some(ref tag_dict) = state.tag_dict_path {
+        let p = Path::new(tag_dict);
+        if p.exists() {
+            tagger = load_tagger_csv(p).ok();
+        }
+    }
+
+    let graph_edges = graph.as_ref().map(|g| g.edges.len()).unwrap_or(0);
+    println!("\n\x1B[1;36m═══ Lume Retrieval Evaluation ═══\x1B[0m");
+    println!("  Corpus      : {} ({} sections)", state.target_dir, bm25.sections.len());
+    println!("  Q&A file    : {} ({} questions)", qna_path, questions.len());
+    println!("  Graph       : {} edges  |  graph β = {}", graph_edges, beta);
+    println!("  Relevance   : answer-token recall ≥ {:.2}  |  metrics @{}", threshold, k);
+
+    let run = |use_rel: bool| -> lume::eval::EvalAggregate {
+        run_eval_pass(&bm25, graph.as_ref(), &spelling, tagger.as_ref(),
+            &questions, k, beta, use_rel, threshold, spell_check)
+    };
+
+    if compare {
+        let jac = run(false);
+        let rel = run(true);
+        print_eval_compare(&jac, &rel, k);
+    } else {
+        let agg = run(use_relatedness);
+        let mode = if use_relatedness { "relatedness (significance)" } else { "jaccard (overlap)" };
+        print_eval_report(&agg, k, mode);
+    }
+    Ok(())
+}
+
+/// Runs one evaluation pass over all questions with a fixed SKG scoring mode and
+/// returns the aggregated metrics. Pure lexical BM25 + SKG boost — deterministic
+/// and fully local, which is exactly the leg where edge scoring matters.
+#[allow(clippy::too_many_arguments)]
+fn run_eval_pass(
+    bm25: &Bm25Index,
+    graph: Option<&EntityGraph>,
+    spelling: &SpellIndex,
+    tagger: Option<&Tagger>,
+    questions: &[lume::eval::QnaItem],
+    k: usize,
+    beta: f64,
+    use_relatedness: bool,
+    threshold: f64,
+    spell_check: bool,
+) -> lume::eval::EvalAggregate {
+    let params = Bm25Params::default();
+    let skg_params = lume::graph_search::SkgBoostParams { beta, use_relatedness, ..Default::default() };
+    let mut agg = lume::eval::EvalAggregate::new(k);
+
+    for q in questions {
+        let query = if spell_check { correct_query(spelling, &q.question) } else { q.question.clone() };
+
+        // SKG boost from the question's entities (no-op when β=0 or no graph).
+        let skg_scores = match graph {
+            Some(g) if beta > 0.0 => {
+                lume::graph_search::compute_skg_scores(bm25, g, &query, &skg_params).scores
+            }
+            _ => std::collections::HashMap::new(),
+        };
+
+        let mut hits = bm25.search(&query, SearchVariant::Classic, &params, tagger);
+        lume::graph_search::apply_skg_boost(&mut hits, &skg_scores, beta);
+        hits.truncate(k);
+
+        // Judge each retrieved section by answer-token containment. A question is
+        // skipped (not counted) only when its answer has no content tokens at all.
+        let mut rels: Vec<bool> = Vec::with_capacity(hits.len());
+        let mut judgeable = false;
+        for h in &hits {
+            if let Some(sec) = bm25.sections.get(h.section_index) {
+                match lume::eval::is_relevant(&q.answer, &sec.body, threshold) {
+                    Some(r) => { judgeable = true; rels.push(r); }
+                    None => { rels.clear(); break; }
+                }
+            }
+        }
+        agg.record(if judgeable { Some(rels.as_slice()) } else { None });
+    }
+    agg
+}
+
+fn print_eval_report(agg: &lume::eval::EvalAggregate, k: usize, mode: &str) {
+    println!("\n  \x1B[1mScoring mode: {}\x1B[0m", mode);
+    println!("  ┌──────────────┬─────────┐");
+    println!("  │ Metric       │  Value  │");
+    println!("  ├──────────────┼─────────┤");
+    println!("  │ Questions    │ {:>7} │", agg.judged);
+    println!("  │ Hit@{:<8} │ {:>6.1}% │", k, agg.hit_rate() * 100.0);
+    println!("  │ MRR          │ {:>7.4} │", agg.mrr());
+    println!("  │ nDCG@{:<7} │ {:>7.4} │", k, agg.ndcg());
+    println!("  └──────────────┴─────────┘");
+    if agg.skipped > 0 {
+        println!("  ({} questions skipped — answer had no scorable content tokens)", agg.skipped);
+    }
+}
+
+fn print_eval_compare(jac: &lume::eval::EvalAggregate, rel: &lume::eval::EvalAggregate, k: usize) {
+    let d = |a: f64, b: f64| {
+        let delta = b - a;
+        let color = if delta > 0.0 { "\x1B[32m" } else if delta < 0.0 { "\x1B[31m" } else { "\x1B[0m" };
+        format!("{}{:+.4}\x1B[0m", color, delta)
+    };
+    println!("\n  \x1B[1mScoring comparison ({} questions judged)\x1B[0m", rel.judged);
+    println!("  ┌──────────────┬──────────┬──────────────┬───────────┐");
+    println!("  │ Metric       │  Jaccard │ Relatedness  │   Δ       │");
+    println!("  ├──────────────┼──────────┼──────────────┼───────────┤");
+    println!("  │ Hit@{:<8} │ {:>7.1}% │ {:>11.1}% │ {} │", k, jac.hit_rate() * 100.0, rel.hit_rate() * 100.0, d(jac.hit_rate(), rel.hit_rate()));
+    println!("  │ MRR          │ {:>8.4} │ {:>12.4} │ {} │", jac.mrr(), rel.mrr(), d(jac.mrr(), rel.mrr()));
+    println!("  │ nDCG@{:<7} │ {:>8.4} │ {:>12.4} │ {} │", k, jac.ndcg(), rel.ndcg(), d(jac.ndcg(), rel.ndcg()));
+    println!("  └──────────────┴──────────┴──────────────┴───────────┘");
+    println!("  Δ = relatedness − jaccard (positive favors significance scoring).");
+}
+
 /// Loads the SKG graph and walks it for `query`, returning per-section boost
 /// scores. Returns an empty map (no boost) when `beta <= 0`, the graph file is
 /// missing, or no query entities resolve. Emits a stderr "SKG walk" trace.
@@ -1033,6 +1632,7 @@ fn compute_skg_for_search(
     db_path: &Path,
     query: &str,
     beta: f64,
+    use_relatedness: bool,
 ) -> std::collections::HashMap<usize, f64> {
     use std::collections::HashMap;
     if beta <= 0.0 {
@@ -1050,7 +1650,7 @@ fn compute_skg_for_search(
             return HashMap::new();
         }
     };
-    let params = lume::graph_search::SkgBoostParams { beta, ..Default::default() };
+    let params = lume::graph_search::SkgBoostParams { beta, use_relatedness, ..Default::default() };
     let walk = lume::graph_search::compute_skg_scores(bm25, &graph, query, &params);
     print_skg_walk(&walk, bm25);
     walk.scores
@@ -1492,7 +2092,7 @@ USAGE:
   lume serve [OPTIONS]
 
 OPTIONS:
-  -p, --port <PORT>      Port to bind the HTTP server to [default: 8000]
+  -p, --port <PORT>      Port to bind the HTTP server to [default: 5863 — "LUME" on a phone keypad]
   -h, --help             Prints help information
 "#);
 }
@@ -1507,7 +2107,7 @@ USAGE:
 OPTIONS:
   --db <DIR>                Path to the persisted index database [default: .lume-index]
   --ollama-url <URL>        Ollama API URL [default: http://localhost:11434]
-  --ollama-model <MODEL>    Ollama model name [default: gemma4:2b]
+  --ollama-model <MODEL>    Ollama model name [default: gemma4:31b-cloud]
   -v, --verbose             Print verbose reasoning and tool logs
   -h, --help                Prints help information
 
