@@ -4,23 +4,51 @@ import { OrbitControls, Line, Html, Billboard, Text } from "@react-three/drei";
 import * as THREE from "three";
 
 const fmtWeight = (n) => (Math.abs(n) >= 100 ? n.toFixed(0) : n.toFixed(2));
-const hueColor = (hue, light = 58) => `hsl(${hue}, 85%, ${light}%)`;
+const QHUES = [205, 32, 288, 150, 48];
+const qHsl = (qi, L = 62) => `hsl(${QHUES[qi % QHUES.length]}, 85%, ${L}%)`;
+const OVERLAP = "#ffd23b";
 
 const UP = new THREE.Vector3(0, 1, 0);
 const _v = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 
-function Node({ node, color, accScale, warp, onHover }) {
+// One white radial-gradient texture, tinted per-halo via the material colour.
+function radialTexture() {
+  if (typeof document === "undefined") return null;
+  const s = 128, c = document.createElement("canvas");
+  c.width = c.height = s;
+  const ctx = c.getContext("2d");
+  const g = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+  g.addColorStop(0, "rgba(255,255,255,0.95)");
+  g.addColorStop(0.35, "rgba(255,255,255,0.4)");
+  g.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, s, s);
+  return new THREE.CanvasTexture(c);
+}
+const HALO_TEX = radialTexture();
+
+function Halo({ pos, r, color, k = 1 }) {
+  return (
+    <Billboard position={pos}>
+      <mesh>
+        <planeGeometry args={[r * 6, r * 6]} />
+        <meshBasicMaterial map={HALO_TEX} color={color} transparent opacity={0.75 * k}
+          blending={THREE.AdditiveBlending} depthWrite={false} />
+      </mesh>
+    </Billboard>
+  );
+}
+
+function Node({ node, color, halo, accScale, warp, onHover }) {
   const pos = node.pos;
   const isQ = node.is_query;
-  const r = node.r ?? (isQ ? 0.3 : 0.2); // radius assigned by the layout/physics pass
+  const r = node.r ?? (isQ ? 0.3 : 0.2);
 
-  // Warp the orb to show its motion through the vector space: stretch into an
-  // ellipsoid along the velocity direction (volume roughly preserved), so a
-  // fast-moving / strongly-warped vector visibly elongates toward where it's
-  // heading. Acceleration adds an extra pulse to the stretch.
+  // Warp the orb to show motion through the vector space: stretch into an
+  // ellipsoid along velocity (with an acceleration pulse).
   const { quat, scale } = useMemo(() => {
-    const vel = node.vel;
+    const vel = node.vel || [0, 0, 0];
     const speed = Math.hypot(vel[0], vel[1], vel[2]);
     const accMag = Math.hypot(node.acc[0], node.acc[1], node.acc[2]);
     const s = Math.min(1.6, (speed + 0.5 * accMag) * warp);
@@ -33,7 +61,6 @@ function Node({ node, color, accScale, warp, onHover }) {
     return { quat, scale: [1 - 0.35 * s, 1 + s, 1 - 0.35 * s] };
   }, [node.vel, node.acc, warp]);
 
-  // Acceleration arrow along the 3D acceleration vector.
   const accEnd = useMemo(() => {
     const a = node.acc;
     const mag = Math.hypot(a[0], a[1], a[2]);
@@ -45,6 +72,7 @@ function Node({ node, color, accScale, warp, onHover }) {
 
   return (
     <group>
+      {halo && <Halo pos={pos} r={r} color={halo} k={isQ ? 1 : 0.85} />}
       <mesh
         position={pos}
         quaternion={isQ ? [0, 0, 0, 1] : quat}
@@ -53,32 +81,25 @@ function Node({ node, color, accScale, warp, onHover }) {
         onPointerOut={() => onHover(null)}
       >
         <sphereGeometry args={[r, 32, 32]} />
-        <meshPhysicalMaterial
-          color={color}
-          emissive={color}
+        <meshPhysicalMaterial color={color} emissive={color}
           emissiveIntensity={isQ ? 0.85 : 0.18 + 0.5 * Math.max(0, node.cos_q)}
-          roughness={0.32}
-          metalness={0.25}
-          clearcoat={0.6}
-          clearcoatRoughness={0.3}
-        />
+          roughness={0.32} metalness={0.25} clearcoat={0.6} clearcoatRoughness={0.3} />
       </mesh>
 
       {accEnd && !isQ && (
-        <Line points={[pos, accEnd]} color={color} lineWidth={node.approach_acc < 0 ? 2.6 : 1.2} />
+        <Line points={[pos, accEnd]} color={color} lineWidth={node.approach_acc < 0 ? 2.4 : 1.1} />
       )}
 
-      <Billboard position={[pos[0], pos[1] + r + 0.18, pos[2]]}>
-        <Text fontSize={isQ ? 0.26 : 0.2} color={isQ ? "#ffffff" : color}
-          anchorX="center" anchorY="bottom" outlineWidth={0.014} outlineColor="#05060a">
-          {isQ ? "◆ query" : fmtWeight(node.score)}
+      <Billboard position={[pos[0], pos[1] + r + 0.14, pos[2]]}>
+        <Text fontSize={isQ ? 0.18 : 0.13} color={isQ ? "#ffffff" : color}
+          anchorX="center" anchorY="bottom" outlineWidth={0.01} outlineColor="#05060a">
+          {isQ ? "◆" : fmtWeight(node.score)}
         </Text>
       </Billboard>
     </group>
   );
 }
 
-// Hold Ctrl to switch left-drag from rotate to pan; release to restore.
 function CtrlPanControls() {
   const controls = useRef();
   useEffect(() => {
@@ -89,21 +110,15 @@ function CtrlPanControls() {
     return () => { window.removeEventListener("keydown", onDown); window.removeEventListener("keyup", onUp); };
   }, []);
   return (
-    <OrbitControls
-      ref={controls}
-      makeDefault
-      enablePan
-      enableDamping
-      dampingFactor={0.08}
+    <OrbitControls ref={controls} makeDefault enablePan enableDamping dampingFactor={0.08}
       screenSpacePanning
-      mouseButtons={{ LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }}
-    />
+      mouseButtons={{ LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }} />
   );
 }
 
 function Tooltip({ node, color }) {
   if (!node) return null;
-  const accColor = node.approach_acc < 0 ? "#36d399" : "#ff5b6e";
+  const acc = node.approach_acc < 0 ? "#36d399" : "#ff5b6e";
   return (
     <Html position={node.pos} distanceFactor={10} zIndexRange={[100, 0]} style={{ pointerEvents: "none" }}>
       <div style={{
@@ -114,29 +129,46 @@ function Tooltip({ node, color }) {
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, color: "#9aa1b8" }}>
           <span>weight <b style={{ color: "#fff" }}>{node.is_query ? "—" : fmtWeight(node.score)}</b></span>
           <span>cos<sub>q</sub> <b style={{ color: "#fff" }}>{node.cos_q.toFixed(3)}</b></span>
-          <span style={{ color: accColor }}>d̈ {node.approach_acc >= 0 ? "+" : ""}{node.approach_acc.toFixed(3)}</span>
+          <span style={{ color: acc }}>d̈ {node.approach_acc >= 0 ? "+" : ""}{node.approach_acc.toFixed(3)}</span>
         </div>
+        {node.members && node.members.length > 1 && (
+          <div style={{ color: OVERLAP, marginBottom: 3 }}>★ overlap · queries {node.members.map((q) => q + 1).join(" + ")}</div>
+        )}
         <div style={{ color: "#cfd6ee" }}>{node.text || node.label}</div>
       </div>
     </Html>
   );
 }
 
-export default function VectorField({ nodes, accScale, warp }) {
+export default function VectorField({ nodes, accScale, warp, queryCount }) {
   const [hovered, setHovered] = useState(null);
+  const multi = (queryCount || 1) > 1;
 
-  // Rank candidates by cosine-to-query and spread them across the full spectrum,
-  // so every result gets a distinct colour and relevance-neighbours sit next to
-  // each other on the rainbow (warm = most related to the query).
+  // Single query → full-spectrum colour ordered by relatedness. Multiple queries
+  // → colour by anchor query (overlaps gold), so you can read which query owns
+  // (or shares) each result.
   const colorById = useMemo(() => {
-    const cands = nodes.filter((n) => !n.is_query).slice().sort((a, b) => b.cos_q - a.cos_q);
     const map = new Map();
-    const n = Math.max(1, cands.length - 1);
-    cands.forEach((node, i) => map.set(node.id, hueColor((i / n) * 300)));
+    if (!multi) {
+      const cands = nodes.filter((n) => !n.is_query).slice().sort((a, b) => b.cos_q - a.cos_q);
+      const n = Math.max(1, cands.length - 1);
+      cands.forEach((nd, i) => map.set(nd.id, `hsl(${(i / n) * 300}, 85%, 58%)`));
+    } else {
+      for (const nd of nodes) {
+        if (nd.is_query) continue;
+        if (nd.members && nd.members.length > 1) map.set(nd.id, OVERLAP);
+        else map.set(nd.id, qHsl(nd.query_index, 46 + 30 * Math.max(0, Math.min(1, nd.cos_q))));
+      }
+    }
     return map;
-  }, [nodes]);
+  }, [nodes, multi]);
 
-  const colorOf = (node) => (node.is_query ? "#ffffff" : colorById.get(node.id) || "#888");
+  const colorOf = (nd) => nd.is_query ? (multi ? qHsl(nd.query_index, 66) : "#ffffff") : (colorById.get(nd.id) || "#888");
+  const haloOf = (nd) => {
+    if (nd.is_query) return multi ? qHsl(nd.query_index, 66) : "#9fb4ff";
+    if (nd.members && nd.members.length > 1) return OVERLAP;
+    return null;
+  };
   const hoveredLive = hovered != null ? nodes.find((n) => n.id === hovered.id) || hovered : null;
 
   return (
@@ -149,7 +181,7 @@ export default function VectorField({ nodes, accScale, warp }) {
       <gridHelper args={[50, 50, "#10131f", "#0a0c14"]} position={[0, -7, 0]} />
 
       {nodes.map((n) => (
-        <Node key={n.id} node={n} color={colorOf(n)} accScale={accScale} warp={warp} onHover={setHovered} />
+        <Node key={n.id} node={n} color={colorOf(n)} halo={haloOf(n)} accScale={accScale} warp={warp} onHover={setHovered} />
       ))}
       <Tooltip node={hoveredLive} color={hoveredLive ? colorOf(hoveredLive) : "#888"} />
 

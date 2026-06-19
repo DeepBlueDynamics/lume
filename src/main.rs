@@ -1644,7 +1644,7 @@ fn handle_stream(args: &[String]) -> Result<(), String> {
     let mut candidates = 24usize;
     let mut steps = 160usize;
     let mut beta = 0.4f64;
-    let mut query_opt: Option<String> = None;
+    let mut queries: Vec<String> = Vec::new();
 
     let mut idx = 0;
     while idx < args.len() {
@@ -1660,14 +1660,14 @@ fn handle_stream(args: &[String]) -> Result<(), String> {
             "-g" | "--graph" if idx + 1 < args.len() => {
                 beta = args[idx + 1].parse().map_err(|_| format!("Invalid graph weight: {}", args[idx + 1]))?; idx += 2;
             }
+            "--add" if idx + 1 < args.len() => { queries.push(args[idx + 1].clone()); idx += 2; }
             other if other.starts_with('-') => return Err(format!("Unknown option: {}", other)),
-            _ => {
-                if query_opt.is_some() { return Err(format!("Too many queries: {}", arg)); }
-                query_opt = Some(arg.clone()); idx += 1;
-            }
+            _ => { queries.push(arg.clone()); idx += 1; }
         }
     }
-    let query = query_opt.ok_or_else(|| String::from("Missing search query"))?;
+    if queries.is_empty() {
+        return Err(String::from("Missing search query"));
+    }
 
     let db_path = Path::new(&db_dir);
     let state_file_path = db_path.join("state.json");
@@ -1678,26 +1678,39 @@ fn handle_stream(args: &[String]) -> Result<(), String> {
     let _state: IndexState = load_json(&state_file_path)?;
     let bm25: Bm25Index = load_json(&db_path.join("bm25.json"))?;
 
-    // Quiet candidate retrieval: lexical BM25 + optional SKG boost. Nothing here
-    // touches stdout (the NDJSON channel).
+    // Quiet candidate retrieval per query (BM25 + optional SKG), then union the
+    // results, recording which queries surfaced each section (the overlap set).
+    // Nothing here touches stdout (the NDJSON channel).
     let params = Bm25Params::default();
-    let mut hits = bm25.search(&query, SearchVariant::Classic, &params, None);
-    if beta > 0.0 {
-        if let Ok(graph) = load_json::<EntityGraph>(&db_path.join("entity_graph.json")) {
+    let graph: Option<EntityGraph> = if beta > 0.0 { load_json(&db_path.join("entity_graph.json")).ok() } else { None };
+    // section_id -> (best_score, member query indices)
+    let mut union: std::collections::HashMap<usize, (f64, Vec<usize>)> = std::collections::HashMap::new();
+    let mut order: Vec<usize> = Vec::new();
+    for (qi, q) in queries.iter().enumerate() {
+        let mut hits = bm25.search(q, SearchVariant::Classic, &params, None);
+        if let Some(ref g) = graph {
             let skg_params = lume::graph_search::SkgBoostParams { beta, ..Default::default() };
-            let walk = lume::graph_search::compute_skg_scores(&bm25, &graph, &query, &skg_params);
+            let walk = lume::graph_search::compute_skg_scores(&bm25, g, q, &skg_params);
             lume::graph_search::apply_skg_boost(&mut hits, &walk.scores, beta);
         }
+        hits.truncate(candidates);
+        for h in &hits {
+            let e = union.entry(h.section_index).or_insert_with(|| { order.push(h.section_index); (h.score, Vec::new()) });
+            if h.score > e.0 { e.0 = h.score; }
+            if !e.1.contains(&qi) { e.1.push(qi); }
+        }
     }
-    hits.truncate(candidates);
-    if hits.is_empty() {
-        return Err("no candidates retrieved for query".to_string());
+    if union.is_empty() {
+        return Err("no candidates retrieved for any query".to_string());
     }
-    let candidate_hits: Vec<(usize, f64)> = hits.iter().map(|h| (h.section_index, h.score)).collect();
+    let cands: Vec<lume::stream::Candidate> = order.iter().map(|sid| {
+        let (score, members) = union[sid].clone();
+        lume::stream::Candidate { section_id: *sid, score, members }
+    }).collect();
 
     let sp = lume::stream::StreamParams { steps, candidates, ..Default::default() };
-    eprintln!("[stream] query={:?}  candidates={}  steps={}", query, candidate_hits.len(), steps);
-    lume::stream::run(&bm25, &candidate_hits, &query, &sp)
+    eprintln!("[stream] queries={:?}  union_candidates={}  steps={}", queries, cands.len(), steps);
+    lume::stream::run(&bm25, &queries, &cands, &sp)
 }
 
 fn print_stream_help() {
@@ -1707,17 +1720,19 @@ step) on stdout, for the 3D vector visualizer. Requires a reachable shivvr
 endpoint (used read-only to embed the query and candidates).
 
 USAGE:
-  lume stream [OPTIONS] <QUERY>
+  lume stream [OPTIONS] <QUERY> [--add <QUERY> ...]
 
 OPTIONS:
   --db <PATH>            Path to the persisted index metadata [default: .lume-index]
-  -k, --candidates <N>   Top-N retrieved candidates to animate [default: 24]
+  -k, --candidates <N>   Top-N retrieved candidates per query to animate [default: 24]
   --steps <N>            Relaxation steps (frames) to emit [default: 160]
   -g, --graph <VAL>      SKG graph boost weight for candidate selection [default: 0.4]
+  --add <QUERY>          Additional query (additive search); results union into one field
   --shivvr-url <URL>     Shivvr endpoint URL [default: http://localhost:8085]
 
 ARGS:
-  <QUERY>                Search query string
+  <QUERY>                Search query string (more via --add); candidates retrieved by
+                         more than one query are flagged as overlaps (members)
 
 Each frame is a JSON object: {{type:"frame", step, r_global, nodes:[{{id, pos[3],
 vel[3], acc[3], phase, cos_q, approach_vel, approach_acc, cluster, is_query}}]}}.
