@@ -60,6 +60,25 @@ button:disabled { opacity: 0.5; cursor: default; }
 .legend { margin-top: 10px; font-size: 10px; color: #7b829a; line-height: 1.5; }
 .legend .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
 
+button.ask { background: linear-gradient(135deg, #7c4dff, #2b5cff); color: #fff; }
+
+/* Agentic answer panel (bottom-left), above the playback controls. */
+.answer-panel { position: absolute; left: 16px; bottom: 64px; z-index: 10; width: 360px;
+  max-height: 44%; overflow-y: auto; background: rgba(12, 14, 22, 0.86); border: 1px solid #2a2150;
+  border-radius: 12px; padding: 12px 14px; backdrop-filter: blur(8px); }
+.ap-q { font-size: 13px; color: #c9b8ff; margin-bottom: 6px; }
+.ap-log { font-size: 10px; color: #7b829a; margin-bottom: 8px; border-left: 2px solid #2a2150; padding-left: 8px; }
+.ap-plan { color: #9aa1b8; } .ap-eval { color: #6f779a; }
+.ap-answer { font-size: 12.5px; line-height: 1.55; color: #e6e8ef; white-space: pre-wrap; }
+.ap-thinking { font-size: 12px; color: #9aa1b8; }
+.ap-sources { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 10px; color: #7b829a; }
+.src { background: #141a28; color: #9be7ff; border: 1px solid #2a3147; border-radius: 8px;
+  padding: 2px 7px; font-size: 10px; cursor: pointer; }
+.src:hover { background: #1c2740; border-color: #9be7ff; }
+.ap-model { margin-top: 6px; font-size: 9px; color: #565d77; text-align: right; }
+.answer-panel::-webkit-scrollbar { width: 8px; }
+.answer-panel::-webkit-scrollbar-thumb { background: #2a2150; border-radius: 4px; }
+
 .controls { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 10;
   display: flex; align-items: center; gap: 10px; background: rgba(12,14,22,0.82);
   border: 1px solid #1d2233; border-radius: 10px; padding: 8px 12px; }

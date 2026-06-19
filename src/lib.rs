@@ -27,6 +27,7 @@ pub mod graph_search;
 pub mod semantic_mesh;
 pub mod eval;
 pub mod stream;
+pub mod answer;
 pub mod regex;
 pub mod spelling;
 pub mod inversion;

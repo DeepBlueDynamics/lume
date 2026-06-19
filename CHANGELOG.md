@@ -24,6 +24,17 @@
   modes and prints the delta. New `src/eval.rs` (pure, unit-tested) plus
   `handle_eval` wiring. UTF-8-tolerant Q&A loading (cp1252 files don't abort).
 
+### Agentic answering
+- **`lume answer` + viz "Ask" mode**: an agentic plan → retrieve → evaluate →
+  refine → answer loop over a local Ollama model (default gpt-4o-mini). The model
+  plans search queries, the field is retrieved and animated, the model judges
+  whether the passages suffice and refines the queries if not (up to N rounds),
+  then synthesizes a **cited** answer. Streams NDJSON events (`question`, `plan`,
+  `evaluate`, relaxation frames, `answer`) through the same bridge. In the viz,
+  the answer panel shows the per-round plan log and the answer; nodes fed to the
+  model get a soft halo, the ones it **cited** glow, and clicking a source chip
+  highlights its orb. New `src/answer.rs`.
+
 ### Visualization
 - **`lume stream` + `viz/`**: live 3D visualizer for the search dynamics.
   `lume stream <query>` runs a phase-binding + Weber relaxation over the query's

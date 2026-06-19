@@ -9,6 +9,7 @@ const fmtWeight = (n) => (Math.abs(n) >= 100 ? n.toFixed(0) : n.toFixed(2));
 const UP = new THREE.Vector3(0, 1, 0);
 const _v = new THREE.Vector3();
 const _q = new THREE.Quaternion();
+const EMPTY = new Set();
 
 // One white radial-gradient texture, tinted per-halo via the material colour.
 function radialTexture() {
@@ -38,7 +39,7 @@ function Halo({ pos, r, color, k = 1 }) {
   );
 }
 
-function Node({ node, color, halo, accScale, warp, onHover }) {
+function Node({ node, color, halo, haloK, accScale, warp, onHover }) {
   const pos = node.pos;
   const isQ = node.is_query;
   const r = node.r ?? (isQ ? 0.3 : 0.2);
@@ -70,7 +71,7 @@ function Node({ node, color, halo, accScale, warp, onHover }) {
 
   return (
     <group>
-      {halo && <Halo pos={pos} r={r} color={halo} k={isQ ? 1 : 0.85} />}
+      {halo && <Halo pos={pos} r={r} color={halo} k={haloK ?? (isQ ? 1 : 0.85)} />}
       <mesh
         position={pos}
         quaternion={isQ ? [0, 0, 0, 1] : quat}
@@ -80,8 +81,9 @@ function Node({ node, color, halo, accScale, warp, onHover }) {
       >
         <sphereGeometry args={[r, 32, 32]} />
         <meshPhysicalMaterial color={color} emissive={color}
-          emissiveIntensity={isQ ? 0.85 : 0.18 + 0.5 * Math.max(0, node.cos_q)}
-          roughness={0.32} metalness={0.25} clearcoat={0.6} clearcoatRoughness={0.3} />
+          emissiveIntensity={isQ ? 0.7 : 0.18 + 0.5 * Math.max(0, node.cos_q)}
+          roughness={0.32} metalness={0.25} clearcoat={0.6} clearcoatRoughness={0.3}
+          transparent={isQ} opacity={isQ ? 0.34 : 1} />
       </mesh>
 
       {accEnd && !isQ && (
@@ -138,18 +140,23 @@ function Tooltip({ node, color }) {
   );
 }
 
-export default function VectorField({ nodes, accScale, warp, queryCount, hoveredId, onHover }) {
+export default function VectorField({ nodes, accScale, warp, queryCount, hoveredId, onHover, usedIds, citedIds }) {
   const multi = (queryCount || 1) > 1;
+  const used = usedIds || EMPTY, cited = citedIds || EMPTY;
 
   // Shared colour logic (see colors.js) so list + orbs match.
   const colorById = useMemo(() => nodeColors(nodes, multi), [nodes, multi]);
   const colorOf = (nd) => colorOfNode(nd, colorById, multi);
+  // Halo priority: hover > answer citation > query > overlap > answer "used".
   const haloOf = (nd) => {
+    if (nd.id === hoveredId) return "#ffffff";
+    if (cited.has(nd.id)) return "#9be7ff";           // cited by the answer — brightest
     if (nd.is_query) return multi ? qHsl(nd.query_index, 66) : "#9fb4ff";
     if (nd.members && nd.members.length > 1) return OVERLAP;
-    if (nd.id === hoveredId) return "#ffffff"; // highlight the hovered result
+    if (used.has(nd.id)) return "#46506e";            // considered for the answer — soft
     return null;
   };
+  const haloK = (nd) => (cited.has(nd.id) ? 1.3 : used.has(nd.id) && !nd.is_query ? 0.5 : 1);
   const hoveredLive = hoveredId != null ? nodes.find((n) => n.id === hoveredId) : null;
 
   return (
@@ -162,7 +169,7 @@ export default function VectorField({ nodes, accScale, warp, queryCount, hovered
       <gridHelper args={[50, 50, "#10131f", "#0a0c14"]} position={[0, -7, 0]} />
 
       {nodes.map((n) => (
-        <Node key={n.id} node={n} color={colorOf(n)} halo={haloOf(n)} accScale={accScale} warp={warp}
+        <Node key={n.id} node={n} color={colorOf(n)} halo={haloOf(n)} haloK={haloK(n)} accScale={accScale} warp={warp}
           onHover={(node) => onHover(node ? node.id : null)} />
       ))}
       <Tooltip node={hoveredLive} color={hoveredLive ? colorOf(hoveredLive) : "#888"} />

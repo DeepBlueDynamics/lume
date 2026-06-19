@@ -152,6 +152,7 @@ pub fn run(
     queries: &[String],
     cands: &[Candidate],
     params: &StreamParams,
+    emit_done: bool,
 ) -> Result<(), String> {
     let token = load_nuts_token().ok_or_else(|| {
         "shivvr token unavailable (need a local shivvr endpoint or NUTS_SERVICES_TOKEN)".to_string()
@@ -429,7 +430,9 @@ pub fn run(
         emit(&frame);
     }
 
-    emit(&serde_json::json!({ "type": "done" }));
+    if emit_done {
+        emit(&serde_json::json!({ "type": "done" }));
+    }
     Ok(())
 }
 

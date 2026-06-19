@@ -94,6 +94,9 @@ export default function App() {
   const [hoveredId, setHoveredId] = useState(null);
   const [conn, setConn] = useState("connecting");
   const [status, setStatus] = useState("");
+  const [answer, setAnswer] = useState(null);   // { text, used:Set, cites:[ids], model }
+  const [agentLog, setAgentLog] = useState([]); // plan/evaluate round lines
+  const [question, setQuestion] = useState("");
 
   const wsRef = useRef(null);
 
@@ -105,7 +108,17 @@ export default function App() {
     ws.onerror = () => setConn("error");
     ws.onmessage = (ev) => {
       const m = JSON.parse(ev.data);
-      if (m.type === "meta") {
+      if (m.type === "question") {
+        setQuestion(m.text); setAnswer(null); setAgentLog([]);
+      } else if (m.type === "plan") {
+        setQueries(m.queries);
+        setAgentLog((l) => [...l, { kind: "plan", round: m.round, queries: m.queries, note: m.note }]);
+      } else if (m.type === "evaluate") {
+        setAgentLog((l) => [...l, { kind: "eval", round: m.round, sufficient: m.sufficient, note: m.note }]);
+      } else if (m.type === "answer") {
+        setAnswer({ text: m.text, used: new Set(m.used || []), cites: m.cites || [], model: m.model });
+        setStatus("answered");
+      } else if (m.type === "meta") {
         setMeta(m);
         framesRef.current = []; setFrameCount(0); setIdx(0); setPlaying(true);
         const nq = m.nodes.filter((n) => n.is_query).length;
@@ -138,7 +151,7 @@ export default function App() {
   const runSearch = useCallback((qs) => {
     const ws = wsRef.current;
     const list = qs.filter(Boolean);
-    setQueries(list);
+    setQueries(list); setAnswer(null); setAgentLog([]); setQuestion("");
     if (!list.length) { setMeta(null); framesRef.current = []; setFrameCount(0); setIdx(0); return; }
     if (!ws || ws.readyState !== ws.OPEN) { setStatus("not connected to bridge"); return; }
     framesRef.current = []; setFrameCount(0); setIdx(0); setMeta(null);
@@ -149,17 +162,29 @@ export default function App() {
   const addSearch = () => runSearch([...queries, input]);
   const removeQuery = (i) => runSearch(queries.filter((_, k) => k !== i)); // delete + rerun
 
+  const ask = useCallback(() => {
+    const ws = wsRef.current;
+    if (!input.trim()) return;
+    if (!ws || ws.readyState !== ws.OPEN) { setStatus("not connected to bridge"); return; }
+    framesRef.current = []; setFrameCount(0); setIdx(0); setMeta(null);
+    setAnswer(null); setAgentLog([]); setQueries([]); setQuestion(input);
+    ws.send(JSON.stringify({ type: "ask", question: input, db, candidates: Number(candidates), steps: Number(steps) }));
+  }, [input, db, candidates, steps]);
+
   const frames = framesRef.current;
   const lo = Math.floor(idx), hi = Math.min(frames.length - 1, lo + 1), frac = idx - lo;
   const nodes = frames.length ? layout(interpolate(meta, frames[lo], frames[hi], frac), spread) : [];
   const rGlobal = frames.length ? frames[Math.round(idx)].r_global : 0;
   const multi = queries.length > 1;
+  const usedIds = answer ? answer.used : undefined;
+  const citedIds = answer ? new Set(answer.cites) : undefined;
+  const labelOf = (id) => (meta?.nodes?.[id]?.label) || `#${id}`;
 
   return (
     <div className="app">
       <div className="canvas-wrap">
         <VectorField nodes={nodes} accScale={accScale} warp={warp} queryCount={queries.length || 1}
-          hoveredId={hoveredId} onHover={setHoveredId} />
+          hoveredId={hoveredId} onHover={setHoveredId} usedIds={usedIds} citedIds={citedIds} />
       </div>
 
       <div className="panel">
@@ -180,6 +205,7 @@ export default function App() {
         <div className="row">
           <button onClick={search} disabled={conn !== "connected"} style={{ flex: 1 }}>▶ Search</button>
           <button className="ghost" onClick={addSearch} disabled={conn !== "connected" || !queries.length}>＋ Add</button>
+          <button className="ask" onClick={ask} disabled={conn !== "connected"} title="agentic answer with citations">✦ Ask</button>
         </div>
 
         {queries.length > 0 && (
@@ -218,6 +244,34 @@ export default function App() {
       {nodes.length > 0 && (
         <ResultsPanel nodes={nodes} multi={multi} sortKey={sortKey} setSortKey={setSortKey}
           hoveredId={hoveredId} onHover={setHoveredId} />
+      )}
+
+      {(question || agentLog.length > 0) && (
+        <div className="answer-panel">
+          <div className="ap-q">✦ {question}</div>
+          {agentLog.length > 0 && (
+            <div className="ap-log">
+              {agentLog.map((e, i) => e.kind === "plan"
+                ? <div key={i} className="ap-plan">plan {e.round}: {e.queries.join(" · ")}{e.note ? ` (${e.note})` : ""}</div>
+                : <div key={i} className="ap-eval">→ {e.sufficient ? "sufficient" : "insufficient — refining"}{e.note ? `: ${e.note}` : ""}</div>)}
+            </div>
+          )}
+          {answer ? (
+            <>
+              <div className="ap-answer">{answer.text}</div>
+              {answer.cites.length > 0 && (
+                <div className="ap-sources">
+                  <span>sources:</span>
+                  {answer.cites.map((id) => (
+                    <button key={id} className="src" onMouseEnter={() => setHoveredId(id)}
+                      onMouseLeave={() => setHoveredId(null)} onClick={() => setHoveredId(id)}>{labelOf(id)}</button>
+                  ))}
+                </div>
+              )}
+              <div className="ap-model">— {answer.model}</div>
+            </>
+          ) : <div className="ap-thinking">running agent…</div>}
+        </div>
       )}
 
       <div className="controls">

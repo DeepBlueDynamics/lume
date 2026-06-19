@@ -66,17 +66,26 @@ wss.on("connection", (ws) => {
   ws.on("message", (raw) => {
     let msg;
     try { msg = JSON.parse(raw.toString()); } catch { return; }
-    if (msg.type !== "search") return;
-    // Accept a queries array (additive search) or a single query.
-    const queries = (Array.isArray(msg.queries) ? msg.queries : [msg.query]).filter(Boolean);
-    if (!queries.length) return;
+
+    const db = msg.db || ".lume-index";
+    const k = String(msg.candidates || 24);
+    const steps = String(msg.steps || 160);
+    let args;
+
+    if (msg.type === "ask" && msg.question) {
+      // Agentic answer loop: plan → retrieve → evaluate → refine → cited answer.
+      args = ["answer", msg.question, "--db", db, "-k", k, "--steps", steps];
+      if (msg.model) args.push("--model", msg.model);
+    } else if (msg.type === "search") {
+      const queries = (Array.isArray(msg.queries) ? msg.queries : [msg.query]).filter(Boolean);
+      if (!queries.length) return;
+      args = ["stream", queries[0], "--db", db, "-k", k, "--steps", steps];
+      for (const q of queries.slice(1)) args.push("--add", q);
+    } else {
+      return;
+    }
 
     killChild();
-    const args = ["stream", queries[0],
-      "--db", msg.db || ".lume-index",
-      "-k", String(msg.candidates || 24),
-      "--steps", String(msg.steps || 160)];
-    for (const q of queries.slice(1)) args.push("--add", q);
 
     ws.send(JSON.stringify({ type: "status", state: "running", bin: LUME_BIN, args }));
     child = spawn(LUME_BIN, args, { cwd: join(__dirname, "..") });
