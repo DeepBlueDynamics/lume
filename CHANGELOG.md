@@ -9,6 +9,8 @@
   co-occur with everything are damped toward zero; genuine associations rise.
   Computed directly from the roaring-bitmap intersection counts already used for
   Jaccard (no extra scan). New `cooccurrence_relatedness` in `semantic_mesh.rs`.
+  The z-score is log-compressed before the tanh bound so strong edges on large
+  corpora keep their gradation instead of all saturating at ±1.
 - **`--scoring` flag** on `lume search` (and `lume eval`): choose `relatedness`
   (significance, default) or `jaccard` (raw overlap) for the SKG walk. The graph
   walk and edge sort now key on significance by default, Jaccard as tie-breaker.

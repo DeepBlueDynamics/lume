@@ -547,10 +547,14 @@ impl EntityEdge {
 /// `var = E·(1 − a/n)·(1 − b/n)` so the score does not depend on edge direction,
 /// then take the z-score `z = (k − E) / √var` and squash it with `tanh(z / Z0)`.
 ///
-/// `Z0 = 3.0` anchors the curve to standard-deviation units: a 3σ association
-/// (~99.7% significant) maps to ≈0.76, 6σ to ≈0.96. This is the foreground-vs-
-/// background relatedness primitive from Trey Grainger's Semantic Knowledge
-/// Graph, reduced to the pairwise-edge case.
+/// On a large corpus raw z-scores explode (strong edges reach z = 50–100+), so
+/// squashing `z` directly would saturate every real association at ±1 and throw
+/// away all gradation among them. Instead we **log-compress** the z-score first
+/// — `sign(z)·ln(1 + |z|)` — which preserves dynamic range (a z of 10 and a z of
+/// 100 stay distinguishable) and only then bound it with `tanh(·/L)`, `L = 3.0`.
+/// The result still passes through `0` at independence and goes negative for
+/// avoidance. This is the foreground-vs-background relatedness primitive from
+/// Trey Grainger's Semantic Knowledge Graph, reduced to the pairwise-edge case.
 pub fn cooccurrence_relatedness(n: usize, a: usize, b: usize, k: usize) -> f64 {
     if n == 0 || a == 0 || b == 0 {
         return 0.0;
@@ -563,8 +567,9 @@ pub fn cooccurrence_relatedness(n: usize, a: usize, b: usize, k: usize) -> f64 {
         return 0.0;
     }
     let z = (k - expected) / variance.sqrt();
-    const Z0: f64 = 3.0;
-    (z / Z0).tanh()
+    const L: f64 = 3.0;
+    let compressed = z.signum() * (1.0 + z.abs()).ln();
+    (compressed / L).tanh()
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
