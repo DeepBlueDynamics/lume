@@ -3,6 +3,41 @@ import VectorField from "./VectorField.jsx";
 
 const WS_URL = `ws://${location.hostname}:8086`;
 
+// Assign a render radius per node (query fixed + modest; candidates scale with
+// retrieval weight so sizes visibly vary) and then run a position-based
+// collision-separation: iteratively push any overlapping orbs apart along their
+// centre line until none intersect. The query is treated as immovable (infinite
+// mass); candidate–candidate overlaps split the push evenly. Mutates pos/r in
+// place on the per-frame node objects.
+function layout(nodes) {
+  if (!nodes.length) return nodes;
+  let lo = Infinity, hi = -Infinity;
+  for (const n of nodes) if (!n.is_query) { lo = Math.min(lo, n.score); hi = Math.max(hi, n.score); }
+  const span = hi - lo || 1;
+  for (const n of nodes) {
+    n.r = n.is_query ? 0.3 : 0.16 + 0.42 * ((n.score - lo) / span);
+  }
+  const margin = 0.07;
+  for (let iter = 0; iter < 12; iter++) {
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i], b = nodes[j];
+        let dx = b.pos[0] - a.pos[0], dy = b.pos[1] - a.pos[1], dz = b.pos[2] - a.pos[2];
+        let d = Math.hypot(dx, dy, dz) || 1e-4;
+        const min = a.r + b.r + margin;
+        if (d < min) {
+          const push = min - d, ux = dx / d, uy = dy / d, uz = dz / d;
+          const aw = a.is_query ? 0 : b.is_query ? 1 : 0.5;
+          const bw = b.is_query ? 0 : a.is_query ? 1 : 0.5;
+          a.pos = [a.pos[0] - ux * push * aw, a.pos[1] - uy * push * aw, a.pos[2] - uz * push * aw];
+          b.pos = [b.pos[0] + ux * push * bw, b.pos[1] + uy * push * bw, b.pos[2] + uz * push * bw];
+        }
+      }
+    }
+  }
+  return nodes;
+}
+
 // Linear interpolation between two streamed frames so playback is smooth
 // regardless of how fast `lume stream` dumps steps. Positions/accelerations are
 // lerped; discrete fields (cluster, labels) come from the later frame.
@@ -40,6 +75,7 @@ export default function App() {
   const [playing, setPlaying] = useState(true);
   const [speed, setSpeed] = useState(1.2);
   const [accScale, setAccScale] = useState(120);
+  const [warp, setWarp] = useState(14);
   const [conn, setConn] = useState("connecting");
   const [status, setStatus] = useState("");
 
@@ -98,13 +134,13 @@ export default function App() {
 
   const frames = framesRef.current;
   const lo = Math.floor(idx), hi = Math.min(frames.length - 1, lo + 1), frac = idx - lo;
-  const nodes = frames.length ? interpolate(meta, frames[lo], frames[hi], frac) : [];
+  const nodes = frames.length ? layout(interpolate(meta, frames[lo], frames[hi], frac)) : [];
   const rGlobal = frames.length ? frames[Math.round(idx)].r_global : 0;
 
   return (
     <div className="app">
       <div className="canvas-wrap">
-        <VectorField nodes={nodes} accScale={accScale} />
+        <VectorField nodes={nodes} accScale={accScale} warp={warp} />
       </div>
 
       <div className="panel">
@@ -133,6 +169,9 @@ export default function App() {
         <div className="stat" style={{ marginTop: 8 }}><span>acc arrow scale</span><b>{accScale}</b></div>
         <input type="range" min={10} max={400} value={accScale} style={{ width: "100%" }}
           onChange={(e) => setAccScale(Number(e.target.value))} />
+        <div className="stat" style={{ marginTop: 4 }}><span>orb warp</span><b>{warp}</b></div>
+        <input type="range" min={0} max={60} value={warp} style={{ width: "100%" }}
+          onChange={(e) => setWarp(Number(e.target.value))} />
 
         <div className="legend">
           <div>labels = retrieval <b>weight</b> · <b>hover</b> a node for the passage</div>
