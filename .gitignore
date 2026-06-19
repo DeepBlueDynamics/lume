@@ -3,13 +3,19 @@
 .lume-index.bak/
 .lume-code-index/
 .lume-crawled-index/
+# Any ad-hoc index collection (sidis, eval, code-semantic, …)
+.lume-*-index/
 .lume-semantic-cache.json
 .lume-session-cache.json
 .nemesis8.toml
 crawl_cache/
 
+# Local evaluation scratch (corpus copy + tag dictionary)
+eval-tmp/
+
 # Build and archive directories
 target/
+target-cli/
 target-verify/
 archive/
 examples/crawled/

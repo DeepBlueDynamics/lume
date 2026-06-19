@@ -22,6 +22,8 @@ A high-performance Rust library and CLI suite featuring an FST-backed phrase mat
     *   [5. Autonomous Agent Chat Loop (`lume agent`)](#cli-agent)
     *   [6. Starting the MCP Server (`lume serve`)](#cli-serve)
     *   [7. Crawling Web Pages (`lume crawl`)](#cli-crawl)
+    *   [8. Retrieval Evaluation (`lume eval`)](#cli-eval)
+*   [⚡ Performance & Roadmap](#performance)
 *   [🐍 Python Extractor & Q&A Generator](#python-extractor)
 *   [💻 Codebase Indexing & Search Demo](#codebase-demo)
 *   [📖 The Backstory: How Lume Connects](#backstory)
@@ -115,6 +117,7 @@ The system is organized into the following core Rust and Python modules:
 
 *   **FST-Backed Phrase Tagger**: Performs longest-dominant-right matching using Lucene-style separator bytes. Built on [Tagger](src/lib.rs#L112) and [Entry](src/lib.rs#L45) in [src/lib.rs](src/lib.rs).
 *   **Hybrid Search Engine**: Integrates BM25 lexical retrieval ([Bm25Index](src/bm25.rs)), spelling correction ([SpellIndex](src/spelling.rs)), and dense embeddings ([src/hybrid.rs](src/hybrid.rs)) with graph-steered query expansion ([src/graph_search.rs](src/graph_search.rs)) to boost matches based on Semantic Knowledge Graph connections.
+*   **Semantic Knowledge Graph (SKG)**: The entity co-occurrence graph is **index-native** — built from pairwise roaring-bitmap intersections ("counting the counts") in [EntityGraph::build](src/semantic_mesh.rs), and consumed at query time as a live ranking *and recall* signal ([src/graph_search.rs](src/graph_search.rs)): query entities are resolved, the graph is walked one hop, and matching passages are boosted; strongly-related passages with *no* lexical hit are pulled in via recall expansion. Entity nodes come from either the local FST tagger (`--tag-dict`, fully deterministic) **or** optional LLM extraction (`-o`) — the graph math is identical either way. Edges carry both Jaccard overlap and a **significance** score (z-score of observed vs. expected co-occurrence), selectable via `--scoring`.
 *   **Steered Markov Chain Synthesizer**: Under the hood, Lume uses a trigram [MarkovChain](src/semantic_mesh.rs#L129) to generate text. However, it goes beyond random walks by steering/biasing trigram transitions using FST tags, local attention feedback, and GTR-T5 semantic vector inversion ([src/inversion.rs](src/inversion.rs)).
 *   **Agent & Summarization Engine**: Runs autonomous query planning, search exploration, and structured synthesis. Main entry points are [run_agent_loop](src/agent.rs#L731) and [summarize_document](src/agent.rs#L938) in [src/agent.rs](src/agent.rs). Supports failure recovery via [lume_not_found](src/agent.rs#L828).
 *   **Model Context Protocol (MCP)**: Implements an MCP server over HTTP transport in [serve](src/agent.rs#L679) to expose indexing and search tools directly to AI agents.
@@ -159,7 +162,8 @@ Queries the persisted index using lexical (BM25) or hybrid search:
 *   **Raw Output**: Prints raw retrieved document passages accompanied by match scores (BM25 + Semantic + SKG Boost).
 *   **Options**:
     *   `-a, --alpha <VAL>`: Hybrid weight. `0.0` is lexical-only; `1.0` is semantic-only [default: `0.5`].
-    *   `-g, --graph <VAL>`: Entity graph boost weight [default: `0.4`]. Enables **graph-steered expansion**: Lume resolves entities in the query, walks one hop to their strongest neighbors in `entity_graph.json`, and boosts matching passage scores by the related-entity mass.
+    *   `-g, --graph <VAL>`: Entity graph boost weight [default: `0.4`]. Enables **graph-steered expansion**: Lume resolves entities in the query, walks one hop to their strongest neighbors in `entity_graph.json`, and boosts matching passage scores by the related-entity mass. Set `0` to disable.
+    *   `--scoring <MODE>`: How SKG edges are weighted when walking the graph. `relatedness` (default) uses **statistical significance** — observed co-occurrence vs. what chance predicts (`expected = |A||B|/N`), so promiscuous hub entities that co-occur with everything are damped and only genuine associations boost. `jaccard` uses raw overlap `|A∩B| / |A∪B|`. Both are computed directly from the roaring-bitmap intersection counts (no extra scan). See [src/semantic_mesh.rs](src/semantic_mesh.rs) (`cooccurrence_relatedness`) and [src/graph_search.rs](src/graph_search.rs).
     *   `-l, --limit <LIMIT>`: Maximum search hits [default: `10`].
 
 ---
@@ -220,6 +224,32 @@ Crawls a target website to extract its text/markdown representation and saves th
     *   **Local Crawling (Tokenless)**: If `GRUB_BASE_URL` is set to a local endpoint (such as `http://localhost:6792` or when running locally), Lume connects to the local Grub instance and crawls without requiring any authentication or `NUTS_SERVICES_TOKEN`.
     *   **Remote Crawling (Authenticated)**: If `GRUB_BASE_URL` points to a remote endpoint (e.g. `grub.nuts.services`), Lume uses the `NUTS_SERVICES_TOKEN` environment variable to authenticate. If the token is missing, it falls back to direct HTTP GET (no JavaScript execution).
     *   **Hacker News Special Handling**: If a Hacker News story URL is detected, Lume queries the public HN Firebase API to retrieve both the story post and its top-level discussion comments, assembling them into a clean Markdown file.
+
+---
+
+### <a name="cli-eval"></a>8. Retrieval Evaluation (`lume eval` Command)
+Measure retrieval quality against a Q&A file — the discipline that turns "it returns sensible results" into numbers:
+```bash
+# Index a corpus with a local entity dictionary (deterministic SKG, no LLM)
+./target/release/lume index --db .lume-eval-index --tag-dict dict/characters.csv docs/monte_cristo
+
+# Score Hit@k / MRR / nDCG@k, comparing the two SKG edge-scoring modes
+./target/release/lume eval --db .lume-eval-index --compare docs/monte_cristo/qna.json
+```
+*   **How it works**: Relevance is judged by **answer-token containment** (no human labels required): a retrieved section counts as relevant when it contains at least `--threshold` of the answer's content tokens. This needs no alignment between the extractor's chunking and the index's sectioning. Implemented in [src/eval.rs](src/eval.rs).
+*   **Options**: `--db`, `-k/--limit` (cut-off for Hit@k/nDCG@k), `-g/--graph` (graph boost weight), `--scoring` (`relatedness` vs `jaccard`), `-t/--threshold` (relevance cut-off [default `0.5`]), `-n/--max-questions`, `--compare` (run both scoring modes and print the delta).
+*   **Honest example output** (Count of Monte Cristo, 1,926 sections, 373 questions): lexical BM25 lands **Hit@10 ≈ 90%** on factual single-fact questions — already near the ceiling, so the graph boost is roughly neutral here (its value is associative/exploratory queries and recall, not factoid lookup). The harness exists to *surface* exactly that kind of result, including when a feature doesn't help.
+
+---
+
+## <a name="performance"></a>⚡ Performance & Roadmap
+
+Lume is written in Rust (zero-dependency core: `tantivy-fst`, `serde`, `ureq`) and built for speed on real corpora — measured, not aspirational:
+
+*   **Indexing**: a complex codebase indexes in a few seconds; a 2.8 MB novel chunks into ~1,900 sections and is searchable in **under a second** (lexical). Dense semantic ingest of ~450 chunks via local Shivvr completes in ~8s.
+*   **Search**: lexical BM25 retrieval is **microsecond-class** at the core — two-stage roaring-bitmap pruning runs in ~10 µs on these corpora — with full lexical queries sub-millisecond. Hybrid queries add a dense round-trip (milliseconds), and the SKG significance boost is free arithmetic on counts the roaring intersection already produced.
+*   **Vector inversion**: a cutting-edge technique — embed text to its 768-d GTR-T5 vector, then **reconstruct text back from the raw vector** via Shivvr's `/invert` endpoint (round-trips at ~0.88 self-similarity locally). Used by the inversion-steered generator ([src/inversion.rs](src/inversion.rs)) to hill-climb candidates toward a target in embedding space — fully local, no token needed.
+*   **Roadmap**: on-the-fly fine-tuning of open embedding models (GTE and others) so the semantic space adapts to your corpus, rather than relying on a fixed GTR-T5 encoder.
 
 ---
 

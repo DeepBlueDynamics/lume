@@ -26,19 +26,25 @@ pub const SKG_EXPAND_MIN: f64 = 0.5;
 pub struct SkgBoostParams {
     /// Blend weight of the SKG term in `bm25 * (1 + .. + beta*skg)`.
     pub beta: f64,
-    /// Ignore neighbor edges weaker than this Jaccard similarity.
+    /// Ignore neighbor edges whose walk weight is below this floor. Against the
+    /// significance score this acts as a "must be at least weakly associated"
+    /// gate; against Jaccard it is the original overlap floor.
     pub min_jaccard: f64,
     /// Max neighbors expanded per seed entity.
     pub top_k: usize,
-    /// Neighbor weight = `decay * edge.similarity`.
+    /// Neighbor weight = `decay * edge_weight`.
     pub decay: f64,
     /// Longest query phrase (in tokens) to try to match as a single entity.
     pub max_ngram: usize,
+    /// Use the significance score (`EntityEdge::relatedness`) for the walk instead
+    /// of raw Jaccard. This is the SKG default: it down-weights promiscuous hub
+    /// entities that co-occur with everything and surfaces genuine associations.
+    pub use_relatedness: bool,
 }
 
 impl Default for SkgBoostParams {
     fn default() -> Self {
-        Self { beta: 0.4, min_jaccard: 0.05, top_k: 8, decay: 0.5, max_ngram: 4 }
+        Self { beta: 0.4, min_jaccard: 0.05, top_k: 8, decay: 0.5, max_ngram: 4, use_relatedness: true }
     }
 }
 
@@ -113,16 +119,18 @@ pub fn resolve_query_entities(index: &Bm25Index, query: &str, max_ngram: usize) 
 }
 
 /// Adjacency map from the precomputed SKG edges: `entity_key -> [(neighbor,
-/// similarity)]`, each list sorted descending by similarity.
-pub fn build_adjacency(graph: &EntityGraph) -> HashMap<String, Vec<(String, f64)>> {
+/// weight)]`, each list sorted descending by weight. `use_relatedness` selects
+/// the significance score over Jaccard (see [`EntityEdge::weight`]).
+pub fn build_adjacency(graph: &EntityGraph, use_relatedness: bool) -> HashMap<String, Vec<(String, f64)>> {
     let mut adj: HashMap<String, Vec<(String, f64)>> = HashMap::new();
     for edge in &graph.edges {
+        let w = edge.weight(use_relatedness);
         adj.entry(edge.source.clone())
             .or_default()
-            .push((edge.target.clone(), edge.similarity));
+            .push((edge.target.clone(), w));
         adj.entry(edge.target.clone())
             .or_default()
-            .push((edge.source.clone(), edge.similarity));
+            .push((edge.source.clone(), w));
     }
     for list in adj.values_mut() {
         list.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -150,7 +158,7 @@ pub fn compute_skg_scores(
     params: &SkgBoostParams,
 ) -> SkgWalk {
     let seeds = resolve_query_entities(index, query, params.max_ngram);
-    let adj = build_adjacency(graph);
+    let adj = build_adjacency(graph, params.use_relatedness);
 
     // entity_key -> weight. Seeds pinned at 1.0; neighbors take the max of
     // their decayed edge weights across all seeds that reach them.
@@ -254,7 +262,8 @@ mod tests {
             sec(&["Fernand", "Danglars"]),
         ];
         let bm25 = Bm25Index::build(sections, None);
-        let graph = EntityGraph::build(&bm25.entity_posting_lists, &bm25.entity_kinds, &bm25.entity_labels, 0.0);
+        let n = bm25.sections.len();
+        let graph = EntityGraph::build(&bm25.entity_posting_lists, &bm25.entity_kinds, &bm25.entity_labels, 0.0, n);
         (bm25, graph)
     }
 
@@ -272,7 +281,12 @@ mod tests {
     #[test]
     fn skg_walk_ranks_seed_sections_above_neighbor_only_sections() {
         let (bm25, graph) = fixture();
-        let params = SkgBoostParams::default();
+        // This exercises walk *mechanics* (seed sections outrank neighbor-only
+        // ones, all positive). It uses Jaccard weighting because the fixture's
+        // Fernand co-occurs with Mercédès below chance, so significance scoring
+        // (the default) correctly zeroes that edge — covered separately by
+        // `relatedness_downweights_promiscuous_hub_vs_jaccard`.
+        let params = SkgBoostParams { use_relatedness: false, ..Default::default() };
         let walk = compute_skg_scores(&bm25, &graph, "mercedes", &params);
 
         assert_eq!(walk.seeds, vec!["mercédès".to_string()]);
@@ -285,6 +299,40 @@ mod tests {
         assert!(s2 > 0.0, "neighbor-only section should still be boosted");
         // Normalized to [0,1] with the top section at 1.0.
         assert!((s0 - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn relatedness_downweights_promiscuous_hub_vs_jaccard() {
+        use crate::semantic_mesh::EntityGraph;
+        // "the" appears with everyone (a hub); "edmond" and "dantès" appear only
+        // with each other (a genuine pairing). Jaccard rates edmond–the highly
+        // (perfect subset overlap), but significance should rate edmond–dantès as
+        // the stronger association and damp the hub edge.
+        let sections = vec![
+            sec(&["the", "edmond", "dantès"]),
+            sec(&["the", "villefort"]),
+            sec(&["the", "danglars"]),
+            sec(&["the", "morrel"]),
+        ];
+        let bm25 = Bm25Index::build(sections, None);
+        let n = bm25.sections.len();
+        let graph = EntityGraph::build(&bm25.entity_posting_lists, &bm25.entity_kinds, &bm25.entity_labels, 0.0, n);
+
+        let find = |a: &str, b: &str| {
+            graph.edges.iter().find(|e| {
+                (e.source == a && e.target == b) || (e.source == b && e.target == a)
+            }).cloned()
+        };
+
+        let pair = find("edmond", "dantès").expect("edmond–dantès edge exists");
+        let hub = find("edmond", "the").expect("edmond–the edge exists");
+
+        // Jaccard cannot tell these apart well — the hub edge is actually *higher*
+        // Jaccard (edmond ⊂ the). Significance flips it: the true pairing wins.
+        assert!(pair.relatedness > hub.relatedness,
+            "true pairing relatedness {:.3} should beat hub {:.3}", pair.relatedness, hub.relatedness);
+        // The hub co-occurrence is unremarkable (≈ chance), so it sits near zero.
+        assert!(hub.relatedness < 0.3, "hub relatedness {:.3} should be near zero", hub.relatedness);
     }
 
     #[test]

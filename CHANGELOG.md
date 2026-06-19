@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.12.0 — 2026-06-19
+
+### Search & ranking
+- **SKG significance scoring**: entity-graph edges now carry a `relatedness`
+  score alongside Jaccard — a z-score of *observed* vs. *expected* co-occurrence
+  (`expected = |A||B|/N`), squashed to `[-1,1]`. Promiscuous hub entities that
+  co-occur with everything are damped toward zero; genuine associations rise.
+  Computed directly from the roaring-bitmap intersection counts already used for
+  Jaccard (no extra scan). New `cooccurrence_relatedness` in `semantic_mesh.rs`.
+- **`--scoring` flag** on `lume search` (and `lume eval`): choose `relatedness`
+  (significance, default) or `jaccard` (raw overlap) for the SKG walk. The graph
+  walk and edge sort now key on significance by default, Jaccard as tie-breaker.
+- `entity_graph.json` export and the ASCII relationship table now include the
+  relatedness score.
+
+### Evaluation
+- **`lume eval` subcommand**: measure retrieval quality (Hit@k, MRR, nDCG@k)
+  against a Q&A file. Relevance is judged by answer-token containment (no human
+  labels), so it needs no chunk-id alignment. `--compare` runs both SKG scoring
+  modes and prints the delta. New `src/eval.rs` (pure, unit-tested) plus
+  `handle_eval` wiring. UTF-8-tolerant Q&A loading (cp1252 files don't abort).
+
+### Tests
+- New unit tests for the significance function, hub down-weighting (significance
+  flips a ranking Jaccard gets wrong), and the eval metrics/relevance judging.
+
 ## 0.11.0 — 2026-06-10
 
 ### Indexing

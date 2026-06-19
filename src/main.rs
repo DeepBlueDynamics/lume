@@ -100,6 +100,12 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        "eval" => {
+            if let Err(e) = handle_eval(&args[2..]) {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
         "summarize" => {
             if let Err(e) = handle_summarize(&args[2..]) {
                 eprintln!("Error: {}", e);
@@ -216,6 +222,7 @@ SUBCOMMANDS:
   agent      Run an autonomous agent loop to answer a question (alias: chat)
   summarize  Agentic document summarizer via planning, search exploration, and synthesis
   crawl      Stealth crawl webpage content and save to personal search collection
+  eval       Measure retrieval quality (Hit@k, MRR, nDCG@k) against a Q&A file
 "#, env!("CARGO_PKG_VERSION"));
 }
 
@@ -266,6 +273,7 @@ OPTIONS:
   -l, --limit <LIMIT>   Max number of search hits [default: 10]
   -a, --alpha <VAL>     Hybrid blending weight: 0.0 (BM25 only) to 1.0 (semantic only) [default: 0.5]
   -g, --graph <VAL>     SKG entity-graph boost weight; 0 disables [default: 0.4, env GRAPH_ALPHA]
+  --scoring <MODE>      SKG edge weighting: 'relatedness' (significance, default) or 'jaccard' (overlap)
   --shivvr-url <URL>    Shivvr endpoint URL [default: http://localhost:8085]
 
 ENV:
@@ -274,6 +282,35 @@ ENV:
 
 ARGS:
   <QUERY>               Search query string
+"#);
+}
+
+fn print_eval_help() {
+    println!(r#"lume-eval
+Measure retrieval quality against a Q&A file using the lexical BM25 + SKG-graph
+pipeline. Relevance is judged by answer-token containment (no human labels
+needed): a retrieved section counts as relevant when it contains at least
+--threshold of the answer's content tokens.
+
+USAGE:
+  lume eval [FLAGS] [OPTIONS] <QNA_JSON>
+
+FLAGS:
+  -h, --help              Prints help information
+  -c, --spell-check       Spell-correct each question before searching
+  --compare               Run both scoring modes and print the Jaccard vs. relatedness delta
+
+OPTIONS:
+  --db <PATH>             Path to the persisted index metadata [default: .lume-index]
+  -k, --limit <K>         Cut-off for Hit@k / nDCG@k and results retrieved [default: 10]
+  -g, --graph <VAL>       SKG entity-graph boost weight; 0 disables the graph [default: 0.4]
+  --scoring <MODE>        SKG edge weighting: 'relatedness' (default) or 'jaccard' (ignored with --compare)
+  -t, --threshold <VAL>   Answer-token recall needed to count a section relevant [default: 0.5]
+  -n, --max-questions <N> Evaluate only the first N questions (smoke test)
+
+ARGS:
+  <QNA_JSON>              Q&A file: a JSON array of {{question, answer}} objects
+                         (as produced by 'python lib/lume_extractor.py qna')
 "#);
 }
 
@@ -781,6 +818,7 @@ fn flush_searchable_indexes(
         &bm25.entity_kinds,
         &bm25.entity_labels,
         0.1,
+        bm25.sections.len(),
     );
     save_json(&db_path.join("bm25.json"), &bm25)?;
     save_json(&db_path.join("spelling.json"), &spelling)?;
@@ -1254,6 +1292,8 @@ fn handle_search(args: &[String]) -> Result<(), String> {
         .and_then(|s| s.parse::<f32>().ok())
         .unwrap_or(0.5f32);
     let mut graph_beta: Option<f64> = None;
+    // SKG edge scoring: significance (default) vs legacy Jaccard.
+    let mut use_relatedness = true;
     let mut query_opt: Option<String> = None;
 
     let mut idx = 0;
@@ -1273,6 +1313,13 @@ fn handle_search(args: &[String]) -> Result<(), String> {
             idx += 2;
         } else if (arg == "-g" || arg == "--graph") && idx + 1 < args.len() {
             graph_beta = Some(args[idx + 1].parse::<f64>().map_err(|_| format!("Invalid graph weight: {}", args[idx + 1]))?);
+            idx += 2;
+        } else if arg == "--scoring" && idx + 1 < args.len() {
+            use_relatedness = match args[idx + 1].to_lowercase().as_str() {
+                "relatedness" | "significance" | "skg" => true,
+                "jaccard" | "overlap" => false,
+                other => return Err(format!("Invalid --scoring '{}': expected 'relatedness' or 'jaccard'", other)),
+            };
             idx += 2;
         } else if arg.starts_with('-') {
             return Err(format!("Unknown option: {}", arg));
@@ -1320,7 +1367,7 @@ fn handle_search(args: &[String]) -> Result<(), String> {
         Some(v) => v,
         None => std::env::var("GRAPH_ALPHA").ok().and_then(|s| s.parse().ok()).unwrap_or(0.4),
     };
-    let skg_scores = compute_skg_for_search(&bm25, db_path, &corrected_query, beta);
+    let skg_scores = compute_skg_for_search(&bm25, db_path, &corrected_query, beta, use_relatedness);
 
     let token_opt = lume::hybrid::load_nuts_token();
     // Tell the caller explicitly when the semantic leg can't engage — an MCP
@@ -1382,6 +1429,201 @@ fn handle_search(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// `lume eval <qna.json>` — measures retrieval quality (Hit@k, MRR, nDCG@k) of
+/// the lexical BM25 + SKG-graph pipeline against a Q&A file. Relevance is judged
+/// by answer-token containment (see `lume::eval`). `--compare` runs both SKG
+/// scoring modes so the significance-vs-Jaccard delta is visible.
+fn handle_eval(args: &[String]) -> Result<(), String> {
+    if args.is_empty() || args.iter().any(|a| a == "-h" || a == "--help") {
+        print_eval_help();
+        return Ok(());
+    }
+
+    let mut db_dir = String::from(".lume-index");
+    let mut k = 10usize;
+    let mut beta = 0.4f64;
+    let mut threshold = 0.5f64;
+    let mut use_relatedness = true;
+    let mut compare = false;
+    let mut spell_check = false;
+    let mut max_questions: Option<usize> = None;
+    let mut qna_path_opt: Option<String> = None;
+
+    let mut idx = 0;
+    while idx < args.len() {
+        let arg = &args[idx];
+        match arg.as_str() {
+            "--db" if idx + 1 < args.len() => { db_dir = args[idx + 1].clone(); idx += 2; }
+            "-k" | "--limit" if idx + 1 < args.len() => {
+                k = args[idx + 1].parse().map_err(|_| format!("Invalid limit: {}", args[idx + 1]))?; idx += 2;
+            }
+            "-g" | "--graph" if idx + 1 < args.len() => {
+                beta = args[idx + 1].parse().map_err(|_| format!("Invalid graph weight: {}", args[idx + 1]))?; idx += 2;
+            }
+            "-t" | "--threshold" if idx + 1 < args.len() => {
+                threshold = args[idx + 1].parse().map_err(|_| format!("Invalid threshold: {}", args[idx + 1]))?; idx += 2;
+            }
+            "-n" | "--max-questions" if idx + 1 < args.len() => {
+                max_questions = Some(args[idx + 1].parse().map_err(|_| format!("Invalid count: {}", args[idx + 1]))?); idx += 2;
+            }
+            "--scoring" if idx + 1 < args.len() => {
+                use_relatedness = match args[idx + 1].to_lowercase().as_str() {
+                    "relatedness" | "significance" | "skg" => true,
+                    "jaccard" | "overlap" => false,
+                    other => return Err(format!("Invalid --scoring '{}': expected 'relatedness' or 'jaccard'", other)),
+                };
+                idx += 2;
+            }
+            "--compare" => { compare = true; idx += 1; }
+            "-c" | "--spell-check" => { spell_check = true; idx += 1; }
+            other if other.starts_with('-') => return Err(format!("Unknown option: {}", other)),
+            _ => {
+                if qna_path_opt.is_some() {
+                    return Err(format!("Too many positional arguments: {}", arg));
+                }
+                qna_path_opt = Some(arg.clone());
+                idx += 1;
+            }
+        }
+    }
+
+    let qna_path = qna_path_opt.ok_or_else(|| String::from("Missing Q&A file path"))?;
+
+    // Load the Q&A set (UTF-8-tolerant: cp1252 smart quotes won't abort).
+    let qna_bytes = std::fs::read(&qna_path).map_err(|e| format!("Failed to read {}: {}", qna_path, e))?;
+    let mut questions = lume::eval::parse_qna(&qna_bytes)?;
+    if let Some(n) = max_questions {
+        questions.truncate(n);
+    }
+
+    // Load the index.
+    let db_path = Path::new(&db_dir);
+    let state_file_path = db_path.join("state.json");
+    if !state_file_path.exists() {
+        return Err(format!("Index state file not found at {}. Index the corpus first.", state_file_path.display()));
+    }
+    lume::hybrid::set_cache_dir(db_path);
+    let state: IndexState = load_json(&state_file_path)?;
+    let bm25: Bm25Index = load_json(&db_path.join("bm25.json"))?;
+    let spelling: SpellIndex = load_json(&db_path.join("spelling.json"))?;
+    let graph: Option<EntityGraph> = load_json(&db_path.join("entity_graph.json")).ok();
+
+    let mut tagger = None;
+    if let Some(ref tag_dict) = state.tag_dict_path {
+        let p = Path::new(tag_dict);
+        if p.exists() {
+            tagger = load_tagger_csv(p).ok();
+        }
+    }
+
+    let graph_edges = graph.as_ref().map(|g| g.edges.len()).unwrap_or(0);
+    println!("\n\x1B[1;36m═══ Lume Retrieval Evaluation ═══\x1B[0m");
+    println!("  Corpus      : {} ({} sections)", state.target_dir, bm25.sections.len());
+    println!("  Q&A file    : {} ({} questions)", qna_path, questions.len());
+    println!("  Graph       : {} edges  |  graph β = {}", graph_edges, beta);
+    println!("  Relevance   : answer-token recall ≥ {:.2}  |  metrics @{}", threshold, k);
+
+    let run = |use_rel: bool| -> lume::eval::EvalAggregate {
+        run_eval_pass(&bm25, graph.as_ref(), &spelling, tagger.as_ref(),
+            &questions, k, beta, use_rel, threshold, spell_check)
+    };
+
+    if compare {
+        let jac = run(false);
+        let rel = run(true);
+        print_eval_compare(&jac, &rel, k);
+    } else {
+        let agg = run(use_relatedness);
+        let mode = if use_relatedness { "relatedness (significance)" } else { "jaccard (overlap)" };
+        print_eval_report(&agg, k, mode);
+    }
+    Ok(())
+}
+
+/// Runs one evaluation pass over all questions with a fixed SKG scoring mode and
+/// returns the aggregated metrics. Pure lexical BM25 + SKG boost — deterministic
+/// and fully local, which is exactly the leg where edge scoring matters.
+#[allow(clippy::too_many_arguments)]
+fn run_eval_pass(
+    bm25: &Bm25Index,
+    graph: Option<&EntityGraph>,
+    spelling: &SpellIndex,
+    tagger: Option<&Tagger>,
+    questions: &[lume::eval::QnaItem],
+    k: usize,
+    beta: f64,
+    use_relatedness: bool,
+    threshold: f64,
+    spell_check: bool,
+) -> lume::eval::EvalAggregate {
+    let params = Bm25Params::default();
+    let skg_params = lume::graph_search::SkgBoostParams { beta, use_relatedness, ..Default::default() };
+    let mut agg = lume::eval::EvalAggregate::new(k);
+
+    for q in questions {
+        let query = if spell_check { correct_query(spelling, &q.question) } else { q.question.clone() };
+
+        // SKG boost from the question's entities (no-op when β=0 or no graph).
+        let skg_scores = match graph {
+            Some(g) if beta > 0.0 => {
+                lume::graph_search::compute_skg_scores(bm25, g, &query, &skg_params).scores
+            }
+            _ => std::collections::HashMap::new(),
+        };
+
+        let mut hits = bm25.search(&query, SearchVariant::Classic, &params, tagger);
+        lume::graph_search::apply_skg_boost(&mut hits, &skg_scores, beta);
+        hits.truncate(k);
+
+        // Judge each retrieved section by answer-token containment. A question is
+        // skipped (not counted) only when its answer has no content tokens at all.
+        let mut rels: Vec<bool> = Vec::with_capacity(hits.len());
+        let mut judgeable = false;
+        for h in &hits {
+            if let Some(sec) = bm25.sections.get(h.section_index) {
+                match lume::eval::is_relevant(&q.answer, &sec.body, threshold) {
+                    Some(r) => { judgeable = true; rels.push(r); }
+                    None => { rels.clear(); break; }
+                }
+            }
+        }
+        agg.record(if judgeable { Some(rels.as_slice()) } else { None });
+    }
+    agg
+}
+
+fn print_eval_report(agg: &lume::eval::EvalAggregate, k: usize, mode: &str) {
+    println!("\n  \x1B[1mScoring mode: {}\x1B[0m", mode);
+    println!("  ┌──────────────┬─────────┐");
+    println!("  │ Metric       │  Value  │");
+    println!("  ├──────────────┼─────────┤");
+    println!("  │ Questions    │ {:>7} │", agg.judged);
+    println!("  │ Hit@{:<8} │ {:>6.1}% │", k, agg.hit_rate() * 100.0);
+    println!("  │ MRR          │ {:>7.4} │", agg.mrr());
+    println!("  │ nDCG@{:<7} │ {:>7.4} │", k, agg.ndcg());
+    println!("  └──────────────┴─────────┘");
+    if agg.skipped > 0 {
+        println!("  ({} questions skipped — answer had no scorable content tokens)", agg.skipped);
+    }
+}
+
+fn print_eval_compare(jac: &lume::eval::EvalAggregate, rel: &lume::eval::EvalAggregate, k: usize) {
+    let d = |a: f64, b: f64| {
+        let delta = b - a;
+        let color = if delta > 0.0 { "\x1B[32m" } else if delta < 0.0 { "\x1B[31m" } else { "\x1B[0m" };
+        format!("{}{:+.4}\x1B[0m", color, delta)
+    };
+    println!("\n  \x1B[1mScoring comparison ({} questions judged)\x1B[0m", rel.judged);
+    println!("  ┌──────────────┬──────────┬──────────────┬───────────┐");
+    println!("  │ Metric       │  Jaccard │ Relatedness  │   Δ       │");
+    println!("  ├──────────────┼──────────┼──────────────┼───────────┤");
+    println!("  │ Hit@{:<8} │ {:>7.1}% │ {:>11.1}% │ {} │", k, jac.hit_rate() * 100.0, rel.hit_rate() * 100.0, d(jac.hit_rate(), rel.hit_rate()));
+    println!("  │ MRR          │ {:>8.4} │ {:>12.4} │ {} │", jac.mrr(), rel.mrr(), d(jac.mrr(), rel.mrr()));
+    println!("  │ nDCG@{:<7} │ {:>8.4} │ {:>12.4} │ {} │", k, jac.ndcg(), rel.ndcg(), d(jac.ndcg(), rel.ndcg()));
+    println!("  └──────────────┴──────────┴──────────────┴───────────┘");
+    println!("  Δ = relatedness − jaccard (positive favors significance scoring).");
+}
+
 /// Loads the SKG graph and walks it for `query`, returning per-section boost
 /// scores. Returns an empty map (no boost) when `beta <= 0`, the graph file is
 /// missing, or no query entities resolve. Emits a stderr "SKG walk" trace.
@@ -1390,6 +1632,7 @@ fn compute_skg_for_search(
     db_path: &Path,
     query: &str,
     beta: f64,
+    use_relatedness: bool,
 ) -> std::collections::HashMap<usize, f64> {
     use std::collections::HashMap;
     if beta <= 0.0 {
@@ -1407,7 +1650,7 @@ fn compute_skg_for_search(
             return HashMap::new();
         }
     };
-    let params = lume::graph_search::SkgBoostParams { beta, ..Default::default() };
+    let params = lume::graph_search::SkgBoostParams { beta, use_relatedness, ..Default::default() };
     let walk = lume::graph_search::compute_skg_scores(bm25, &graph, query, &params);
     print_skg_walk(&walk, bm25);
     walk.scores

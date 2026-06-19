@@ -507,9 +507,64 @@ pub struct EntityNode {
 pub struct EntityEdge {
     pub source: String,
     pub target: String,
+    /// Jaccard overlap `|A∩B| / |A∪B|` in `[0,1]`. Normalized co-occurrence —
+    /// cheap and bounded, but blind to base rates: a 2-of-2 co-occurrence scores
+    /// the same as 200-of-400.
     pub similarity: f64,
+    /// Statistical-significance relatedness in `[-1,1]`. This is the actual SKG
+    /// signal: it compares the *observed* co-occurrence against what chance alone
+    /// predicts (`expected = |A||B|/N`) and reports the deviation in standard
+    /// deviations, squashed into `[-1,1]`. `>0` = co-occur more than chance (true
+    /// association); `0` ≈ independent; `<0` = mutually avoidant. Frequent hub
+    /// entities that co-occur with everything land near `0`, which is exactly the
+    /// behavior raw counts and Jaccard miss. See [`EntityGraph::build`].
+    #[serde(default)]
+    pub relatedness: f64,
     pub intersection: usize,
     pub union_size: usize,
+}
+
+impl EntityEdge {
+    /// Weight the SKG walk should use for this edge. With `use_relatedness` the
+    /// significance score is used (negative/avoidant edges clamped to `0` so they
+    /// never *boost*); otherwise the legacy Jaccard. Both land in `[0,1]`, so the
+    /// downstream `decay * weight` arithmetic is unchanged.
+    pub fn weight(&self, use_relatedness: bool) -> f64 {
+        if use_relatedness {
+            self.relatedness.max(0.0)
+        } else {
+            self.similarity
+        }
+    }
+}
+
+/// SKG significance score for a co-occurrence, in `[-1,1]`.
+///
+/// Of `n` documents, entity A appears in `a`, B in `b`, and both in `k`. Under
+/// independence the expected co-occurrence is `E = a·b/n`; modeling the count as
+/// `a` Bernoulli draws with success probability `p = b/n` gives variance
+/// `a·p·(1−p)`. We use the symmetric finite-population form
+/// `var = E·(1 − a/n)·(1 − b/n)` so the score does not depend on edge direction,
+/// then take the z-score `z = (k − E) / √var` and squash it with `tanh(z / Z0)`.
+///
+/// `Z0 = 3.0` anchors the curve to standard-deviation units: a 3σ association
+/// (~99.7% significant) maps to ≈0.76, 6σ to ≈0.96. This is the foreground-vs-
+/// background relatedness primitive from Trey Grainger's Semantic Knowledge
+/// Graph, reduced to the pairwise-edge case.
+pub fn cooccurrence_relatedness(n: usize, a: usize, b: usize, k: usize) -> f64 {
+    if n == 0 || a == 0 || b == 0 {
+        return 0.0;
+    }
+    let (n, a, b, k) = (n as f64, a as f64, b as f64, k as f64);
+    let expected = a * b / n;
+    let variance = expected * (1.0 - a / n) * (1.0 - b / n);
+    if variance <= 0.0 {
+        // A or B spans the whole corpus: no discriminating power.
+        return 0.0;
+    }
+    let z = (k - expected) / variance.sqrt();
+    const Z0: f64 = 3.0;
+    (z / Z0).tanh()
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -525,6 +580,7 @@ impl EntityGraph {
         kinds: &HashMap<String, String>,
         labels: &HashMap<String, String>,
         min_similarity: f64,
+        num_docs: usize,
     ) -> Self {
         let mut nodes = Vec::new();
         let mut edges = Vec::new();
@@ -572,10 +628,19 @@ impl EntityGraph {
                 let union_size = len_a + len_b - intersection;
                 let similarity = intersection as f64 / union_size as f64;
                 if similarity >= min_similarity {
+                    // Significance scoring rides entirely on the roaring bitmaps:
+                    // `intersection` is `MiniRoaring::intersection_count` and
+                    // `len_a/len_b` are roaring cardinalities — the exact counts
+                    // already computed for Jaccard. Relatedness is just a cheap
+                    // arithmetic transform of those counts (z-score vs. chance),
+                    // so it adds no scan over the bitmap intersection that the
+                    // "counting the counts" primitive already pays for.
+                    let relatedness = cooccurrence_relatedness(num_docs, len_a, len_b, intersection);
                     edges.push(EntityEdge {
                         source: entity_keys[i].clone(),
                         target: entity_keys[j].clone(),
                         similarity,
+                        relatedness,
                         intersection,
                         union_size,
                     });
@@ -583,8 +648,15 @@ impl EntityGraph {
             }
         }
 
-        // Sort edges by similarity descending
-        edges.sort_by(|a, b| b.similarity.partial_cmp(&a.similarity).unwrap_or(std::cmp::Ordering::Equal));
+        // Sort edges by relatedness (significance) descending, Jaccard as the
+        // tie-breaker. The strongest *associations* surface first, not merely the
+        // tightest set overlaps.
+        edges.sort_by(|a, b| {
+            b.relatedness
+                .partial_cmp(&a.relatedness)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(b.similarity.partial_cmp(&a.similarity).unwrap_or(std::cmp::Ordering::Equal))
+        });
 
         Self { nodes, edges }
     }
@@ -607,6 +679,7 @@ impl EntityGraph {
             json.push_str(&format!("      \"source\": \"{}\",\n", escape_json(&edge.source)));
             json.push_str(&format!("      \"target\": \"{}\",\n", escape_json(&edge.target)));
             json.push_str(&format!("      \"similarity\": {:.4},\n", edge.similarity));
+            json.push_str(&format!("      \"relatedness\": {:.4},\n", edge.relatedness));
             json.push_str(&format!("      \"intersection\": {},\n", edge.intersection));
             json.push_str(&format!("      \"union\": {}\n", edge.union_size));
             json.push_str(if i == self.edges.len() - 1 { "    }\n" } else { "    },\n" });
@@ -621,19 +694,21 @@ impl EntityGraph {
         println!("  ┌──────────────────────────────────────────────────────────────────────────────┐");
         println!("  │                    SEMANTIC ENTITY CO-OCCURRENCE MESH                       │");
         println!("  ├──────────────────────────────┬──────────────────────────────┬────────┬───────┤");
-        println!("  │ Entity A                     │ Entity B                     │Jaccard │Shared │");
+        println!("  │ Entity A                     │ Entity B                     │ Relate │Shared │");
         println!("  ├──────────────────────────────┼──────────────────────────────┼────────┼───────┤");
-        
+
         if self.edges.is_empty() {
             println!("  │ (No co-occurrence relationships found above threshold)                       │");
         } else {
-            // Show top 25 strongest relationships to keep terminal clean and beautiful
+            // Show top 25 strongest relationships to keep terminal clean and beautiful.
+            // Sorted by significance, so this is "most meaningfully associated", not
+            // "most frequently overlapping".
             for edge in self.edges.iter().take(25) {
                 let name_a = truncate_or_pad(&edge.source, 28);
                 let name_b = truncate_or_pad(&edge.target, 28);
                 println!(
-                    "  │ \x1B[1;33m{}\x1B[0;36m │ \x1B[1;33m{}\x1B[0;36m │ \x1B[1;32m{:.4}\x1B[0;36m │ \x1B[35m{:3}/{:<3}\x1B[0;36m │",
-                    name_a, name_b, edge.similarity, edge.intersection, edge.union_size
+                    "  │ \x1B[1;33m{}\x1B[0;36m │ \x1B[1;33m{}\x1B[0;36m │ \x1B[1;32m{:+.3}\x1B[0;36m │ \x1B[35m{:3}/{:<3}\x1B[0;36m │",
+                    name_a, name_b, edge.relatedness, edge.intersection, edge.union_size
                 );
             }
         }
@@ -652,5 +727,44 @@ fn truncate_or_pad(s: &str, width: usize) -> String {
         format!("{}...", &s[..width - 3])
     } else {
         format!("{:<width$}", s, width = width)
+    }
+}
+
+#[cfg(test)]
+mod relatedness_tests {
+    use super::cooccurrence_relatedness;
+
+    #[test]
+    fn independence_scores_near_zero() {
+        // a=50, b=50 in n=100: expected co-occurrence under independence is
+        // 50*50/100 = 25. Observed exactly 25 → z=0 → relatedness 0.
+        let r = cooccurrence_relatedness(100, 50, 50, 25);
+        assert!(r.abs() < 1e-9, "independent co-occurrence should be ~0, got {}", r);
+    }
+
+    #[test]
+    fn strong_association_is_positive_and_bounded() {
+        // Two rare terms (a=b=5 in n=1000) that always co-occur (k=5): wildly
+        // more than the ~0.025 expected by chance → strongly positive, but the
+        // tanh squash keeps it inside (0,1).
+        let r = cooccurrence_relatedness(1000, 5, 5, 5);
+        assert!(r > 0.5, "perfect rare co-occurrence should be strongly positive, got {}", r);
+        assert!(r < 1.0, "relatedness must stay bounded below 1.0, got {}", r);
+    }
+
+    #[test]
+    fn avoidance_is_negative() {
+        // a=50, b=50 in n=100 but never together (k=0): far below the 25
+        // expected → negative relatedness.
+        let r = cooccurrence_relatedness(100, 50, 50, 0);
+        assert!(r < -0.5, "mutual avoidance should be strongly negative, got {}", r);
+    }
+
+    #[test]
+    fn degenerate_inputs_are_zero() {
+        assert_eq!(cooccurrence_relatedness(0, 1, 1, 0), 0.0);
+        assert_eq!(cooccurrence_relatedness(10, 0, 5, 0), 0.0);
+        // A term spanning the whole corpus has no discriminating power.
+        assert_eq!(cooccurrence_relatedness(10, 10, 5, 5), 0.0);
     }
 }
