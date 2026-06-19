@@ -1,0 +1,25 @@
+{
+  "name": "lume-viz",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Live 3D visualizer for Lume's phase/Weber search relaxation.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "bridge": "node server.js",
+    "start": "vite build && node server.js"
+  },
+  "dependencies": {
+    "@react-three/drei": "^9.114.0",
+    "@react-three/fiber": "^8.17.10",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.3",
+    "vite": "^5.4.10",
+    "ws": "^8.18.0"
+  }
+}

@@ -13,6 +13,10 @@ crawl_cache/
 # Local evaluation scratch (corpus copy + tag dictionary)
 eval-tmp/
 
+# Viz app build output and deps
+viz/node_modules/
+viz/dist/
+
 # Build and archive directories
 target/
 target-cli/

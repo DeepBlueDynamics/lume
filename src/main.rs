@@ -106,6 +106,12 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        "stream" => {
+            if let Err(e) = handle_stream(&args[2..]) {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
         "summarize" => {
             if let Err(e) = handle_summarize(&args[2..]) {
                 eprintln!("Error: {}", e);
@@ -223,6 +229,7 @@ SUBCOMMANDS:
   summarize  Agentic document summarizer via planning, search exploration, and synthesis
   crawl      Stealth crawl webpage content and save to personal search collection
   eval       Measure retrieval quality (Hit@k, MRR, nDCG@k) against a Q&A file
+  stream     Stream the live phase/Weber search relaxation as NDJSON for the 3D visualizer
 "#, env!("CARGO_PKG_VERSION"));
 }
 
@@ -1622,6 +1629,100 @@ fn print_eval_compare(jac: &lume::eval::EvalAggregate, rel: &lume::eval::EvalAgg
     println!("  │ nDCG@{:<7} │ {:>8.4} │ {:>12.4} │ {} │", k, jac.ndcg(), rel.ndcg(), d(jac.ndcg(), rel.ndcg()));
     println!("  └──────────────┴──────────┴──────────────┴───────────┘");
     println!("  Δ = relatedness − jaccard (positive favors significance scoring).");
+}
+
+/// `lume stream <query>` — streams the phase-binding + Weber relaxation over the
+/// query's top-K candidates as NDJSON frames on stdout (one per step). Diagnostics
+/// go to stderr so stdout stays a clean frame stream for the viz bridge.
+fn handle_stream(args: &[String]) -> Result<(), String> {
+    if args.is_empty() || args.iter().any(|a| a == "-h" || a == "--help") {
+        print_stream_help();
+        return Ok(());
+    }
+
+    let mut db_dir = String::from(".lume-index");
+    let mut candidates = 24usize;
+    let mut steps = 160usize;
+    let mut beta = 0.4f64;
+    let mut query_opt: Option<String> = None;
+
+    let mut idx = 0;
+    while idx < args.len() {
+        let arg = &args[idx];
+        match arg.as_str() {
+            "--db" if idx + 1 < args.len() => { db_dir = args[idx + 1].clone(); idx += 2; }
+            "-k" | "--candidates" if idx + 1 < args.len() => {
+                candidates = args[idx + 1].parse().map_err(|_| format!("Invalid candidates: {}", args[idx + 1]))?; idx += 2;
+            }
+            "--steps" if idx + 1 < args.len() => {
+                steps = args[idx + 1].parse().map_err(|_| format!("Invalid steps: {}", args[idx + 1]))?; idx += 2;
+            }
+            "-g" | "--graph" if idx + 1 < args.len() => {
+                beta = args[idx + 1].parse().map_err(|_| format!("Invalid graph weight: {}", args[idx + 1]))?; idx += 2;
+            }
+            other if other.starts_with('-') => return Err(format!("Unknown option: {}", other)),
+            _ => {
+                if query_opt.is_some() { return Err(format!("Too many queries: {}", arg)); }
+                query_opt = Some(arg.clone()); idx += 1;
+            }
+        }
+    }
+    let query = query_opt.ok_or_else(|| String::from("Missing search query"))?;
+
+    let db_path = Path::new(&db_dir);
+    let state_file_path = db_path.join("state.json");
+    if !state_file_path.exists() {
+        return Err(format!("Index state file not found at {}. Index the corpus first.", state_file_path.display()));
+    }
+    lume::hybrid::set_cache_dir(db_path);
+    let _state: IndexState = load_json(&state_file_path)?;
+    let bm25: Bm25Index = load_json(&db_path.join("bm25.json"))?;
+
+    // Quiet candidate retrieval: lexical BM25 + optional SKG boost. Nothing here
+    // touches stdout (the NDJSON channel).
+    let params = Bm25Params::default();
+    let mut hits = bm25.search(&query, SearchVariant::Classic, &params, None);
+    if beta > 0.0 {
+        if let Ok(graph) = load_json::<EntityGraph>(&db_path.join("entity_graph.json")) {
+            let skg_params = lume::graph_search::SkgBoostParams { beta, ..Default::default() };
+            let walk = lume::graph_search::compute_skg_scores(&bm25, &graph, &query, &skg_params);
+            lume::graph_search::apply_skg_boost(&mut hits, &walk.scores, beta);
+        }
+    }
+    hits.truncate(candidates);
+    if hits.is_empty() {
+        return Err("no candidates retrieved for query".to_string());
+    }
+    let candidate_hits: Vec<(usize, f64)> = hits.iter().map(|h| (h.section_index, h.score)).collect();
+
+    let sp = lume::stream::StreamParams { steps, candidates, ..Default::default() };
+    eprintln!("[stream] query={:?}  candidates={}  steps={}", query, candidate_hits.len(), steps);
+    lume::stream::run(&bm25, &candidate_hits, &query, &sp)
+}
+
+fn print_stream_help() {
+    println!(r#"lume-stream
+Stream the live phase-binding + Weber search relaxation as NDJSON frames (one per
+step) on stdout, for the 3D vector visualizer. Requires a reachable shivvr
+endpoint (used read-only to embed the query and candidates).
+
+USAGE:
+  lume stream [OPTIONS] <QUERY>
+
+OPTIONS:
+  --db <PATH>            Path to the persisted index metadata [default: .lume-index]
+  -k, --candidates <N>   Top-N retrieved candidates to animate [default: 24]
+  --steps <N>            Relaxation steps (frames) to emit [default: 160]
+  -g, --graph <VAL>      SKG graph boost weight for candidate selection [default: 0.4]
+  --shivvr-url <URL>     Shivvr endpoint URL [default: http://localhost:8085]
+
+ARGS:
+  <QUERY>                Search query string
+
+Each frame is a JSON object: {{type:"frame", step, r_global, nodes:[{{id, pos[3],
+vel[3], acc[3], phase, cos_q, approach_vel, approach_acc, cluster, is_query}}]}}.
+A leading {{type:"meta"}} frame carries node labels; a trailing {{type:"done"}}.
+"#);
 }
 
 /// Loads the SKG graph and walks it for `query`, returning per-section boost

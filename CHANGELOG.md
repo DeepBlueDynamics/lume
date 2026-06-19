@@ -24,6 +24,17 @@
   modes and prints the delta. New `src/eval.rs` (pure, unit-tested) plus
   `handle_eval` wiring. UTF-8-tolerant Q&A loading (cp1252 files don't abort).
 
+### Visualization
+- **`lume stream` + `viz/`**: live 3D visualizer for the search dynamics.
+  `lume stream <query>` runs a phase-binding + Weber relaxation over the query's
+  top-K candidates (shivvr embeddings, read-only) and emits one NDJSON frame per
+  step on stdout — each node's 3D PCA position, velocity, **acceleration**, phase,
+  cluster, and **approach-acceleration toward the query** (the `d̈` static cosine
+  discards). `viz/` is a Node WebSocket bridge + React/three.js app that renders
+  it: candidates as a force field, green/red arrows for accelerating toward/away
+  from the query, emergent phase clusters, and a Kuramoto coherence meter. New
+  `src/stream.rs`; no new Rust dependencies (std + existing serde_json).
+
 ### Tests
 - New unit tests for the significance function, hub down-weighting (significance
   flips a ranking Jaccard gets wrong), and the eval metrics/relevance judging.
