@@ -1,28 +1,49 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import VectorField from "./VectorField.jsx";
+import ResultsPanel from "./ResultsPanel.jsx";
+import { QHUES } from "./colors.js";
 
 const WS_URL = `ws://${location.hostname}:8086`;
+const QCHIP = QHUES.map((h) => `hsl(${h}, 85%, 62%)`);
 
-// Assign a render radius per node (query fixed + modest; candidates scale with
-// retrieval weight) then run a position-based collision-separation: iteratively
-// push overlapping orbs apart along their centre line until none intersect.
-// Queries are immovable; candidate–candidate overlaps split the push. Mutates in
-// place on the per-frame node objects.
-function layout(nodes) {
+// Per-node render radius (query fixed; candidates scale with weight), an optional
+// cluster "spread" that scales each cluster out from its query for viewing, then
+// a position-based collision-separation so no orbs intersect.
+function layout(nodes, spread) {
   if (!nodes.length) return nodes;
   let lo = Infinity, hi = -Infinity;
   for (const n of nodes) if (!n.is_query) { lo = Math.min(lo, n.score); hi = Math.max(hi, n.score); }
   const span = hi - lo || 1;
   for (const n of nodes) n.r = n.is_query ? 0.3 : 0.15 + 0.4 * ((n.score - lo) / span);
-  const margin = 0.06;
-  for (let iter = 0; iter < 12; iter++) {
+
+  if (spread !== 1) {
+    const origQ = new Map(), newQ = new Map();
+    let cx = 0, cy = 0, cz = 0, nq = 0;
+    for (const n of nodes) if (n.is_query) { origQ.set(n.query_index, n.pos.slice()); cx += n.pos[0]; cy += n.pos[1]; cz += n.pos[2]; nq++; }
+    const c = [nq ? cx / nq : 0, nq ? cy / nq : 0, nq ? cz / nq : 0];
+    for (const n of nodes) if (n.is_query) {
+      n.pos = [c[0] + (n.pos[0] - c[0]) * spread, c[1] + (n.pos[1] - c[1]) * spread, c[2] + (n.pos[2] - c[2]) * spread];
+      newQ.set(n.query_index, n.pos.slice());
+    }
+    for (const n of nodes) if (!n.is_query) {
+      const oq = origQ.get(n.query_index) || c, nqp = newQ.get(n.query_index) || c;
+      n.pos = [nqp[0] + (n.pos[0] - oq[0]) * spread, nqp[1] + (n.pos[1] - oq[1]) * spread, nqp[2] + (n.pos[2] - oq[2]) * spread];
+    }
+  }
+
+  // Collision radius padded ~25% over the sphere so velocity-warped ellipsoids
+  // don't intersect either; iterate to convergence.
+  const margin = 0.12;
+  for (let iter = 0; iter < 26; iter++) {
+    let moved = false;
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
         const a = nodes[i], b = nodes[j];
         const dx = b.pos[0] - a.pos[0], dy = b.pos[1] - a.pos[1], dz = b.pos[2] - a.pos[2];
         const d = Math.hypot(dx, dy, dz) || 1e-4;
-        const min = a.r + b.r + margin;
+        const min = a.r * 1.25 + b.r * 1.25 + margin;
         if (d < min) {
+          moved = true;
           const push = min - d, ux = dx / d, uy = dy / d, uz = dz / d;
           const aw = a.is_query ? 0 : b.is_query ? 1 : 0.5;
           const bw = b.is_query ? 0 : a.is_query ? 1 : 0.5;
@@ -31,6 +52,7 @@ function layout(nodes) {
         }
       }
     }
+    if (!moved) break;
   }
   return nodes;
 }
@@ -42,15 +64,9 @@ function interpolate(meta, a, b, t) {
     const nb = (b && b.nodes[i]) || na;
     const mn = meta?.nodes?.[i] || {};
     return {
-      id: na.id,
-      label: mn.label,
-      score: mn.score ?? 0,
-      text: mn.text || "",
-      is_query: na.is_query,
-      query_index: na.query_index ?? 0,
-      members: mn.members || na.members || [],
-      pos: lerp3(na.pos, nb.pos),
-      acc: lerp3(na.acc, nb.acc),
+      id: na.id, label: mn.label, score: mn.score ?? 0, text: mn.text || "",
+      is_query: na.is_query, query_index: na.query_index ?? 0, members: mn.members || na.members || [],
+      pos: lerp3(na.pos, nb.pos), acc: lerp3(na.acc, nb.acc),
       cos_q: na.cos_q + (nb.cos_q - na.cos_q) * t,
       approach_acc: na.approach_acc + (nb.approach_acc - na.approach_acc) * t,
       cluster: nb.cluster,
@@ -73,6 +89,9 @@ export default function App() {
   const [speed, setSpeed] = useState(1.2);
   const [accScale, setAccScale] = useState(120);
   const [warp, setWarp] = useState(14);
+  const [spread, setSpread] = useState(1);
+  const [sortKey, setSortKey] = useState("relevance");
+  const [hoveredId, setHoveredId] = useState(null);
   const [conn, setConn] = useState("connecting");
   const [status, setStatus] = useState("");
 
@@ -109,9 +128,7 @@ export default function App() {
     let raf, last = performance.now();
     const tick = (now) => {
       const dt = (now - last) / 1000; last = now;
-      if (playing && framesRef.current.length > 1) {
-        setIdx((p) => Math.min(framesRef.current.length - 1, p + dt * speed * 24));
-      }
+      if (playing && framesRef.current.length > 1) setIdx((p) => Math.min(framesRef.current.length - 1, p + dt * speed * 24));
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -121,25 +138,28 @@ export default function App() {
   const runSearch = useCallback((qs) => {
     const ws = wsRef.current;
     const list = qs.filter(Boolean);
-    if (!list.length) return;
+    setQueries(list);
+    if (!list.length) { setMeta(null); framesRef.current = []; setFrameCount(0); setIdx(0); return; }
     if (!ws || ws.readyState !== ws.OPEN) { setStatus("not connected to bridge"); return; }
     framesRef.current = []; setFrameCount(0); setIdx(0); setMeta(null);
-    setQueries(list);
     ws.send(JSON.stringify({ type: "search", queries: list, db, candidates: Number(candidates), steps: Number(steps) }));
   }, [db, candidates, steps]);
 
-  const search = () => runSearch([input]);                       // fresh search
-  const addSearch = () => runSearch([...queries, input]);        // additive: union into the field
+  const search = () => runSearch([input]);
+  const addSearch = () => runSearch([...queries, input]);
+  const removeQuery = (i) => runSearch(queries.filter((_, k) => k !== i)); // delete + rerun
 
   const frames = framesRef.current;
   const lo = Math.floor(idx), hi = Math.min(frames.length - 1, lo + 1), frac = idx - lo;
-  const nodes = frames.length ? layout(interpolate(meta, frames[lo], frames[hi], frac)) : [];
+  const nodes = frames.length ? layout(interpolate(meta, frames[lo], frames[hi], frac), spread) : [];
   const rGlobal = frames.length ? frames[Math.round(idx)].r_global : 0;
+  const multi = queries.length > 1;
 
   return (
     <div className="app">
       <div className="canvas-wrap">
-        <VectorField nodes={nodes} accScale={accScale} warp={warp} queryCount={queries.length || 1} />
+        <VectorField nodes={nodes} accScale={accScale} warp={warp} queryCount={queries.length || 1}
+          hoveredId={hoveredId} onHover={setHoveredId} />
       </div>
 
       <div className="panel">
@@ -166,7 +186,9 @@ export default function App() {
           <div className="chips">
             {queries.map((q, i) => (
               <span key={i} className="chip" style={{ borderColor: QCHIP[i % QCHIP.length] }}>
-                <i style={{ background: QCHIP[i % QCHIP.length] }} />{q.length > 26 ? q.slice(0, 25) + "…" : q}
+                <i style={{ background: QCHIP[i % QCHIP.length] }} />
+                {q.length > 22 ? q.slice(0, 21) + "…" : q}
+                <button className="chip-x" title="remove + rerun" onClick={() => removeQuery(i)}>×</button>
               </span>
             ))}
           </div>
@@ -176,7 +198,10 @@ export default function App() {
         <div className="bar"><i style={{ width: `${rGlobal * 100}%` }} /></div>
         <div className="stat"><span>frame</span><b>{frames.length ? `${Math.round(idx)} / ${frameCount - 1}` : "—"}</b></div>
 
-        <div className="stat" style={{ marginTop: 8 }}><span>acc arrow scale</span><b>{accScale}</b></div>
+        <div className="stat" style={{ marginTop: 8 }}><span>cluster spread</span><b>{spread.toFixed(1)}×</b></div>
+        <input type="range" min={1} max={3.5} step={0.1} value={spread} style={{ width: "100%" }}
+          onChange={(e) => setSpread(Number(e.target.value))} />
+        <div className="stat" style={{ marginTop: 4 }}><span>acc arrow scale</span><b>{accScale}</b></div>
         <input type="range" min={10} max={400} value={accScale} style={{ width: "100%" }}
           onChange={(e) => setAccScale(Number(e.target.value))} />
         <div className="stat" style={{ marginTop: 4 }}><span>orb warp</span><b>{warp}</b></div>
@@ -184,12 +209,16 @@ export default function App() {
           onChange={(e) => setWarp(Number(e.target.value))} />
 
         <div className="legend">
-          <div>labels = retrieval <b>weight</b> · <b>hover</b> for the passage</div>
-          <div><span className="dot" style={{ background: "#ffd23b" }} /> haloed = <b>overlap</b> (found by 2+ queries)</div>
-          <div>orbs cluster around their query · nearer = more relevant</div>
-          <div>Enter = search · Ctrl-Enter = add · Ctrl-drag = pan · scroll = zoom</div>
+          <div>labels = <b>weight</b> · hover for the passage · each search has its own colour</div>
+          <div><span className="dot" style={{ background: "#ffd23b" }} /> haloed = <b>overlap</b> (2+ searches)</div>
+          <div>Enter = search · Ctrl-Enter = add · × on a chip removes + reruns · Ctrl-drag = pan</div>
         </div>
       </div>
+
+      {nodes.length > 0 && (
+        <ResultsPanel nodes={nodes} multi={multi} sortKey={sortKey} setSortKey={setSortKey}
+          hoveredId={hoveredId} onHover={setHoveredId} />
+      )}
 
       <div className="controls">
         <button onClick={() => setPlaying((p) => !p)}>{playing ? "❚❚" : "▶"}</button>
@@ -201,12 +230,8 @@ export default function App() {
       </div>
 
       <div className="status">
-        bridge: <span className={conn === "connected" ? "ok" : "err"}>{conn}</span>
-        {status ? ` · ${status}` : ""}
+        bridge: <span className={conn === "connected" ? "ok" : "err"}>{conn}</span>{status ? ` · ${status}` : ""}
       </div>
     </div>
   );
 }
-
-// Query chip colors, matched to the per-query hues in VectorField.
-const QCHIP = ["#3fa9ff", "#ff9d3b", "#e06bff", "#36d399", "#ffd23b"];

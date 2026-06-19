@@ -26,8 +26,36 @@ button:disabled { opacity: 0.5; cursor: default; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
 .chip { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; color: #cfd6ee;
-  background: #0c0e16; border: 1px solid #232a3d; border-radius: 10px; padding: 2px 8px; }
+  background: #0c0e16; border: 1px solid #232a3d; border-radius: 10px; padding: 2px 4px 2px 8px; }
 .chip i { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.chip-x { background: transparent; border: 0; color: #7b829a; cursor: pointer; font-size: 14px;
+  line-height: 1; padding: 0 3px; }
+.chip-x:hover { color: #ff5b6e; }
+
+/* Right-side results list with its own scrollbar; re-sorts live by the values shown. */
+.results { position: absolute; top: 16px; right: 16px; z-index: 10; width: 320px;
+  max-height: calc(100% - 92px); display: flex; flex-direction: column; overflow: hidden;
+  background: rgba(12, 14, 22, 0.82); border: 1px solid #1d2233; border-radius: 12px; backdrop-filter: blur(8px); }
+.results-head { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 8px;
+  border-bottom: 1px solid #1d2233; font-size: 11px; color: #9aa1b8; }
+.sorts { display: flex; gap: 4px; }
+.sorts button { background: #141a28; color: #9aa1b8; border: 1px solid #232a3d; border-radius: 6px;
+  padding: 3px 7px; font-size: 10px; }
+.sorts button.on { background: #2b5cff; color: #fff; border-color: #2b5cff; }
+.results-list { overflow-y: auto; padding: 4px; }
+.result { display: grid; grid-template-columns: 12px 38px 1fr 46px 46px; gap: 6px; align-items: center;
+  padding: 4px 6px; border-radius: 6px; font-size: 11px; }
+.result.hot { background: rgba(255, 255, 255, 0.10); }
+.result:hover { background: rgba(255, 255, 255, 0.05); }
+.rdot { width: 10px; height: 10px; border-radius: 50%; }
+.rweight { color: #fff; font-variant-numeric: tabular-nums; }
+.rlabel { color: #cfd6ee; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rbar { height: 6px; background: #161b29; border-radius: 3px; overflow: hidden; }
+.rbar > i { display: block; height: 100%; }
+.racc { text-align: right; font-variant-numeric: tabular-nums; font-size: 10px; }
+.results-list::-webkit-scrollbar { width: 8px; }
+.results-list::-webkit-scrollbar-thumb { background: #2a3147; border-radius: 4px; }
+.results-list::-webkit-scrollbar-track { background: transparent; }
 
 .legend { margin-top: 10px; font-size: 10px; color: #7b829a; line-height: 1.5; }
 .legend .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }

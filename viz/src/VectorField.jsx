@@ -2,11 +2,9 @@ import React, { useMemo, useState, useEffect, useRef } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Line, Html, Billboard, Text } from "@react-three/drei";
 import * as THREE from "three";
+import { qHsl, OVERLAP, nodeColors, colorOfNode } from "./colors.js";
 
 const fmtWeight = (n) => (Math.abs(n) >= 100 ? n.toFixed(0) : n.toFixed(2));
-const QHUES = [205, 32, 288, 150, 48];
-const qHsl = (qi, L = 62) => `hsl(${QHUES[qi % QHUES.length]}, 85%, ${L}%)`;
-const OVERLAP = "#ffd23b";
 
 const UP = new THREE.Vector3(0, 1, 0);
 const _v = new THREE.Vector3();
@@ -140,36 +138,19 @@ function Tooltip({ node, color }) {
   );
 }
 
-export default function VectorField({ nodes, accScale, warp, queryCount }) {
-  const [hovered, setHovered] = useState(null);
+export default function VectorField({ nodes, accScale, warp, queryCount, hoveredId, onHover }) {
   const multi = (queryCount || 1) > 1;
 
-  // Single query → full-spectrum colour ordered by relatedness. Multiple queries
-  // → colour by anchor query (overlaps gold), so you can read which query owns
-  // (or shares) each result.
-  const colorById = useMemo(() => {
-    const map = new Map();
-    if (!multi) {
-      const cands = nodes.filter((n) => !n.is_query).slice().sort((a, b) => b.cos_q - a.cos_q);
-      const n = Math.max(1, cands.length - 1);
-      cands.forEach((nd, i) => map.set(nd.id, `hsl(${(i / n) * 300}, 85%, 58%)`));
-    } else {
-      for (const nd of nodes) {
-        if (nd.is_query) continue;
-        if (nd.members && nd.members.length > 1) map.set(nd.id, OVERLAP);
-        else map.set(nd.id, qHsl(nd.query_index, 46 + 30 * Math.max(0, Math.min(1, nd.cos_q))));
-      }
-    }
-    return map;
-  }, [nodes, multi]);
-
-  const colorOf = (nd) => nd.is_query ? (multi ? qHsl(nd.query_index, 66) : "#ffffff") : (colorById.get(nd.id) || "#888");
+  // Shared colour logic (see colors.js) so list + orbs match.
+  const colorById = useMemo(() => nodeColors(nodes, multi), [nodes, multi]);
+  const colorOf = (nd) => colorOfNode(nd, colorById, multi);
   const haloOf = (nd) => {
     if (nd.is_query) return multi ? qHsl(nd.query_index, 66) : "#9fb4ff";
     if (nd.members && nd.members.length > 1) return OVERLAP;
+    if (nd.id === hoveredId) return "#ffffff"; // highlight the hovered result
     return null;
   };
-  const hoveredLive = hovered != null ? nodes.find((n) => n.id === hovered.id) || hovered : null;
+  const hoveredLive = hoveredId != null ? nodes.find((n) => n.id === hoveredId) : null;
 
   return (
     <Canvas camera={{ position: [0, 2, 16], fov: 50 }} dpr={[1, 2]}>
