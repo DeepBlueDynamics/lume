@@ -1189,6 +1189,12 @@ pub fn summarize_document(
 
     println!("\n[📊] Gathered {} unique passage snippets.", unique_snippets.len());
 
+    if unique_snippets.is_empty() {
+        println!("\n# Executive Summary: {}\n", filename);
+        println!("I do not have enough information / retrieved passages to summarize this document.");
+        return Ok(());
+    }
+
     // 3. Synthesize summary
     println!("[🧠] Synthesizing comprehensive summary...");
     let context_text = unique_snippets.into_iter().collect::<Vec<String>>().join("\n\n---\n\n");
