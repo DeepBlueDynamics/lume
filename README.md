@@ -9,6 +9,7 @@ A high-performance Rust library and CLI suite featuring an FST-backed phrase mat
 
 </div>
 
+
 ---
 
 ## 🗺️ Table of Contents
