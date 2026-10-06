@@ -54,11 +54,11 @@ and cheaply.
 | D19 | toml 0.9 in ti-contracts | W0 part 2: parse the typed ti.toml schema, reject unknown keys and report key-qualified validation errors; pure Rust |
 | D20 | `raw` (for both the DuckDB oracle and TI) is a normalizing view over the real signalk-parquet layout: `context, ts TIMESTAMP, path, value DOUBLE, value_str VARCHAR, source`, with object keys flattened to `path.key` | Lead decision after [design/signalk-formats.md](../design/signalk-formats.md) found string timestamps, no `$source` column and per-file value types. Oracles stay layout-independent, and the generator writes the real layout so the view is tested against it ([repo-fit §10](../repo-fit.md)) |
 | D21 | Ordinary set fields are single-valued per bucket: exactly one row bit per column, the last preferred-source value. Rows are pairwise disjoint and union to presence; the Arrow type is Utf8. `$source` stays multi-valued `List<Utf8>`, and W4 rewrites `=` to `array_has` | Lead ruling at the contracts freeze: with Exact pushdown, a filter must agree with the projected value, because DataFusion doesn't re-check it. Mid-bucket changes are covered by `@starts` / edge counts. Enforced by `validate_ordinary_set_rows` |
+| D23 | proptest 1.x as a ti-core dev-dependency | W1: 10,000-case independent scalar/bitmap checks for signed BSI, predicate trees and D21 rewrites; coordinated with Prawn (D22 reserved for ti-bench), no new root runtime dependency |
 
 Reserved, and written by the owning lane at merge (agreed among the lanes on 2026-10-06):
 
 - D22: Zygomorphic Prawn, `ti-bench` generator crate (arrow/parquet 59.x pure-Rust codecs, chrono; dev/optional)
-- D23: Rigid Roadrunner, W1 `proptest` dev-dependency
 - D24, D25: Romantic Pike, W2 `bincode` and `crc32fast`
 
 The next free number is **D26**. Ask the lead before taking one. Every new runtime dependency needs a line here
