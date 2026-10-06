@@ -162,7 +162,11 @@ pub fn read_parquet_points(path: &Path, self_urn: &str) -> Result<Vec<RawDataPoi
 
     let mut points = Vec::new();
 
-    for batch_res in reader {
+    let mut reader = reader;
+    loop {
+        let batch_res = { let _scope = crate::profile::Scope::new(1); reader.next() };
+        let Some(batch_res) = batch_res else { break; };
+        let _extract_scope = crate::profile::Scope::new(2);
         let batch: RecordBatch =
             batch_res.map_err(|e| Error::Corrupt(format!("parquet batch error: {e}")))?;
         let num_rows = batch.num_rows();
@@ -355,7 +359,7 @@ fn backfill_file_with_documents(
     bucketer: &mut MultiStoreBucketer,
     documents: &mut Option<crate::notifications::NotificationDocuments>,
 ) -> Result<BackfillStatus> {
-    let hash = compute_file_hash(path)?;
+    let hash = { let _scope = crate::profile::Scope::new(0); compute_file_hash(path)? };
 
     if let Some(known) = manifest_hashes {
         if known.contains(&hash) {
@@ -364,6 +368,7 @@ fn backfill_file_with_documents(
     }
 
     let mut raw_points = read_parquet_points(path, self_urn)?;
+    let _bucket_scope = crate::profile::Scope::new(5);
     raw_points.sort_by_key(|p| p.timestamp);
     if raw_points
         .iter()
@@ -610,4 +615,53 @@ mod tests {
             })
         );
     }
+}
+
+#[cfg(feature = "backfill-profile")]
+pub fn profile_backfill_files_stores(
+    files: &[std::path::PathBuf],
+    self_urn: &str,
+    manifest_hashes: Option<&HashSet<[u8; 32]>>,
+    config: &TiConfig,
+    catalogs: &BTreeMap<String, &dyn Catalog>,
+    sinks: &mut BTreeMap<String, &mut dyn ShardSink>,
+) -> Result<Vec<BackfillStatus>> {
+
+    let mut bucketer = MultiStoreBucketer::new(config)?;
+    let mut documents = None;
+    let mut results = Vec::with_capacity(files.len());
+    for (i, file) in files.iter().enumerate() {
+        let status = backfill_file_with_documents(
+            file,
+            self_urn,
+            manifest_hashes,
+            config,
+            catalogs,
+            sinks,
+            &mut bucketer,
+            &mut documents,
+        )?;
+        results.push(status);
+        // Flush in batches: a flush per file (one per path per day) dominated backfill time.
+        if (i + 1) % BACKFILL_FLUSH_EVERY_FILES == 0 {
+            for (name, sink) in sinks.iter_mut() {
+                if catalogs.contains_key(name) {
+                    sink.flush()?;
+                }
+            }
+        }
+    }
+    for (name, sink) in sinks.iter_mut() {
+        if catalogs.contains_key(name) {
+            sink.flush()?;
+        }
+    }
+    Ok(results)
+}
+
+#[cfg(feature = "backfill-profile")]
+pub fn profile_backfill_files(files: &[std::path::PathBuf], self_urn: &str, config: &TiConfig, catalog: &dyn Catalog, sink: &mut dyn ShardSink) -> Result<Vec<BackfillStatus>> {
+    let catalogs = BTreeMap::from([("default".to_string(), catalog)]);
+    let mut sinks = BTreeMap::from([("default".to_string(), sink)]);
+    profile_backfill_files_stores(files, self_urn, None, config, &catalogs, &mut sinks)
 }

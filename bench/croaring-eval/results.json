@@ -1,0 +1,222 @@
+{
+  "croaring": "2.8.0",
+  "results": [
+    {
+      "case": "bsi-range/dense",
+      "croaring_frozen_ns": 18107.649666666668,
+      "croaring_owned_ns": 18453.767666666667,
+      "croaring_portable_view_ns": 18409.320333333333,
+      "frozen_range_ns": [
+        17121.797666666665,
+        20483.447666666667
+      ],
+      "frozen_speedup": 1.1848261956470736,
+      "iterations": 3000,
+      "owned_speedup": 1.162603651146,
+      "portable_view_speedup": 1.1654106332116807,
+      "roaring_ns": 21454.417666666668,
+      "roaring_range_ns": [
+        19138.587666666666,
+        22531.013666666666
+      ]
+    },
+    {
+      "case": "and-andnot-chain/dense",
+      "croaring_frozen_ns": 1620.0766666666666,
+      "croaring_owned_ns": 1570.6876666666667,
+      "croaring_portable_view_ns": 1725.199,
+      "frozen_range_ns": [
+        1582.1383333333333,
+        2454.2366666666667
+      ],
+      "frozen_speedup": 1.2900780415741644,
+      "iterations": 3000,
+      "owned_speedup": 1.330643499460852,
+      "portable_view_speedup": 1.2114691310007328,
+      "roaring_ns": 2090.0253333333335,
+      "roaring_range_ns": [
+        2041.0063333333333,
+        2190.077
+      ]
+    },
+    {
+      "case": "serialization/dense",
+      "croaring_frozen_bytes": 8201,
+      "croaring_portable_bytes": 8208,
+      "frozen_alignment": 32,
+      "portable_cross_read": true,
+      "roaring_portable_bytes": 8208
+    },
+    {
+      "case": "deserialize/dense",
+      "croaring_frozen_ns": 13.203,
+      "croaring_owned_ns": 193.342,
+      "croaring_portable_view_ns": 13.023333333333333,
+      "frozen_range_ns": [
+        12.964333333333334,
+        17.608666666666668
+      ],
+      "frozen_speedup": 34.67605847155949,
+      "iterations": 3000,
+      "owned_speedup": 2.3679697117025786,
+      "portable_view_speedup": 35.154440747376505,
+      "roaring_ns": 457.828,
+      "roaring_range_ns": [
+        443.857,
+        481.14433333333335
+      ]
+    },
+    {
+      "case": "bsi-range/sparse",
+      "croaring_frozen_ns": 96159.90366666667,
+      "croaring_owned_ns": 95370.52166666667,
+      "croaring_portable_view_ns": 95100.45966666666,
+      "frozen_range_ns": [
+        91713.94966666667,
+        99659.562
+      ],
+      "frozen_speedup": 2.29295351380881,
+      "iterations": 3000,
+      "owned_speedup": 2.311932294662748,
+      "portable_view_speedup": 2.318497615814188,
+      "roaring_ns": 220490.189,
+      "roaring_range_ns": [
+        218557.121,
+        227147.07033333334
+      ]
+    },
+    {
+      "case": "and-andnot-chain/sparse",
+      "croaring_frozen_ns": 5184.554666666667,
+      "croaring_owned_ns": 5046.165333333333,
+      "croaring_portable_view_ns": 5035.245666666667,
+      "frozen_range_ns": [
+        4989.971666666666,
+        5909.400666666666
+      ],
+      "frozen_speedup": 1.31399488892135,
+      "iterations": 3000,
+      "owned_speedup": 1.3500307428161953,
+      "portable_view_speedup": 1.3529584819330562,
+      "roaring_ns": 6812.4783333333335,
+      "roaring_range_ns": [
+        6515.531666666667,
+        7904.904333333333
+      ]
+    },
+    {
+      "case": "serialization/sparse",
+      "croaring_frozen_bytes": 6685,
+      "croaring_portable_bytes": 6692,
+      "frozen_alignment": 32,
+      "portable_cross_read": true,
+      "roaring_portable_bytes": 6692
+    },
+    {
+      "case": "deserialize/sparse",
+      "croaring_frozen_ns": 13.060666666666666,
+      "croaring_owned_ns": 509.508,
+      "croaring_portable_view_ns": 12.863666666666667,
+      "frozen_range_ns": [
+        12.814333333333334,
+        16.127
+      ],
+      "frozen_speedup": 86.95357562145884,
+      "iterations": 3000,
+      "owned_speedup": 2.22895747793296,
+      "portable_view_speedup": 88.28522194294005,
+      "roaring_ns": 1135.6716666666666,
+      "roaring_range_ns": [
+        1120.159,
+        3369.8076666666666
+      ]
+    },
+    {
+      "case": "bsi-range/runs",
+      "croaring_frozen_ns": 2764.18,
+      "croaring_owned_ns": 2747.603,
+      "croaring_portable_view_ns": 29702.726666666666,
+      "frozen_range_ns": [
+        2696.472,
+        4287.122333333334
+      ],
+      "frozen_speedup": 11.764013559174874,
+      "iterations": 3000,
+      "owned_speedup": 11.834988897595467,
+      "portable_view_speedup": 1.0947766299345358,
+      "roaring_ns": 32517.851,
+      "roaring_range_ns": [
+        31815.223,
+        33851.121
+      ]
+    },
+    {
+      "case": "and-andnot-chain/runs",
+      "croaring_frozen_ns": 622.1733333333333,
+      "croaring_owned_ns": 625.3466666666667,
+      "croaring_portable_view_ns": 6080.662666666667,
+      "frozen_range_ns": [
+        603.182,
+        896.6423333333333
+      ],
+      "frozen_speedup": 10.301065619441529,
+      "iterations": 3000,
+      "owned_speedup": 10.24879266966589,
+      "portable_view_speedup": 1.0540049143766566,
+      "roaring_ns": 6409.048333333333,
+      "roaring_range_ns": [
+        6333.241333333333,
+        7460.516333333333
+      ]
+    },
+    {
+      "case": "runs/interval-enumeration",
+      "croaring_frozen_ns": 75105.36877076412,
+      "croaring_owned_ns": 73789.07973421927,
+      "croaring_portable_view_ns": 171238.10963455148,
+      "frozen_range_ns": [
+        72071.80066445183,
+        84460.52491694353
+      ],
+      "frozen_speedup": 1.5128870110988257,
+      "iterations": 301,
+      "owned_speedup": 1.539874698076537,
+      "portable_view_speedup": 0.66355519293907,
+      "roaring_ns": 113625.93687707641,
+      "roaring_range_ns": [
+        111983.71096345515,
+        116958.2757475083
+      ]
+    },
+    {
+      "case": "serialization/runs",
+      "croaring_frozen_bytes": 13,
+      "croaring_portable_bytes": 15,
+      "frozen_alignment": 32,
+      "portable_cross_read": true,
+      "roaring_portable_bytes": 8208
+    },
+    {
+      "case": "deserialize/runs",
+      "croaring_frozen_ns": 13.597,
+      "croaring_owned_ns": 32.88166666666667,
+      "croaring_portable_view_ns": 12.882333333333333,
+      "frozen_range_ns": [
+        13.196666666666667,
+        14.552333333333333
+      ],
+      "frozen_speedup": 32.342085263906256,
+      "iterations": 3000,
+      "owned_speedup": 13.373876020071975,
+      "portable_view_speedup": 34.13631070975755,
+      "roaring_ns": 439.75533333333334,
+      "roaring_range_ns": [
+        434.855,
+        451.98133333333334
+      ]
+    }
+  ],
+  "roaring": "0.11.5",
+  "rounds": 9,
+  "shard_buckets": 65536
+}

@@ -98,6 +98,16 @@ pub fn normalize_point(
     allow_paths: &[String],
     deny_paths: &[String],
 ) -> Vec<NormalizedPoint> {
+    normalize_point_ref(&raw, allow_paths, deny_paths)
+}
+
+/// Normalize a borrowed raw point without cloning its context, path, source and
+/// JSON value first. Resulting normalized points remain independently owned.
+pub fn normalize_point_ref(
+    raw: &RawDataPoint,
+    allow_paths: &[String],
+    deny_paths: &[String],
+) -> Vec<NormalizedPoint> {
     let mut out = Vec::new();
     flatten_value(
         &raw.context,

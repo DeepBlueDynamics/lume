@@ -48,3 +48,5 @@ pub use websocket::{
 };
 
 pub fn init() {}
+
+pub mod profile;
