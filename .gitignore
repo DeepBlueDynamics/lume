@@ -27,3 +27,6 @@ target-verify/
 archive/
 examples/crawled/
 __pycache__/
+
+# Per-agent lane clones (integrator fetches branches from these)
+.lanes/
