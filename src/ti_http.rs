@@ -33,7 +33,9 @@ impl TiServer {
         let engine = runtime
             .block_on(ti_sql::TiEngine::open(root, width, Some(&factory)))
             .map_err(|e| e.to_string())?;
-        runtime.block_on(ti_sql::postgres::register(&engine)).map_err(|e| e.to_string())?;
+        runtime
+            .block_on(ti_sql::postgres::register(&engine))
+            .map_err(|e| e.to_string())?;
         let resolver = crate::ti_resolve::PathsResolver::new(&engine.session.catalog);
         let canonical_root = if root.exists() {
             root.canonicalize().map_err(|e| e.to_string())?
@@ -82,7 +84,9 @@ impl TiServer {
                 Some(&factory),
             ))
             .map_err(|e| e.to_string())?;
-        self.runtime.block_on(ti_sql::postgres::register(&engine)).map_err(|e| e.to_string())?;
+        self.runtime
+            .block_on(ti_sql::postgres::register(&engine))
+            .map_err(|e| e.to_string())?;
         let resolver = crate::ti_resolve::PathsResolver::new(&engine.session.catalog);
         let _guard = self.gate.lock().map_err(|e| e.to_string())?;
         let mut engine_guard = self.engine.write().map_err(|e| e.to_string())?;
@@ -94,14 +98,28 @@ impl TiServer {
     pub(crate) fn pg_describe(&self, sql: &str, hints: &[String]) -> Result<Value, String> {
         let engine = self.engine.read().map_err(|e| e.to_string())?.clone();
         let _guard = self.gate.lock().map_err(|e| e.to_string())?;
-        engine.session.reset_diagnostics().map_err(|e| e.to_string())?;
-        self.runtime.block_on(ti_sql::postgres::describe(&engine, sql, hints)).map_err(|e| e.to_string())
+        engine
+            .session
+            .reset_diagnostics()
+            .map_err(|e| e.to_string())?;
+        self.runtime
+            .block_on(ti_sql::postgres::describe(&engine, sql, hints))
+            .map_err(|e| e.to_string())
     }
-    pub(crate) fn pg_query(&self, sql: &str, parameters: Vec<ti_sql::postgres::Parameter>) -> Result<Value, String> {
+    pub(crate) fn pg_query(
+        &self,
+        sql: &str,
+        parameters: Vec<ti_sql::postgres::Parameter>,
+    ) -> Result<Value, String> {
         let engine = self.engine.read().map_err(|e| e.to_string())?.clone();
         let _guard = self.gate.lock().map_err(|e| e.to_string())?;
-        engine.session.reset_diagnostics().map_err(|e| e.to_string())?;
-        self.runtime.block_on(ti_sql::postgres::query(&engine, sql, parameters)).map_err(|e| e.to_string())
+        engine
+            .session
+            .reset_diagnostics()
+            .map_err(|e| e.to_string())?;
+        self.runtime
+            .block_on(ti_sql::postgres::query(&engine, sql, parameters))
+            .map_err(|e| e.to_string())
     }
     /// Fail before starting ingestion when pg credentials or listener policy are invalid.
     pub fn validate_pg_auth(&self, bind: &str) -> Result<(), String> {
@@ -110,10 +128,19 @@ impl TiServer {
         Ok(())
     }
     pub(crate) fn pg_users(&self) -> Result<Vec<ti_contracts::ScramUser>, String> {
-        if let Some(users) = &self.pg_auth_users { return Ok(users.clone()); }
+        if let Some(users) = &self.pg_auth_users {
+            return Ok(users.clone());
+        }
         let path = self.root.join("ti.toml");
-        if !path.exists() { return Ok(vec![]); }
-        Ok(ti_contracts::TiConfig::from_toml(&std::fs::read_to_string(path).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?.auth.scram_users)
+        if !path.exists() {
+            return Ok(vec![]);
+        }
+        Ok(ti_contracts::TiConfig::from_toml(
+            &std::fs::read_to_string(path).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?
+        .auth
+        .scram_users)
     }
     pub fn mcp(&self, name: &str, args: &Value) -> Result<String, String> {
         if !args.is_object() {

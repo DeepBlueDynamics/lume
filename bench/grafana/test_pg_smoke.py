@@ -9,6 +9,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 
 
+@unittest.skipIf(os.name == "nt", "POSIX harness: bash plus an executable shebang psql stub")
 class PgSmokeTests(unittest.TestCase):
     def test_twenty_sql_cases_psql_describe_and_negative_scram(self):
         with tempfile.TemporaryDirectory() as directory:

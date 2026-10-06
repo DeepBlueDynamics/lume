@@ -27,13 +27,27 @@ pub(crate) fn load_users(path: &std::path::Path) -> Result<Vec<ti_contracts::Scr
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if file.metadata().map_err(|_| "Cannot stat pg auth config")?.permissions().mode() & 0o077 != 0 {
-            return Err("pg auth config must not be group- or world-accessible (use chmod 600)".into());
+        if file
+            .metadata()
+            .map_err(|_| "Cannot stat pg auth config")?
+            .permissions()
+            .mode()
+            & 0o077
+            != 0
+        {
+            return Err(
+                "pg auth config must not be group- or world-accessible (use chmod 600)".into(),
+            );
         }
     }
     let mut text = String::new();
-    file.by_ref().take(65537).read_to_string(&mut text).map_err(|_| "Cannot read pg auth config")?;
-    if text.len() > 65536 { return Err("pg auth config exceeds 64 KiB".into()); }
+    file.by_ref()
+        .take(65537)
+        .read_to_string(&mut text)
+        .map_err(|_| "Cannot read pg auth config")?;
+    if text.len() > 65536 {
+        return Err("pg auth config exceeds 64 KiB".into());
+    }
     // Do not reflect parse errors: TOML diagnostics can include verifier contents.
     let auth = ti_contracts::AuthConfig::from_toml(&text).map_err(|_| "Invalid pg auth config")?;
     for user in &auth.scram_users {

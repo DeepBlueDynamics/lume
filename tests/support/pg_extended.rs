@@ -86,7 +86,8 @@ fn node_verifier_external_auth_and_independent_pg_bind() {
     assert!(output.status.success(), "Node verifier derivation failed");
     let verifier = String::from_utf8(output.stdout).unwrap();
     assert_eq!(verifier, VERIFIER);
-    let server = Server::start_config_pg(None, true, Some(&verifier), false, Some("127.0.0.2"), true);
+    let server =
+        Server::start_config_pg(None, true, Some(&verifier), false, Some("127.0.0.2"), true);
     assert!(server.url.starts_with("http://127.0.0.1:"));
     assert!(server.pg.starts_with("127.0.0.2:"));
     assert!(server.get("/ti/status").is_object());
@@ -99,25 +100,45 @@ fn node_verifier_external_auth_and_independent_pg_bind() {
         for user in ["store-user", "missing"] {
             let mut config = connection_config(&server);
             config.user(user).password("pencil");
-            assert!(config.connect(tokio_postgres::NoTls).await.is_err(), "store auth merged");
+            assert!(
+                config.connect(tokio_postgres::NoTls).await.is_err(),
+                "store auth merged"
+            );
         }
         let mut config = connection_config(&server);
         config.password("pencil");
         let (client, connection) = config.connect(tokio_postgres::NoTls).await.unwrap();
         let task = tokio::spawn(connection);
-        let rows = client.query("SELECT ts, \"navigation.speedOverGround\" AS speed FROM telemetry ORDER BY ts", &[]).await.unwrap();
-        assert_eq!(rows[0].get::<_, chrono::DateTime<chrono::Utc>>(0).timestamp(), 1577836810);
+        let rows = client
+            .query(
+                "SELECT ts, \"navigation.speedOverGround\" AS speed FROM telemetry ORDER BY ts",
+                &[],
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            rows[0]
+                .get::<_, chrono::DateTime<chrono::Utc>>(0)
+                .timestamp(),
+            1577836810
+        );
         assert_eq!(rows[0].get::<_, f64>(1), 2.0);
-        let smoke: Value = serde_json::from_str(include_str!("../golden/grafana-smoke.json")).unwrap();
+        let smoke: Value =
+            serde_json::from_str(include_str!("../golden/grafana-smoke.json")).unwrap();
         assert_eq!(smoke["queries"].as_array().unwrap().len(), 20);
         for query in smoke["queries"].as_array().unwrap() {
-            client.simple_query(query["sql"].as_str().unwrap()).await
+            client
+                .simple_query(query["sql"].as_str().unwrap())
+                .await
                 .unwrap_or_else(|e| panic!("{}: {e}", query["id"]));
         }
         drop(client);
         task.await.unwrap().unwrap();
     });
-    assert_eq!(std::fs::read_to_string(server.root.join("store/ti.toml")).unwrap(), store_config);
+    assert_eq!(
+        std::fs::read_to_string(server.root.join("store/ti.toml")).unwrap(),
+        store_config
+    );
 }
 #[cfg(unix)]
 #[test]
@@ -125,16 +146,35 @@ fn external_auth_permissions_fail_closed() {
     use std::os::unix::fs::PermissionsExt;
     let server = Server::start();
     let auth_path = server.root.join("pg-auth.toml");
-    std::fs::write(&auth_path, format!("[[auth.scram_users]]\nusername='lume'\nverifier='{VERIFIER}'\n")).unwrap();
+    std::fs::write(
+        &auth_path,
+        format!("[[auth.scram_users]]\nusername='lume'\nverifier='{VERIFIER}'\n"),
+    )
+    .unwrap();
     for mode in [0o644, 0o640, 0o604] {
         std::fs::set_permissions(&auth_path, std::fs::Permissions::from_mode(mode)).unwrap();
         for args in [
             vec!["serve", "--port", "0", "--pg", "0", "--ti-store"],
-            vec!["ti", "ingest", "--serve", "--port", "0", "--pg", "0", "--signalk", "ws://127.0.0.1:1", "--store"],
+            vec![
+                "ti",
+                "ingest",
+                "--serve",
+                "--port",
+                "0",
+                "--pg",
+                "0",
+                "--signalk",
+                "ws://127.0.0.1:1",
+                "--store",
+            ],
         ] {
             let output = Command::new(env!("CARGO_BIN_EXE_lume"))
-                .args(args).arg(server.root.join("store"))
-                .arg("--pg-auth-config").arg(&auth_path).output().unwrap();
+                .args(args)
+                .arg(server.root.join("store"))
+                .arg("--pg-auth-config")
+                .arg(&auth_path)
+                .output()
+                .unwrap();
             assert!(!output.status.success());
             assert!(String::from_utf8_lossy(&output.stderr).contains("group- or world-accessible"));
         }

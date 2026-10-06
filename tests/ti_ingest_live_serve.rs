@@ -94,9 +94,12 @@ fn test_ingest_serve_live_queries_grow_without_restart() {
             &serve_port.to_string(),
             "--bind",
             "127.0.0.1",
-            "--pg", &pg_port.to_string(),
-            "--pg-bind", "127.0.0.2",
-            "--pg-auth-config", auth_path.to_str().unwrap(),
+            "--pg",
+            &pg_port.to_string(),
+            "--pg-bind",
+            "127.0.0.2",
+            "--pg-auth-config",
+            auth_path.to_str().unwrap(),
         ])
         .stdout(Stdio::null())
         .stderr(Stdio::inherit())
@@ -132,14 +135,29 @@ fn test_ingest_serve_live_queries_grow_without_restart() {
 
     ti_sql::surface_runtime().unwrap().block_on(async {
         let mut config = tokio_postgres::Config::new();
-        config.host("127.0.0.2").port(pg_port).user("grafana").password("pencil").dbname("ti");
+        config
+            .host("127.0.0.2")
+            .port(pg_port)
+            .user("grafana")
+            .password("pencil")
+            .dbname("ti");
         let (client, connection) = config.connect(tokio_postgres::NoTls).await.unwrap();
         let task = tokio::spawn(connection);
-        assert_eq!(client.query_one("SELECT 42::BIGINT", &[]).await.unwrap().get::<_, i64>(0), 42);
+        assert_eq!(
+            client
+                .query_one("SELECT 42::BIGINT", &[])
+                .await
+                .unwrap()
+                .get::<_, i64>(0),
+            42
+        );
         drop(client);
         task.await.unwrap().unwrap();
     });
-    assert_eq!(std::fs::read_to_string(store_root.join("ti.toml")).unwrap(), store_config);
+    assert_eq!(
+        std::fs::read_to_string(store_root.join("ti.toml")).unwrap(),
+        store_config
+    );
 
     // Helper to query row count
     let query_count = || -> u64 {

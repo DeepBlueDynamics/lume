@@ -9,10 +9,10 @@ use std::{
 use ti_contracts::{
     Agg, BucketRecord, Catalog, FieldKind, FieldSpec, FieldValue, ShardSink, VesselSpec,
 };
-#[path = "support/pg.rs"]
-mod pg_tests;
 #[path = "support/pg_extended.rs"]
 mod pg_extended_tests;
+#[path = "support/pg.rs"]
+mod pg_tests;
 static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 struct Server {
     child: Child,
@@ -43,8 +43,14 @@ impl Server {
     fn start_config(bind: Option<&str>, pg: bool, verifier: Option<&str>, history: bool) -> Self {
         Self::start_config_pg(bind, pg, verifier, history, None, false)
     }
-    fn start_config_pg(bind: Option<&str>, pg: bool, verifier: Option<&str>, history: bool,
-        pg_bind: Option<&str>, external_auth: bool) -> Self {
+    fn start_config_pg(
+        bind: Option<&str>,
+        pg: bool,
+        verifier: Option<&str>,
+        history: bool,
+        pg_bind: Option<&str>,
+        external_auth: bool,
+    ) -> Self {
         let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!(
             "http-{}-{}",
             std::process::id(),
@@ -94,16 +100,40 @@ impl Server {
                 ("navigation.speedOverGround", Agg::Min, 3, [1000, 3000]),
                 ("navigation.speedOverGround", Agg::Max, 3, [3000, 5000]),
                 ("navigation.speedOverGround", Agg::Last, 3, [2500, 4500]),
-                ("navigation.position.latitude", Agg::Last, 6, [60000000, 61000000]),
-                ("navigation.position.longitude", Agg::Last, 6, [24000000, 25000000]),
+                (
+                    "navigation.position.latitude",
+                    Agg::Last,
+                    6,
+                    [60000000, 61000000],
+                ),
+                (
+                    "navigation.position.longitude",
+                    Agg::Last,
+                    6,
+                    [24000000, 25000000],
+                ),
             ] {
-                let field = store.catalog().register_field(&FieldSpec {
-                    id: 0, path: path.into(), agg: Some(agg),
-                    kind: FieldKind::Bsi { scale }, units: None,
-                }).unwrap();
-                let records: Vec<_> = values.into_iter().enumerate().map(|(i, value)| BucketRecord {
-                    vessel, bucket: i as u32 + 1, field, value: FieldValue::Int(value), rewrite: false,
-                }).collect();
+                let field = store
+                    .catalog()
+                    .register_field(&FieldSpec {
+                        id: 0,
+                        path: path.into(),
+                        agg: Some(agg),
+                        kind: FieldKind::Bsi { scale },
+                        units: None,
+                    })
+                    .unwrap();
+                let records: Vec<_> = values
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, value)| BucketRecord {
+                        vessel,
+                        bucket: i as u32 + 1,
+                        field,
+                        value: FieldValue::Int(value),
+                        rewrite: false,
+                    })
+                    .collect();
                 store.apply(&records).unwrap();
             }
         }
@@ -114,18 +144,25 @@ impl Server {
         drop(store);
         let auth_path = root.join("pg-auth.toml");
         if let Some(verifier) = verifier {
-            let text = format!("width_seconds=0\n[[auth.scram_users]]\nusername='lume'\nverifier='{verifier}'\n");
+            let text = format!(
+                "width_seconds=0\n[[auth.scram_users]]\nusername='lume'\nverifier='{verifier}'\n"
+            );
             if external_auth {
                 std::fs::write(&auth_path, text).unwrap();
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
-                    std::fs::set_permissions(&auth_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+                    std::fs::set_permissions(&auth_path, std::fs::Permissions::from_mode(0o600))
+                        .unwrap();
                 }
                 // Existing settings and store user must neither be overwritten nor merged.
                 std::fs::write(store_root.join("ti.toml"), format!("width_seconds=10\n[signal_k]\nurl='ws://127.0.0.1:29999'\n[[auth.scram_users]]\nusername='store-user'\nverifier='{verifier}'\n")).unwrap();
             } else {
-                std::fs::write(store_root.join("ti.toml"), text.replace("width_seconds=0", "width_seconds=10")).unwrap();
+                std::fs::write(
+                    store_root.join("ti.toml"),
+                    text.replace("width_seconds=0", "width_seconds=10"),
+                )
+                .unwrap();
             }
         }
         let mut command = Command::new(env!("CARGO_BIN_EXE_lume"));
@@ -138,8 +175,12 @@ impl Server {
         if pg {
             command.args(["--pg", "0"]);
         }
-        if let Some(pg_bind) = pg_bind { command.args(["--pg-bind", pg_bind]); }
-        if external_auth { command.arg("--pg-auth-config").arg(&auth_path); }
+        if let Some(pg_bind) = pg_bind {
+            command.args(["--pg-bind", pg_bind]);
+        }
+        if external_auth {
+            command.arg("--pg-auth-config").arg(&auth_path);
+        }
         let child = command
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -199,12 +240,19 @@ impl Server {
 fn history_provider_real_http() {
     let server = Server::start_config(None, false, None, true);
     let output = Command::new("node")
-        .arg(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("plugins/signalk-lume-ti/test/history-real.cjs"))
+        .arg(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("plugins/signalk-lume-ti/test/history-real.cjs"),
+        )
         .arg(&server.url)
         .output()
         .expect("Node is required for the Signal K History integration");
-    assert!(output.status.success(), "stdout: {}\nstderr: {}",
-        String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 #[test]
 fn explicit_bind_is_honored_and_ti_errors_have_no_cors() {
