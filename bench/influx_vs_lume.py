@@ -203,6 +203,33 @@ def flux_base(bucket, context, start, stop):
             "  |> filter(fn: (r) => r.context == " + flux_string(context) + ")")
 
 
+def snap_window(start, stop, width):
+    begin = nanoseconds(iso(start) if isinstance(start, dt.datetime) else start)
+    end = nanoseconds(iso(stop) if isinstance(stop, dt.datetime) else stop)
+    if begin >= end:
+        raise BenchError("Window start must precede end")
+    step = width * 1_000_000_000
+    lo = begin // step * step
+    hi = -(-end // step) * step
+    return (dt.datetime.fromtimestamp(lo / 1e9, UTC),
+            dt.datetime.fromtimestamp(hi / 1e9, UTC))
+
+
+def choose_window(args, first, last):
+    stop = timestamp(args.stop) if args.stop else last
+    start = timestamp(args.start) if args.start else max(first, stop - dt.timedelta(seconds=args.window))
+    mode = "common_data_coverage"
+    if not args.start and not args.stop and args.window >= 3600:
+        end_hour = dt.datetime.fromtimestamp(math.floor(last.timestamp() / 3600) * 3600, UTC)
+        first_hour = dt.datetime.fromtimestamp(math.ceil(first.timestamp() / 3600) * 3600, UTC)
+        full_start = max(first_hour, end_hour - dt.timedelta(hours=math.floor(args.window / 3600)))
+        if full_start < end_hour:
+            start, stop, mode = full_start, end_hour, "latest_full_common_hours"
+        else:
+            mode = "common_data_coverage_partial_hour"
+    return start, stop, mode
+
+
 def plans(args, start, stop, names, mapping, bucket, context, influx_context):
     where = ("vessel = " + quote(context) + " AND ts >= TIMESTAMP " + quote(iso(start))
              + " AND ts < TIMESTAMP " + quote(iso(stop)))
@@ -234,14 +261,14 @@ def plans(args, start, stop, names, mapping, bucket, context, influx_context):
         ["time", "value"], args.width, None if args.depth_path in mapping else "No retained depth column")
     add(2, "hourly maximum depth",
         "SELECT " + hour + " AS time, max(" + (maximum or '"MISSING_MAX"') + ") AS value FROM " + table + " WHERE " + where + " AND " + (maximum or '"MISSING_MAX"') + " IS NOT NULL GROUP BY 1 ORDER BY 1",
-        source(args.depth_path) + '\n  |> aggregateWindow(every: 1h, fn: max, createEmpty: false, timeSrc: "_start")\n  |> keep(columns: ["_time", "_value"])',
+        source(args.depth_path) + '\n  |> aggregateWindow(every: 1h, fn: max, createEmpty: false, timeSrc: "_start")\n  |> map(fn: (r) => ({r with _time: date.truncate(t: r._time, unit: 1h)}))\n  |> keep(columns: ["_time", "_value"])',
         ["time", "value"], 3600, None if maximum else "No retained depth@max")
     add(3, "minute mean SOG",
         "SELECT " + minute + " AS time, avg(" + (mean or '"MISSING_MEAN"') + ") AS value FROM " + table + " WHERE " + where + " AND " + (mean or '"MISSING_MEAN"') + " IS NOT NULL GROUP BY 1 ORDER BY 1",
-        source(args.sog_path) + '\n  |> aggregateWindow(every: 1m, fn: mean, createEmpty: false, timeSrc: "_start")\n  |> keep(columns: ["_time", "_value"])',
+        source(args.sog_path) + '\n  |> aggregateWindow(every: 1m, fn: mean, createEmpty: false, timeSrc: "_start")\n  |> map(fn: (r) => ({r with _time: date.truncate(t: r._time, unit: 1m)}))\n  |> keep(columns: ["_time", "_value"])',
         ["time", "value"], 60, None if mean else "No retained SOG@mean")
-    multi = ('s = ' + source(args.sog_path) + '\n  |> aggregateWindow(every: 1m, fn: mean, createEmpty: false, timeSrc: "_start")\n'
-             'd = ' + source(args.depth_path) + '\n  |> aggregateWindow(every: 1m, fn: min, createEmpty: false, timeSrc: "_start")\n'
+    multi = ('s = ' + source(args.sog_path) + '\n  |> aggregateWindow(every: 1m, fn: mean, createEmpty: false, timeSrc: "_start")\n  |> map(fn: (r) => ({r with _time: date.truncate(t: r._time, unit: 1m)}))\n'
+             'd = ' + source(args.depth_path) + '\n  |> aggregateWindow(every: 1m, fn: min, createEmpty: false, timeSrc: "_start")\n  |> map(fn: (r) => ({r with _time: date.truncate(t: r._time, unit: 1m)}))\n'
              'join(tables: {s: s, d: d}, on: ["_time"])\n'
              '  |> filter(fn: (r) => r._value_s > ' + str(args.sog_gt) + ' and r._value_d < ' + str(args.depth_lt) + ')\n'
              '  |> map(fn: (r) => ({_time: r._time, speed: r._value_s, depth: r._value_d}))')
@@ -250,12 +277,19 @@ def plans(args, start, stop, names, mapping, bucket, context, influx_context):
         multi, ["time", "speed", "depth"], 60, None if mean and minimum else "Missing SOG@mean or depth@min")
     position = (base + '\n  |> filter(fn: (r) => r._measurement == "navigation.position" and (r._field == "lat" or r._field == "lon"))\n'
                 '  |> keep(columns: ["_time", "_field", "_value"])')
-    deepest = ('d = ' + source(args.depth_path) + '\n  |> sort(columns: ["_value", "_time"])\n  |> limit(n: 1)\n'
-               '  |> map(fn: (r) => ({_time: r._time, _field: "depth", _value: r._value}))\n'
-               'p = ' + position + '\n'
-               'union(tables: [d, p]) |> group(columns: [])\n'
+    bucket_fn = "bucketTime = (t) => time(v: int(v: t) / " + str(args.width * 1000000000) + " * " + str(args.width * 1000000000) + ")\n"
+    deepest = ('import "math"\n' + bucket_fn +
+               'd = ' + source(args.depth_path) + '\n  |> sort(columns: ["_value", "_time"])\n  |> limit(n: 1)\n'
+               '  |> map(fn: (r) => ({bucket: bucketTime(t: r._time), _time: r._time, depth: float(v: r._value)}))\n'
+               'p = ' + position + '\n  |> group(columns: [])\n'
                '  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")\n'
-               '  |> filter(fn: (r) => exists r.depth)\n  |> keep(columns: ["_time", "depth", "lat", "lon"])')
+               '  |> filter(fn: (r) => exists r.lat and exists r.lon)\n'
+               '  |> map(fn: (r) => ({bucket: bucketTime(t: r._time), position_time: r._time, lat: r.lat, lon: r.lon}))\n'
+               'd |> map(fn: (r) => ({_time: r._time, depth: r.depth, role: "depth"})) |> yield(name: "depth")\n'
+               'join(tables: {d: d, p: p}, on: ["bucket"])\n'
+               '  |> map(fn: (r) => ({r with distance: math.abs(x: float(v: int(v: r.position_time) - int(v: r._time)))}))\n'
+               '  |> sort(columns: ["distance", "position_time"]) |> limit(n: 1)\n'
+               '  |> map(fn: (r) => ({_time: r._time, lat: r.lat, lon: r.lon, role: "position"})) |> yield(name: "position")')
     add(5, "minimum depth and position at that time",
         "SELECT ts AS time, " + (minimum or '"MISSING_MIN"') + " AS depth, " + (ident(lat) if lat else "NULL") + " AS latitude, " + (ident(lon) if lon else "NULL") + " AS longitude FROM " + table + " WHERE " + where + " AND " + (minimum or '"MISSING_MIN"') + " IS NOT NULL ORDER BY depth, ts LIMIT 1",
         deepest, ["time", "depth", "latitude", "longitude"], missing=None if minimum and lat and lon else "Missing depth@min or position coordinates")
@@ -263,17 +297,31 @@ def plans(args, start, stop, names, mapping, bucket, context, influx_context):
     if lat:
         counts[POSITION] = lat
     count_sql = ["SELECT " + quote(path) + " AS path, count(" + ident(column) + ") AS count FROM " + table + " WHERE " + where + " HAVING count(" + ident(column) + ") > 0" for path, column in sorted(counts.items())]
-    count_flux = (base + '\n  |> filter(fn: (r) => contains(value: r._measurement, set: [' + ", ".join(flux_string(p) for p in sorted(counts)) + ']) and (r._field == "value" or (r._measurement == "navigation.position" and r._field == "lat")))\n'
-                  '  |> group(columns: ["_measurement"])\n  |> count()\n  |> map(fn: (r) => ({path: r._measurement, count: r._value}))')
+    count_flux = (bucket_fn + 'data = ' + base +
+                  '\n  |> filter(fn: (r) => r._field == "value" or (r._measurement == "navigation.position" and r._field == "lat"))\n'
+                  '  |> group(columns: ["_measurement"])\n'
+                  'raw = data |> count()\n'
+                  'buckets = data |> map(fn: (r) => ({r with _time: bucketTime(t: r._time)}))\n'
+                  '  |> unique(column: "_time") |> count()\n'
+                  'join(tables: {r: raw, b: buckets}, on: ["_measurement"])\n'
+                  '  |> map(fn: (r) => ({path: r._measurement, count: r._value_r, bucket_count: r._value_b}))')
     add(6, "point counts per retained path", " UNION ALL ".join(count_sql),
         count_flux, ["path", "count"], missing=None if counts else "No retained paths")
+    q[0]["raw_aggregate"] = raw.strip('"').rsplit("@", 1)[-1]
     q[-1]["count_statements"] = count_sql
+    for item in q:
+        if "date.truncate" in item["flux"]:
+            item["flux"] = 'import "date"\n' + item["flux"]
     return q
 
 
 def canonical(rows, columns, influx=False):
     aliases = {"time": "_time", "value": "_value", "latitude": "lat", "longitude": "lon"}
     output = []
+    if influx and "depth" in columns and any(r.get("role") == "depth" for r in rows):
+        depth_rows = [r for r in rows if r.get("role") == "depth"]
+        positions = {r["_time"]: r for r in rows if r.get("role") == "position"}
+        rows = [{**r, "lat": positions.get(r["_time"], {}).get("lat"), "lon": positions.get(r["_time"], {}).get("lon")} for r in depth_rows]
     for row in rows:
         for column in columns:
             name = aliases.get(column, column) if influx else column
@@ -284,6 +332,8 @@ def canonical(rows, columns, influx=False):
             raise BenchError("Backend result is missing a timestamp")
         if normalized.get("time") is not None:
             normalized["time"] = result_time(normalized["time"])
+        if influx and "count" in columns and "bucket_count" in row:
+            normalized["bucket_count"] = row["bucket_count"]
         output.append(normalized)
     return sorted(output, key=lambda r: json.dumps({k: r[k] for k in ("time", "path") if k in r}, sort_keys=True))
 
@@ -307,6 +357,107 @@ def compare(left, right, absolute, relative, time_tolerance=0):
                 differences.append("row " + str(i) + " " + key + ": Influx=" + repr(x) + ", Lume=" + repr(y))
     return {"status": "MISMATCH" if differences else ("PASS" if left else "EMPTY"),
             "differences": differences}
+
+
+def assess(item, left, right, args):
+    """FIDELITY requires an explicit, query-specific invariant; no blanket pardon."""
+    observations = {"row_count_difference": abs(len(left) - len(right))}
+    def metric(key, value):
+        observations[key] = max(observations.get(key, 0), value)
+    for a, b in ([] if item["id"] in (1, 6) else zip(left, right)):
+        for key in a:
+            x, y = a[key], b.get(key)
+            if key == "time" and y is not None:
+                metric("time_seconds", abs(nanoseconds(x) - nanoseconds(y)) / 1e9)
+            elif isinstance(x, (float, int)) and isinstance(y, (float, int)):
+                if math.isfinite(x) and math.isfinite(y):
+                    metric(key + "_absolute", abs(x - y))
+                    metric(key + "_relative", abs(x - y) / max(abs(x), abs(y), 1e-300))
+    strict = compare(left, right, args.abs_tol, args.rel_tol, 0 if item["id"] == 5 else args.time_tol)
+    fidelity = []
+    differences = []
+    qid = item["id"]
+    if qid == 1 and left:
+        grouped = {}
+        step = args.width * 1_000_000_000
+        for row in left:
+            bucket = nanoseconds(row["time"]) // step * step
+            grouped.setdefault(bucket, []).append(row)
+        collapsed = []
+        agg = item.get("raw_aggregate", "last")
+        for bucket, rows in sorted(grouped.items()):
+            values = [r["value"] for r in rows]
+            if not all(isinstance(v, (float, int)) and math.isfinite(v) for v in values):
+                return {**strict, "max_observed_difference": observations}
+            value = {"last": lambda: values[-1], "mean": lambda: sum(values) / len(values),
+                     "min": lambda: min(values), "max": lambda: max(values)}[agg]()
+            collapsed.append({"time": result_time(iso(dt.datetime.fromtimestamp(bucket / 1e9, UTC))), "value": value})
+            metric("max_samples_per_bucket", len(rows))
+            for row in rows:
+                metric("sample_to_bucket_seconds", (nanoseconds(row["time"]) - bucket) / 1e9)
+                metric("sample_to_bucket_value_absolute", abs(row["value"] - value))
+        for a, b in zip(collapsed, right):
+            if isinstance(b.get("value"), (float, int)) and math.isfinite(b["value"]):
+                metric("value_absolute", abs(a["value"] - b["value"]))
+                metric("value_relative", abs(a["value"] - b["value"]) / max(abs(a["value"]), abs(b["value"]), 1e-300))
+        metric("bucket_row_count_difference", abs(len(collapsed) - len(right)))
+        checked = compare(collapsed, right, args.abs_tol, args.rel_tol, 0)
+        checked["strict_bucket_check"] = {"status": checked["status"], "raw_buckets": len(collapsed), "lume_buckets": len(right)}
+        if checked["status"] == "PASS":
+            if strict["status"] != "PASS":
+                fidelity.append("Raw samples collapse to exactly the same retained buckets/values; each sample offset is < bucket width")
+            strict = checked
+        else:
+            strict = checked
+    elif qid == 6:
+        a = {r["path"]: r for r in left}
+        b = {r["path"]: r for r in right}
+        paths = {"influx_only": sorted(a.keys() - b.keys()), "lume_only": sorted(b.keys() - a.keys()),
+                 "symmetric_difference": sorted(a.keys() ^ b.keys())}
+        if paths["symmetric_difference"]:
+            differences.append("Path sets differ: " + repr(paths))
+        bucket_checks = {}
+        for key in sorted(a.keys() & b.keys()):
+            raw, retained = a[key]["count"], b[key]["count"]
+            bucket_count = a[key].get("bucket_count")
+            bucket_checks[key] = {"influx": bucket_count, "lume": retained,
+                                  "status": "PASS" if bucket_count == retained else "MISMATCH"}
+            metric("count_absolute", abs(raw - retained))
+            if bucket_count is not None:
+                metric("bucket_count_absolute", abs(bucket_count - retained))
+            if raw == retained and bucket_count == retained:
+                continue
+            if bucket_count == retained and raw >= bucket_count > 0:
+                fidelity.append(key + ": raw samples >= exactly matched distinct bucket count")
+            else:
+                differences.append(key + ": raw=" + str(raw) + ", buckets=" + str(bucket_count) + ", Lume=" + str(retained))
+        strict = {"status": "MISMATCH" if differences else ("PASS" if left or right else "EMPTY"),
+                  "differences": differences[:20], "path_sets": paths, "strict_bucket_checks": bucket_checks}
+    elif qid in (3, 4, 5) and len(left) == len(right):
+        allowed = []
+        for a, b in zip(left, right):
+            row = dict(a)
+            mean_key = "value" if qid == 3 else "speed" if qid == 4 else None
+            if mean_key:
+                x, y = a[mean_key], b[mean_key]
+                if isinstance(x, (float, int)) and isinstance(y, (float, int)) and math.isfinite(x) and math.isfinite(y):
+                    if not math.isclose(x, y, abs_tol=args.abs_tol, rel_tol=args.rel_tol) and math.isclose(x, y, abs_tol=0, rel_tol=args.fidelity_rel):
+                        row[mean_key] = y
+                        allowed.append("Mean differs within fidelity-rel=" + str(args.fidelity_rel))
+            if qid == 5:
+                delta = nanoseconds(a["time"]) - nanoseconds(b["time"])
+                step = args.width * 1_000_000_000
+                if delta != 0 and 0 <= delta < step and nanoseconds(a["time"]) // step * step == nanoseconds(b["time"]):
+                    row["time"] = b["time"]
+                    allowed.append("Minimum sample is inside the same retained bucket, offset < bucket width")
+            checked = compare([row], [b], args.abs_tol, args.rel_tol, args.time_tol if qid != 5 else 0)
+            differences.extend(checked["differences"])
+        if not differences and allowed:
+            strict = {"status": "PASS", "differences": []}
+            fidelity.extend(allowed)
+    if strict["status"] == "PASS" and fidelity:
+        strict["status"] = "FIDELITY"
+    return {**strict, "fidelity": sorted(set(fidelity)), "max_observed_difference": observations}
 
 
 def percentile(values, fraction):
@@ -400,7 +551,7 @@ def benchmark(client, args, start, stop, names, mapping, bucket, context, influx
                 except (BenchError, ValueError, KeyError, TypeError) as error:
                     run = {"ms": (time.perf_counter() - begin) * 1000, "rows": None, "error": client.redact(error)}
                 runs[engine].append(run)
-            checks.append(compare(answers["influx"], answers["lume"], args.abs_tol, args.rel_tol, args.time_tol)
+            checks.append(assess(item, answers["influx"], answers["lume"], args)
                           if len(answers) == 2 else {"status": "ERROR", "differences": ["Backend error; value check not possible"]})
         summaries = {}
         for engine, samples in runs.items():
@@ -408,8 +559,16 @@ def benchmark(client, args, start, stop, names, mapping, bucket, context, influx
             summaries[engine] = {"cold_first_ms": samples[0]["ms"] if "error" not in samples[0] else None,
                                  "warm_p50_ms": percentile(warm, .5), "warm_p95_ms": percentile(warm, .95),
                                  "row_counts": [r["rows"] for r in samples], "runs": samples}
-        status = next((s for s in ("ERROR", "MISMATCH", "EMPTY") if any(c["status"] == s for c in checks)), "PASS")
-        results.append({"id": item["id"], "name": item["name"], "sql": item["sql"], "flux": item["flux"],
+        status = next((s for s in ("ERROR", "MISMATCH", "EMPTY", "FIDELITY") if any(c["status"] == s for c in checks)), "PASS")
+        maxima = {}
+        for check in checks:
+            for key, value in check.get("max_observed_difference", {}).items():
+                maxima[key] = max(maxima.get(key, 0), value)
+        path_sets = [c["path_sets"] for c in checks if "path_sets" in c]
+        path_summary = {key: sorted({p for paths in path_sets for p in paths[key]})
+                        for key in ("influx_only", "lume_only", "symmetric_difference")}
+        results.append({"max_observed_difference": maxima, "path_sets": path_summary,
+                        "id": item["id"], "name": item["name"], "sql": item["sql"], "flux": item["flux"],
                         "status": status, "checks": checks, **summaries})
     return results
 
@@ -430,12 +589,13 @@ def parse_args(argv=None):
     parser.add_argument("--abs-tol", type=float, default=.001)
     parser.add_argument("--rel-tol", type=float, default=1e-6)
     parser.add_argument("--time-tol", type=float, default=0, help="Timestamp tolerance in seconds")
+    parser.add_argument("--fidelity-rel", type=float, default=.01, help="Maximum relative mean deviation eligible for FIDELITY (default 0.01)")
     parser.add_argument("--timeout", type=float, default=60)
     parser.add_argument("--dry-run", action="store_true", help="Offline query texts; explicit bounds recommended")
     args = parser.parse_args(argv)
-    if args.runs < 2 or not all(math.isfinite(v) for v in (args.sog_gt, args.depth_lt, args.abs_tol, args.rel_tol, args.time_tol, args.timeout)):
+    if args.runs < 2 or not all(math.isfinite(v) for v in (args.sog_gt, args.depth_lt, args.abs_tol, args.rel_tol, args.time_tol, args.fidelity_rel, args.timeout)):
         parser.error("Runs must be >= 2; numeric options must be finite")
-    if min(args.abs_tol, args.rel_tol, args.time_tol) < 0 or args.timeout <= 0:
+    if min(args.abs_tol, args.rel_tol, args.time_tol, args.fidelity_rel) < 0 or args.timeout <= 0:
         parser.error("Tolerances must be >= 0 and timeout > 0")
     return args
 
@@ -455,8 +615,7 @@ def main(argv=None, env=None):
             args.width = 1 if args.table == "telemetry_hr" else 10
             stop = timestamp(args.stop) if args.stop else dt.datetime.now(UTC)
             start = timestamp(args.start) if args.start else stop - dt.timedelta(seconds=args.window)
-            if start >= stop:
-                raise BenchError("Window start must precede end")
+            start, stop = snap_window(args.start or start, args.stop or stop, args.width)
             print(client.redact("# Dry run: assumed schema; bounds use now unless supplied. Live mode discovers common data coverage."))
             for item in plans(args, start, stop, names, mapping, bucket, context, args.influx_context or context):
                 print(client.redact("\n## " + str(item["id"]) + " " + item["name"] + "\n\n```flux\n" + item["flux"] + "\n```\n\n```sql\n" + item["sql"] + "\n```"))
@@ -480,19 +639,17 @@ def main(argv=None, env=None):
             mode = "explicit"
         else:
             first, last = discover(client, args, names, mapping, bucket, context, influx_context)
-            stop = timestamp(args.stop) if args.stop else last
-            start = timestamp(args.start) if args.start else max(first, stop - dt.timedelta(seconds=args.window))
-            mode = "common_data_coverage"
-        if start >= stop:
-            raise BenchError("No positive common window; specify matching context/data")
-        report = {"window": {"from": iso(start), "to": iso(stop), "mode": mode},
+            start, stop, mode = choose_window(args, first, last)
+        requested = {"from": args.start or iso(start), "to": args.stop or iso(stop)}
+        start, stop = snap_window(args.start or start, args.stop or stop, args.width)
+        report = {"window": {"from": iso(start), "to": iso(stop), "mode": mode, "requested": requested, "snap": "outward to bucket width"},
                   "context": context, "influx_context": influx_context, "table": args.table,
                   "bucket_width_seconds": args.width, "runs": args.runs,
-                  "tolerance": {"absolute": args.abs_tol, "relative": args.rel_tol, "time_seconds": args.time_tol},
+                  "tolerance": {"absolute": args.abs_tol, "relative": args.rel_tol, "time_seconds": args.time_tol, "fidelity_relative": args.fidelity_rel},
                   "semantics": {"raw_depth_column": args.depth_path + "@last" if args.depth_path + "@last" in names else mapping.get(args.depth_path),
                                 "sources": "Influx merges context/source series; Lume retains preferred-source bucket values",
-                                "counts": "native raw points versus retained populated buckets, exact counts",
-                                "position": "Influx exact minimum sample timestamp; Lume retained minimum bucket and bucket position",
+                                "counts": "native raw points plus strict distinct-bucket counts versus retained populated buckets; all observed paths reported",
+                                "position": "Influx minimum sample time with nearest paired lat/lon inside its bucket; Lume retained minimum bucket and bucket position",
                                 "mean": "Influx raw sample mean versus Lume mean of populated bucket means",
                                 "timing": "first request is cold-first, not cache-evicted; timed response decode + Lume pagination; discovery excluded"},
                   "queries": benchmark(client, args, start, stop, names, mapping, bucket, context, influx_context)}
@@ -502,7 +659,7 @@ def main(argv=None, env=None):
         for item in report["queries"]:
             print(client.redact("| " + str(item["id"]) + " " + item["name"] + " | " + timings(item["influx"]) + " | " + timings(item["lume"]) + " | " + str(item["influx"]["row_counts"][0]) + " / " + str(item["lume"]["row_counts"][0]) + " | " + item["status"] + " |"))
         print(client.redact("\nCold means first timed request, not evicted server/OS caches. JSON includes every run, errors and mismatch details.\n\n```json\n" + json.dumps(report, indent=2, allow_nan=False) + "\n```"))
-        return 0 if all(q["status"] == "PASS" for q in report["queries"]) else 1
+        return 0 if all(q["status"] in ("PASS", "FIDELITY") for q in report["queries"]) else 1
     except (BenchError, ValueError, KeyError, TypeError, OverflowError) as error:
         print(client.redact("Benchmark failed: " + str(error)), file=sys.stderr)
         return 2

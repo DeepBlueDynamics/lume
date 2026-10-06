@@ -26,17 +26,17 @@ ROWS = {
     3: [{"time": FROM, "value": 4.0}],
     4: [{"time": FROM, "speed": 4.0, "depth": 3.0}],
     5: [{"time": FROM, "depth": 3.0, "latitude": 60.0, "longitude": 24.0}],
-    6: [{"path": p, "count": 1} for p in (bench.DEPTH, bench.SOG, bench.POSITION)],
+    6: [{"path": p, "count": 1, "bucket_count": 1} for p in (bench.DEPTH, bench.SOG, bench.POSITION)],
 }
 
 
 def csv_reply(rows):
     stream = io.StringIO()
     writer = csv.writer(stream)
-    columns = list(rows[0]) if rows else ["_time", "_value"]
+    columns = list(dict.fromkeys(k for row in rows for k in row)) if rows else ["_time", "_value"]
     kinds = []
     for name in columns:
-        value = rows[0].get(name) if rows else None
+        value = next((r[name] for r in rows if r.get(name) is not None), None)
         kinds.append("dateTime:RFC3339" if name in ("_time", "at") else
                      "long" if isinstance(value, int) else "double" if isinstance(value, float) else "string")
     writer.writerow(["#datatype", "string", "long"] + kinds)
@@ -75,9 +75,12 @@ def query_id(text, influx):
 
 
 class MockPair:
-    def __init__(self, mismatch=False, error=False):
+    def __init__(self, mismatch=False, error=False, influx_rows=None, lume_rows=None, coverage=(FROM, TO)):
         self.mismatch = mismatch
         self.error = error
+        self.influx_rows = influx_rows or ROWS
+        self.lume_rows = lume_rows or ROWS
+        self.coverage = coverage
         self.calls = []
         self.servers = []
 
@@ -112,12 +115,12 @@ class MockPair:
                             return
                         text = body["query" if role == "influx" else "sql"]
                         if role == "lume" and text.startswith("SELECT min(ts)"):
-                            self.reply({"rows": [{"first": FROM, "last": TO}], "truncated": False}, False)
+                            self.reply({"rows": [{"first": pair.coverage[0], "last": pair.coverage[1]}], "truncated": False}, False)
                             return
                         if role == "influx" and "edge:" in text:
-                            self.reply([{"edge": "first", "at": FROM}, {"edge": "last", "at": TO}], True)
+                            self.reply([{"edge": "first", "at": pair.coverage[0]}, {"edge": "last", "at": pair.coverage[1]}], True)
                             return
-                        rows = ROWS[query_id(text, role == "influx")]
+                        rows = (pair.influx_rows if role == "influx" else pair.lume_rows)[query_id(text, role == "influx")]
                         if role == "influx":
                             aliases = {"time": "_time", "value": "_value", "latitude": "lat", "longitude": "lon"}
                             rows = [{aliases.get(k, k): v for k, v in r.items()} for r in rows]
@@ -159,7 +162,7 @@ class BenchmarkTests(unittest.TestCase):
         with MockPair() as pair:
             code, output, errors, report = run_main(pair)
             self.assertEqual(code, 0, errors + output)
-            self.assertEqual(report["window"]["mode"], "common_data_coverage")
+            self.assertEqual(report["window"]["mode"], "common_data_coverage_partial_hour")
             self.assertEqual(report["window"]["from"], bench.iso(bench.timestamp(FROM)))
             self.assertEqual(report["window"]["to"], bench.iso(bench.timestamp(TO)))
             self.assertEqual(len(report["queries"]), 6)
@@ -296,6 +299,120 @@ class BenchmarkTests(unittest.TestCase):
             report = bench.benchmark(Changing(), args, bench.timestamp(FROM), bench.timestamp(TO), names, mapping, "boat", CONTEXT, CONTEXT)
         self.assertEqual(report[0]["status"], "MISMATCH")
         self.assertEqual([c["status"] for c in report[0]["checks"]], ["PASS", "MISMATCH", "PASS"])
+
+
+class PiRegressions(unittest.TestCase):
+    def test_epoch_aligned_first_aggregate_and_outward_explicit_and_discovered_bounds(self):
+        lo, hi = "2026-10-06T22:36:21.309Z", "2026-10-06T22:43:59Z"
+        start, stop = bench.snap_window("2026-10-06T22:36:20Z", "2026-10-06T22:36:20.000000001Z", 10)
+        self.assertEqual(bench.iso(start), "2026-10-06T22:36:20.000000Z")
+        self.assertEqual(bench.iso(stop), "2026-10-06T22:36:30.000000Z")
+        hour = "2026-10-06T22:00:00Z"
+        rows = {**ROWS, 2: [{"time": hour, "value": 71.04}]}
+        for bounds in ([], ["--from", lo, "--to", hi]):
+            with self.subTest(bounds=bounds), MockPair(influx_rows=rows, lume_rows=rows, coverage=(lo, hi)) as pair:
+                _, _, _, report = run_main(pair, *bounds)
+                self.assertEqual(report["window"]["from"], "2026-10-06T22:36:20.000000Z")
+                self.assertEqual(report["window"]["to"], "2026-10-06T22:44:00.000000Z")
+                self.assertEqual(report["queries"][1]["status"], "PASS")
+                flux = report["queries"][1]["flux"]
+                self.assertIn('import "date"', flux)
+                self.assertIn("date.truncate(t: r._time, unit: 1h)", flux)
+                self.assertIn("date.truncate(t: r._time, unit: 1m)", report["queries"][2]["flux"])
+                for q in report["queries"]:
+                    for text in (q["sql"], q["flux"]):
+                        self.assertIn("22:36:20.000000Z", text)
+                        self.assertIn("22:44:00.000000Z", text)
+                        self.assertNotIn("22:36:21.309", text)
+                self.assertEqual(report["window"]["requested"]["from"], lo if bounds else bench.iso(bench.timestamp(lo)))
+
+    def test_position_roles_lat_lon_and_nearest_sample_in_minimum_bucket(self):
+        raw_time = "2026-10-01T00:00:03.309Z"
+        raw = {**ROWS, 5: [{"time": raw_time, "depth": 3.0, "role": "depth"},
+                           {"time": raw_time, "latitude": 60.0, "longitude": 24.0, "role": "position"}]}
+        with MockPair(influx_rows=raw) as pair:
+            _, _, _, report = run_main(pair, "--from", FROM, "--to", TO)
+            q = report["queries"][4]
+            self.assertEqual(q["status"], "FIDELITY")
+            self.assertAlmostEqual(q["max_observed_difference"]["time_seconds"], 3.309)
+            self.assertIn('r._field == "lat" or r._field == "lon"', q["flux"])
+            self.assertIn('pivot(rowKey: ["_time"], columnKey: ["_field"]', q["flux"])
+            self.assertIn('on: ["bucket"]', q["flux"])
+            self.assertIn('sort(columns: ["distance", "position_time"])', q["flux"])
+            self.assertIn('/ 10000000000 * 10000000000', q["flux"])
+            self.assertEqual(q["influx"]["row_counts"], [1, 1, 1])
+
+    def test_bounded_fidelity_means_min_time_and_strict_extrema(self):
+        args = bench.parse_args([])
+        args.width = 10
+        item = lambda q: {"id": q}
+        sample = lambda v: [{"time": bench.result_time(FROM), "value": v}]
+        mean = bench.assess(item(3), sample(100), sample(100.5), args)
+        self.assertEqual(mean["status"], "FIDELITY")
+        self.assertEqual(mean["max_observed_difference"]["value_absolute"], .5)
+        self.assertEqual(bench.assess(item(3), sample(100), sample(102), args)["status"], "MISMATCH")
+        self.assertEqual(bench.assess(item(2), sample(100), sample(100.5), args)["status"], "MISMATCH")
+        a = [{"time": bench.result_time("2026-10-01T00:00:09.999999999Z"), "depth": 3, "latitude": 60, "longitude": 24}]
+        b = [{"time": bench.result_time(FROM), "depth": 3, "latitude": 60, "longitude": 24}]
+        self.assertEqual(bench.assess(item(5), a, b, args)["status"], "FIDELITY")
+        self.assertEqual(bench.assess(item(5), a, [{**b[0], "depth": 3.01}], args)["status"], "MISMATCH")
+        self.assertEqual(bench.assess(item(5), [{**a[0], "time": bench.result_time(TO)}], b, args)["status"], "MISMATCH")
+        # A changed predicate membership set cannot be excused without evidence.
+        self.assertEqual(bench.assess(item(4), [], [{"time": bench.result_time(FROM), "speed": 2.001, "depth": 3}], args)["status"], "MISMATCH")
+
+    def test_raw_counts_require_exact_bucket_counts_and_values(self):
+        args = bench.parse_args([])
+        args.width = 10
+        raw = [{"time": bench.result_time("2026-10-01T00:00:01Z"), "value": 2},
+               {"time": bench.result_time("2026-10-01T00:00:09Z"), "value": 3}]
+        retained = [{"time": bench.result_time(FROM), "value": 3}]
+        q = {"id": 1, "raw_aggregate": "last"}
+        check = bench.assess(q, raw, retained, args)
+        self.assertEqual(check["status"], "FIDELITY")
+        self.assertEqual(check["max_observed_difference"]["bucket_row_count_difference"], 0)
+        self.assertEqual(bench.assess(q, raw, [{**retained[0], "value": 3.1}], args)["status"], "MISMATCH")
+        q6 = {"id": 6}
+        left = [{"path": "depth", "count": 100, "bucket_count": 10}]
+        right = [{"path": "depth", "count": 10}]
+        self.assertEqual(bench.assess(q6, left, right, args)["status"], "FIDELITY")
+        self.assertEqual(bench.assess(q6, [{**left[0], "bucket_count": 11}], right, args)["status"], "MISMATCH")
+        self.assertEqual(bench.assess(q6, [{**left[0], "count": 10}], right, args)["status"], "PASS")
+        self.assertEqual(bench.assess(q6, [{"path": "depth", "count": 100}], right, args)["status"], "MISMATCH")
+
+    def test_q6_full_path_sets_symmetric_difference_and_fidelity_in_json(self):
+        raw_counts = [{"path": r["path"], "count": 3, "bucket_count": 1} for r in ROWS[6]]
+        raw_counts.append({"path": "influx.extra", "count": 2, "bucket_count": 1})
+        retained = [*ROWS[6], {"path": "lume.extra", "count": 1}]
+        with MockPair(influx_rows={**ROWS, 6: raw_counts}, lume_rows={**ROWS, 6: retained}) as pair:
+            _, _, _, report = run_main(pair, "--from", FROM, "--to", TO)
+            q = report["queries"][5]
+            self.assertEqual(q["status"], "MISMATCH")
+            paths = q["checks"][0]["path_sets"]
+            self.assertEqual(paths["influx_only"], ["influx.extra"])
+            self.assertEqual(paths["lume_only"], ["lume.extra"])
+            self.assertEqual(paths["symmetric_difference"], ["influx.extra", "lume.extra"])
+            self.assertEqual(q["max_observed_difference"]["bucket_count_absolute"], 0)
+            self.assertNotIn("contains(value: r._measurement", q["flux"])
+            self.assertIn('unique(column: "_time")', q["flux"])
+        with MockPair(influx_rows={**ROWS, 6: raw_counts[:-1]}) as pair:
+            code, _, _, report = run_main(pair, "--from", FROM, "--to", TO)
+            self.assertEqual(report["queries"][5]["status"], "FIDELITY")
+            self.assertEqual(code, 0)
+
+    def test_default_uses_latest_complete_common_hours_and_short_history_fallback(self):
+        args = bench.parse_args([])
+        lo = bench.timestamp("2026-10-01T21:10:21Z")
+        hi = bench.timestamp("2026-10-02T01:20:59Z")
+        start, stop, mode = bench.choose_window(args, lo, hi)
+        self.assertEqual(bench.iso(start), "2026-10-01T22:00:00.000000Z")
+        self.assertEqual(bench.iso(stop), "2026-10-02T01:00:00.000000Z")
+        self.assertEqual(mode, "latest_full_common_hours")
+        with MockPair(coverage=(bench.iso(lo), bench.iso(hi))) as pair:
+            _, _, _, report = run_main(pair)
+            self.assertEqual(report["window"]["mode"], mode)
+            self.assertEqual(report["window"]["from"], bench.iso(start))
+            self.assertEqual(report["window"]["to"], bench.iso(stop))
+        self.assertEqual(bench.choose_window(args, bench.timestamp(FROM), bench.timestamp(TO))[2], "common_data_coverage_partial_hour")
 
 
 if __name__ == "__main__":
