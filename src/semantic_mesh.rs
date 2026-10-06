@@ -1,6 +1,6 @@
+use crate::fast_retrieval::MiniRoaring;
 use std::collections::HashMap;
 use std::time::SystemTime;
-use crate::fast_retrieval::MiniRoaring;
 
 // ─── SimpleRng (Zero-Dependency Xorshift RNG) ──────────────────────────
 
@@ -49,20 +49,20 @@ impl SimpleRng {
 
 // ─── Word & Punctuation Tokenizer ────────────────────────────────────────
 
-/// Tokenizes raw text, separating alphanumeric words (including internal 
+/// Tokenizes raw text, separating alphanumeric words (including internal
 /// apostrophes and hyphens like "d'if" or "twenty-four") from punctuation.
 pub fn parse_words_and_punctuation(text: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let chars: Vec<char> = text.chars().collect();
     let mut i = 0;
-    
+
     while i < chars.len() {
         let c = chars[i];
         if c.is_whitespace() {
             i += 1;
             continue;
         }
-        
+
         if c.is_alphanumeric() {
             let mut word = String::new();
             while i < chars.len() {
@@ -99,13 +99,22 @@ pub fn reconstruct_spaces(tokens: &[String]) -> String {
             result.push_str(token);
         } else {
             let first_char = token.chars().next().unwrap_or(' ');
-            
+
             // Check if this token is a punctuation that shouldn't have a space before it
-            let is_close_punc = first_char == '.' || first_char == ',' || first_char == '!' || 
-                                first_char == '?' || first_char == ';' || first_char == ':' || 
-                                first_char == ')' || first_char == ']' || first_char == '}' || 
-                                first_char == '’' || token == "”" || token == "—" || token == "-";
-            
+            let is_close_punc = first_char == '.'
+                || first_char == ','
+                || first_char == '!'
+                || first_char == '?'
+                || first_char == ';'
+                || first_char == ':'
+                || first_char == ')'
+                || first_char == ']'
+                || first_char == '}'
+                || first_char == '’'
+                || token == "”"
+                || token == "—"
+                || token == "-";
+
             if is_close_punc || skip_next_space {
                 result.push_str(token);
                 skip_next_space = false;
@@ -114,7 +123,7 @@ pub fn reconstruct_spaces(tokens: &[String]) -> String {
                 result.push_str(token);
             }
         }
-        
+
         // If this token is an opening punctuation, skip the space for the next token
         if token == "“" || token == "(" || token == "[" {
             skip_next_space = true;
@@ -151,16 +160,24 @@ impl MarkovChain {
             for i in 0..(tokens.len() - 2) {
                 let key = (tokens[i].clone(), tokens[i + 1].clone());
                 let next_word = tokens[i + 2].clone();
-                transitions.entry(key).or_insert_with(Vec::new).push(next_word);
+                transitions
+                    .entry(key)
+                    .or_insert_with(Vec::new)
+                    .push(next_word);
 
                 // Collect sentence starters after punctuation
-                if (tokens[i] == "." || tokens[i] == "!" || tokens[i] == "?") && is_good_sentence_start(&tokens[i + 1]) {
+                if (tokens[i] == "." || tokens[i] == "!" || tokens[i] == "?")
+                    && is_good_sentence_start(&tokens[i + 1])
+                {
                     start_words.push((tokens[i + 1].clone(), tokens[i + 2].clone()));
                 }
             }
         }
 
-        Self { transitions, start_words }
+        Self {
+            transitions,
+            start_words,
+        }
     }
 
     /// Generates styled text starting with an optional seed word.
@@ -317,7 +334,12 @@ impl MarkovChain {
 
         let (mut w1, mut w2) = match current_pair {
             Some(pair) => pair,
-            None => return (String::from("No styled text generated (empty index)."), Vec::new()),
+            None => {
+                return (
+                    String::from("No styled text generated (empty index)."),
+                    Vec::new(),
+                )
+            }
         };
 
         tokens.push(w1.clone());
@@ -356,23 +378,24 @@ impl MarkovChain {
                     for c in &candidates_w3 {
                         let freq = candidate_freqs.get(c).copied().unwrap_or(1);
                         let mut weight = freq as f64; // Start with the natural frequency as base weight
-                        
+
                         let c_upper = c.to_uppercase();
 
                         // Tokenize candidate to get its folded bytes key in the index
                         let c_toks = crate::tokenize(c);
                         let c_bytes = c_toks.first().map(|t| t.bytes.clone());
-                        
+
                         for (active_tag, active_weight) in &attention_register {
                             let tag_upper = active_tag.to_uppercase();
-                            
+
                             // Try to resolve the active tag posting list from FST entities, fallback to general tokens
-                            let list_t = entity_posting_lists.get(&tag_upper)
-                                .or_else(|| {
-                                    let tag_toks = crate::tokenize(active_tag);
-                                    tag_toks.first().and_then(|t| token_posting_lists.get(&t.bytes))
-                                });
-                            
+                            let list_t = entity_posting_lists.get(&tag_upper).or_else(|| {
+                                let tag_toks = crate::tokenize(active_tag);
+                                tag_toks
+                                    .first()
+                                    .and_then(|t| token_posting_lists.get(&t.bytes))
+                            });
+
                             if let Some(lt) = list_t {
                                 // 1. Co-occurrence graph Jaccard boost using actual text token posting lists!
                                 if let Some(ref cb) = c_bytes {
@@ -383,7 +406,7 @@ impl MarkovChain {
                                         }
                                     }
                                 }
-                                
+
                                 // Also check entity-to-entity posting lists for co-occurrence if candidate is an FST entity!
                                 if let Some(list_c) = entity_posting_lists.get(&c_upper) {
                                     let jaccard = list_c.jaccard_similarity(lt);
@@ -392,7 +415,7 @@ impl MarkovChain {
                                     }
                                 }
                             }
-                            
+
                             // 2. Direct name/substring matching boost
                             if tag_upper.contains(&c_upper) || c_upper.contains(&tag_upper) {
                                 weight += 30.0 * active_weight;
@@ -439,7 +462,9 @@ impl MarkovChain {
 
                 // Decay attention weights
                 for (tag, weight) in attention_register.iter_mut() {
-                    let is_injected = injected_tags.iter().any(|it| it.to_uppercase() == tag.to_uppercase());
+                    let is_injected = injected_tags
+                        .iter()
+                        .any(|it| it.to_uppercase() == tag.to_uppercase());
                     *weight *= 0.85;
                     // If it is an injected tag, keep it at at least 0.3 to sustain thematic focus!
                     if is_injected && *weight < 0.3 {
@@ -601,7 +626,10 @@ impl EntityGraph {
                 nodes.push(EntityNode {
                     id: key.clone(),
                     label: labels.get(key).cloned().unwrap_or_else(|| key.clone()),
-                    kind: kinds.get(key).cloned().unwrap_or_else(|| "unknown".to_string()),
+                    kind: kinds
+                        .get(key)
+                        .cloned()
+                        .unwrap_or_else(|| "unknown".to_string()),
                     frequency,
                 });
             }
@@ -611,7 +639,10 @@ impl EntityGraph {
         // Cardinalities are precomputed: Jaccard is bounded above by
         // min(|A|,|B|)/max(|A|,|B|), so most pairs are pruned without touching
         // their containers, and the union size comes from inclusion-exclusion.
-        let lens: Vec<usize> = entity_keys.iter().map(|k| posting_lists[*k].len()).collect();
+        let lens: Vec<usize> = entity_keys
+            .iter()
+            .map(|k| posting_lists[*k].len())
+            .collect();
         for i in 0..entity_keys.len() {
             for j in (i + 1)..entity_keys.len() {
                 let (len_a, len_b) = (lens[i], lens[j]);
@@ -640,7 +671,8 @@ impl EntityGraph {
                     // arithmetic transform of those counts (z-score vs. chance),
                     // so it adds no scan over the bitmap intersection that the
                     // "counting the counts" primitive already pays for.
-                    let relatedness = cooccurrence_relatedness(num_docs, len_a, len_b, intersection);
+                    let relatedness =
+                        cooccurrence_relatedness(num_docs, len_a, len_b, intersection);
                     edges.push(EntityEdge {
                         source: entity_keys[i].clone(),
                         target: entity_keys[j].clone(),
@@ -660,7 +692,11 @@ impl EntityGraph {
             b.relatedness
                 .partial_cmp(&a.relatedness)
                 .unwrap_or(std::cmp::Ordering::Equal)
-                .then(b.similarity.partial_cmp(&a.similarity).unwrap_or(std::cmp::Ordering::Equal))
+                .then(
+                    b.similarity
+                        .partial_cmp(&a.similarity)
+                        .unwrap_or(std::cmp::Ordering::Equal),
+                )
         });
 
         Self { nodes, edges }
@@ -673,21 +709,44 @@ impl EntityGraph {
         for (i, node) in self.nodes.iter().enumerate() {
             json.push_str("    {\n");
             json.push_str(&format!("      \"id\": \"{}\",\n", escape_json(&node.id)));
-            json.push_str(&format!("      \"label\": \"{}\",\n", escape_json(&node.label)));
-            json.push_str(&format!("      \"kind\": \"{}\",\n", escape_json(&node.kind)));
+            json.push_str(&format!(
+                "      \"label\": \"{}\",\n",
+                escape_json(&node.label)
+            ));
+            json.push_str(&format!(
+                "      \"kind\": \"{}\",\n",
+                escape_json(&node.kind)
+            ));
             json.push_str(&format!("      \"frequency\": {}\n", node.frequency));
-            json.push_str(if i == self.nodes.len() - 1 { "    }\n" } else { "    },\n" });
+            json.push_str(if i == self.nodes.len() - 1 {
+                "    }\n"
+            } else {
+                "    },\n"
+            });
         }
         json.push_str("  ],\n  \"links\": [\n");
         for (i, edge) in self.edges.iter().enumerate() {
             json.push_str("    {\n");
-            json.push_str(&format!("      \"source\": \"{}\",\n", escape_json(&edge.source)));
-            json.push_str(&format!("      \"target\": \"{}\",\n", escape_json(&edge.target)));
+            json.push_str(&format!(
+                "      \"source\": \"{}\",\n",
+                escape_json(&edge.source)
+            ));
+            json.push_str(&format!(
+                "      \"target\": \"{}\",\n",
+                escape_json(&edge.target)
+            ));
             json.push_str(&format!("      \"similarity\": {:.4},\n", edge.similarity));
-            json.push_str(&format!("      \"relatedness\": {:.4},\n", edge.relatedness));
+            json.push_str(&format!(
+                "      \"relatedness\": {:.4},\n",
+                edge.relatedness
+            ));
             json.push_str(&format!("      \"intersection\": {},\n", edge.intersection));
             json.push_str(&format!("      \"union\": {}\n", edge.union_size));
-            json.push_str(if i == self.edges.len() - 1 { "    }\n" } else { "    },\n" });
+            json.push_str(if i == self.edges.len() - 1 {
+                "    }\n"
+            } else {
+                "    },\n"
+            });
         }
         json.push_str("  ]\n}");
         json
@@ -696,11 +755,21 @@ impl EntityGraph {
     /// Prints a beautiful ASCII-art relationship table to the terminal
     pub fn print_ascii_table(&self) {
         println!("\x1B[1;36m");
-        println!("  ┌──────────────────────────────────────────────────────────────────────────────┐");
-        println!("  │                    SEMANTIC ENTITY CO-OCCURRENCE MESH                       │");
-        println!("  ├──────────────────────────────┬──────────────────────────────┬────────┬───────┤");
-        println!("  │ Entity A                     │ Entity B                     │ Relate │Shared │");
-        println!("  ├──────────────────────────────┼──────────────────────────────┼────────┼───────┤");
+        println!(
+            "  ┌──────────────────────────────────────────────────────────────────────────────┐"
+        );
+        println!(
+            "  │                    SEMANTIC ENTITY CO-OCCURRENCE MESH                       │"
+        );
+        println!(
+            "  ├──────────────────────────────┬──────────────────────────────┬────────┬───────┤"
+        );
+        println!(
+            "  │ Entity A                     │ Entity B                     │ Relate │Shared │"
+        );
+        println!(
+            "  ├──────────────────────────────┼──────────────────────────────┼────────┼───────┤"
+        );
 
         if self.edges.is_empty() {
             println!("  │ (No co-occurrence relationships found above threshold)                       │");
@@ -717,8 +786,10 @@ impl EntityGraph {
                 );
             }
         }
-        
-        println!("  └──────────────────────────────┴──────────────────────────────┴────────┴───────┘");
+
+        println!(
+            "  └──────────────────────────────┴──────────────────────────────┴────────┴───────┘"
+        );
         println!("\x1B[0m");
     }
 }
@@ -744,7 +815,11 @@ mod relatedness_tests {
         // a=50, b=50 in n=100: expected co-occurrence under independence is
         // 50*50/100 = 25. Observed exactly 25 → z=0 → relatedness 0.
         let r = cooccurrence_relatedness(100, 50, 50, 25);
-        assert!(r.abs() < 1e-9, "independent co-occurrence should be ~0, got {}", r);
+        assert!(
+            r.abs() < 1e-9,
+            "independent co-occurrence should be ~0, got {}",
+            r
+        );
     }
 
     #[test]
@@ -753,8 +828,16 @@ mod relatedness_tests {
         // more than the ~0.025 expected by chance → strongly positive, but the
         // tanh squash keeps it inside (0,1).
         let r = cooccurrence_relatedness(1000, 5, 5, 5);
-        assert!(r > 0.5, "perfect rare co-occurrence should be strongly positive, got {}", r);
-        assert!(r < 1.0, "relatedness must stay bounded below 1.0, got {}", r);
+        assert!(
+            r > 0.5,
+            "perfect rare co-occurrence should be strongly positive, got {}",
+            r
+        );
+        assert!(
+            r < 1.0,
+            "relatedness must stay bounded below 1.0, got {}",
+            r
+        );
     }
 
     #[test]
@@ -762,7 +845,11 @@ mod relatedness_tests {
         // a=50, b=50 in n=100 but never together (k=0): far below the 25
         // expected → negative relatedness.
         let r = cooccurrence_relatedness(100, 50, 50, 0);
-        assert!(r < -0.5, "mutual avoidance should be strongly negative, got {}", r);
+        assert!(
+            r < -0.5,
+            "mutual avoidance should be strongly negative, got {}",
+            r
+        );
     }
 
     #[test]

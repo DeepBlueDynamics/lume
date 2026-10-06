@@ -41,6 +41,7 @@ pub struct WatermarkBucketer {
     classifier: Classifier,
     derived: DerivedTracker,
     closed_observer: Option<Box<dyn ClosedBucketObserver>>,
+    newly_closed: usize,
 }
 
 impl WatermarkBucketer {
@@ -56,6 +57,7 @@ impl WatermarkBucketer {
             classifier: Classifier::new(config),
             derived: DerivedTracker::new(&config.derived),
             closed_observer: None,
+            newly_closed: 0,
         }
     }
 
@@ -72,6 +74,7 @@ impl WatermarkBucketer {
             classifier: Classifier::new(config),
             derived: DerivedTracker::new(&config.derived),
             closed_observer: None,
+            newly_closed: 0,
         })
     }
 
@@ -289,7 +292,15 @@ impl WatermarkBucketer {
             sink.flush()?;
         }
         self.notify_closed(&newly_closed)?;
+        self.newly_closed += closed_count;
         Ok(closed_count)
+    }
+
+    /// Retrieve and reset the count of newly closed buckets.
+    pub fn take_newly_closed(&mut self) -> usize {
+        let count = self.newly_closed;
+        self.newly_closed = 0;
+        count
     }
 
     /// Close any open buckets whose end time <= watermark (max_event_time - 30 s).
@@ -450,6 +461,13 @@ impl MultiStoreBucketer {
             .map(|b| b.max_event_time())
             .max()
             .unwrap_or(EPOCH)
+    }
+
+    pub fn take_newly_closed(&mut self) -> usize {
+        self.bucketers
+            .values_mut()
+            .map(|b| b.take_newly_closed())
+            .sum()
     }
 
     pub fn register_meta_units(&mut self, path: &str, units: &str) {

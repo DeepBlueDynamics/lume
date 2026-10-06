@@ -1,5 +1,5 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
 
 // ─── MiniRoaring Bitmap ──────────────────────────────────────────────────
 
@@ -17,7 +17,7 @@ impl Serialize for Container {
         match self {
             Container::Array(v) => serializer.serialize_newtype_variant("Container", 0, "Array", v),
             Container::Bitmap(b) => {
-                let vec: Vec<u64> = b.iter().cloned().collect();
+                let vec: Vec<u64> = b.to_vec();
                 serializer.serialize_newtype_variant("Container", 1, "Bitmap", &vec)
             }
         }
@@ -75,7 +75,10 @@ impl MiniRoaring {
         let key = (id >> 16) as u16;
         let value = (id & 0xFFFF) as u16;
 
-        let container = self.containers.entry(key).or_insert_with(|| Container::Array(Vec::new()));
+        let container = self
+            .containers
+            .entry(key)
+            .or_insert_with(|| Container::Array(Vec::new()));
 
         match container {
             Container::Array(ref mut arr) => {
@@ -159,8 +162,8 @@ impl MiniRoaring {
                             None
                         }
                     }
-                    (Container::Array(arr), Container::Bitmap(bitmap)) |
-                    (Container::Bitmap(bitmap), Container::Array(arr)) => {
+                    (Container::Array(arr), Container::Bitmap(bitmap))
+                    | (Container::Bitmap(bitmap), Container::Array(arr)) => {
                         let mut res = Vec::new();
                         for &v in arr {
                             let idx = (v >> 6) as usize;
@@ -228,8 +231,8 @@ impl MiniRoaring {
                         }
                         Container::Bitmap(bitmap)
                     }
-                    (Container::Array(arr), Container::Bitmap(bitmap)) |
-                    (Container::Bitmap(bitmap), Container::Array(arr)) => {
+                    (Container::Array(arr), Container::Bitmap(bitmap))
+                    | (Container::Bitmap(bitmap), Container::Array(arr)) => {
                         let mut new_bitmap = bitmap.clone();
                         for &v in arr {
                             let idx = (v >> 6) as usize;
@@ -355,9 +358,15 @@ impl MiniRoaring {
 
 /// Helper to check if a number is prime.
 pub fn is_prime(n: u64) -> bool {
-    if n <= 1 { return false; }
-    if n <= 3 { return true; }
-    if n.is_multiple_of(2) || n.is_multiple_of(3) { return false; }
+    if n <= 1 {
+        return false;
+    }
+    if n <= 3 {
+        return true;
+    }
+    if n.is_multiple_of(2) || n.is_multiple_of(3) {
+        return false;
+    }
     let mut i = 5;
     while i * i <= n {
         if n.is_multiple_of(i) || n.is_multiple_of(i + 2) {
@@ -569,13 +578,13 @@ mod tests {
     #[test]
     fn test_prime_filter() {
         let mut filter = PrimeFilter::new();
-        
+
         filter.add_term(b"apple");
         filter.add_term(b"banana");
-        
+
         assert!(filter.test_term(b"apple"));
         assert!(filter.test_term(b"banana"));
-        
+
         filter.add_tag_prime(2);
         filter.add_tag_prime(3);
         assert!(filter.test_tag_prime(2));
@@ -591,7 +600,11 @@ mod tests {
         // Verify all added terms still evaluate to true
         for i in 0..1000 {
             let term = format!("term_{}", i);
-            assert!(overflow_filter.test_term(term.as_bytes()), "Term term_{} had false negative after overflow!", i);
+            assert!(
+                overflow_filter.test_term(term.as_bytes()),
+                "Term term_{} had false negative after overflow!",
+                i
+            );
         }
     }
 }

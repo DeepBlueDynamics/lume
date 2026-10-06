@@ -20,11 +20,6 @@ fn column<T: Array + 'static>(batch: &RecordBatch, index: usize) -> Result<&T> {
 
 /// Open an existing store. Width must match the deployment and verification corpus.
 pub async fn open_store(root: &Path, width_seconds: u64) -> Result<SqlSession> {
-    if !root.join("catalog").is_dir() {
-        return Err(DataFusionError::Plan(
-            "existing store catalog directory required".into(),
-        ));
-    }
     session_from_store(
         Arc::new(Store::open_or_create(root, width_seconds).map_err(core_error)?),
         width_seconds,
@@ -43,11 +38,6 @@ pub async fn open_store_with_documents(
     width_seconds: u64,
     documents: &DocumentsFactory,
 ) -> Result<SqlSession> {
-    if !root.join("catalog").is_dir() {
-        return Err(DataFusionError::Plan(
-            "existing store catalog directory required".into(),
-        ));
-    }
     let store = Store::open_or_create(root, width_seconds).map_err(core_error)?;
     let index = documents(root, &store, width_seconds).map_err(core_error)?;
     let text: Arc<dyn ti_contracts::TextIndex> = index.clone();

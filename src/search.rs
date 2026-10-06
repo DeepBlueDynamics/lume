@@ -1,15 +1,15 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
 
-use crate::bm25::{Bm25Index, Bm25Params, SearchVariant, Section, filter_query_stopwords};
-use crate::spelling::SpellIndex;
+use crate::bm25::{filter_query_stopwords, Bm25Index, Bm25Params, SearchVariant, Section};
 use crate::semantic_mesh::EntityGraph;
-use crate::Tagger;
-use crate::Entry;
+use crate::spelling::SpellIndex;
 use crate::tokenize;
+use crate::Entry;
+use crate::Tagger;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SearchMode {
@@ -167,21 +167,29 @@ pub struct SearchResults {
 }
 
 pub fn save_json<T: Serialize>(path: &Path, val: &T) -> Result<(), String> {
-    let file = File::create(path).map_err(|e| format!("Failed to create file {}: {}", path.display(), e))?;
+    let file = File::create(path)
+        .map_err(|e| format!("Failed to create file {}: {}", path.display(), e))?;
     let writer = io::BufWriter::new(file);
-    serde_json::to_writer_pretty(writer, val).map_err(|e| format!("Failed to write JSON to {}: {}", path.display(), e))?;
+    serde_json::to_writer_pretty(writer, val)
+        .map_err(|e| format!("Failed to write JSON to {}: {}", path.display(), e))?;
     Ok(())
 }
 
 pub fn load_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, String> {
-    let file = File::open(path).map_err(|e| format!("Failed to open file {}: {}", path.display(), e))?;
+    let file =
+        File::open(path).map_err(|e| format!("Failed to open file {}: {}", path.display(), e))?;
     let reader = io::BufReader::new(file);
-    let val = serde_json::from_reader(reader).map_err(|e| format!("Failed to parse JSON from {}: {}", path.display(), e))?;
+    let val = serde_json::from_reader(reader)
+        .map_err(|e| format!("Failed to parse JSON from {}: {}", path.display(), e))?;
     Ok(val)
 }
 
 pub fn load_tagger_csv(path: &Path) -> io::Result<Tagger> {
-    let kind = path.file_stem().and_then(|s| s.to_str()).unwrap_or("entity").to_string();
+    let kind = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("entity")
+        .to_string();
     let text = std::fs::read_to_string(path)?;
     let mut lines = text.lines();
     let header_line = match lines.next() {
@@ -213,8 +221,8 @@ pub fn load_tagger_csv(path: &Path) -> io::Result<Tagger> {
             .map(|s| s.trim().eq_ignore_ascii_case("true"))
             .unwrap_or(false);
 
-        let mut entry = Entry::new(phrase, kind.clone(), format!("csv-{}", i))
-            .with_regex(is_regex_val);
+        let mut entry =
+            Entry::new(phrase, kind.clone(), format!("csv-{}", i)).with_regex(is_regex_val);
         if let Some(out) = output_override {
             entry = entry.with_output(out);
         }
@@ -226,7 +234,11 @@ pub fn load_tagger_csv(path: &Path) -> io::Result<Tagger> {
 pub fn correct_query(spelling: &SpellIndex, query: &str) -> String {
     let mut words = Vec::new();
     for word in query.split_whitespace() {
-        let clean: String = word.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase();
+        let clean: String = word
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .collect::<String>()
+            .to_lowercase();
         if clean.is_empty() {
             words.push(word.to_string());
             continue;
@@ -300,7 +312,11 @@ pub fn best_snippet_with_cap(body: &str, query: &str, max_chars: usize) -> Strin
     }
 }
 
-pub fn search(index: &LoadedIndex, query: &str, opts: &SearchOptions) -> Result<SearchResults, String> {
+pub fn search(
+    index: &LoadedIndex,
+    query: &str,
+    opts: &SearchOptions,
+) -> Result<SearchResults, String> {
     let mut warnings = Vec::new();
 
     // 1. Spell correction
@@ -332,8 +348,20 @@ pub fn search(index: &LoadedIndex, query: &str, opts: &SearchOptions) -> Result<
                 use_relatedness: opts.use_relatedness,
                 ..Default::default()
             };
-            let walk = crate::graph_search::compute_skg_scores(&index.bm25, graph, &effective_query, &skg_params);
-            let label = |k: &str| index.bm25.entity_labels.get(k).cloned().unwrap_or_else(|| k.to_string());
+            let walk = crate::graph_search::compute_skg_scores(
+                &index.bm25,
+                graph,
+                &effective_query,
+                &skg_params,
+            );
+            let label = |k: &str| {
+                index
+                    .bm25
+                    .entity_labels
+                    .get(k)
+                    .cloned()
+                    .unwrap_or_else(|| k.to_string())
+            };
             skg_seeds = walk.seeds.iter().map(|s| label(s)).collect();
             skg_neighbors = walk.expanded.iter().map(|(k, w)| (label(k), *w)).collect();
             skg_scores = walk.scores;
@@ -342,7 +370,10 @@ pub fn search(index: &LoadedIndex, query: &str, opts: &SearchOptions) -> Result<
             if !graph_path.exists() {
                 warnings.push("\x1B[35m[SKG] No entity_graph.json found; graph boost disabled (re-run `lume index`).\x1B[0m".to_string());
             } else {
-                warnings.push("\x1B[35m[SKG] Failed to load entity_graph.json; graph boost disabled.\x1B[0m".to_string());
+                warnings.push(
+                    "\x1B[35m[SKG] Failed to load entity_graph.json; graph boost disabled.\x1B[0m"
+                        .to_string(),
+                );
             }
         }
     }
@@ -360,8 +391,15 @@ pub fn search(index: &LoadedIndex, query: &str, opts: &SearchOptions) -> Result<
     };
 
     if want_hybrid {
-        let token_opt = opts.auth_token.clone().or_else(crate::hybrid::load_nuts_token);
-        let has_session = index.state.as_ref().and_then(|s| s.semantic_session_id.as_ref()).is_some();
+        let token_opt = opts
+            .auth_token
+            .clone()
+            .or_else(crate::hybrid::load_nuts_token);
+        let has_session = index
+            .state
+            .as_ref()
+            .and_then(|s| s.semantic_session_id.as_ref())
+            .is_some();
 
         if !has_session {
             if opts.mode == SearchMode::HybridStrict {
@@ -375,7 +413,11 @@ pub fn search(index: &LoadedIndex, query: &str, opts: &SearchOptions) -> Result<
             warnings.push("[⚠️] Semantic search unavailable (no NUTS_SERVICES_TOKEN and shivvr endpoint is not local); falling back to lexical BM25.".to_string());
         } else {
             // Attempt hybrid search
-            let target_dir = index.state.as_ref().map(|s| s.target_dir.as_str()).unwrap_or("");
+            let target_dir = index
+                .state
+                .as_ref()
+                .map(|s| s.target_dir.as_str())
+                .unwrap_or("");
             let hybrid_res = crate::hybrid::execute_hybrid_search(
                 &index.bm25,
                 index.tagger.as_ref(),
@@ -398,7 +440,11 @@ pub fn search(index: &LoadedIndex, query: &str, opts: &SearchOptions) -> Result<
                     h_results.hits.truncate(opts.limit);
                     let mut hits = Vec::new();
                     for h in h_results.hits {
-                        let snippet = best_snippet_with_cap(&h.body, &effective_query, opts.max_snippet_chars);
+                        let snippet = best_snippet_with_cap(
+                            &h.body,
+                            &effective_query,
+                            opts.max_snippet_chars,
+                        );
                         hits.push(SearchResultHit {
                             rank: h.rank,
                             section_index: h.section_index,
@@ -443,7 +489,12 @@ pub fn search(index: &LoadedIndex, query: &str, opts: &SearchOptions) -> Result<
         SearchMode::HybridOrFallback => (Bm25Params::default(), SearchVariant::Classic),
         _ => (opts.bm25_params.clone(), opts.bm25_variant),
     };
-    let mut bm25_hits = index.bm25.search(&effective_query, lexical_variant, &lexical_params, index.tagger.as_ref());
+    let mut bm25_hits = index.bm25.search(
+        &effective_query,
+        lexical_variant,
+        &lexical_params,
+        index.tagger.as_ref(),
+    );
     crate::graph_search::apply_skg_boost(&mut bm25_hits, &skg_scores, beta);
     bm25_hits.truncate(opts.limit);
 
@@ -452,8 +503,11 @@ pub fn search(index: &LoadedIndex, query: &str, opts: &SearchOptions) -> Result<
         if let Some(sec) = index.bm25.sections.get(hit.section_index) {
             let filename = sec.filename.clone();
             let skg_score = skg_scores.get(&hit.section_index).copied();
-            let snippet = best_snippet_with_cap(&sec.body, &effective_query, opts.max_snippet_chars);
-            let entities = sec.entities.iter()
+            let snippet =
+                best_snippet_with_cap(&sec.body, &effective_query, opts.max_snippet_chars);
+            let entities = sec
+                .entities
+                .iter()
                 .filter(|&e| e != "__LUME_PROCESSED__")
                 .cloned()
                 .collect();
@@ -497,7 +551,11 @@ pub fn format_cli_output(
     let mut stderr = String::new();
 
     // 1. Header: Searching corpus: ...
-    let target_dir = index.state.as_ref().map(|s| s.target_dir.as_str()).unwrap_or("unknown");
+    let target_dir = index
+        .state
+        .as_ref()
+        .map(|s| s.target_dir.as_str())
+        .unwrap_or("unknown");
     stdout.push_str(&format!(
         "Searching corpus: {} ({} sections, db: {})\n",
         target_dir, results.total_sections, db_dir
@@ -525,7 +583,10 @@ pub fn format_cli_output(
                     .collect::<Vec<_>>()
                     .join(", ")
             };
-            stdout.push_str(&format!("[SKG walk] seeds: {} → neighbors: {}\n", seeds_str, neighbors_str));
+            stdout.push_str(&format!(
+                "[SKG walk] seeds: {} → neighbors: {}\n",
+                seeds_str, neighbors_str
+            ));
         }
     }
 
@@ -542,7 +603,10 @@ pub fn format_cli_output(
 
     // 5. Execution line & hits
     if results.executed_mode == SearchMode::LexicalOnly {
-        stdout.push_str(&format!("Executing lexical BM25 search (graph={})...\n", results.graph_beta));
+        stdout.push_str(&format!(
+            "Executing lexical BM25 search (graph={})...\n",
+            results.graph_beta
+        ));
         if results.hits.is_empty() {
             stdout.push_str("No hits found.\n");
         } else {
@@ -554,12 +618,7 @@ pub fn format_cli_output(
                 };
                 stdout.push_str(&format!(
                     "[{}] Score: {:.4}{} | {} (File: {}, Line: {})\n",
-                    hit.rank,
-                    hit.score,
-                    skg_tag,
-                    hit.title,
-                    filename,
-                    hit.line_number
+                    hit.rank, hit.score, skg_tag, hit.title, filename, hit.line_number
                 ));
                 if !hit.entities.is_empty() {
                     stdout.push_str(&format!("  Entities: {:?}\n", hit.entities));
@@ -649,7 +708,8 @@ mod tests {
             ..Default::default()
         };
 
-        let results = search(&index, "captain", &opts).expect("Lexical search should succeed without reading target_dir");
+        let results = search(&index, "captain", &opts)
+            .expect("Lexical search should succeed without reading target_dir");
         assert_eq!(results.executed_mode, SearchMode::LexicalOnly);
         assert_eq!(results.hits.len(), 1);
         assert_eq!(results.hits[0].title, "Chapter 1");
@@ -687,7 +747,10 @@ mod tests {
 
         let results = search(&index, "captain", &opts).expect("Search should fall back to lexical");
         assert_eq!(results.executed_mode, SearchMode::LexicalOnly);
-        assert!(results.warnings.iter().any(|w| w.contains("Semantic search unavailable")));
+        assert!(results
+            .warnings
+            .iter()
+            .any(|w| w.contains("Semantic search unavailable")));
         assert_eq!(results.hits.len(), 1);
         assert_eq!(results.hits[0].title, "Chapter 1");
     }
@@ -723,7 +786,10 @@ mod tests {
         };
 
         let res = search(&index, "captain", &opts);
-        assert!(res.is_err(), "HybridStrict must error when semantic session is missing");
+        assert!(
+            res.is_err(),
+            "HybridStrict must error when semantic session is missing"
+        );
     }
 
     #[test]
@@ -735,7 +801,8 @@ mod tests {
             graph_beta: 0.0,
             ..Default::default()
         };
-        let results = search(&index, "treasure", &opts).expect("Lexical search from parts should succeed");
+        let results =
+            search(&index, "treasure", &opts).expect("Lexical search from parts should succeed");
         assert_eq!(results.hits.len(), 1);
         assert_eq!(results.hits[0].title, "Chapter 2");
     }

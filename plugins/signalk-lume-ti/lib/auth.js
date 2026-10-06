@@ -1,9 +1,15 @@
 'use strict';
 
+const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
 const https = require('https');
+const path = require('path');
 const { URL } = require('url');
+
+function isUuid(str) {
+  return typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+}
 
 /**
  * Signal K Device Access-Request Flow Manager.
@@ -30,7 +36,7 @@ class TokenManager {
   constructor(options) {
     this.tokenPath = options.tokenPath;
     this.signalkHttpUrl = toHttpUrl(options.signalkUrl || 'ws://127.0.0.1:3000');
-    this.clientId = options.clientId || 'signalk-lume-ti';
+    this.clientId = this.resolveClientId(options.clientId);
     this.description = options.description || 'Lume TI Ingest and Query Engine';
     this.pollIntervalMs = options.pollIntervalMs || 2000;
     this.onTokenReceived = options.onTokenReceived || (() => {});
@@ -41,6 +47,36 @@ class TokenManager {
     this.isRequestPending = false;
     this.lastRequestId = null;
     this.lastState = this.token ? 'COMPLETED' : 'NONE';
+  }
+
+  /**
+   * Resolve a persistent UUID clientId for this installation.
+   *
+   * @param {string} [preferredId]
+   * @returns {string}
+   */
+  resolveClientId(preferredId) {
+    if (preferredId && isUuid(preferredId)) {
+      return preferredId;
+    }
+    if (this.tokenPath) {
+      const clientIdFile = path.join(path.dirname(this.tokenPath), 'client-id.json');
+      try {
+        if (fs.existsSync(clientIdFile)) {
+          const data = JSON.parse(fs.readFileSync(clientIdFile, 'utf8'));
+          if (data.clientId && isUuid(data.clientId)) {
+            return data.clientId;
+          }
+        }
+      } catch (_) {}
+      const newId = crypto.randomUUID();
+      try {
+        fs.mkdirSync(path.dirname(clientIdFile), { recursive: true });
+        fs.writeFileSync(clientIdFile, JSON.stringify({ clientId: newId }, null, 2), 'utf8');
+      } catch (_) {}
+      return newId;
+    }
+    return crypto.randomUUID();
   }
 
   /**
@@ -114,7 +150,7 @@ class TokenManager {
     const postData = JSON.stringify({
       clientId: this.clientId,
       description: this.description,
-      permissions: 'read',
+      permissions: 'readonly',
     });
 
     const targetUrl = new URL('/signalk/v1/access/requests', this.signalkHttpUrl);

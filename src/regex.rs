@@ -5,13 +5,13 @@ use std::collections::HashSet;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RegexAST {
     Char(char),
-    Wildcard,                  // .
-    Digit,                     // \d
-    Alphanumeric,              // \w
-    Whitespace,                // \s
-    NonDigit,                  // \D
-    NonAlphanumeric,           // \W
-    NonWhitespace,             // \S
+    Wildcard,        // .
+    Digit,           // \d
+    Alphanumeric,    // \w
+    Whitespace,      // \s
+    NonDigit,        // \D
+    NonAlphanumeric, // \W
+    NonWhitespace,   // \S
     Concat(Vec<RegexAST>),
     Alternate(Box<RegexAST>, Box<RegexAST>), // a|b
     ZeroOrMore(Box<RegexAST>),               // *
@@ -114,7 +114,7 @@ impl<'a> Parser<'a> {
                         break;
                     }
                 }
-                
+
                 if self.peek() == Some(',') {
                     self.next(); // Consume ','
                     let mut max_str = String::new();
@@ -128,7 +128,9 @@ impl<'a> Parser<'a> {
                     if self.next() != Some('}') {
                         return Err("Unclosed quantifier bounds '{min,max}'".to_string());
                     }
-                    let min: usize = num_str.parse().map_err(|_| "Invalid min bound".to_string())?;
+                    let min: usize = num_str
+                        .parse()
+                        .map_err(|_| "Invalid min bound".to_string())?;
                     if max_str.is_empty() {
                         // e.g. {min,} -> min concatenated copies + a Kleene loop
                         let mut elements = Vec::new();
@@ -138,7 +140,9 @@ impl<'a> Parser<'a> {
                         elements.push(RegexAST::ZeroOrMore(Box::new(base)));
                         return Ok(RegexAST::Concat(elements));
                     } else {
-                        let max: usize = max_str.parse().map_err(|_| "Invalid max bound".to_string())?;
+                        let max: usize = max_str
+                            .parse()
+                            .map_err(|_| "Invalid max bound".to_string())?;
                         if max < min {
                             return Err("Max bound cannot be less than min".to_string());
                         }
@@ -155,7 +159,9 @@ impl<'a> Parser<'a> {
                     if self.next() != Some('}') {
                         return Err("Unclosed quantifier bound '{n}'".to_string());
                     }
-                    let n: usize = num_str.parse().map_err(|_| "Invalid bound integer".to_string())?;
+                    let n: usize = num_str
+                        .parse()
+                        .map_err(|_| "Invalid bound integer".to_string())?;
                     let mut elements = Vec::new();
                     for _ in 0..n {
                         elements.push(base.clone());
@@ -168,11 +174,15 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_base(&mut self) -> Result<RegexAST, String> {
-        let c = self.next().ok_or_else(|| "Unexpected end of pattern".to_string())?;
+        let c = self
+            .next()
+            .ok_or_else(|| "Unexpected end of pattern".to_string())?;
         match c {
             '.' => Ok(RegexAST::Wildcard),
             '\\' => {
-                let ec = self.next().ok_or_else(|| "Dangling backslash".to_string())?;
+                let ec = self
+                    .next()
+                    .ok_or_else(|| "Dangling backslash".to_string())?;
                 match ec {
                     'd' => Ok(RegexAST::Digit),
                     'w' => Ok(RegexAST::Alphanumeric),
@@ -200,12 +210,16 @@ impl<'a> Parser<'a> {
                     }
                     let mut cur = self.next().unwrap();
                     if cur == '\\' {
-                        cur = self.next().ok_or_else(|| "Dangling backslash inside class".to_string())?;
+                        cur = self
+                            .next()
+                            .ok_or_else(|| "Dangling backslash inside class".to_string())?;
                     }
-                    
+
                     if self.peek() == Some('-') {
                         self.next(); // Consume '-'
-                        let next_c = self.peek().ok_or_else(|| "Dangling range '-'".to_string())?;
+                        let next_c = self
+                            .peek()
+                            .ok_or_else(|| "Dangling range '-'".to_string())?;
                         if next_c == ']' {
                             // Treat '-' as a literal character since it's at the end of class
                             chars.push(cur);
@@ -213,7 +227,9 @@ impl<'a> Parser<'a> {
                         } else {
                             let mut end = self.next().unwrap();
                             if end == '\\' {
-                                end = self.next().ok_or_else(|| "Dangling backslash inside class range".to_string())?;
+                                end = self.next().ok_or_else(|| {
+                                    "Dangling backslash inside class range".to_string()
+                                })?;
                             }
                             ranges.push((cur, end));
                         }
@@ -226,7 +242,11 @@ impl<'a> Parser<'a> {
                     return Err("Unclosed character class bracket".to_string());
                 }
 
-                Ok(RegexAST::Class { chars, ranges, negated })
+                Ok(RegexAST::Class {
+                    chars,
+                    ranges,
+                    negated,
+                })
             }
             '(' => {
                 let inner = self.parse_regex()?;
@@ -351,7 +371,11 @@ impl NfaBuilder {
                 self.add_trans(start, Transition::NonWhitespace, accept);
                 Ok((start, accept))
             }
-            RegexAST::Class { chars, ranges, negated } => {
+            RegexAST::Class {
+                chars,
+                ranges,
+                negated,
+            } => {
                 let start = self.add_state();
                 let accept = self.add_state();
                 self.add_trans(
@@ -381,60 +405,60 @@ impl NfaBuilder {
                     self.add_trans(current.1, Transition::Epsilon, next.0);
                     current = next;
                 }
-                
+
                 Ok((start, current.1))
             }
             RegexAST::Alternate(a, b) => {
                 let start = self.add_state();
                 let accept = self.add_state();
-                
+
                 let nfa_a = self.compile_ast(a)?;
                 let nfa_b = self.compile_ast(b)?;
-                
+
                 self.add_trans(start, Transition::Epsilon, nfa_a.0);
                 self.add_trans(start, Transition::Epsilon, nfa_b.0);
-                
+
                 self.add_trans(nfa_a.1, Transition::Epsilon, accept);
                 self.add_trans(nfa_b.1, Transition::Epsilon, accept);
-                
+
                 Ok((start, accept))
             }
             RegexAST::ZeroOrMore(a) => {
                 let start = self.add_state();
                 let accept = self.add_state();
-                
+
                 let nfa_a = self.compile_ast(a)?;
-                
+
                 self.add_trans(start, Transition::Epsilon, nfa_a.0);
                 self.add_trans(start, Transition::Epsilon, accept);
-                
+
                 self.add_trans(nfa_a.1, Transition::Epsilon, nfa_a.0);
                 self.add_trans(nfa_a.1, Transition::Epsilon, accept);
-                
+
                 Ok((start, accept))
             }
             RegexAST::OneOrMore(a) => {
                 let start = self.add_state();
                 let accept = self.add_state();
-                
+
                 let nfa_a = self.compile_ast(a)?;
-                
+
                 self.add_trans(start, Transition::Epsilon, nfa_a.0);
                 self.add_trans(nfa_a.1, Transition::Epsilon, nfa_a.0);
                 self.add_trans(nfa_a.1, Transition::Epsilon, accept);
-                
+
                 Ok((start, accept))
             }
             RegexAST::ZeroOrOne(a) => {
                 let start = self.add_state();
                 let accept = self.add_state();
-                
+
                 let nfa_a = self.compile_ast(a)?;
-                
+
                 self.add_trans(start, Transition::Epsilon, nfa_a.0);
                 self.add_trans(start, Transition::Epsilon, accept);
                 self.add_trans(nfa_a.1, Transition::Epsilon, accept);
-                
+
                 Ok((start, accept))
             }
         }
@@ -450,30 +474,30 @@ pub fn levenshtein_regex(term: &str) -> String {
     if n == 0 {
         return String::new();
     }
-    
+
     let mut patterns = std::collections::HashSet::new();
-    
+
     // 1. Exact term
     patterns.insert(term.to_string());
-    
+
     // 2. Deletions (distance 1)
     for i in 0..n {
         let mut p = Vec::with_capacity(n - 1);
         p.extend_from_slice(&chars[..i]);
-        p.extend_from_slice(&chars[i+1..]);
+        p.extend_from_slice(&chars[i + 1..]);
         let s: String = p.into_iter().collect();
         if !s.is_empty() {
             patterns.insert(s);
         }
     }
-    
+
     // 3. Substitutions with wildcard '.' (distance 1)
     for i in 0..n {
         let mut p = chars.clone();
         p[i] = '.';
         patterns.insert(p.into_iter().collect());
     }
-    
+
     // 4. Insertions of wildcard '.' (distance 1)
     for i in 0..=n {
         let mut p = Vec::with_capacity(n + 1);
@@ -482,14 +506,14 @@ pub fn levenshtein_regex(term: &str) -> String {
         p.extend_from_slice(&chars[i..]);
         patterns.insert(p.into_iter().collect());
     }
-    
+
     // 5. Transpositions (adjacent character swaps, distance 2/1 transposition)
-    for i in 0..n-1 {
+    for i in 0..n - 1 {
         let mut p = chars.clone();
         p.swap(i, i + 1);
         patterns.insert(p.into_iter().collect());
     }
-    
+
     let mut sorted_patterns: Vec<String> = patterns.into_iter().collect();
     sorted_patterns.sort();
     sorted_patterns.join("|")
@@ -499,10 +523,10 @@ impl Nfa {
     pub fn compile(pattern: &str) -> Result<Self, String> {
         let mut parser = Parser::new(pattern);
         let ast = parser.parse()?;
-        
+
         let mut builder = NfaBuilder::new();
         let (start, accept) = builder.compile_ast(&ast)?;
-        
+
         Ok(Self {
             states: builder.states,
             start,
@@ -516,20 +540,20 @@ impl Nfa {
     pub fn matches(&self, text: &str) -> Vec<(usize, usize)> {
         let mut results = Vec::new();
         let chars: Vec<char> = text.chars().collect();
-        
+
         // Find matching spans starting at any character position in the text
         for start_idx in 0..chars.len() {
             let mut active = HashSet::new();
             active.insert(self.start);
             active = self.epsilon_closure(&active);
-            
+
             let mut longest_match = None;
-            
+
             // Check if empty match is accepted initially
             if active.contains(&self.accept) {
                 longest_match = Some(start_idx);
             }
-            
+
             let mut current_idx = start_idx;
             while current_idx < chars.len() {
                 let c = chars[current_idx];
@@ -538,12 +562,12 @@ impl Nfa {
                     break;
                 }
                 current_idx += 1;
-                
+
                 if active.contains(&self.accept) {
                     longest_match = Some(current_idx);
                 }
             }
-            
+
             if let Some(end_idx) = longest_match {
                 // Return start/end char indices in character counts
                 results.push((start_idx, end_idx));
@@ -555,7 +579,7 @@ impl Nfa {
     fn epsilon_closure(&self, states: &HashSet<usize>) -> HashSet<usize> {
         let mut closure = states.clone();
         let mut queue: Vec<usize> = states.iter().cloned().collect();
-        
+
         while let Some(state_id) = queue.pop() {
             if let Some(state) = self.states.get(state_id) {
                 for (trans, target) in &state.transitions {
@@ -595,7 +619,11 @@ fn match_transition(trans: &Transition, c: char) -> bool {
         Transition::NonDigit => !c.is_ascii_digit(),
         Transition::NonAlphanumeric => !(c.is_alphanumeric() || c == '_'),
         Transition::NonWhitespace => !c.is_whitespace(),
-        Transition::Class { chars, ranges, negated } => {
+        Transition::Class {
+            chars,
+            ranges,
+            negated,
+        } => {
             let mut found = false;
             if chars.contains(&c) {
                 found = true;
@@ -688,9 +716,18 @@ mod tests {
         let nfa = Nfa::compile("[A-Za-z0-9]+").unwrap();
         assert_eq!(
             nfa.matches("Hello123!"),
-            vec![(0, 8), (1, 8), (2, 8), (3, 8), (4, 8), (5, 8), (6, 8), (7, 8)]
+            vec![
+                (0, 8),
+                (1, 8),
+                (2, 8),
+                (3, 8),
+                (4, 8),
+                (5, 8),
+                (6, 8),
+                (7, 8)
+            ]
         );
-        
+
         let nfa_neg = Nfa::compile("[^a-z]").unwrap();
         assert_eq!(nfa_neg.matches("a B c"), vec![(1, 2), (2, 3), (3, 4)]);
     }
@@ -698,7 +735,7 @@ mod tests {
     #[test]
     fn test_levenshtein_regex_expansion() {
         let pattern = levenshtein_regex("htis");
-        
+
         // Assert that the generated pattern contains key illustrative edits
         assert!(pattern.contains("htis"));
         assert!(pattern.contains("this"));
@@ -706,9 +743,9 @@ mod tests {
         assert!(pattern.contains("his"));
         assert!(pattern.contains("h.is"));
         assert!(pattern.contains("ht.s"));
-        
+
         let nfa = Nfa::compile(&pattern).unwrap();
-        
+
         // The NFA should match all these spelling-corrected variants
         assert!(!nfa.matches("this").is_empty());
         assert!(!nfa.matches("tis").is_empty());

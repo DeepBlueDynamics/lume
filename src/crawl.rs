@@ -1,6 +1,6 @@
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{self, Write};
-use serde::{Deserialize, Serialize};
 
 #[derive(Serialize)]
 struct CrawlPayload<'a> {
@@ -49,7 +49,7 @@ fn clean_hn_html(html: &str) -> String {
         .replace("<a href=\"", "")
         .replace("\" rel=\"nofollow\">", " ")
         .replace("</a>", "");
-    
+
     // Quick unescapes for common HTML entities
     cleaned = cleaned
         .replace("&#x2F;", "/")
@@ -58,7 +58,7 @@ fn clean_hn_html(html: &str) -> String {
         .replace("&lt;", "<")
         .replace("&gt;", ">")
         .replace("&amp;", "&");
-    
+
     cleaned
 }
 
@@ -77,7 +77,9 @@ fn extract_hn_id(url: &str) -> Option<String> {
 }
 
 pub fn crawl_hn_via_api(id: &str) -> Result<(String, String), String> {
-    println!("  ➔ Hacker News URL detected. Fetching story and discussions via public Firebase API...");
+    println!(
+        "  ➔ Hacker News URL detected. Fetching story and discussions via public Firebase API..."
+    );
     io::stdout().flush().unwrap();
 
     let agent = ureq::AgentBuilder::new()
@@ -85,11 +87,13 @@ pub fn crawl_hn_via_api(id: &str) -> Result<(String, String), String> {
         .build();
 
     let story_url = format!("https://hacker-news.firebaseio.com/v0/item/{}.json", id);
-    let res = agent.get(&story_url)
+    let res = agent
+        .get(&story_url)
         .call()
         .map_err(|e| format!("Failed to fetch Hacker News story {}: {}", id, e))?;
 
-    let story: HnItem = res.into_json()
+    let story: HnItem = res
+        .into_json()
         .map_err(|e| format!("Failed to parse Hacker News story JSON: {}", e))?;
 
     let title = if story.title.is_empty() {
@@ -100,10 +104,16 @@ pub fn crawl_hn_via_api(id: &str) -> Result<(String, String), String> {
 
     let mut markdown = String::new();
     markdown.push_str(&format!("# {}\n\n", title));
-    markdown.push_str(&format!("*   **Source URL**: https://news.ycombinator.com/item?id={}\n", id));
+    markdown.push_str(&format!(
+        "*   **Source URL**: https://news.ycombinator.com/item?id={}\n",
+        id
+    ));
     markdown.push_str(&format!("*   **Author**: {}\n", story.by));
     markdown.push_str(&format!("*   **Points**: {}\n", story.score));
-    markdown.push_str(&format!("*   **Crawl Timestamp**: {}\n\n", chrono_timestamp()));
+    markdown.push_str(&format!(
+        "*   **Crawl Timestamp**: {}\n\n",
+        chrono_timestamp()
+    ));
     markdown.push_str("---\n\n");
 
     if !story.text.is_empty() {
@@ -152,13 +162,13 @@ pub fn crawl_url(url: &str) -> Result<(String, String), String> {
         return crawl_hn_via_api(&hn_id);
     }
 
-    let api_url = std::env::var("GRUB_BASE_URL")
-        .unwrap_or_else(|_| "http://localhost:6792".to_string());
-    
+    let api_url =
+        std::env::var("GRUB_BASE_URL").unwrap_or_else(|_| "http://localhost:6792".to_string());
+
     let token = load_nuts_token();
-    let is_local = api_url.contains("localhost") 
-        || api_url.contains("127.0.0.1") 
-        || api_url.contains("host.docker.internal") 
+    let is_local = api_url.contains("localhost")
+        || api_url.contains("127.0.0.1")
+        || api_url.contains("host.docker.internal")
         || api_url.contains("172.");
 
     if is_local {
@@ -184,7 +194,8 @@ pub fn crawl_url(url: &str) -> Result<(String, String), String> {
         .timeout(std::time::Duration::from_secs(60))
         .build();
 
-    let mut req = agent.post(&endpoint)
+    let mut req = agent
+        .post(&endpoint)
         .set("Content-Type", "application/json");
 
     if let Some(ref tok) = token {
@@ -195,18 +206,22 @@ pub fn crawl_url(url: &str) -> Result<(String, String), String> {
         Ok(res) => {
             let status = res.status();
             if status != 200 {
-                let err_body = res.into_string().unwrap_or_else(|_| "Unknown error".to_string());
+                let err_body = res
+                    .into_string()
+                    .unwrap_or_else(|_| "Unknown error".to_string());
                 return Err(format!("Crawl failed (Status {}): {}", status, err_body));
             }
 
-            let response_data: CrawlResponse = res.into_json()
+            let response_data: CrawlResponse = res
+                .into_json()
                 .map_err(|e| format!("Failed to parse response JSON: {}", e))?;
 
             if let Some(err) = response_data.error {
                 return Err(format!("Crawl server error: {}", err));
             }
 
-            let markdown = response_data.markdown
+            let markdown = response_data
+                .markdown
                 .or(response_data.markdown_plain)
                 .or(response_data.content);
 
@@ -222,11 +237,16 @@ pub fn crawl_url(url: &str) -> Result<(String, String), String> {
 
             let safe_slug = make_safe_slug(url);
             let filename = format!("{}/{}.md", save_dir, safe_slug);
-            let page_title = response_data.title.unwrap_or_else(|| "Crawled Document".to_string());
+            let page_title = response_data
+                .title
+                .unwrap_or_else(|| "Crawled Document".to_string());
 
             let file_content = format!(
                 "# {}\n\n*   **Source URL**: {}\n*   **Crawl Timestamp**: {}\n\n---\n\n{}",
-                page_title, url, chrono_timestamp(), content
+                page_title,
+                url,
+                chrono_timestamp(),
+                content
             );
 
             fs::write(&filename, &file_content)
@@ -240,7 +260,8 @@ pub fn crawl_url(url: &str) -> Result<(String, String), String> {
                 io::stdout().flush().unwrap();
                 let retry_url = "http://host.docker.internal:6792";
                 let retry_endpoint = format!("{}/api/markdown", retry_url);
-                let mut retry_req = agent.post(&retry_endpoint)
+                let mut retry_req = agent
+                    .post(&retry_endpoint)
                     .set("Content-Type", "application/json");
                 if let Some(ref tok) = token {
                     retry_req = retry_req.set("Authorization", &format!("Bearer {}", tok));
@@ -248,12 +269,18 @@ pub fn crawl_url(url: &str) -> Result<(String, String), String> {
                 if let Ok(res) = retry_req.send_json(&payload) {
                     if res.status() == 200 {
                         if let Ok(response_data) = res.into_json::<CrawlResponse>() {
-                            if let Some(content) = response_data.markdown.or(response_data.markdown_plain).or(response_data.content) {
+                            if let Some(content) = response_data
+                                .markdown
+                                .or(response_data.markdown_plain)
+                                .or(response_data.content)
+                            {
                                 let save_dir = "examples/crawled";
                                 let _ = fs::create_dir_all(save_dir);
                                 let safe_slug = make_safe_slug(url);
                                 let filename = format!("{}/{}.md", save_dir, safe_slug);
-                                let page_title = response_data.title.unwrap_or_else(|| "Crawled Document".to_string());
+                                let page_title = response_data
+                                    .title
+                                    .unwrap_or_else(|| "Crawled Document".to_string());
                                 let file_content = format!(
                                     "# {}\n\n*   **Source URL**: {}\n*   **Crawl Timestamp**: {}\n\n---\n\n{}",
                                     page_title, url, chrono_timestamp(), content
@@ -265,7 +292,10 @@ pub fn crawl_url(url: &str) -> Result<(String, String), String> {
                     }
                 }
             }
-            println!("  ⚠️  Crawler connection failed ({}). Falling back to direct HTTP GET...", e);
+            println!(
+                "  ⚠️  Crawler connection failed ({}). Falling back to direct HTTP GET...",
+                e
+            );
             io::stdout().flush().unwrap();
             crawl_direct_get(url)
         }
@@ -316,11 +346,32 @@ pub fn clean_html_to_markdown(html: &str) -> (String, String) {
                     in_title = false;
                 } else if matches!(
                     tag_lower.as_str(),
-                    "p" | "/p" | "div" | "/div" | "tr" | "/tr" | "br" | "/br" | "h1" | "/h1" | "h2" | "/h2" | "h3" | "/h3" | "h4" | "/h4" | "h5" | "/h5" | "h6" | "/h6" | "li" | "/li" | "blockquote" | "/blockquote"
-                ) {
-                    if !result.ends_with('\n') {
-                        result.push('\n');
-                    }
+                    "p" | "/p"
+                        | "div"
+                        | "/div"
+                        | "tr"
+                        | "/tr"
+                        | "br"
+                        | "/br"
+                        | "h1"
+                        | "/h1"
+                        | "h2"
+                        | "/h2"
+                        | "h3"
+                        | "/h3"
+                        | "h4"
+                        | "/h4"
+                        | "h5"
+                        | "/h5"
+                        | "h6"
+                        | "/h6"
+                        | "li"
+                        | "/li"
+                        | "blockquote"
+                        | "/blockquote"
+                ) && !result.ends_with('\n')
+                {
+                    result.push('\n');
                 }
             } else {
                 current_tag.push(c);
@@ -351,7 +402,8 @@ pub fn clean_html_to_markdown(html: &str) -> (String, String) {
                 let start_digits = end;
                 while end < s_chars.len() && s_chars[end] != ';' {
                     let digit = s_chars[end];
-                    if (is_hex && digit.is_ascii_hexdigit()) || (!is_hex && digit.is_ascii_digit()) {
+                    if (is_hex && digit.is_ascii_hexdigit()) || (!is_hex && digit.is_ascii_digit())
+                    {
                         end += 1;
                     } else {
                         break;
@@ -410,16 +462,21 @@ fn crawl_direct_get(url: &str) -> Result<(String, String), String> {
         .timeout(std::time::Duration::from_secs(15))
         .build();
 
-    let res = agent.get(url)
+    let res = agent
+        .get(url)
         .call()
         .map_err(|e| format!("Direct fallback connection failed: {}", e))?;
 
     let status = res.status();
     if status != 200 {
-        return Err(format!("Direct fallback request failed (Status {}).", status));
+        return Err(format!(
+            "Direct fallback request failed (Status {}).",
+            status
+        ));
     }
 
-    let content = res.into_string()
+    let content = res
+        .into_string()
         .map_err(|e| format!("Failed to parse direct response body: {}", e))?;
 
     let save_dir = "examples/crawled";
@@ -433,11 +490,18 @@ fn crawl_direct_get(url: &str) -> Result<(String, String), String> {
 
     let file_content = format!(
         "# {}\n\n*   **Source URL**: {}\n*   **Crawl Timestamp**: {}\n\n---\n\n{}",
-        title, url, chrono_timestamp(), markdown
+        title,
+        url,
+        chrono_timestamp(),
+        markdown
     );
 
-    fs::write(&filename, &file_content)
-        .map_err(|e| format!("Failed to write direct crawl content to '{}': {}", filename, e))?;
+    fs::write(&filename, &file_content).map_err(|e| {
+        format!(
+            "Failed to write direct crawl content to '{}': {}",
+            filename, e
+        )
+    })?;
 
     Ok((filename, file_content))
 }
@@ -463,7 +527,10 @@ pub fn run(args: Vec<String>) {
     match crawl_url(url) {
         Ok((filename, _)) => {
             let elapsed = start.elapsed();
-            println!("\x1B[1;32m✓ Crawled successfully in {:.2?}!\x1B[0m", elapsed);
+            println!(
+                "\x1B[1;32m✓ Crawled successfully in {:.2?}!\x1B[0m",
+                elapsed
+            );
             println!(
                 "\x1B[32mSuccessfully added to personal search engine document collection!\x1B[0m"
             );

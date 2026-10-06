@@ -104,6 +104,7 @@ pub struct IngestService {
     pub last_seal_ts: i64,
     pub last_retention_ts: i64,
     pub records_since_flush: u64,
+    pub on_flush: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl IngestService {
@@ -126,6 +127,7 @@ impl IngestService {
             last_seal_ts: now,
             last_retention_ts: now,
             records_since_flush: 0,
+            on_flush: None,
         }
     }
 
@@ -148,6 +150,18 @@ impl IngestService {
     /// Set a closed bucket observer for the default store.
     pub fn set_closed_bucket_observer(&mut self, observer: Option<Box<dyn ClosedBucketObserver>>) {
         self.observer = observer;
+    }
+
+    /// Set a callback invoked whenever open or sealed shards are flushed.
+    pub fn set_flush_hook(&mut self, hook: Box<dyn Fn() + Send + Sync>) {
+        self.on_flush = Some(Arc::from(hook));
+    }
+
+    /// Notify flush hook if registered.
+    pub fn notify_flush(&self) {
+        if let Some(ref hook) = self.on_flush {
+            hook();
+        }
     }
 
     /// Current SystemTime (using injected clock if set, else SystemTime::now()).
@@ -268,6 +282,11 @@ impl IngestService {
         let default_root = self.config.resolved_stores()["default"]
             .resolved_root(&self.config.store_root, "default");
         let store_root_path = PathBuf::from(&self.config.store_root);
+        let toml_file = store_root_path.join("ti.toml");
+        if !toml_file.exists() {
+            let default_toml = format!("width_seconds = {}\n", self.config.width_seconds);
+            let _ = std::fs::write(&toml_file, default_toml);
+        }
         let mut documents = NotificationDocuments::open(Path::new(&default_root))?;
 
         let mut recorder = self.recorder.take();
@@ -275,7 +294,7 @@ impl IngestService {
         let url = self.config.signal_k.url.clone();
         let token = self.config.signal_k.token.clone();
 
-        let mut backoff = Duration::from_secs(1);
+        let mut backoff = Duration::from_secs(2);
         let max_backoff = Duration::from_secs(30);
 
         let mut last_wal_tick = self.now_timestamp();
@@ -289,7 +308,7 @@ impl IngestService {
         while self.is_active() {
             match connect_signalk(&url, token.as_deref()) {
                 Ok(mut socket) => {
-                    backoff = Duration::from_secs(1);
+                    backoff = Duration::from_secs(2);
                     if let Err(e) = subscribe_signalk(&mut socket) {
                         eprintln!("Failed to send subscribe messages: {e}");
                         std::thread::sleep(backoff);
@@ -356,19 +375,14 @@ impl IngestService {
                                             self.records_since_flush += count as u64;
                                             self.records_ingested += count as u64;
                                             self.last_delta_received = Some(receive_time);
-                                            // Extract timestamp from text if possible
-                                            if let Ok(v) =
-                                                serde_json::from_str::<serde_json::Value>(&text)
-                                            {
-                                                if let Some(ts_str) =
-                                                    v["updates"][0]["timestamp"].as_str()
-                                                {
-                                                    if let Ok(dt) =
-                                                        chrono::DateTime::parse_from_rfc3339(ts_str)
-                                                    {
-                                                        self.last_delta_ts = Some(dt.timestamp());
-                                                    }
-                                                }
+                                            let max_event = bucketer.max_event_time();
+                                            if max_event > ti_contracts::EPOCH {
+                                                self.last_delta_ts = Some(max_event);
+                                            }
+                                            if bucketer.take_newly_closed() > 0 {
+                                                let _ = self.flush_stores(&mut store_set);
+                                                self.records_since_flush = 0;
+                                                self.notify_flush();
                                             }
                                         }
                                     }
@@ -408,8 +422,8 @@ impl IngestService {
                             last_wal_tick = now_sec;
                         }
 
-                        // 2. Periodic flush of dirty rows / buckets (every 60 s or 50k records)
-                        if now_sec.saturating_sub(last_flush) >= 60
+                        // 2. Periodic flush of dirty rows / buckets (every 5 s or 50k records)
+                        if now_sec.saturating_sub(last_flush) >= 5
                             || self.records_since_flush >= 50_000
                         {
                             let watermark = bucketer.max_event_time().saturating_sub(30);
@@ -431,11 +445,16 @@ impl IngestService {
                             let _ = self.flush_stores(&mut store_set);
                             self.records_since_flush = 0;
                             last_flush = now_sec;
+                            self.notify_flush();
                         }
 
                         // 3. Seal open shards whose time span ended > 1 h ago
                         if now_sec.saturating_sub(last_seal_check) >= 60 {
-                            let _ = self.check_seal_shards(&mut store_set, now_sec);
+                            if let Ok(count) = self.check_seal_shards(&mut store_set, now_sec) {
+                                if count > 0 {
+                                    self.notify_flush();
+                                }
+                            }
                             last_seal_check = now_sec;
                         }
 
@@ -483,6 +502,7 @@ impl IngestService {
 
         bucketer.flush_all(&self.config, &catalogs, &mut sinks)?;
         self.flush_stores(&mut store_set)?;
+        self.notify_flush();
 
         for store in store_set.stores_mut().values_mut() {
             store.shutdown()?;

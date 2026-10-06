@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::net::{TcpListener, TcpStream};
 use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
 
 #[derive(Serialize)]
 struct ChatPayload<'a> {
@@ -148,8 +148,13 @@ pub fn extract_entities(
 
     if response.status() != 200 {
         let status = response.status();
-        let err_body = response.into_string().unwrap_or_else(|_| "Unknown error".to_string());
-        return Err(format!("Ollama returned HTTP status {}: {}", status, err_body));
+        let err_body = response
+            .into_string()
+            .unwrap_or_else(|_| "Unknown error".to_string());
+        return Err(format!(
+            "Ollama returned HTTP status {}: {}",
+            status, err_body
+        ));
     }
 
     let chat_res: ChatResponse = response
@@ -211,7 +216,9 @@ pub fn extract_entities(
 // --- MCP Server / HTTP Transport implementation ---
 
 fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack.windows(needle.len()).position(|window| window == needle)
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
 }
 
 fn run_lume_cli(args: Vec<String>) -> Result<String, String> {
@@ -220,30 +227,52 @@ fn run_lume_cli(args: Vec<String>) -> Result<String, String> {
         .args(&args)
         .output()
         .map_err(|e| format!("Failed to execute lume binary: {}", e))?;
-    
+
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-    
+
     if output.status.success() {
         Ok(stdout)
     } else {
-        Err(format!("Lume CLI failed (exit code {}):\nstdout: {}\nstderr: {}", 
-            output.status.code().map_or("unknown".to_string(), |c| c.to_string()),
-            stdout, stderr))
+        Err(format!(
+            "Lume CLI failed (exit code {}):\nstdout: {}\nstderr: {}",
+            output
+                .status
+                .code()
+                .map_or("unknown".to_string(), |c| c.to_string()),
+            stdout,
+            stderr
+        ))
     }
 }
 
-fn execute_tool_by_name(name: &str, args: serde_json::Value, default_db: &str) -> Result<String, String> {
+fn execute_tool_by_name(
+    name: &str,
+    args: serde_json::Value,
+    default_db: &str,
+) -> Result<String, String> {
     #[cfg(feature = "ti")]
-    if matches!(name, "ti_query" | "ti_schema" | "ti_explain" | "ti_status" | "ti_resolve") {
+    if matches!(
+        name,
+        "ti_query" | "ti_schema" | "ti_explain" | "ti_status" | "ti_resolve"
+    ) {
         return crate::ti_mcp::call(name, args);
     }
     match name {
         "lume_index" => {
-            let db = args.get("db").and_then(|v| v.as_str()).unwrap_or(default_db);
+            let db = args
+                .get("db")
+                .and_then(|v| v.as_str())
+                .unwrap_or(default_db);
             let force = args.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
-            let semantic = args.get("semantic").and_then(|v| v.as_bool()).unwrap_or(false);
-            let ollama_entities = args.get("ollama_entities").and_then(|v| v.as_bool()).unwrap_or(false);
+            let semantic = args
+                .get("semantic")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let ollama_entities = args
+                .get("ollama_entities")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             let ollama_model = args.get("ollama_model").and_then(|v| v.as_str());
             let ollama_url = args.get("ollama_url").and_then(|v| v.as_str());
             let shivvr_url = args.get("shivvr_url").and_then(|v| v.as_str());
@@ -300,13 +329,33 @@ fn execute_tool_by_name(name: &str, args: serde_json::Value, default_db: &str) -
             run_lume_cli(cli_args)
         }
         "lume_search" => {
-            let query = args.get("query").and_then(|v| v.as_str()).ok_or_else(|| "Parameter 'query' is required.".to_string())?;
-            let db = args.get("db").and_then(|v| v.as_str()).unwrap_or(default_db);
-            let spell_check = args.get("spell_check").and_then(|v| v.as_bool()).unwrap_or(false);
-            let limit = args.get("limit").and_then(|v| v.as_i64()).map(|v| v.max(0) as usize).unwrap_or(10);
-            let alpha = args.get("alpha").and_then(|v| v.as_f64()).map(|v| v as f32).unwrap_or(0.5);
+            let query = args
+                .get("query")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| "Parameter 'query' is required.".to_string())?;
+            let db = args
+                .get("db")
+                .and_then(|v| v.as_str())
+                .unwrap_or(default_db);
+            let spell_check = args
+                .get("spell_check")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let limit = args
+                .get("limit")
+                .and_then(|v| v.as_i64())
+                .map(|v| v.max(0) as usize)
+                .unwrap_or(10);
+            let alpha = args
+                .get("alpha")
+                .and_then(|v| v.as_f64())
+                .map(|v| v as f32)
+                .unwrap_or(0.5);
             let graph = args.get("graph").and_then(|v| v.as_f64()).unwrap_or(0.4);
-            let shivvr_url = args.get("shivvr_url").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let shivvr_url = args
+                .get("shivvr_url")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
 
             let index = crate::search::LoadedIndex::open(db)?;
             let mut opts = crate::search::SearchOptions {
@@ -326,7 +375,10 @@ fn execute_tool_by_name(name: &str, args: serde_json::Value, default_db: &str) -
         }
         "lume_generate" => {
             let seed_word = args.get("seed_word").and_then(|v| v.as_str());
-            let db = args.get("db").and_then(|v| v.as_str()).unwrap_or(default_db);
+            let db = args
+                .get("db")
+                .and_then(|v| v.as_str())
+                .unwrap_or(default_db);
             let limit = args.get("limit").and_then(|v| v.as_i64());
             let steer = args.get("steer").and_then(|v| v.as_array());
             let attempts = args.get("attempts").and_then(|v| v.as_i64());
@@ -342,7 +394,10 @@ fn execute_tool_by_name(name: &str, args: serde_json::Value, default_db: &str) -
                 cli_args.push(lim.to_string());
             }
             if let Some(st) = steer {
-                let tags: Vec<String> = st.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect();
+                let tags: Vec<String> = st
+                    .iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect();
                 if !tags.is_empty() {
                     cli_args.push("--steer".to_string());
                     cli_args.push(tags.join(","));
@@ -367,9 +422,15 @@ fn execute_tool_by_name(name: &str, args: serde_json::Value, default_db: &str) -
         }
         "lume_not_found" => {
             let reason = args.get("reason").and_then(|v| v.as_str()).unwrap_or("");
-            let attempted = args.get("attempted_queries")
+            let attempted = args
+                .get("attempted_queries")
                 .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(", "))
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|x| x.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
                 .unwrap_or_default();
             Ok(format!(
                 "Guidance: The previous search queries did not yield the answer. \
@@ -381,7 +442,7 @@ fn execute_tool_by_name(name: &str, args: serde_json::Value, default_db: &str) -
                 reason, attempted
             ))
         }
-        _ => Err(format!("Unknown tool: {}", name))
+        _ => Err(format!("Unknown tool: {}", name)),
     }
 }
 
@@ -391,7 +452,10 @@ type TiState = Option<std::sync::Arc<crate::ti_http::TiServer>>;
 type TiState = ();
 
 fn handle_mcp_request(req_val: serde_json::Value, _ti: &TiState) -> serde_json::Value {
-    let id = req_val.get("id").cloned().unwrap_or(serde_json::Value::Null);
+    let id = req_val
+        .get("id")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
     let method = match req_val.get("method").and_then(|m| m.as_str()) {
         Some(m) => m,
         None => {
@@ -521,13 +585,20 @@ fn handle_mcp_request(req_val: serde_json::Value, _ti: &TiState) -> serde_json::
                 }
             };
             let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
-            
+
             #[cfg(feature = "ti")]
-            let result = if let Some(server) = _ti.as_ref().filter(|_| matches!(name,"ti_query"|"ti_schema"|"ti_explain"|"ti_status"|"ti_resolve")) {
-                server.mcp(name,&arguments)
-            } else { execute_tool_by_name(name,arguments,".lume-index") };
+            let result = if let Some(server) = _ti.as_ref().filter(|_| {
+                matches!(
+                    name,
+                    "ti_query" | "ti_schema" | "ti_explain" | "ti_status" | "ti_resolve"
+                )
+            }) {
+                server.mcp(name, &arguments)
+            } else {
+                execute_tool_by_name(name, arguments, ".lume-index")
+            };
             #[cfg(not(feature = "ti"))]
-            let result = execute_tool_by_name(name,arguments,".lume-index");
+            let result = execute_tool_by_name(name, arguments, ".lume-index");
             match result {
                 Ok(out) => {
                     json!({
@@ -610,31 +681,46 @@ fn handle_connection(mut stream: TcpStream, _ti: &TiState) -> std::io::Result<()
             stream.write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n")?;
             return Ok(());
         };
-        return crate::ti_http::handle(&mut stream,_ti.as_deref(),method,path,&req_str[..end],&buffer[end+4..bytes_read]);
+        return crate::ti_http::handle(
+            &mut stream,
+            _ti.as_deref(),
+            method,
+            path,
+            &req_str[..end],
+            &buffer[end + 4..bytes_read],
+        );
     }
     #[cfg(feature = "ti")]
-    let cors=if _ti.is_some(){""}else{"Access-Control-Allow-Origin: *\r\n"};
+    let cors = if _ti.is_some() {
+        ""
+    } else {
+        "Access-Control-Allow-Origin: *\r\n"
+    };
     #[cfg(not(feature = "ti"))]
-    let cors="Access-Control-Allow-Origin: *\r\n";
+    let cors = "Access-Control-Allow-Origin: *\r\n";
     if method == "OPTIONS" {
-        let response = format!("HTTP/1.1 200 OK\r\n\
+        let response = format!(
+            "HTTP/1.1 200 OK\r\n\
                         {cors}\
                         Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n\
                         Access-Control-Allow-Headers: *\r\n\
-                        Content-Length: 0\r\n\r\n");
+                        Content-Length: 0\r\n\r\n"
+        );
         stream.write_all(response.as_bytes())?;
         stream.flush()?;
         return Ok(());
     }
 
     if method == "GET" && (path == "/sse" || path.starts_with("/sse?")) {
-        let response = format!("HTTP/1.1 200 OK\r\n\
+        let response = format!(
+            "HTTP/1.1 200 OK\r\n\
                         Content-Type: text/event-stream\r\n\
                         Cache-Control: no-cache\r\n\
                         Connection: keep-alive\r\n\
                         {cors}\r\n\
                         event: endpoint\r\n\
-                        data: /message\r\n\r\n");
+                        data: /message\r\n\r\n"
+        );
         stream.write_all(response.as_bytes())?;
         stream.flush()?;
 
@@ -643,14 +729,19 @@ fn handle_connection(mut stream: TcpStream, _ti: &TiState) -> std::io::Result<()
             let mut dummy = [0; 1];
             match stream.read(&mut dummy) {
                 Ok(0) => break, // Connection closed by client
-                Ok(_) => {},    // Keep alive
+                Ok(_) => {}     // Keep alive
                 Err(_) => break,
             }
         }
         return Ok(());
     }
 
-    if method == "POST" && (path == "/message" || path.starts_with("/message?") || path == "/mcp" || path.starts_with("/mcp?")) {
+    if method == "POST"
+        && (path == "/message"
+            || path.starts_with("/message?")
+            || path == "/mcp"
+            || path.starts_with("/mcp?"))
+    {
         let mut content_length = 0;
         let header_body_sep = req_str.find("\r\n\r\n").unwrap_or(bytes_read);
         let headers_str = &req_str[..header_body_sep];
@@ -703,11 +794,22 @@ fn handle_connection(mut stream: TcpStream, _ti: &TiState) -> std::io::Result<()
 
         // Standalone TI MCP calls must not reintroduce browser access to TI data.
         #[cfg(feature = "ti")]
-        let cors=if rpc_req["params"]["name"].as_str().is_some_and(|name|matches!(name,"ti_query"|"ti_schema"|"ti_explain"|"ti_status"|"ti_resolve")){""}else{cors};
+        let cors = if rpc_req["params"]["name"].as_str().is_some_and(|name| {
+            matches!(
+                name,
+                "ti_query" | "ti_schema" | "ti_explain" | "ti_status" | "ti_resolve"
+            )
+        }) {
+            ""
+        } else {
+            cors
+        };
         let response_json = handle_mcp_request(rpc_req, _ti);
         if response_json.is_null() {
-            let response = format!("HTTP/1.1 204 No Content\r\n\
-                            {cors}\r\n");
+            let response = format!(
+                "HTTP/1.1 204 No Content\r\n\
+                            {cors}\r\n"
+            );
             stream.write_all(response.as_bytes())?;
         } else {
             let resp_str = serde_json::to_string(&response_json).unwrap_or_default();
@@ -728,9 +830,11 @@ fn handle_connection(mut stream: TcpStream, _ti: &TiState) -> std::io::Result<()
     }
 
     // Default 404 response for other paths
-    let not_found = format!("HTTP/1.1 404 Not Found\r\n\
+    let not_found = format!(
+        "HTTP/1.1 404 Not Found\r\n\
                      {cors}\
-                     Content-Length: 0\r\n\r\n");
+                     Content-Length: 0\r\n\r\n"
+    );
     stream.write_all(not_found.as_bytes())?;
     stream.flush()?;
     Ok(())
@@ -741,37 +845,71 @@ fn handle_connection(mut stream: TcpStream, _ti: &TiState) -> std::io::Result<()
 const MAX_CONCURRENT_CONNECTIONS: usize = 64;
 
 pub fn serve(port: u16) -> Result<(), String> {
-    serve_on(port,"0.0.0.0")
+    serve_on(port, "0.0.0.0")
 }
-pub fn serve_on(port:u16,bind:&str)->Result<(),String>{
-    let bind=bind.parse::<std::net::IpAddr>().map_err(|e|format!("Invalid bind address: {e}"))?;
+pub fn serve_on(port: u16, bind: &str) -> Result<(), String> {
+    let bind = bind
+        .parse::<std::net::IpAddr>()
+        .map_err(|e| format!("Invalid bind address: {e}"))?;
     #[cfg(feature = "ti")]
     let ti = None;
     #[cfg(not(feature = "ti"))]
     let ti = ();
-    serve_configured(port,ti,bind)
+    serve_configured(port, ti, bind)
 }
 #[cfg(feature = "ti")]
-pub fn serve_with_ti(port:u16,root:&std::path::Path)->Result<(),String>{
-    serve_with_ti_on(port,root,"127.0.0.1")
+pub fn serve_with_ti(port: u16, root: &std::path::Path) -> Result<(), String> {
+    serve_with_ti_on(port, root, "127.0.0.1")
 }
 #[cfg(feature = "ti")]
-pub fn serve_with_ti_on(port:u16,root:&std::path::Path,bind:&str)->Result<(),String>{
-    serve_with_ti_pg_on(port,root,bind,None)
+pub fn serve_with_ti_on(port: u16, root: &std::path::Path, bind: &str) -> Result<(), String> {
+    serve_with_ti_pg_on(port, root, bind, None)
 }
 #[cfg(feature = "ti")]
-pub fn serve_with_ti_pg_on(port:u16,root:&std::path::Path,bind:&str,pg:Option<u16>)->Result<(),String>{
-    let bind=bind.parse::<std::net::IpAddr>().map_err(|e|format!("Invalid bind address: {e}"))?;
-    let ti=std::sync::Arc::new(crate::ti_http::TiServer::open(root)?);
-    let _pg=pg.map(|port|crate::ti_pg::start(ti.clone(),std::net::SocketAddr::new(bind,port))).transpose()?;
-    serve_configured(port,Some(ti),bind)
+pub fn serve_with_ti_pg_on(
+    port: u16,
+    root: &std::path::Path,
+    bind: &str,
+    pg: Option<u16>,
+) -> Result<(), String> {
+    serve_with_ti_pg_width_on(port, root, bind, pg, None)
 }
-fn serve_configured(port:u16,_ti:TiState,bind:std::net::IpAddr)->Result<(),String>{
+#[cfg(feature = "ti")]
+pub fn serve_with_ti_pg_width_on(
+    port: u16,
+    root: &std::path::Path,
+    bind: &str,
+    pg: Option<u16>,
+    width: Option<u64>,
+) -> Result<(), String> {
+    let bind = bind
+        .parse::<std::net::IpAddr>()
+        .map_err(|e| format!("Invalid bind address: {e}"))?;
+    let ti = std::sync::Arc::new(crate::ti_http::TiServer::open_with_width(root, width)?);
+    serve_with_ti_server(port, ti, bind, pg)
+}
+#[cfg(feature = "ti")]
+pub fn serve_with_ti_server(
+    port: u16,
+    ti: std::sync::Arc<crate::ti_http::TiServer>,
+    bind: std::net::IpAddr,
+    pg: Option<u16>,
+) -> Result<(), String> {
+    let _pg = pg
+        .map(|pg_port| crate::ti_pg::start(ti.clone(), std::net::SocketAddr::new(bind, pg_port)))
+        .transpose()?;
+    serve_configured(port, Some(ti), bind)
+}
+fn serve_configured(port: u16, _ti: TiState, bind: std::net::IpAddr) -> Result<(), String> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
-    let address=std::net::SocketAddr::new(bind,port);
-    let listener=TcpListener::bind(address).map_err(|e|format!("Failed to bind to {address}: {e}"))?;
-    println!("Lume MCP HTTP server listening on http://{}",listener.local_addr().map_err(|e|e.to_string())?);
+    let address = std::net::SocketAddr::new(bind, port);
+    let listener =
+        TcpListener::bind(address).map_err(|e| format!("Failed to bind to {address}: {e}"))?;
+    println!(
+        "Lume MCP HTTP server listening on http://{}",
+        listener.local_addr().map_err(|e| e.to_string())?
+    );
 
     let active = Arc::new(AtomicUsize::new(0));
     for stream in listener.incoming() {
@@ -969,8 +1107,13 @@ Keep your final answer concise and factual.", db_dir),
 
         if response.status() != 200 {
             let status = response.status();
-            let err_body = response.into_string().unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(format!("Ollama returned HTTP status {}: {}", status, err_body));
+            let err_body = response
+                .into_string()
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(format!(
+                "Ollama returned HTTP status {}: {}",
+                status, err_body
+            ));
         }
 
         #[derive(Deserialize, Debug)]
@@ -983,9 +1126,13 @@ Keep your final answer concise and factual.", db_dir),
             .map_err(|e| format!("Failed to parse Ollama response JSON: {}", e))?;
 
         let assistant_msg = chat_res.message;
-        
+
         if verbose {
-            println!("[Agent] Turn {}: Model returned message:\n{}", turn, serde_json::to_string_pretty(&assistant_msg).unwrap_or_default());
+            println!(
+                "[Agent] Turn {}: Model returned message:\n{}",
+                turn,
+                serde_json::to_string_pretty(&assistant_msg).unwrap_or_default()
+            );
         } else {
             let tool_desc = if let Some(ref tc) = assistant_msg.tool_calls {
                 let names: Vec<String> = tc.iter().map(|c| c.function.name.clone()).collect();
@@ -993,7 +1140,10 @@ Keep your final answer concise and factual.", db_dir),
             } else {
                 "None".to_string()
             };
-            println!("[Agent] Turn {}: Model returned tool_calls={}", turn, tool_desc);
+            println!(
+                "[Agent] Turn {}: Model returned tool_calls={}",
+                turn, tool_desc
+            );
         }
 
         // Keep track of this assistant message in the conversation history
@@ -1010,17 +1160,24 @@ Keep your final answer concise and factual.", db_dir),
                 for call in tool_calls {
                     let tool_name = &call.function.name;
                     let tool_args = &call.function.arguments;
-                    println!("[Agent] Executing tool '{}' with arguments: {}", tool_name, tool_args);
-                    
-                    let result_str = match execute_tool_by_name(tool_name, tool_args.clone(), db_dir) {
-                        Ok(output) => output,
-                        Err(err) => format!("Error executing tool: {}", err),
-                    };
+                    println!(
+                        "[Agent] Executing tool '{}' with arguments: {}",
+                        tool_name, tool_args
+                    );
+
+                    let result_str =
+                        match execute_tool_by_name(tool_name, tool_args.clone(), db_dir) {
+                            Ok(output) => output,
+                            Err(err) => format!("Error executing tool: {}", err),
+                        };
 
                     if verbose {
                         println!("[Agent] Tool returned output:\n{}", result_str);
                     } else {
-                        println!("[Agent] Tool returned output (length: {})", result_str.len());
+                        println!(
+                            "[Agent] Tool returned output (length: {})",
+                            result_str.len()
+                        );
                     }
 
                     messages.push(AgentMessage {
@@ -1039,7 +1196,10 @@ Keep your final answer concise and factual.", db_dir),
         }
     }
 
-    Err(format!("Agent exceeded maximum turns ({}) without finding a final answer.", max_turns))
+    Err(format!(
+        "Agent exceeded maximum turns ({}) without finding a final answer.",
+        max_turns
+    ))
 }
 
 pub fn summarize_document(
@@ -1053,21 +1213,28 @@ pub fn summarize_document(
 ) -> Result<(), String> {
     let state_path = std::path::Path::new(db_dir).join("state.json");
     if !state_path.exists() {
-        return Err(format!("Lume index state file not found at {}. Index a directory first.", state_path.display()));
+        return Err(format!(
+            "Lume index state file not found at {}. Index a directory first.",
+            state_path.display()
+        ));
     }
     let file_content = std::fs::read_to_string(&state_path)
         .map_err(|e| format!("Failed to read state.json: {}", e))?;
     let state: serde_json::Value = serde_json::from_str(&file_content)
         .map_err(|e| format!("Failed to parse state.json: {}", e))?;
 
-    let cached_files = state.get("cached_files")
+    let cached_files = state
+        .get("cached_files")
         .and_then(|v| v.as_object())
         .ok_or("No cached files found in state.json")?;
 
     let selected_file = match target_file {
         Some(f) => {
             if !cached_files.contains_key(f) {
-                return Err(format!("File '{}' not found in Lume index cached files.", f));
+                return Err(format!(
+                    "File '{}' not found in Lume index cached files.",
+                    f
+                ));
             }
             f.to_string()
         }
@@ -1087,7 +1254,11 @@ pub fn summarize_document(
                 }
             }
             if best_file.is_empty() {
-                cached_files.keys().next().ok_or("No cached files in index")?.clone()
+                cached_files
+                    .keys()
+                    .next()
+                    .ok_or("No cached files in index")?
+                    .clone()
             } else {
                 best_file
             }
@@ -1095,7 +1266,10 @@ pub fn summarize_document(
     };
 
     println!("[🧠] Target Document: {}", selected_file);
-    let semantic_enabled = state.get("semantic_enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+    let semantic_enabled = state
+        .get("semantic_enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     // Read the entity graph to find key concepts/entities
     let mut top_entities = Vec::new();
@@ -1111,7 +1285,7 @@ pub fn summarize_document(
                         let freq_b = b.get("frequency").and_then(|v| v.as_u64()).unwrap_or(0);
                         freq_b.cmp(&freq_a)
                     });
-                    
+
                     for node in sorted_nodes.iter().take(12) {
                         if let Some(label) = node.get("label").and_then(|v| v.as_str()) {
                             top_entities.push(label.to_string());
@@ -1123,7 +1297,10 @@ pub fn summarize_document(
     }
 
     if !top_entities.is_empty() {
-        println!("[🧠] Central entities identified in Knowledge Graph: {}", top_entities.join(", "));
+        println!(
+            "[🧠] Central entities identified in Knowledge Graph: {}",
+            top_entities.join(", ")
+        );
     }
 
     let resolved_url = resolve_ollama_url(ollama_url);
@@ -1191,13 +1368,21 @@ pub fn summarize_document(
         .send_json(&payload)
         .map_err(|e| format!("Failed to call Ollama planner: {}", e))?;
 
-    let res_val: serde_json::Value = response.into_json()
+    let res_val: serde_json::Value = response
+        .into_json()
         .map_err(|e| format!("Failed to parse planner JSON response: {}", e))?;
-    let content = res_val["message"]["content"].as_str().ok_or("No message content in planner response")?.trim();
+    let content = res_val["message"]["content"]
+        .as_str()
+        .ok_or("No message content in planner response")?
+        .trim();
 
     let clean_content = extract_json_block(content);
-    let queries: Vec<String> = serde_json::from_str(&clean_content)
-        .map_err(|e| format!("Failed to parse query plan JSON: {}. Raw content was:\n{}", e, content))?;
+    let queries: Vec<String> = serde_json::from_str(&clean_content).map_err(|e| {
+        format!(
+            "Failed to parse query plan JSON: {}. Raw content was:\n{}",
+            e, content
+        )
+    })?;
 
     for (idx, q) in queries.iter().enumerate() {
         println!("  Query {}: \"{}\"", idx + 1, q);
@@ -1222,7 +1407,7 @@ pub fn summarize_document(
         cli_args.push(q.clone());
 
         let output = run_lume_cli(cli_args)?;
-        
+
         let mut current_snippet = Vec::new();
         let mut collecting = false;
         for line in output.lines() {
@@ -1239,23 +1424,31 @@ pub fn summarize_document(
         if collecting && !current_snippet.is_empty() {
             unique_snippets.insert(current_snippet.join("\n").trim().to_string());
         }
-        
+
         if verbose {
             println!("  Ran query: \"{}\" (Retrieved snippets)", q);
         }
     }
 
-    println!("\n[📊] Gathered {} unique passage snippets.", unique_snippets.len());
+    println!(
+        "\n[📊] Gathered {} unique passage snippets.",
+        unique_snippets.len()
+    );
 
     if unique_snippets.is_empty() {
         println!("\n# Executive Summary: {}\n", filename);
-        println!("I do not have enough information / retrieved passages to summarize this document.");
+        println!(
+            "I do not have enough information / retrieved passages to summarize this document."
+        );
         return Ok(());
     }
 
     // 3. Synthesize summary
     println!("[🧠] Synthesizing comprehensive summary...");
-    let context_text = unique_snippets.into_iter().collect::<Vec<String>>().join("\n\n---\n\n");
+    let context_text = unique_snippets
+        .into_iter()
+        .collect::<Vec<String>>()
+        .join("\n\n---\n\n");
 
     let synth_prompt = format!(
         "You are a senior document analyst. Below is a collection of retrieved text passages from the document '{}'.\n\
@@ -1298,9 +1491,13 @@ pub fn summarize_document(
         .send_json(&payload)
         .map_err(|e| format!("Failed to call Ollama synthesizer: {}", e))?;
 
-    let res_val: serde_json::Value = response.into_json()
+    let res_val: serde_json::Value = response
+        .into_json()
         .map_err(|e| format!("Failed to parse synthesizer JSON response: {}", e))?;
-    let summary = res_val["message"]["content"].as_str().ok_or("No message content in synthesizer response")?.trim();
+    let summary = res_val["message"]["content"]
+        .as_str()
+        .ok_or("No message content in synthesizer response")?
+        .trim();
 
     println!("\n# Executive Summary: {}\n", filename);
     println!("{}", summary);
@@ -1326,5 +1523,3 @@ fn extract_json_block(text: &str) -> String {
     }
     text.to_string()
 }
-
-

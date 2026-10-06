@@ -38,12 +38,23 @@ pub fn parse_qna(bytes: &[u8]) -> Result<Vec<QnaItem>, String> {
         .ok_or_else(|| "Q&A file must be a JSON array of {question, answer} objects".to_string())?;
     let mut items = Vec::with_capacity(arr.len());
     for entry in arr {
-        let question = entry.get("question").and_then(|v| v.as_str()).unwrap_or("").trim();
-        let answer = entry.get("answer").and_then(|v| v.as_str()).unwrap_or("").trim();
+        let question = entry
+            .get("question")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        let answer = entry
+            .get("answer")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
         if question.is_empty() || answer.is_empty() {
             continue;
         }
-        items.push(QnaItem { question: question.to_string(), answer: answer.to_string() });
+        items.push(QnaItem {
+            question: question.to_string(),
+            answer: answer.to_string(),
+        });
     }
     if items.is_empty() {
         return Err("Q&A file contained no usable {question, answer} pairs".to_string());
@@ -100,7 +111,11 @@ pub fn ndcg_at_k(rels: &[bool], k: usize) -> f64 {
     let mut ideal = rels.to_vec();
     ideal.sort_by(|a, b| b.cmp(a)); // true (relevant) first
     let idcg = dcg_at_k(&ideal, k);
-    if idcg == 0.0 { 0.0 } else { dcg / idcg }
+    if idcg == 0.0 {
+        0.0
+    } else {
+        dcg / idcg
+    }
 }
 
 /// Reciprocal rank: `1 / (rank of first relevant)`, `0` if none in the list.
@@ -129,7 +144,10 @@ pub struct EvalAggregate {
 
 impl EvalAggregate {
     pub fn new(k: usize) -> Self {
-        Self { k, ..Default::default() }
+        Self {
+            k,
+            ..Default::default()
+        }
     }
 
     /// Records one question. `rels` is the ranked relevance list for its top
@@ -149,13 +167,25 @@ impl EvalAggregate {
     }
 
     pub fn hit_rate(&self) -> f64 {
-        if self.judged == 0 { 0.0 } else { self.hits as f64 / self.judged as f64 }
+        if self.judged == 0 {
+            0.0
+        } else {
+            self.hits as f64 / self.judged as f64
+        }
     }
     pub fn mrr(&self) -> f64 {
-        if self.judged == 0 { 0.0 } else { self.mrr_sum / self.judged as f64 }
+        if self.judged == 0 {
+            0.0
+        } else {
+            self.mrr_sum / self.judged as f64
+        }
     }
     pub fn ndcg(&self) -> f64 {
-        if self.judged == 0 { 0.0 } else { self.ndcg_sum / self.judged as f64 }
+        if self.judged == 0 {
+            0.0
+        } else {
+            self.ndcg_sum / self.judged as f64
+        }
     }
 }
 

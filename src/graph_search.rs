@@ -44,7 +44,14 @@ pub struct SkgBoostParams {
 
 impl Default for SkgBoostParams {
     fn default() -> Self {
-        Self { beta: 0.4, min_jaccard: 0.05, top_k: 8, decay: 0.5, max_ngram: 4, use_relatedness: true }
+        Self {
+            beta: 0.4,
+            min_jaccard: 0.05,
+            top_k: 8,
+            decay: 0.5,
+            max_ngram: 4,
+            use_relatedness: true,
+        }
     }
 }
 
@@ -103,8 +110,8 @@ pub fn resolve_query_entities(index: &Bm25Index, query: &str, max_ngram: usize) 
                 if !seeds.contains(key) {
                     seeds.push(key.clone());
                 }
-                for j in i..i + len {
-                    used[j] = true;
+                for u in &mut used[i..i + len] {
+                    *u = true;
                 }
                 i += len;
                 matched = true;
@@ -121,7 +128,10 @@ pub fn resolve_query_entities(index: &Bm25Index, query: &str, max_ngram: usize) 
 /// Adjacency map from the precomputed SKG edges: `entity_key -> [(neighbor,
 /// weight)]`, each list sorted descending by weight. `use_relatedness` selects
 /// the significance score over Jaccard (see [`EntityEdge::weight`]).
-pub fn build_adjacency(graph: &EntityGraph, use_relatedness: bool) -> HashMap<String, Vec<(String, f64)>> {
+pub fn build_adjacency(
+    graph: &EntityGraph,
+    use_relatedness: bool,
+) -> HashMap<String, Vec<(String, f64)>> {
     let mut adj: HashMap<String, Vec<(String, f64)>> = HashMap::new();
     for edge in &graph.edges {
         let w = edge.weight(use_relatedness);
@@ -169,7 +179,11 @@ pub fn compute_skg_scores(
     let seed_set: HashSet<&String> = seeds.iter().collect();
     for s in &seeds {
         if let Some(neigh) = adj.get(s) {
-            for (nbr, sim) in neigh.iter().filter(|(_, sim)| *sim >= params.min_jaccard).take(params.top_k) {
+            for (nbr, sim) in neigh
+                .iter()
+                .filter(|(_, sim)| *sim >= params.min_jaccard)
+                .take(params.top_k)
+            {
                 if seed_set.contains(nbr) {
                     continue; // already pinned at 1.0
                 }
@@ -207,7 +221,11 @@ pub fn compute_skg_scores(
         .collect();
     expanded.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-    SkgWalk { scores, seeds, expanded }
+    SkgWalk {
+        scores,
+        seeds,
+        expanded,
+    }
 }
 
 /// Applies the SKG boost to a list of lexical `SearchHit`s in place: existing
@@ -215,11 +233,7 @@ pub fn compute_skg_scores(
 /// present are appended (scored `beta*skg`, so they rank below real lexical
 /// matches). Re-sorts by score descending. Mirrors how `blend_hybrid_scores`
 /// folds in semantic-only candidates.
-pub fn apply_skg_boost(
-    hits: &mut Vec<SearchHit>,
-    skg_scores: &HashMap<usize, f64>,
-    beta: f64,
-) {
+pub fn apply_skg_boost(hits: &mut Vec<SearchHit>, skg_scores: &HashMap<usize, f64>, beta: f64) {
     if beta <= 0.0 || skg_scores.is_empty() {
         return;
     }
@@ -231,10 +245,17 @@ pub fn apply_skg_boost(
     }
     for (idx, s) in skg_scores {
         if *s >= SKG_EXPAND_MIN && !present.contains(idx) {
-            hits.push(SearchHit { section_index: *idx, score: beta * s });
+            hits.push(SearchHit {
+                section_index: *idx,
+                score: beta * s,
+            });
         }
     }
-    hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    hits.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 }
 
 #[cfg(test)]
@@ -263,7 +284,13 @@ mod tests {
         ];
         let bm25 = Bm25Index::build(sections, None);
         let n = bm25.sections.len();
-        let graph = EntityGraph::build(&bm25.entity_posting_lists, &bm25.entity_kinds, &bm25.entity_labels, 0.0, n);
+        let graph = EntityGraph::build(
+            &bm25.entity_posting_lists,
+            &bm25.entity_kinds,
+            &bm25.entity_labels,
+            0.0,
+            n,
+        );
         (bm25, graph)
     }
 
@@ -271,9 +298,15 @@ mod tests {
     fn resolves_folded_single_and_multiword_entities() {
         let (bm25, _) = fixture();
         // "mercedes" (no accent) must resolve to the stored "mercédès" key.
-        assert_eq!(resolve_query_entities(&bm25, "mercedes", 4), vec!["mercédès".to_string()]);
+        assert_eq!(
+            resolve_query_entities(&bm25, "mercedes", 4),
+            vec!["mercédès".to_string()]
+        );
         // Multi-word, accent-folded.
-        assert_eq!(resolve_query_entities(&bm25, "edmond dantes", 4), vec!["edmond dantès".to_string()]);
+        assert_eq!(
+            resolve_query_entities(&bm25, "edmond dantes", 4),
+            vec!["edmond dantès".to_string()]
+        );
         // No entity words → no seeds.
         assert!(resolve_query_entities(&bm25, "the and of", 4).is_empty());
     }
@@ -286,7 +319,10 @@ mod tests {
         // Fernand co-occurs with Mercédès below chance, so significance scoring
         // (the default) correctly zeroes that edge — covered separately by
         // `relatedness_downweights_promiscuous_hub_vs_jaccard`.
-        let params = SkgBoostParams { use_relatedness: false, ..Default::default() };
+        let params = SkgBoostParams {
+            use_relatedness: false,
+            ..Default::default()
+        };
         let walk = compute_skg_scores(&bm25, &graph, "mercedes", &params);
 
         assert_eq!(walk.seeds, vec!["mercédès".to_string()]);
@@ -316,12 +352,20 @@ mod tests {
         ];
         let bm25 = Bm25Index::build(sections, None);
         let n = bm25.sections.len();
-        let graph = EntityGraph::build(&bm25.entity_posting_lists, &bm25.entity_kinds, &bm25.entity_labels, 0.0, n);
+        let graph = EntityGraph::build(
+            &bm25.entity_posting_lists,
+            &bm25.entity_kinds,
+            &bm25.entity_labels,
+            0.0,
+            n,
+        );
 
         let find = |a: &str, b: &str| {
-            graph.edges.iter().find(|e| {
-                (e.source == a && e.target == b) || (e.source == b && e.target == a)
-            }).cloned()
+            graph
+                .edges
+                .iter()
+                .find(|e| (e.source == a && e.target == b) || (e.source == b && e.target == a))
+                .cloned()
         };
 
         let pair = find("edmond", "dantès").expect("edmond–dantès edge exists");
@@ -329,19 +373,33 @@ mod tests {
 
         // Jaccard cannot tell these apart well — the hub edge is actually *higher*
         // Jaccard (edmond ⊂ the). Significance flips it: the true pairing wins.
-        assert!(pair.relatedness > hub.relatedness,
-            "true pairing relatedness {:.3} should beat hub {:.3}", pair.relatedness, hub.relatedness);
+        assert!(
+            pair.relatedness > hub.relatedness,
+            "true pairing relatedness {:.3} should beat hub {:.3}",
+            pair.relatedness,
+            hub.relatedness
+        );
         // The hub co-occurrence is unremarkable (≈ chance), so it sits near zero.
-        assert!(hub.relatedness < 0.3, "hub relatedness {:.3} should be near zero", hub.relatedness);
+        assert!(
+            hub.relatedness < 0.3,
+            "hub relatedness {:.3} should be near zero",
+            hub.relatedness
+        );
     }
 
     #[test]
     fn beta_zero_yields_no_scores() {
         let (bm25, graph) = fixture();
-        let params = SkgBoostParams { beta: 0.0, ..Default::default() };
+        let params = SkgBoostParams {
+            beta: 0.0,
+            ..Default::default()
+        };
         // compute still runs, but apply_skg_boost with beta=0 is a no-op.
         let walk = compute_skg_scores(&bm25, &graph, "mercedes", &params);
-        let mut hits = vec![SearchHit { section_index: 0, score: 5.0 }];
+        let mut hits = vec![SearchHit {
+            section_index: 0,
+            score: 5.0,
+        }];
         apply_skg_boost(&mut hits, &walk.scores, 0.0);
         assert_eq!(hits.len(), 1);
         assert!((hits[0].score - 5.0).abs() < 1e-9);
@@ -349,7 +407,10 @@ mod tests {
 
     #[test]
     fn apply_boost_scales_hits_and_expands_strong_sections() {
-        let mut hits = vec![SearchHit { section_index: 0, score: 2.0 }];
+        let mut hits = vec![SearchHit {
+            section_index: 0,
+            score: 2.0,
+        }];
         let mut skg = std::collections::HashMap::new();
         skg.insert(0usize, 0.5); // existing hit gets boosted
         skg.insert(7usize, 0.9); // strong, not present → appended

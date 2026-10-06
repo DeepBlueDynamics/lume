@@ -21,35 +21,37 @@ use std::path::Path;
 use tantivy_fst::raw::{Fst, Node, Output};
 use tantivy_fst::MapBuilder;
 
+pub mod agent;
+pub mod answer;
 pub mod bm25;
+pub mod crawl;
+pub mod eval;
 pub mod fast_retrieval;
 pub mod graph_search;
-pub mod semantic_mesh;
-pub mod eval;
-pub mod stream;
-pub mod answer;
-pub mod regex;
-pub mod spelling;
-pub mod inversion;
 pub mod hybrid;
-pub mod agent;
-pub mod crawl;
+pub mod inversion;
+pub mod regex;
 pub mod search;
+pub mod semantic_mesh;
+pub mod spelling;
+pub mod stream;
 #[cfg(feature = "ti")]
-pub mod ti_text;
-#[cfg(feature = "ti")]
-pub mod ti_rules;
-#[cfg(feature = "ti")]
-pub mod ti_parquet;
+pub mod ti_http;
 #[cfg(feature = "ti")]
 mod ti_mcp;
 #[cfg(feature = "ti")]
-mod ti_http;
+pub mod ti_parquet;
 #[cfg(feature = "ti")]
 mod ti_pg;
 #[cfg(feature = "ti")]
 pub mod ti_resolve;
-pub use search::{search, LoadedIndex, SearchOptions, SearchResults, SearchResultHit, SearchMode, BlendMode};
+#[cfg(feature = "ti")]
+pub mod ti_rules;
+#[cfg(feature = "ti")]
+pub mod ti_text;
+pub use search::{
+    search, BlendMode, LoadedIndex, SearchMode, SearchOptions, SearchResultHit, SearchResults,
+};
 // pub mod cli;
 
 /// Token separator used inside FST keys. Matches Lucene's
@@ -70,11 +72,7 @@ pub struct Entry {
 }
 
 impl Entry {
-    pub fn new(
-        phrase: impl Into<String>,
-        kind: impl Into<String>,
-        id: impl Into<String>,
-    ) -> Self {
+    pub fn new(phrase: impl Into<String>, kind: impl Into<String>, id: impl Into<String>) -> Self {
         Self {
             phrase: phrase.into(),
             kind: kind.into(),
@@ -212,15 +210,16 @@ impl Tagger {
 
         let mut builder = MapBuilder::memory();
         for (key, idx) in &keyed {
-            builder
-                .insert(key, *idx)
-                .map_err(io::Error::other)?;
+            builder.insert(key, *idx).map_err(io::Error::other)?;
         }
-        let bytes = builder
-            .into_inner()
-            .map_err(io::Error::other)?;
+        let bytes = builder.into_inner().map_err(io::Error::other)?;
         let fst = Fst::new(bytes).map_err(io::Error::other)?;
-        Ok(Self { fst, groups, regex_patterns, phrases })
+        Ok(Self {
+            fst,
+            groups,
+            regex_patterns,
+            phrases,
+        })
     }
 
     /// Access the original loaded dictionary phrases
@@ -338,8 +337,8 @@ impl Tagger {
                     .map(|s| s.trim().eq_ignore_ascii_case("true"))
                     .unwrap_or(false);
 
-                let mut entry = Entry::new(phrase, kind.clone(), uuid_v4())
-                    .with_regex(is_regex_val);
+                let mut entry =
+                    Entry::new(phrase, kind.clone(), uuid_v4()).with_regex(is_regex_val);
                 if let Some(o) = output_override {
                     entry = entry.with_output(o);
                 }
@@ -442,15 +441,7 @@ impl Tagger {
         dedup_identical_tags(resolved)
     }
 
-    fn emit(
-        &self,
-        out: &mut Vec<Tag>,
-        tokens: &[Token],
-        i: usize,
-        j: usize,
-        idx: u64,
-        text: &str,
-    ) {
+    fn emit(&self, out: &mut Vec<Tag>, tokens: &[Token], i: usize, j: usize, idx: u64, text: &str) {
         let start = tokens[i].start;
         let end = tokens[j].end;
         let surface = text[start..end].to_string();
@@ -493,7 +484,15 @@ fn dedup_identical_tags(tags: Vec<Tag>) -> Vec<Tag> {
     let mut seen: std::collections::HashSet<(usize, usize, String, String, String)> =
         std::collections::HashSet::new();
     tags.into_iter()
-        .filter(|t| seen.insert((t.start, t.end, t.output.clone(), t.kind.clone(), t.id.clone())))
+        .filter(|t| {
+            seen.insert((
+                t.start,
+                t.end,
+                t.output.clone(),
+                t.kind.clone(),
+                t.id.clone(),
+            ))
+        })
         .collect()
 }
 
@@ -502,22 +501,24 @@ fn resolve_longest_only(mut tags: Vec<Tag>) -> Vec<Tag> {
         return Vec::new();
     }
     tags.sort_by(|a, b| {
-        a.start.cmp(&b.start).then_with(|| {
-            let len_a = a.end - a.start;
-            let len_b = b.end - b.start;
-            len_b.cmp(&len_a)
-        }).then_with(|| {
-            a.id.cmp(&b.id)
-        })
+        a.start
+            .cmp(&b.start)
+            .then_with(|| {
+                let len_a = a.end - a.start;
+                let len_b = b.end - b.start;
+                len_b.cmp(&len_a)
+            })
+            .then_with(|| a.id.cmp(&b.id))
     });
-    
+
     let mut resolved = Vec::new();
     let mut last_end = 0;
     let mut last_accepted_start = None;
     let mut last_accepted_end = None;
-    
+
     for tag in tags {
-        let is_exact_same_span = Some(tag.start) == last_accepted_start && Some(tag.end) == last_accepted_end;
+        let is_exact_same_span =
+            Some(tag.start) == last_accepted_start && Some(tag.end) == last_accepted_end;
         if tag.start >= last_end || is_exact_same_span {
             last_end = tag.end;
             last_accepted_start = Some(tag.start);
@@ -529,7 +530,9 @@ fn resolve_longest_only(mut tags: Vec<Tag>) -> Vec<Tag> {
 }
 
 fn auto_detect_regex(phrase: &str) -> bool {
-    phrase.chars().any(|c| matches!(c, '[' | ']' | '\\' | '*' | '+' | '?' | '|' | '(' | ')'))
+    phrase
+        .chars()
+        .any(|c| matches!(c, '[' | ']' | '\\' | '*' | '+' | '?' | '|' | '(' | ')'))
 }
 
 fn step<'a>(
@@ -866,7 +869,7 @@ mod tests {
         // "SKU-\d{5}" is longer, so it should cleanly win and suppress the static match!
         let tags = tagger.tag("item SKU-12345 and MC-9876 are listed");
         assert_eq!(tags.len(), 2);
-        
+
         assert_eq!(tags[0].surface, "SKU-12345");
         assert_eq!(tags[0].id, "regex_sku");
         assert_eq!(tags[0].kind, "PRODUCT");
