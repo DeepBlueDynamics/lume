@@ -10,8 +10,8 @@ pub const EPOCH_SECS: i64 = 1_577_836_800; // 2020-01-01T00:00:00Z
 pub const BUCKET_W: i64 = 10;
 
 /// Correctness window: 2026-03-01 .. 2026-06-01 (≈92 days).
-pub const START_SECS: i64 = 1_770_739_200; // 2026-03-01T00:00:00Z
-pub const END_SECS: i64 = 1_778_601_600; // 2026-06-01T00:00:00Z
+pub const START_SECS: i64 = 1_772_323_200; // 2026-03-01T00:00:00Z
+pub const END_SECS: i64 = 1_780_272_000; // 2026-06-01T00:00:00Z
 
 fn ts_to_dt(secs: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(secs, 0).unwrap()
