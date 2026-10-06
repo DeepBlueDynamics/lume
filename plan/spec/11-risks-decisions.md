@@ -68,7 +68,10 @@ Reserved, and written by the owning lane at merge (agreed among the lanes on 202
 |---|---|---|
 | D27 | **Amends D11.** Accept `zstd-sys` (C, built via `cc`), which DataFusion 55.1.0 forces in through `arrow-ipc`'s zstd feature even with `default-features = false` and only `sql` enabled. No other C codec crates are allowed: bzip2, lzma and liblzma must stay absent, checked with `cargo tree --features ti -i <crate>`. TI must not *enable* any further C codec itself. Musl builds compile it through cargo-zigbuild (D15). Add an early aarch64-musl `cargo zigbuild -p ti-sql` smoke test, like D13 | Lead ruling on W4's finding, verified independently by the lead in a scratch project. The alternative, vendoring 4 patched DataFusion crates, would mean re-patching on every quarterly DataFusion upgrade (spec/11 risk "DataFusion API churn"). **Spec deviation:** spec/10's PR rule says C bindings are allowed only for `croaring`. This decision makes a recorded exception for `zstd-sys` and asks the spec owner to confirm |
 
-The next free number is **D28**. Ask the lead before taking one. Every new runtime dependency needs a line here
+- D28: Romantic Pike, W3 `tungstenite` 0.24 (blocking, no TLS features; ws:// LAN only)
+- D29: Romantic Pike, W3 `parquet` 59.2 (default-features off; arrow plus exactly the codecs signalk-parquet writes; zstd only via the existing D27 crate)
+
+The next free number is **D30**. Ask the lead before taking one. Every new runtime dependency needs a line here
 (PR rule, [10-contracts](10-contracts.md)).
 
 ## Sources (from spec)
