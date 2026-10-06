@@ -213,6 +213,27 @@ mod tests {
     }
 
     #[test]
+    fn test_source_resolution_matches_contracts_helper() {
+        let delta: SignalKDelta = serde_json::from_value(serde_json::json!({
+            "context": "vessels.self",
+            "updates": [{
+                "$source": "can0.115",
+                "source": { "label": "actisense", "type": "NMEA2000", "src": "115" },
+                "values": [{ "path": "navigation.speedOverGround", "value": 5.2 }]
+            }]
+        }))
+        .unwrap();
+
+        let (points, _) = decode_delta(&delta, "vessels.self", 1577836800);
+        assert_eq!(points.len(), 1);
+
+        // Verify that the decoded point's source exactly matches ti_contracts::normalized_source_label
+        let contracts_norm =
+            ti_contracts::normalized_source_label(Some("can0.115"), None, Some("actisense.115"));
+        assert_eq!(Some(points[0].source.clone()), contracts_norm);
+    }
+
+    #[test]
     fn test_timestamp_parsing_and_skew() {
         let now = 1_700_000_100;
         // Valid within 5 min
