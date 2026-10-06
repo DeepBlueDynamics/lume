@@ -101,7 +101,7 @@ pub fn parse_timestamp(ts_str: Option<&str>, receive_time: i64) -> i64 {
         Some(s) => match chrono::DateTime::parse_from_rfc3339(s) {
             Ok(dt) => {
                 let ts = dt.timestamp();
-                if (ts - receive_time).abs() > 300 {
+                if receive_time > 0 && (ts - receive_time).abs() > 300 {
                     receive_time
                 } else {
                     ts
