@@ -79,10 +79,24 @@ The clone's `origin` is the shared repo itself (`C:/Users/kordl/Code/DeepBlueDyn
    Who creates clones (lead or agent) is not written down *(unconfirmed)*.
 2. **Check identity** (section 7) and confirm which pane you are.
 3. **Read your lane file** in `plan/lanes/` or `plan/design/`, plus [repo-fit.md](repo-fit.md) and [spec/10-contracts.md](spec/10-contracts.md).
-4. **Work and commit only inside your clone.** Never edit the shared working tree at the repo root. Never touch another agent's clone.
+4. **Only ever write in your own clone.** Never edit the shared working tree at the repo root. You may read other lanes' clones with git commands only (`git -C .lanes/<other> log`, `status`, `show`, `diff`). Never edit, check out, reset, stash or commit in a clone that isn't yours. If another clone needs fixing, ask the lead.
 5. **Don't push.** The lead fetches your branch straight from your clone.
 6. **Stay current when asked.** The clone's `origin/plan/lume-ti` is a snapshot from when it was cloned. `git fetch origin` refreshes it. Ask the lead before you merge or rebase onto a newer `plan/lume-ti` *(unconfirmed convention)*.
 7. **Before reporting a commit,** run the section 2 commands, plus the section 3 commands for any TI crate you touched, in your clone, and check line endings (section 6).
+
+### Building on another lane's unmerged work: the side-branch pattern
+
+If you need commits from another lane that the lead hasn't merged yet, fetch them **into your own clone** on a new branch. Don't put them on your lane branch, and don't work in their clone.
+
+```sh
+# in your own clone, e.g. .lanes/w3
+git fetch ../corpus ti/w0-corpus             # read-only fetch from the other clone
+git switch -c ti/<topic> FETCH_HEAD          # new side branch on top of their commit
+# ...commit your changes here...
+git switch ti/<your-lane>                    # go back to your own lane branch
+```
+
+Then tell the lead the side branch name, its base commit, and which lane it should merge with. Example: `ti/bench-days` (`d3e8f66`) in `.lanes/w3` adds `ti-bench` date flags on top of the corpus lane's `86f0ffb`, and merges together with the corpus lane.
 
 ## 5. Reporting protocol
 
