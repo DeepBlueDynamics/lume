@@ -20,7 +20,7 @@ and cheaply.
 
 ## Open questions
 
-- [ ] Default bucket width: 10 s, or 1 s with 1-min rollups? (1 s is 10× the index size)
+- [x] Default bucket width: 10 s, or 1 s with 1-min rollups? (1 s is 10× the index size). **Resolved by D30:** keep 10 s for everything, plus a separate 1 s store for navigation, wind and depth with 90-day configurable retention.
 - [ ] Per-source values as first-class columns in v1, or only `$source` sets?
 - [ ] AIS contacts as a second table (`contacts`, columns = observer × bucket, rows = MMSI), or out of scope?
 - [ ] Shore storage: local NVMe only, or sealed shards in object storage with a read cache?
@@ -69,7 +69,11 @@ Reserved, and written by the owning lane at merge (agreed among the lanes on 202
 | D28 | `tungstenite` 0.24 in `ti-ingest` (blocking, plain `ws://` without TLS) | W3: Signal K WebSocket client and subscription management; keeps ingest off tokio and preserves low-priority thread budget. `wss://` requires rustls/ring and is out of scope for v1 (W7/W8 follow-up if remote Signal K needed) |
 | D29 | `parquet` 59.2 in `ti-ingest` (`default-features = false`, `arrow`, `snap`, `flate2`, `zstd`) | W3: signalk-parquet raw tier backfill reader; pure-Rust codecs (`snap`, `flate2`), with `zstd` enabled reusing `zstd-sys` already accepted under D27 (no new C crates). C crates `bzip2-sys` and `lzma-sys` stay strictly forbidden |
 
-The next free number is **D30**. Ask the lead before taking one. Every new runtime dependency needs a line here
+| # | Decision | Why |
+|---|---|---|
+| D30 | A second **1 s high-resolution store** (`telemetry_hr`) beside the 10 s store, holding an allow-list of navigation (position, SOG, COG, heading: `@last`), wind (`@mean`, `@max`) and depth (`@min`). Retention is per store and configurable, defaulting to **90 days** on the Pi and on shore (`shore_retention`) | User decision, 2026-10-06. 10 s loses track shape (about 36 m between fixes at 7 kn), while gusts and shallowest depth are already kept by `@max`/`@min`. A 1 s bucket holds about one sample at Signal K's ~1 Hz, so it's full fidelity for those paths at about 0.15–0.5 GB per vessel over 90 days. No frozen-type change; needs a `ti.toml` contracts PR. Design: [design/hi-res-store.md](../design/hi-res-store.md). Scheduled after M3 |
+
+The next free number is **D31**. Ask the lead before taking one. Every new runtime dependency needs a line here
 (PR rule, [10-contracts](10-contracts.md)).
 
 ## Sources (from spec)
