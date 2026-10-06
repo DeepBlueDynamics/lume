@@ -1,17 +1,18 @@
 # Lume TI — Status board
 
-Last updated: **2026-10-06 09:07 UTC** (docs keeper, after `19ab9fb`: corpus calibrated, D30 follow-ups, W6 geo merged; disk incident)
+Last updated: **2026-10-06 09:31 UTC** (docs keeper, after `312f6a0`: **M0 closed**; Docker down)
 
-Integration branch `plan/lume-ti` is at `19ab9fb`. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46.
-Workspace members: `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench`, `ti-geo`. Next free decision: **D32** (ask the lead before taking it).
+Integration branch `plan/lume-ti` is at `312f6a0`. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46.
+Workspace members: `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench`, `ti-geo`. Next free decision: **D33** (ask the lead before taking it).
 Setup and workflow: [SETUP.md](SETUP.md).
 
 ## Critical path right now
 
-- **⚠ Disk: host C: is nearly full.** It hit 0.1 GB free, and the full-set M2 backfill-idempotence run **failed after 43 min with `StorageFull`**, because the test builds two full Stores in temp. The lead freed 13.6 GB by deleting retired clones' `target/` (w0, w1, w2, search, corpus) and the root `target/debug/incremental`. **About 13 GB free at 09:07** (99 % used). Remaining big users: `.lanes/w4/target` 48.6 GB, `.lanes/w3/target` 12.9 GB, root `target/debug` 32 GB. Agents have been told to shrink theirs and use `CARGO_INCREMENTAL=0`. See the Disk budget section in [SETUP §8](SETUP.md).
-- **Expected outputs: final set generated, commit pending.** The corpus literals are calibrated (`0fe2960`). The host rerun of `gen_expected.py` took 5 min 3 s and produced 61 JSONs. Only `qx-006` is zero-row, and it is intentionally `expect_empty`. That gives **60 non-empty golden queries + 1 `expect_empty`.** Artificial Shark is copying them into `tests/golden/expected/` on `ti/corpus-expected`. **Committing them closes M0 item 4 and unblocks M3.**
-- **M2 item 2 (full-set backfill idempotence) is NOT passed.** Shark is reworking the test to build one store at a time and report the store size. The index size is still unmeasured.
-- Queued on the host: the release Q4 benchmark at W = 10 s (5 vessels × 365 d), to confirm M4 item 2. Mind the free disk.
+- **🛑 BLOCKER: Docker Desktop is down.** It crashed when the disk filled ("Docker Desktop is unable to start"). **Both agent containers are down**: Long Horse (`888bff45`) and Artificial Shark (`fd91f4b1`) have been frozen since about **08:51 UTC**. Their work is safe on disk in `.lanes/w4` and `.lanes/w3`. **The user has been asked to restart Docker and relaunch them.** Until then, only the lead (host) is working.
+- **✅ M0 CLOSED** (`312f6a0`). All four gate items are done.
+- **Host run in progress (lead):** release Q4 benchmark at W = 10 s, 5 vessels × 365 d, to confirm M4 item 2.
+- **Disk:** 13.4 GB free (99 % used). See the Disk budget section in [SETUP §8](SETUP.md). Remaining big users: `.lanes/w4/target` 48.6 GB, `.lanes/w3/target` 12.9 GB, root `target/debug` 32 GB.
+- **M2 item 2 (full-set backfill idempotence) is NOT passed.** It failed on disk space earlier. The single-store rework (Artificial Shark) is waiting on the container restart. The index size is still unmeasured.
 - **The correctness set is READY** (1.8 GB, 11,508 files, manifest `edfef2d8…` in `.lanes/data/correctness.sha256`).
 
 ## Pane changes (about 06:00 UTC)
@@ -29,6 +30,8 @@ Commit messages, the decisions log and older docs use the former names.
 
 | Commit | What |
 |---|---|
+| `312f6a0` | **Corpus part 3, closes M0.** Commits `tests/golden/expected/`: 61 JSONs, 2.1 MB total, largest 243 KB. 60 have rows, and `qx-006` is `expect_empty`. Generated on the host with DuckDB 1.5.6 in 3 min 19 s over the correctness set (`edfef2d8…`). Ten large-result queries (`q2-005`, `q7-001`…`003`, `qx-001`/`002`/`003`/`007`/`008`/`010`) were narrowed identically in both twins to **2026-05-07 00:00–06:00 UTC** (32–2,160 rows each), because the first full run produced 89 MB of JSON. That is **D32** (golden outputs stay small). The lead committed it because the corpus owner is down. Next free: **D33** |
+| `443a4f2` | Docs refresh for the W6 merge, corpus calibration, the disk incident and the disk budget |
 | `19ab9fb` | Lead rustfmt for W6 (`ti-geo`, `ti-ingest`, `ti-sql`), because the container lacks rustfmt. Host: rustc 1.96 clippy clean with no fixes needed, tests pass, 46 root tests |
 | `8931877` | Merge **W6 geo**. `54da5d6`: `crates/ti-geo` (`h3o` 0.11 + `geo` 0.33.1 under D31), conservative Covers, typed `in_bbox`/`within_nm`, and Inexact `OR(H3, BSI envelope)` pushdown plus an exact residual. `e73ea12`: real H3 cells at res 5/7/9 in live and backfill ingest. Real-data M2 replay with real cells: **460,112/460,112**. Res-9 false-positive rate **16.4 %** (target ≤ 30 %). The Q7 corpus gate is implemented, pending the committed expected outputs. `q7-005` waits on W5 |
 | `47b2515` | Merge `ti/d30-followups` (`e20ebf5`): spec/10 mirror of `config.rs`, spec/14 multi-store rules, the D30 amendment |
@@ -43,8 +46,8 @@ Earlier: `b4e8da6` Q4 bench env vars, `2c8ba1c` M2 `#[ignore]` + DuckDB cross-ch
 | Agent (pane name) | Pane | Lane/scope | Branch | Clone | Last known state |
 |---|---|---|---|---|---|
 | Industrial Pike | `ee764a09` | Lead and integrator. Owns the host runs (data generation, `gen_expected.py`, full-set M2, Q4 bench) and disk cleanup. Runs fmt and 1.96 clippy on the host when a container lacks them | `plan/lume-ti` | shared tree | `19ab9fb` |
-| Long Horse (formerly Rigid Roadrunner) | `888bff45` | **W5 text** next, on a new branch. Approved design: `ti-text` with an object-safe `LexicalBackend`, and root `src/ti_text.rs` wiring `lume::search` `LexicalOnly`. It reuses `serde`/`serde_json` 1 and `arrow-array` 59.2, so **no new D-number** is needed | W5 branch (not created yet) | `.lanes/w4` | W6 merged (`8931877`). Clone is on `ti/w6-geo` at `e73ea12`, clean. Its `target/` is **48.6 GB**, and it has been asked to shrink it |
-| Artificial Shark (formerly Romantic Pike) | `fd91f4b1` | **Commit the expected JSONs** on `ti/corpus-expected`. **Rework M2 idempotence** to build one store at a time and report the store size. Then the D30 ingest fan-out | `ti/corpus-expected` | `.lanes/w3` | On `ti/corpus-expected` at `a64e27c` (merged), with an untracked `tests/golden/expected/`. Its `target/` is **12.9 GB** |
+| Long Horse (formerly Rigid Roadrunner) | `888bff45` | **W5 text** next, on a new branch. Approved design: `ti-text` with an object-safe `LexicalBackend`, and root `src/ti_text.rs` wiring `lume::search` `LexicalOnly`. It reuses `serde`/`serde_json` 1 and `arrow-array` 59.2, so **no new D-number** is needed | W5 branch (not created yet) | `.lanes/w4` | **Container DOWN since ~08:51 UTC (Docker crash).** W6 merged (`8931877`). Clone is on `ti/w6-geo` at `e73ea12`, clean. Its `target/` is **48.6 GB**, and it has been asked to shrink it |
+| Artificial Shark (formerly Romantic Pike) | `fd91f4b1` | Next: the **M2 single-store idempotence rework** plus the store size, then the **D30 ingest fan-out**. The expected JSONs were committed by the lead (`312f6a0`) | `ti/corpus-expected` (stale) | `.lanes/w3` | **Container DOWN since ~08:51 UTC (Docker crash).** Clone on `ti/corpus-expected` at `a64e27c` with an **untracked `tests/golden/expected/`**, which now collides with the committed files (see Open items). `target/` 12.9 GB |
 | Zygomorphic Prawn | `eccaf836` | — | — | `.lanes/corpus` (retired) | **Retired.** Its `target/` has been deleted |
 | Compact Echidna (formerly Regular Pheasant) | `6914c38e` | Host build pane (PowerShell 7, rustc 1.96.1). Not an agent | — | — | Bulk data and DuckDB jobs run here. **Check free disk before big builds** |
 
@@ -56,10 +59,10 @@ Week numbers count from kickoff. A milestone closes only when every gate test pa
 
 | Milestone | Lanes | Weeks | Gate status |
 |---|---|---|---|
-| M0 Contracts | W0 | 1 | **In progress.** 3/4 done. Item 4 needs only the expected-JSON commit |
+| M0 Contracts | W0 | 1 | **✅ Complete** (`312f6a0`). All 4 gate items done in week 1 |
 | M1 Core and store | W1, W2 | 2–4 | **Complete** (`cf98c61`) |
 | M2 Ingest | W3 | 2–5 | **In progress.** Replay done on real data (460,112/460,112 with real H3 cells). Full-set idempotence **failed on disk space**, and the test is being reworked |
-| M3 SQL and pushdown | W4 | 2–6 | **In progress, blocked** on the committed expected outputs |
+| M3 SQL and pushdown | W4 | 2–6 | **In progress.** Expected outputs are now committed, so the corpus run is unblocked. Owner container down |
 | M4 Text, geo, intervals | W4, W5, W6 | 6–8 | **In progress.** Geo and `intervals()` done (corpus run pending). `BitmapAggregateExec` 15.9× provisional. **W5 text next** (Long Horse). `croaring` evaluation not started |
 | M5 Agent surface | W7 | 7–9 | Not started |
 | M6 Fleet and benchmarks | W8, integrator | 9–12 | Not started |
@@ -73,7 +76,7 @@ After M3: the D30 high-resolution store ([design/hi-res-store.md](design/hi-res-
 | 1 | `ti-contracts` merged with types, traits, doc comments | **Done** (`96ac45d`) |
 | 2 | `ti.toml` schema with defaults | **Done** (`96ac45d`; multi-store extension `fe5ea3a`) |
 | 3 | `ti-bench gen` reproduces the correctness set byte-identically from a seed | **Done** (`c65e515`; window pinned `71b7fcd`) |
-| 4 | ≥ 60 golden queries with oracle twins and expected output | **Ready to close.** 60 non-empty + 1 `expect_empty` generated on the host (5 min 3 s). Waiting on Shark's commit to `tests/golden/expected/` |
+| 4 | ≥ 60 golden queries with oracle twins and expected output | **Done** (`312f6a0`). 61 JSONs: 60 with rows + `qx-006` `expect_empty`. 10 queries narrowed to a 6 h window under D32 |
 
 ### M2 gate detail
 
@@ -127,11 +130,13 @@ Spec deviations and proposals needing the user:
 
 ## Open items (team, not user)
 
+- [ ] **Restart Docker Desktop and relaunch Long Horse and Artificial Shark** (asked of the user). Everything else on the agent side waits on this.
 - [ ] **Disk space on the host.** Shrink `.lanes/w4/target` (48.6 GB), `.lanes/w3/target` (12.9 GB) and root `target/debug` (32 GB). Use `CARGO_INCREMENTAL=0`. About 13 GB free at 09:07.
 - [ ] **M2 idempotence rework** (Artificial Shark): one store at a time, report the store size, then rerun on the full set.
 - [ ] **Measure the index size** (still unmeasured).
-- [ ] **Commit the 61 expected JSONs** (Artificial Shark, `ti/corpus-expected`). This closes M0.
-- [ ] Release Q4 benchmark at W = 10 s (host, queued).
+- [x] Commit the 61 expected JSONs. Done by the lead in `312f6a0` (M0 closed).
+- [ ] **Artificial Shark's clone has an untracked `tests/golden/expected/`** that collides with the now-committed files. It must delete or move it before merging `plan/lume-ti`, or git will refuse to overwrite it.
+- [ ] Release Q4 benchmark at W = 10 s (host, **running**).
 - [ ] Pi 5 throughput/RSS run for M2 item 3.
 - [ ] Verify [signalk-formats §1.3](design/signalk-formats.md) against a **real** signalk-parquet `.parquet` file with DuckDB `DESCRIBE`.
 - [ ] Strict TI checks are not in `ci.yml` yet. Containers lacking rustfmt or clippy rely on the lead's host run.

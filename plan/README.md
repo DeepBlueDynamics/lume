@@ -65,6 +65,8 @@ Additions beyond the spec:
 
 ## Status
 
+> "Passed" here means every gate test passes in **host verification on `plan/lume-ti`** (rustc 1.96, strict clippy, fmt). spec/12's stricter "CI on `main`" condition applies once the branch merges to `main` and CI runs on it.
+
 - [x] Spec received and filed in `inbox/`
 - [x] Spec split into sections and lanes
 - [ ] Owner assumptions confirmed (see [spec/02-pilot-vessel.md](spec/02-pilot-vessel.md))
@@ -72,4 +74,6 @@ Additions beyond the spec:
 - [x] Plan committed on `plan/lume-ti`
 - [ ] Repo-fit issues decided (see [repo-fit.md](repo-fit.md))
 - [x] M0 kickoff. Code work has started on the W0 contracts, W0 corpus and search extraction lanes (see [STATUS.md](STATUS.md))
-- [ ] M0 gate passed
+- [x] M0 gate passed (`312f6a0`, 2026-10-06): contracts, `ti.toml`, deterministic generator, 61 golden queries with oracle twins and expected outputs
+- [x] M1 gate passed (`cf98c61`)
+- [ ] M2–M6 gates (see [STATUS.md](STATUS.md))
