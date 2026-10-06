@@ -79,7 +79,8 @@
       "ti_sql": "SELECT intervals('fixture')",
       "oracle_sql": "",
       "expected_path": "",
-      "tolerance": {}
+      "tolerance": {},
+      "exclude": "fixture placeholder SQL: exercises explicit exclusion reasons"
     },
     {
       "id": "excluded-match",
@@ -93,14 +94,16 @@
       "ti_sql": "SELECT in_bbox('fixture')",
       "oracle_sql": "",
       "expected_path": "",
-      "tolerance": {}
+      "tolerance": {},
+      "exclude": "fixture placeholder SQL: exercises explicit exclusion reasons"
     },
     {
       "id": "excluded-within_nm",
       "ti_sql": "SELECT within_nm('fixture')",
       "oracle_sql": "",
       "expected_path": "",
-      "tolerance": {}
+      "tolerance": {},
+      "exclude": "fixture placeholder SQL: exercises explicit exclusion reasons"
     }
   ]
 }

@@ -162,31 +162,25 @@ pub fn diff_rows(
     }
     Ok(())
 }
-/// Why an entry cannot run yet; `text` is false when no document index is registered.
+/// Why an entry cannot run yet: text needs a registered document index (`text`).
+/// Geo and `intervals()` run on every session since M4.
 pub fn m3_exclusion(sql: &str, text: bool) -> Option<String> {
+    if text {
+        return None;
+    }
     let sql = sql.to_ascii_lowercase();
-    for (function, reason) in [
-        ("intervals", "M4 intervals"),
-        ("match", "M4 text"),
-        ("in_bbox", "M4 geo"),
-        ("within_nm", "M4 geo"),
-    ] {
-        // Function token, allowing SQL whitespace before '('.
-        let bytes = sql.as_bytes();
-        let mut offset = 0;
-        while let Some(found) = sql[offset..].find(function) {
-            let start = offset + found;
-            let end = start + function.len();
-            let boundary = start == 0
-                || !(bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'_');
-            if boundary
-                && sql[end..].trim_start().starts_with('(')
-                && !(text && function == "match")
-            {
-                return Some(reason.into());
-            }
-            offset = end;
+    let bytes = sql.as_bytes();
+    let mut offset = 0;
+    // Function token, allowing SQL whitespace before '('.
+    while let Some(found) = sql[offset..].find("match") {
+        let start = offset + found;
+        let end = start + "match".len();
+        let boundary =
+            start == 0 || !(bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'_');
+        if boundary && sql[end..].trim_start().starts_with('(') {
+            return Some("text: no document index registered".into());
         }
+        offset = end;
     }
     None
 }
