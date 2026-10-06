@@ -183,3 +183,34 @@ fn width_discovery_reads_one_representative_per_field_directory() {
     header(&dir.0.join("shards/0/2/v1/0.rbm"), 10);
     assert!(store_width(&dir.0, None).is_err());
 }
+
+#[tokio::test]
+async fn status_reads_ingest_status_json() {
+    let dir = Scratch::new();
+    let root = dir.0.join("store");
+    drop(ti_store::Store::open_or_create(&root, 60).unwrap());
+    let status_file = root.join("ingest_status.json");
+    let ingest_data = serde_json::json!({
+        "running": true,
+        "pid": 12345,
+        "reconnects": 2,
+        "records_ingested": 100,
+        "ingest_lag_seconds": 1.25,
+        "last_delta": "2026-06-01T12:00:00Z",
+        "updated_at": "2026-06-01T12:00:01Z"
+    });
+    std::fs::write(&status_file, serde_json::to_string(&ingest_data).unwrap()).unwrap();
+
+    let engine = ti_sql::TiEngine::open(&root, Some(60), None).await.unwrap();
+    let status = engine.status().await.unwrap();
+    assert_eq!(status["ingest_lag_seconds"], 1.25);
+    assert_eq!(status["reconnects"], 2);
+    assert_eq!(status["last_delta"], "2026-06-01T12:00:00Z");
+    let unavailable = status["unavailable"].as_array().unwrap();
+    assert!(
+        !unavailable
+            .iter()
+            .any(|u| u.as_str().unwrap().starts_with("ingest_lag_seconds")),
+        "ingest_lag_seconds must not be listed as unavailable when ingest_status.json is present"
+    );
+}

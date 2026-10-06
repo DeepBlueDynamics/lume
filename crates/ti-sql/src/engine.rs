@@ -476,12 +476,37 @@ impl TiEngine {
         for s in &self.skipped_stores {
             unavailable.push(format!("store '{s}': catalog directory absent"));
         }
-        Ok(
-            json!({"store": self.root, "width_seconds": self.session.catalog.width_seconds,
+        let mut ingest_lag_seconds = Value::Null;
+        let mut last_delta = Value::Null;
+        let mut reconnects = Value::Null;
+        let ingest_status_file = self.root.join("ingest_status.json");
+        if let Ok(content) = std::fs::read_to_string(&ingest_status_file) {
+            if let Ok(val) = serde_json::from_str::<Value>(&content) {
+                if let Some(lag) = val.get("ingest_lag_seconds") {
+                    ingest_lag_seconds = lag.clone();
+                    unavailable.retain(|u| !u.starts_with("ingest_lag_seconds"));
+                }
+                if let Some(ld) = val.get("last_delta") {
+                    last_delta = ld.clone();
+                }
+                if let Some(rc) = val.get("reconnects") {
+                    reconnects = rc.clone();
+                }
+            }
+        }
+        let mut res = json!({
+            "store": self.root, "width_seconds": self.session.catalog.width_seconds,
             "wal_bytes": wal_bytes, "shards": {"open": shards.len() - sealed, "sealed": sealed},
-            "ingest_lag_seconds": null, "vessels": vessels, "units": self.units(),
+            "ingest_lag_seconds": ingest_lag_seconds, "vessels": vessels, "units": self.units(),
             "skipped_stores": self.skipped_stores,
-            "unavailable": unavailable}),
-        )
+            "unavailable": unavailable
+        });
+        if !last_delta.is_null() {
+            res["last_delta"] = last_delta;
+        }
+        if !reconnects.is_null() {
+            res["reconnects"] = reconnects;
+        }
+        Ok(res)
     }
 }

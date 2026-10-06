@@ -117,6 +117,51 @@ lume serve --ti-store <store> [--bind <IP>] [--port <PORT>]
 
 - Read-only pgwire (`--pg-port`, off by default, loopback) is in progress and not merged.
 
+**`lume ti ingest` live service & Raspberry Pi 5 deployment** (needs `--features ti`):
+
+```sh
+lume ti ingest --signalk ws://<host>:3000 --store <root> [--config <path>] [--token <file|token>] [--serve] [--self-urn <urn>]
+```
+
+- **Live Stream Loop:** Connects to Signal K WebSocket, subscribes per `spec/06`, and commits records under the D16 group-commit WAL. Reconnects with exponential backoff on disconnect.
+- **Timers:** Maintenance ticks run every 200 ms during read lulls:
+  * WAL group-commit fsync every 1 s.
+  * Flush dirty rows and close mature watermark buckets every 60 s or 50,000 records.
+  * Seal open shards whose time span ended more than 1 hour ago (`now - shard_end >= 3600`).
+  * Enforce retention sweep across configured stores via `StoreSet`.
+  * Update operational status (`<store>/ingest_status.json`) with lag seconds, last delta timestamp, and reconnects.
+- **Token Handling:** Signal K device tokens can be specified via a file path (`--token /etc/lume/signalk-token`), a literal string, or inside `ti.toml` under `[signal_k] token = "..."`. If a path is provided, the file is read and stripped of whitespace.
+- **Integrated Query Server (`--serve`):** Because multi-process concurrent access to an open store root is unsafe (potential race conditions between in-memory open shard state, WAL truncations, and directory writes), `--serve` runs the query server (port 5863, bound to `0.0.0.0`) inside the *same* process alongside the live ingest service.
+- **Clean Shutdown:** On `SIGTERM` or `Ctrl-C` (`SIGINT`), the service traps the signal, cleanly exits the stream loop, flushes all open bucket windows and dirty shards, synchronizes and shuts down all WALs (`spec/03`), updates `ingest_status.json` (`"running": false`), and exits.
+- **Raspberry Pi 5 Systemd Unit:**
+  For deployment under HaLOS / Linux on a Pi 5:
+
+  ```ini
+  [Unit]
+  Description=Lume Telemetry Ingest & Query Service
+  After=network-online.target signalk.service
+  Wants=network-online.target
+
+  [Service]
+  Type=simple
+  User=lume
+  Group=lume
+  WorkingDirectory=/var/lib/lume
+  ExecStart=/usr/local/bin/lume ti ingest --signalk ws://127.0.0.1:3000 --store /var/lib/lume/store --token /etc/lume/signalk-token --serve
+  Restart=always
+  RestartSec=5s
+
+  # Resource controls for Raspberry Pi 5
+  CPUWeight=50
+  Nice=10
+  MemoryMax=1.5G
+  TimeoutStopSec=30
+  KillSignal=SIGTERM
+
+  [Install]
+  WantedBy=multi-user.target
+  ```
+
 A plain `cargo test` only tests the root crate, because `default-members = ["."]`.
 
 **Strict checks, scoped to each TI crate.** Run both for every `crates/ti-*` crate you touch (currently `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench` and `ti-geo`):

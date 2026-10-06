@@ -51,6 +51,13 @@ fn main() {
     match subcommand.as_str() {
         #[cfg(feature = "ti")]
         "ti" => {
+            if args.len() >= 3 && args[2] == "ingest" {
+                if let Err(e) = handle_ti_ingest(&args[3..]) {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+                return;
+            }
             // W5: match() and the docs table use Lume BM25 over the store's docs/.
             let documents = |root: &std::path::Path, store: &ti_store::Store, width: u64| {
                 let index = lume::ti_text::LumeText::open(root, store.catalog().clone(), width)?;
@@ -215,6 +222,112 @@ fn main() {
             std::process::exit(1);
         }
     }
+}
+
+#[cfg(feature = "ti")]
+fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
+    if args.iter().any(|a| a == "-h" || a == "--help") {
+        println!("Usage: lume ti ingest --signalk <url> --store <root> [--config <path>] [--token <file|token>] [--serve] [--self-urn <urn>]");
+        return Ok(());
+    }
+    let mut signalk_url = None;
+    let mut store_root = None;
+    let mut config_path = None;
+    let mut token_arg = None;
+    let mut serve = false;
+    let mut self_urn = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--signalk" => {
+                let val = args.get(i + 1).ok_or("--signalk requires a URL")?;
+                signalk_url = Some(val.clone());
+                i += 2;
+            }
+            "--store" => {
+                let val = args.get(i + 1).ok_or("--store requires a path")?;
+                store_root = Some(val.clone());
+                i += 2;
+            }
+            "--config" => {
+                let val = args.get(i + 1).ok_or("--config requires a path")?;
+                config_path = Some(val.clone());
+                i += 2;
+            }
+            "--token" => {
+                let val = args.get(i + 1).ok_or("--token requires a file or token value")?;
+                token_arg = Some(val.clone());
+                i += 2;
+            }
+            "--self-urn" => {
+                let val = args.get(i + 1).ok_or("--self-urn requires a URN")?;
+                self_urn = Some(val.clone());
+                i += 2;
+            }
+            "--serve" => {
+                serve = true;
+                i += 1;
+            }
+            other => return Err(format!("Unknown option: {other}")),
+        }
+    }
+
+    let store_root_str = store_root.ok_or("--store is required")?;
+    let store_path = PathBuf::from(&store_root_str);
+
+    let mut config = if let Some(ref cp) = config_path {
+        let content = fs::read_to_string(cp)
+            .map_err(|e| format!("Failed to read config file {cp}: {e}"))?;
+        ti_contracts::TiConfig::from_toml(&content)
+            .map_err(|e| format!("Invalid ti.toml config: {e}"))?
+    } else {
+        let default_config_file = store_path.join("ti.toml");
+        if default_config_file.is_file() {
+            let content = fs::read_to_string(&default_config_file)
+                .map_err(|e| format!("Failed to read {}: {e}", default_config_file.display()))?;
+            ti_contracts::TiConfig::from_toml(&content)
+                .map_err(|e| format!("Invalid ti.toml config: {e}"))?
+        } else {
+            ti_contracts::TiConfig::default()
+        }
+    };
+
+    config.store_root = store_root_str.clone();
+
+    if let Some(url) = signalk_url {
+        config.signal_k.url = ti_ingest::service::normalize_signalk_url(&url);
+    }
+    if let Some(tok) = token_arg {
+        config.signal_k.token = ti_ingest::service::resolve_token(Some(&tok), config.signal_k.token.as_deref());
+    }
+
+    config.validate().map_err(|e| format!("Configuration validation failed: {e}"))?;
+
+    let running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+
+    let mut service = ti_ingest::service::IngestService::new(config, running.clone());
+    if let Some(urn) = self_urn {
+        service = service.with_self_urn(urn);
+    }
+
+    if serve {
+        let serve_root = store_path.clone();
+        std::thread::spawn(move || {
+            println!("Starting integrated query server on 0.0.0.0:5863...");
+            if let Err(e) = lume::agent::serve_with_ti_pg_on(5863, &serve_root, "0.0.0.0", None) {
+                eprintln!("Error in query server: {e}");
+            }
+        });
+    }
+
+    println!(
+        "Starting live Signal K ingestion from {} into {}",
+        service.config.signal_k.url, store_root_str
+    );
+    service.run().map_err(|e| format!("Ingest service error: {e}"))?;
+    println!("Ingest service shut down cleanly.");
+    Ok(())
 }
 
 fn print_global_help() {

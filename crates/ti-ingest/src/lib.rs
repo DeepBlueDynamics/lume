@@ -18,6 +18,7 @@ pub mod normalize;
 pub mod notifications;
 pub mod parquet;
 pub mod recorder;
+pub mod service;
 pub mod watermark;
 pub mod websocket;
 
@@ -33,6 +34,9 @@ pub use parquet::{
     BackfillStatus,
 };
 pub use recorder::{DeltaRecorder, DeltaReplay};
+pub use service::{
+    normalize_signalk_url, resolve_token, ClockFn, IngestService, IngestServiceOptions,
+};
 pub use watermark::{ClosedBucketObserver, MultiStoreBucketer, WatermarkBucketer};
 pub use websocket::{
     build_subscription_messages, connect_signalk, process_message, process_message_multi,

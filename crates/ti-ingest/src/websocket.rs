@@ -184,9 +184,9 @@ pub fn run_stream_loop(
                                 .duration_since(std::time::UNIX_EPOCH)
                                 .map(|d| d.as_secs() as i64)
                                 .unwrap_or(0);
-                            if let Err(e) = documents.ingest_message(
-                                &text, self_urn, recv_secs, config,
-                            ) {
+                            if let Err(e) =
+                                documents.ingest_message(&text, self_urn, recv_secs, config)
+                            {
                                 eprintln!("Error ingesting notification document: {e}");
                             }
                             if let Err(e) = process_message(
@@ -327,9 +327,9 @@ pub fn run_stream_loop_multi(
                                 .duration_since(std::time::UNIX_EPOCH)
                                 .map(|d| d.as_secs() as i64)
                                 .unwrap_or(0);
-                            if let Err(e) = documents.ingest_message(
-                                &text, self_urn, recv_secs, config,
-                            ) {
+                            if let Err(e) =
+                                documents.ingest_message(&text, self_urn, recv_secs, config)
+                            {
                                 eprintln!("Error ingesting notification document: {e}");
                             }
                             if let Err(e) = process_message_multi(
@@ -650,8 +650,7 @@ mod tests {
             );
             let entry = store.seal(key).unwrap();
             let ts_from = ti_contracts::EPOCH + (entry.from as i64 * config.width_seconds as i64);
-            let ts_to =
-                ti_contracts::EPOCH + ((entry.to as i64 + 1) * config.width_seconds as i64);
+            let ts_to = ti_contracts::EPOCH + ((entry.to as i64 + 1) * config.width_seconds as i64);
             assert!(
                 ts_from >= 1_700_000_000,
                 "Sealed shard ts_from {} was near EPOCH instead of 2026",
@@ -779,8 +778,7 @@ mod tests {
         let ts2_secs = chrono::DateTime::parse_from_rfc3339(&ts2)
             .unwrap()
             .timestamp();
-        let ts2_bucket =
-            ((ts2_secs - ti_contracts::EPOCH) / (config.width_seconds as i64)) as u32;
+        let ts2_bucket = ((ts2_secs - ti_contracts::EPOCH) / (config.width_seconds as i64)) as u32;
 
         let ts2_col = ts2_bucket & 0xffff;
 

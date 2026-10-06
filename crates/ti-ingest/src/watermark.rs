@@ -83,7 +83,9 @@ impl WatermarkBucketer {
     fn notify_closed(&mut self, keys: &[(VesselOrd, BucketIx)]) -> Result<()> {
         if let Some(observer) = &mut self.closed_observer {
             for &(vessel, bucket) in keys {
-                observer.on_closed(vessel, bucket, bucket)?;
+                if let Err(e) = observer.on_closed(vessel, bucket, bucket) {
+                    eprintln!("ClosedBucketObserver error: {e}");
+                }
             }
         }
         Ok(())
@@ -236,14 +238,14 @@ impl WatermarkBucketer {
         Ok(())
     }
 
-    /// Close any open buckets whose end time <= watermark (max_event_time - 30 s).
-    pub fn close_ready_buckets(
+    /// Close any open buckets whose end time <= watermark.
+    pub fn advance_watermark(
         &mut self,
+        watermark: i64,
         config: &TiConfig,
         catalog: &dyn Catalog,
         sink: &mut dyn ShardSink,
     ) -> Result<usize> {
-        let watermark = self.watermark();
         let mut closed_count = 0;
         let mut newly_closed = Vec::new();
 
@@ -288,6 +290,17 @@ impl WatermarkBucketer {
         }
         self.notify_closed(&newly_closed)?;
         Ok(closed_count)
+    }
+
+    /// Close any open buckets whose end time <= watermark (max_event_time - 30 s).
+    pub fn close_ready_buckets(
+        &mut self,
+        config: &TiConfig,
+        catalog: &dyn Catalog,
+        sink: &mut dyn ShardSink,
+    ) -> Result<usize> {
+        let watermark = self.watermark();
+        self.advance_watermark(watermark, config, catalog, sink)
     }
 
     /// Explicit flush: close and emit all remaining open buckets.
@@ -517,6 +530,39 @@ impl MultiStoreBucketer {
         for (name, bucketer) in &mut self.bucketers {
             if let (Some(catalog), Some(sink)) = (catalogs.get(name), sinks.get_mut(name)) {
                 total += bucketer.flush_all(config, *catalog, *sink)?;
+            }
+        }
+        Ok(total)
+    }
+
+    /// Advance watermark across all stores, closing buckets that have aged out.
+    pub fn advance_watermark(
+        &mut self,
+        watermark: i64,
+        config: &TiConfig,
+        catalogs: &BTreeMap<String, &dyn Catalog>,
+        sinks: &mut BTreeMap<String, &mut dyn ShardSink>,
+    ) -> Result<usize> {
+        let mut total = 0;
+        for (name, bucketer) in &mut self.bucketers {
+            if let (Some(catalog), Some(sink)) = (catalogs.get(name), sinks.get_mut(name)) {
+                total += bucketer.advance_watermark(watermark, config, *catalog, *sink)?;
+            }
+        }
+        Ok(total)
+    }
+
+    /// Close ready buckets across all stores whose bucket_end <= that store's watermark.
+    pub fn close_ready_buckets(
+        &mut self,
+        config: &TiConfig,
+        catalogs: &BTreeMap<String, &dyn Catalog>,
+        sinks: &mut BTreeMap<String, &mut dyn ShardSink>,
+    ) -> Result<usize> {
+        let mut total = 0;
+        for (name, bucketer) in &mut self.bucketers {
+            if let (Some(catalog), Some(sink)) = (catalogs.get(name), sinks.get_mut(name)) {
+                total += bucketer.close_ready_buckets(config, *catalog, *sink)?;
             }
         }
         Ok(total)
