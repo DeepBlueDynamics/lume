@@ -38,6 +38,9 @@ impl Server {
         Self::start_with_auth(bind, pg, None)
     }
     fn start_with_auth(bind: Option<&str>, pg: bool, verifier: Option<&str>) -> Self {
+        Self::start_config(bind, pg, verifier, false)
+    }
+    fn start_config(bind: Option<&str>, pg: bool, verifier: Option<&str>, history: bool) -> Self {
         let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!(
             "http-{}-{}",
             std::process::id(),
@@ -82,6 +85,24 @@ impl Server {
                 },
             ])
             .unwrap();
+        if history {
+            for (path, agg, scale, values) in [
+                ("navigation.speedOverGround", Agg::Min, 3, [1000, 3000]),
+                ("navigation.speedOverGround", Agg::Max, 3, [3000, 5000]),
+                ("navigation.speedOverGround", Agg::Last, 3, [2500, 4500]),
+                ("navigation.position.latitude", Agg::Last, 6, [60000000, 61000000]),
+                ("navigation.position.longitude", Agg::Last, 6, [24000000, 25000000]),
+            ] {
+                let field = store.catalog().register_field(&FieldSpec {
+                    id: 0, path: path.into(), agg: Some(agg),
+                    kind: FieldKind::Bsi { scale }, units: None,
+                }).unwrap();
+                let records: Vec<_> = values.into_iter().enumerate().map(|(i, value)| BucketRecord {
+                    vessel, bucket: i as u32 + 1, field, value: FieldValue::Int(value), rewrite: false,
+                }).collect();
+                store.apply(&records).unwrap();
+            }
+        }
         store
             .seal(ti_contracts::ShardKey { vessel, shard: 0 })
             .unwrap();
@@ -154,6 +175,17 @@ impl Server {
         };
         req.send_json(args).map_err(Box::new)
     }
+}
+#[test]
+fn history_provider_real_http() {
+    let server = Server::start_config(None, false, None, true);
+    let output = Command::new("node")
+        .arg(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("plugins/signalk-lume-ti/test/history-real.cjs"))
+        .arg(&server.url)
+        .output()
+        .expect("Node is required for the Signal K History integration");
+    assert!(output.status.success(), "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
 }
 #[test]
 fn explicit_bind_is_honored_and_ti_errors_have_no_cors() {

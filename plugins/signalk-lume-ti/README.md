@@ -84,6 +84,73 @@ In the SQL console, run an `intervals()` query with `start`/`end` columns, then 
 
 Pin/unpin uses the logged-in browser's same-origin Signal K session. Sign in to Signal K if its security settings require write access. The ingest token remains read-only. Neither startup nor running a query writes chart resources. **Unpin all lume-ti** asks for confirmation and removes only notes/regions marked as created by this feature. Truncated results must be narrowed before pinning. A failed partial write reports how many resources were written; unpin can clean them up. Resource changes do not write any vessel/data path.
 
+## Signal K History API (Signal K 2.31+)
+
+The plugin registers a read-only provider named `signalk-lume-ti` with
+`app.registerHistoryApiProvider`, and unregisters it on stop. Signal K owns
+routing, authentication and parameter parsing for these standard endpoints:
+
+- `GET /signalk/v2/api/history/values`
+- `GET /signalk/v2/api/history/contexts`
+- `GET /signalk/v2/api/history/paths`
+
+Select it explicitly with `provider=signalk-lume-ti`, or choose it as the
+server's default History API provider in Admin → Data → Preferences.
+Existing KIP/Freeboard requests without a provider then use Lume. Provider
+registration itself does not change the server's default.
+
+For example, open these URLs on your authenticated Signal K server:
+
+```text
+/signalk/v2/api/history/values?provider=signalk-lume-ti&paths=navigation.speedOverGround:average&duration=PT1H&resolution=30s
+/signalk/v2/api/history/values?provider=signalk-lume-ti&paths=navigation.position:first&duration=PT1H&resolution=30s
+/signalk/v2/api/history/contexts?provider=signalk-lume-ti&duration=PT1H
+/signalk/v2/api/history/paths?provider=signalk-lume-ti&duration=PT1H
+```
+
+Values return `{context, range:{from,to}, values:[{path,method}], data:[[timestamp,...values]]}`;
+contexts and paths return string arrays. Missing values in a populated time
+bin are null; empty bins are omitted. The time range is half-open, and bins
+are anchored at its start. `vessels.self` resolves using Signal K's own UUID.
+Duration-only, from/to, from/duration, to/duration and from-until-now work.
+
+Resolution is in seconds and maps to `date_bin`. Numeric average/min/max
+roll up retained `@mean/@min/@max`; first/last select the earliest/latest
+retained `@last` bucket. A coarse store without `@last` rejects first/last
+instead of substituting means. These are bucket-level historical values:
+raw samples and their original timestamps cannot be recovered from a
+10-second store. If the configured 1-second HR store has the field, it is
+preferred for sub-10-second resolution; its `@last` values also support
+numeric roll-ups. Position first/last combines retained latitude/longitude
+from the same bucket and returns Signal K position objects for track clients.
+
+Unsupported aggregate methods/parameters and per-source requests fail
+explicitly. Limits are 16 paths, 100,000 requested bins, and 30 seconds per
+backend request. Queries are split at bin boundaries, and truncated backend
+results are retried in smaller chunks; an unsplittable truncated bin fails
+rather than returning incomplete history. All backend operations are SELECTs
+against the managed Lume HTTP server on loopback. Telemetry lag remains the
+ingest lag shown in status.
+
+### Verify in KIP
+
+1. Confirm the explicit-provider speed URL above returns populated data for a
+   time range already recorded by Lume.
+2. Set Lume as Signal K's default History provider. In KIP, add a Data Chart
+   using a recorded numeric path, select a historical range and reload it.
+   KIP's [History support](https://github.com/mxtommy/Kip/blob/master/CHANGELOG.md)
+   uses the History API to populate charts. Widget history is available via
+   right-click/two-finger tap in supported KIP versions.
+3. In browser developer tools, check the chart's `/history/values` request
+   and its response. Compare the first/last timestamps and sample values with
+   the explicit-provider URL using the same range/resolution. If KIP supplies
+   a different provider explicitly, select Lume there or remove that override.
+4. For tracks, check the position URL returns latitude/longitude objects;
+   select Lume for Freeboard-SK history and request the same recorded range.
+
+The automated checks below verify the provider and real Lume transport.
+Actual Pi/KIP/Freeboard UI verification remains a deployment check.
+
 ## Verification & Testing
 
 Run unit tests via Node's native test runner:
@@ -99,3 +166,14 @@ Test coverage includes:
 - Clean shutdown via `SIGTERM` triggering WAL synchronization.
 - Signal K device access-request flow and polling.
 - Status API and query/schema HTTP proxying.
+- History provider registration, range forms, aggregate mapping, HR selection,
+  position pairing, response alignment, truncation splitting and loopback JSON transport.
+
+Run the provider against a real Lume server and generated TI fixture:
+
+```bash
+CARGO_INCREMENTAL=0 cargo test --features ti --test ti_http history_provider_real_http
+```
+
+This test starts Lume on an ephemeral loopback port and invokes the Node
+provider against its actual schema/query endpoints. Node must be on PATH.
