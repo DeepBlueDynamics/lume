@@ -24,4 +24,7 @@ pub use package::{
 };
 pub use shore::ShoreReceiver;
 pub use tar::{create_tar, parse_tar};
-pub use transport::{LoopbackTransport, LossyTransport, Transport};
+pub use transport::{
+    constant_time_bearer_eq, hex_decode_32, hex_encode, percent_decode, percent_encode,
+    HttpTransport, LoopbackTransport, LossyTransport, Transport,
+};

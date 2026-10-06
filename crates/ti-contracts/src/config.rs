@@ -46,6 +46,9 @@ pub struct TiConfig {
     /// Multi-store configurations (D30). If empty/omitted, single-store mode uses top-level fields.
     #[serde(default)]
     pub stores: BTreeMap<String, StoreConfig>,
+    /// Fleet synchronization configuration (W8).
+    #[serde(default)]
+    pub sync: SyncConfig,
 }
 
 /// Device token comes from a one-time Signal K access request.
@@ -124,6 +127,47 @@ pub struct QueryLimits {
     pub heavy_queries: usize,
     /// Pause background work above this temperature.
     pub thermal_celsius: u16,
+}
+
+/// Fleet synchronization configuration (W8).
+///
+/// Prefer `token_file` over inline `token`. An inline token in `ti.toml` is a plaintext
+/// secret and on Unix requires `ti.toml` to have mode 0600 (not group- or world-accessible).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct SyncConfig {
+    /// Path to a shared bearer token file for sync endpoints.
+    pub token_file: Option<String>,
+    /// Inline bearer token for sync (alternative to token_file).
+    pub token: Option<String>,
+    /// Link budget in bytes per day, if any.
+    pub link_budget_bytes: Option<u64>,
+    /// Idle priority flag (pause under load).
+    pub idle_priority: bool,
+}
+
+impl SyncConfig {
+    /// Resolve the bearer token from token_file if present, or inline token.
+    ///
+    /// If `token_file` is set but cannot be read or is empty, returns an error
+    /// and refuses to fall back to an inline token.
+    pub fn resolved_token(&self) -> std::result::Result<Option<String>, String> {
+        if let Some(ref path) = self.token_file {
+            let content = std::fs::read_to_string(path)
+                .map_err(|e| format!("failed to read sync token_file '{path}': {e}"))?;
+            let trimmed = content.trim().to_string();
+            if trimmed.is_empty() {
+                return Err(format!("sync token_file '{path}' is empty"));
+            }
+            return Ok(Some(trimmed));
+        }
+        let inline = self
+            .token
+            .as_ref()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        Ok(inline)
+    }
 }
 
 /// Configuration for a named store (D30).
@@ -424,6 +468,7 @@ impl Default for TiConfig {
             auth: AuthConfig::default(),
             query: QueryLimits::default(),
             stores: BTreeMap::new(),
+            sync: SyncConfig::default(),
         }
     }
 }

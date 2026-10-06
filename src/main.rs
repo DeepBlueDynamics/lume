@@ -73,6 +73,13 @@ fn lume_main() {
                 }
                 return;
             }
+            if args.len() >= 3 && args[2] == "sync" {
+                if let Err(e) = handle_ti_sync(&args[3..]) {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+                return;
+            }
             // W5: match() and the docs table use Lume BM25 over the store's docs/.
             let documents = |root: &std::path::Path, store: &ti_store::Store, width: u64| {
                 let index = lume::ti_text::LumeText::open(root, store.catalog().clone(), width)?;
@@ -421,6 +428,135 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
     );
     service.run().map_err(|e| format!("Ingest service error: {e}"))?;
     println!("Ingest service shut down cleanly.");
+    Ok(())
+}
+
+#[cfg(feature = "ti")]
+fn handle_ti_sync(args: &[String]) -> Result<(), String> {
+    if args.iter().any(|a| a == "-h" || a == "--help") {
+        println!("Usage: lume ti sync --to <url> --store <root> [--token <token>] [--token-file <path>] [--chunk-size <bytes>] [--link-budget <bytes>] [--idle]");
+        return Ok(());
+    }
+    let mut to_url: Option<String> = None;
+    let mut store_path: Option<std::path::PathBuf> = None;
+    let mut token: Option<String> = None;
+    let mut token_file: Option<std::path::PathBuf> = None;
+    let mut chunk_size = ti_sync::DEFAULT_CHUNK_SIZE;
+    let mut link_budget: Option<u64> = None;
+    let mut idle = false;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--to" => {
+                i += 1;
+                to_url = Some(args.get(i).ok_or("missing value for --to")?.clone());
+            }
+            "--store" => {
+                i += 1;
+                store_path = Some(std::path::PathBuf::from(
+                    args.get(i).ok_or("missing value for --store")?,
+                ));
+            }
+            "--token" => {
+                i += 1;
+                token = Some(args.get(i).ok_or("missing value for --token")?.clone());
+            }
+            "--token-file" => {
+                i += 1;
+                token_file = Some(std::path::PathBuf::from(
+                    args.get(i).ok_or("missing value for --token-file")?,
+                ));
+            }
+            "--chunk-size" => {
+                i += 1;
+                let val: usize = args
+                    .get(i)
+                    .ok_or("missing value for --chunk-size")?
+                    .parse()
+                    .map_err(|e| format!("invalid --chunk-size: {e}"))?;
+                chunk_size = val;
+            }
+            "--link-budget" => {
+                i += 1;
+                let val: u64 = args
+                    .get(i)
+                    .ok_or("missing value for --link-budget")?
+                    .parse()
+                    .map_err(|e| format!("invalid --link-budget: {e}"))?;
+                link_budget = Some(val);
+            }
+            "--idle" => {
+                idle = true;
+            }
+            other => return Err(format!("unknown argument for lume ti sync: {other}")),
+        }
+        i += 1;
+    }
+
+    let to = to_url.ok_or("missing required --to <url>")?;
+    let store_root = store_path.ok_or("missing required --store <root>")?;
+
+    if !store_root.exists() {
+        return Err(format!("store root does not exist: {}", store_root.display()));
+    }
+
+    let ti_toml = store_root.join("ti.toml");
+    let cfg = if ti_toml.exists() {
+        let content = std::fs::read_to_string(&ti_toml).map_err(|e| format!("failed to read ti.toml: {e}"))?;
+        Some(ti_contracts::TiConfig::from_toml(&content).map_err(|e| format!("invalid ti.toml: {e}"))?)
+    } else {
+        None
+    };
+
+    let resolved_token = if let Some(t) = token {
+        Some(t)
+    } else if let Some(tf) = token_file {
+        let content = std::fs::read_to_string(&tf)
+            .map_err(|e| format!("failed to read token file '{}': {e}", tf.display()))?;
+        let trimmed = content.trim().to_string();
+        if trimmed.is_empty() {
+            return Err(format!("token file '{}' is empty", tf.display()));
+        }
+        Some(trimmed)
+    } else if let Some(cfg) = &cfg {
+        if cfg.sync.token_file.is_none() && cfg.sync.token.is_some() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let meta = std::fs::metadata(&ti_toml)
+                    .map_err(|e| format!("cannot stat ti.toml: {e}"))?;
+                if meta.permissions().mode() & 0o077 != 0 {
+                    return Err("ti.toml containing inline sync token must not be group- or world-accessible (use chmod 600, or prefer token_file)".into());
+                }
+            }
+        }
+        cfg.sync.resolved_token()?
+    } else {
+        None
+    };
+
+    let width = if let Some(cfg) = &cfg {
+        cfg.width_seconds
+    } else {
+        ti_sql::store_width(&store_root, None).unwrap_or(10)
+    };
+
+    let store = ti_store::Store::open_or_create(&store_root, width)
+        .map_err(|e| format!("failed to open store: {e}"))?;
+
+    let transport = ti_sync::HttpTransport::new(to, resolved_token);
+    let client = ti_sync::SyncClient::new(std::sync::Arc::new(std::sync::Mutex::new(store)), transport)
+        .with_chunk_size(chunk_size)
+        .with_link_budget(link_budget)
+        .with_idle_priority(idle);
+
+    let report = client.sync_all().map_err(|e| format!("sync failed: {e}"))?;
+    println!(
+        "Synced {} shards ({} bytes in {} chunks, {} retries)",
+        report.shards_synced, report.bytes_uploaded, report.chunks_sent, report.retries
+    );
+
     Ok(())
 }
 
