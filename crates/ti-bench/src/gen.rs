@@ -232,7 +232,7 @@ pub fn stream_with_config(
     on_docs: &mut DocsSink,
 ) {
     for v in 0..n_vessels {
-        let context = model::VESSEL_URNS[v.min(model::VESSEL_URNS.len() - 1)].to_string();
+        let context = model::vessel_urn(v);
         let mut vseed = SplitMix64::new(
             seed.wrapping_add(v as u64)
                 .wrapping_mul(0x9E37_79B9_7F4A_7C15),

@@ -78,6 +78,22 @@ pub const VESSEL_URNS: &[&str] = &[
 
 pub const VESSEL_NAMES: &[&str] = &["PV-1", "Fleet-2", "Fleet-3", "Fleet-4", "Fleet-5"];
 
+pub fn vessel_urn(idx: usize) -> String {
+    if idx < VESSEL_URNS.len() {
+        VESSEL_URNS[idx].to_string()
+    } else {
+        format!("vessels.urn:mrn:imo:mmsi:367{:06}", idx)
+    }
+}
+
+pub fn vessel_name(idx: usize) -> String {
+    if idx < VESSEL_NAMES.len() {
+        VESSEL_NAMES[idx].to_string()
+    } else {
+        format!("Fleet-{}", idx + 1)
+    }
+}
+
 /// A single source label for every path, so the preferred-source choice is
 /// deterministic (per the lead's set-field ruling).
 pub const SOURCE_LABEL: &str = "can0.115";

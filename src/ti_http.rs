@@ -1,12 +1,36 @@
 //! Read-only HTTP surfaces sharing one startup snapshot and runtime.
 use serde_json::{json, Value};
 use std::{
+    collections::BTreeMap,
     io::{Read, Write},
     net::TcpStream,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, RwLock},
     time::{Duration, Instant},
 };
+use ti_contracts::Catalog;
+
+pub(crate) struct RequestHeaders<'a>(&'a str);
+impl<'a> RequestHeaders<'a> {
+    pub(crate) fn get(&self, name: &str) -> Option<&'a str> {
+        for line in self.0.lines() {
+            if let Some((k, v)) = line.split_once(':') {
+                if k.trim().eq_ignore_ascii_case(name) {
+                    return Some(v.trim());
+                }
+            }
+        }
+        None
+    }
+    pub(crate) fn bearer_token(&self) -> Option<&'a str> {
+        self.get("authorization").and_then(|val| {
+            val.strip_prefix("Bearer ")
+                .or_else(|| val.strip_prefix("bearer "))
+                .map(str::trim)
+        })
+    }
+}
+
 pub struct TiServer {
     engine: RwLock<Arc<ti_sql::TiEngine>>,
     runtime: ti_sql::SurfaceRuntime,
@@ -16,11 +40,16 @@ pub struct TiServer {
     width: Option<u64>,
     last_reload: Mutex<Option<Instant>>,
     pg_auth_users: Option<Vec<ti_contracts::ScramUser>>,
+    store: Arc<Mutex<ti_store::Store>>,
+    receiver: Arc<ti_sync::ShoreReceiver>,
+    sync_token: Option<String>,
 }
+
 impl TiServer {
     pub fn open(root: &Path) -> Result<Self, String> {
         Self::open_with_width(root, None)
     }
+
     pub fn open_with_width(root: &Path, width: Option<u64>) -> Result<Self, String> {
         let runtime = ti_sql::surface_runtime().map_err(|e| e.to_string())?;
         let factory = |root: &Path, store: &ti_store::Store, width: u64| {
@@ -42,6 +71,34 @@ impl TiServer {
         } else {
             root.to_path_buf()
         };
+        let store_width = width.unwrap_or(engine.session.catalog.width_seconds);
+        let store = Arc::new(Mutex::new(
+            ti_store::Store::open_or_create(root, store_width).map_err(|e| e.to_string())?,
+        ));
+        let receiver = Arc::new(ti_sync::ShoreReceiver::new(store.clone()));
+
+        let ti_toml = root.join("ti.toml");
+        let sync_token = if ti_toml.exists() {
+            let content = std::fs::read_to_string(&ti_toml)
+                .map_err(|e| format!("failed to read ti.toml: {e}"))?;
+            let cfg = ti_contracts::TiConfig::from_toml(&content)
+                .map_err(|e| format!("invalid ti.toml: {e}"))?;
+            if cfg.sync.token_file.is_none() && cfg.sync.token.is_some() {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let meta = std::fs::metadata(&ti_toml)
+                        .map_err(|e| format!("cannot stat ti.toml: {e}"))?;
+                    if meta.permissions().mode() & 0o077 != 0 {
+                        return Err("ti.toml containing inline sync token must not be group- or world-accessible (use chmod 600, or prefer token_file)".into());
+                    }
+                }
+            }
+            cfg.sync.resolved_token()?
+        } else {
+            None
+        };
+
         Ok(Self {
             resolver: RwLock::new(Arc::new(resolver)),
             engine: RwLock::new(Arc::new(engine)),
@@ -51,12 +108,21 @@ impl TiServer {
             width,
             last_reload: Mutex::new(None),
             pg_auth_users: None,
+            store,
+            receiver,
+            sync_token,
         })
     }
+
     /// External auth replaces store auth entirely; ingest/query configuration is untouched.
     pub fn with_pg_auth_config(mut self, path: &Path) -> Result<Self, String> {
         self.pg_auth_users = Some(crate::ti_pg_auth::load_users(path)?);
         Ok(self)
+    }
+
+    pub fn with_sync_token(mut self, token: impl Into<String>) -> Self {
+        self.sync_token = Some(token.into());
+        self
     }
     pub fn reload_engine(&self) -> Result<(), String> {
         let now = Instant::now();
@@ -69,6 +135,10 @@ impl TiServer {
             }
             *last = Some(now);
         }
+        self.force_reload_engine()
+    }
+
+    pub fn force_reload_engine(&self) -> Result<(), String> {
         let factory = |root: &Path, store: &ti_store::Store, width: u64| {
             Ok(Arc::new(crate::ti_text::LumeText::open(
                 root,
@@ -146,13 +216,13 @@ impl TiServer {
         if !args.is_object() {
             return Err("arguments must be an object".into());
         }
-        let engine = self.engine.read().map_err(|e| e.to_string())?.clone();
         if let Some(root) = args.get("store") {
             let root = root.as_str().ok_or("store must be a string")?;
             if Path::new(root).canonicalize().map_err(|e| e.to_string())? != self.root {
                 return Err("store must match the server's --ti-store".into());
             }
         }
+        let engine = self.engine.read().map_err(|e| e.to_string())?.clone();
         if let Some(width) = args.get("width_seconds") {
             if width.as_u64() != Some(engine.session.catalog.width_seconds) {
                 return Err("store bucket width mismatch".into());
@@ -180,16 +250,272 @@ impl TiServer {
                 .block_on(crate::ti_mcp::dispatch(engine, name, args))
         }
     }
+
     fn response(
         &self,
         method: &str,
         path: &str,
         body: &[u8],
-        accept: &str,
+        headers_raw: &str,
     ) -> Result<Reply, String> {
         let (path, query) = path.split_once('?').unwrap_or((path, ""));
+        let req_headers = RequestHeaders(headers_raw);
+
+        let is_sync_endpoint = path == "/ti/manifest" || path.starts_with("/ti/shards/");
+        if is_sync_endpoint {
+            let Some(server_token) = &self.sync_token else {
+                return Ok(Reply::error(
+                    401,
+                    "Unauthorized: sync bearer token is not configured in ti.toml [sync].",
+                ));
+            };
+            let Some(client_token) = req_headers.bearer_token() else {
+                return Ok(Reply::error(
+                    401,
+                    "Unauthorized: Authorization: Bearer <token> required for sync endpoints.",
+                ));
+            };
+            if !ti_sync::constant_time_bearer_eq(client_token, server_token) {
+                return Ok(Reply::error(
+                    401,
+                    "Unauthorized: invalid bearer token for sync endpoints.",
+                ));
+            }
+
+            if path == "/ti/manifest" {
+                if method != "GET" {
+                    return Ok(Reply::error(405, "Method Not Allowed"));
+                }
+                let (entries, vessels) = {
+                    let store = self.store.lock().map_err(|e| e.to_string())?;
+                    let entries = store.manifest().entries();
+                    let mut vessels = BTreeMap::new();
+                    let mut ord = 0u32;
+                    while let Ok(urn) = store.catalog().vessel_urn(ord) {
+                        vessels.insert(ord.to_string(), urn);
+                        ord += 1;
+                    }
+                    (entries, vessels)
+                };
+                return Ok(Reply::json(
+                    200,
+                    json!({ "entries": entries, "vessels": vessels }),
+                ));
+            }
+
+            if let Some(rest) = path.strip_prefix("/ti/shards/") {
+                let parts: Vec<&str> = rest.split('/').collect();
+                if parts.len() < 4 {
+                    return Ok(Reply::error(400, "Invalid /ti/shards/ path"));
+                }
+                let vessel_urn = ti_sync::percent_decode(parts[0])
+                    .map_err(|e| format!("Invalid vessel URN in path: {e}"))?;
+                if vessel_urn.is_empty()
+                    || vessel_urn.len() > 512
+                    || ti_contracts::validate_entity_urn(&vessel_urn).is_err()
+                {
+                    return Ok(Reply::error(
+                        400,
+                        "Invalid vessel URN: must be a canonical entity URN (e.g. vessels.urn:...) under 512 bytes",
+                    ));
+                }
+                let shard: u32 = parts[1]
+                    .parse()
+                    .map_err(|e| format!("Invalid shard number in path: {e}"))?;
+                let version: u64 = parts[2]
+                    .parse()
+                    .map_err(|e| format!("Invalid version in path: {e}"))?;
+                let action = parts[3];
+
+                if action == "status" {
+                    if method != "GET" {
+                        return Ok(Reply::error(405, "Method Not Allowed"));
+                    }
+                    let hash = req_headers
+                        .get("x-shard-hash")
+                        .and_then(|h| ti_sync::hex_decode_32(h).ok())
+                        .unwrap_or([0u8; 32]);
+                    let transfer = ti_contracts::TransferIdentity {
+                        vessel_urn,
+                        shard,
+                        version,
+                        width_seconds: 0,
+                        from: 0,
+                        to: 0,
+                        hash,
+                        catalog_hash: [0u8; 32],
+                    };
+                    let status = match self.receiver.upload_status(&transfer) {
+                        Ok(s) => s,
+                        Err(ti_contracts::Error::InvalidInput(msg)) => {
+                            return Ok(Reply::error(400, &msg));
+                        }
+                        Err(e) => return Err(e.to_string()),
+                    };
+                    return Ok(Reply::json(
+                        200,
+                        serde_json::to_value(&status).map_err(|e| e.to_string())?,
+                    ));
+                } else if action == "chunks" {
+                    if method != "POST" {
+                        return Ok(Reply::error(405, "Method Not Allowed"));
+                    }
+                    if parts.len() != 5 {
+                        return Ok(Reply::error(
+                            400,
+                            "Missing chunk index in /ti/shards/.../chunks/{n}",
+                        ));
+                    }
+                    let chunk_index: u32 = parts[4]
+                        .parse()
+                        .map_err(|e| format!("Invalid chunk index: {e}"))?;
+                    let total_chunks: u32 = req_headers
+                        .get("x-total-chunks")
+                        .and_then(|v| v.parse().ok())
+                        .ok_or("Missing or invalid X-Total-Chunks")?;
+                    let offset: u64 = req_headers
+                        .get("x-offset")
+                        .and_then(|v| v.parse().ok())
+                        .ok_or("Missing or invalid X-Offset")?;
+                    let total_bytes: u64 = req_headers
+                        .get("x-total-bytes")
+                        .and_then(|v| v.parse().ok())
+                        .ok_or("Missing or invalid X-Total-Bytes")?;
+                    let shard_hash = req_headers
+                        .get("x-shard-hash")
+                        .and_then(|h| ti_sync::hex_decode_32(h).ok())
+                        .unwrap_or([0u8; 32]);
+                    let catalog_hash = req_headers
+                        .get("x-catalog-hash")
+                        .and_then(|h| ti_sync::hex_decode_32(h).ok())
+                        .unwrap_or([0u8; 32]);
+                    let from = req_headers
+                        .get("x-from")
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(0);
+                    let to = req_headers
+                        .get("x-to")
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(0);
+                    let width_seconds = req_headers
+                        .get("x-width-seconds")
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(10);
+
+                    let chunk = ti_sync::UploadChunk::new(
+                        ti_contracts::TransferIdentity {
+                            vessel_urn,
+                            shard,
+                            version,
+                            width_seconds,
+                            from,
+                            to,
+                            hash: shard_hash,
+                            catalog_hash,
+                        },
+                        chunk_index,
+                        total_chunks,
+                        offset,
+                        total_bytes,
+                        body.to_vec(),
+                    );
+                    if let Some(h) = req_headers
+                        .get("x-blake3")
+                        .or_else(|| req_headers.get("content-digest"))
+                    {
+                        let expected = ti_sync::hex_decode_32(h)
+                            .map_err(|e| format!("Invalid X-BLAKE3 header: {e}"))?;
+                        if chunk.chunk_hash != expected {
+                            return Ok(Reply::error(400, "X-BLAKE3 digest mismatch"));
+                        }
+                    }
+                    let ack = match self.receiver.receive_chunk(&chunk) {
+                        Ok(a) => a,
+                        Err(ti_contracts::Error::InvalidInput(msg)) => {
+                            return Ok(Reply::error(400, &msg));
+                        }
+                        Err(e) => return Err(e.to_string()),
+                    };
+                    return Ok(Reply::json(
+                        200,
+                        serde_json::to_value(&ack).map_err(|e| e.to_string())?,
+                    ));
+                } else if action == "commit" {
+                    if method != "POST" {
+                        return Ok(Reply::error(405, "Method Not Allowed"));
+                    }
+                    let transfer: ti_contracts::TransferIdentity = if !body.is_empty() {
+                        let t: ti_contracts::TransferIdentity = serde_json::from_slice(body)
+                            .map_err(|e| format!("Invalid commit JSON: {e}"))?;
+                        if t.vessel_urn.is_empty()
+                            || t.vessel_urn.len() > 512
+                            || ti_contracts::validate_entity_urn(&t.vessel_urn).is_err()
+                        {
+                            return Ok(Reply::error(
+                                400,
+                                "Invalid vessel URN: must be a canonical entity URN (e.g. vessels.urn:...) under 512 bytes",
+                            ));
+                        }
+                        t
+                    } else {
+                        let shard_hash = req_headers
+                            .get("x-shard-hash")
+                            .and_then(|h| ti_sync::hex_decode_32(h).ok())
+                            .ok_or("Missing X-Shard-Hash header")?;
+                        let catalog_hash = req_headers
+                            .get("x-catalog-hash")
+                            .and_then(|h| ti_sync::hex_decode_32(h).ok())
+                            .unwrap_or([0u8; 32]);
+                        let from = req_headers
+                            .get("x-from")
+                            .and_then(|v| v.parse().ok())
+                            .unwrap_or(0);
+                        let to = req_headers
+                            .get("x-to")
+                            .and_then(|v| v.parse().ok())
+                            .unwrap_or(0);
+                        let width_seconds = req_headers
+                            .get("x-width-seconds")
+                            .and_then(|v| v.parse().ok())
+                            .unwrap_or(10);
+                        ti_contracts::TransferIdentity {
+                            vessel_urn,
+                            shard,
+                            version,
+                            width_seconds,
+                            from,
+                            to,
+                            hash: shard_hash,
+                            catalog_hash,
+                        }
+                    };
+                    let entry = match self.receiver.commit_upload(&transfer) {
+                        Ok(e) => e,
+                        Err(ti_contracts::Error::InvalidInput(msg)) => {
+                            return Ok(Reply::error(400, &msg));
+                        }
+                        Err(e) => return Err(e.to_string()),
+                    };
+                    let _ = self.reload_engine();
+                    return Ok(Reply::json(
+                        200,
+                        serde_json::to_value(&entry).map_err(|e| e.to_string())?,
+                    ));
+                } else {
+                    return Ok(Reply::error(404, "Unknown shard action"));
+                }
+            }
+        }
+
         let expected = match path {
-            "/ti/query" | "/ti/explain" => "POST",
+            "/ti/query" => {
+                if method == "GET" || method == "POST" {
+                    method
+                } else {
+                    "POST"
+                }
+            }
+            "/ti/explain" => "POST",
             "/ti/schema" | "/ti/status" | "/ti/resolve" => "GET",
             _ => return Ok(Reply::error(404, "Unknown TI endpoint")),
         };
@@ -198,6 +524,8 @@ impl TiServer {
         }
         let args: Value = if path == "/ti/resolve" {
             resolve_args(query)?
+        } else if path == "/ti/query" && method == "GET" {
+            query_args(query)?
         } else if method == "POST" {
             serde_json::from_slice(body).map_err(|e| e.to_string())?
         } else {
@@ -212,6 +540,7 @@ impl TiServer {
             .session
             .reset_diagnostics()
             .map_err(|e| e.to_string())?;
+        let accept = req_headers.get("accept").unwrap_or("");
         if path == "/ti/query"
             && !accept
                 .split(',')
@@ -265,33 +594,34 @@ impl TiServer {
         Ok(Reply::json(200, reply))
     }
 }
-fn resolve_args(query: &str) -> Result<Value, String> {
-    fn decode(s: &str) -> Result<String, String> {
-        let bytes = s.as_bytes();
-        let mut out = Vec::new();
-        let mut i = 0;
-        while i < bytes.len() {
-            match bytes[i] {
-                b'+' => out.push(b' '),
-                b'%' => {
-                    let pair = bytes.get(i + 1..i + 3).ok_or("Invalid percent encoding")?;
-                    let hex = std::str::from_utf8(pair).map_err(|e| e.to_string())?;
-                    out.push(u8::from_str_radix(hex, 16).map_err(|e| e.to_string())?);
-                    i += 2;
-                }
-                b => out.push(b),
+fn query_param_decode(s: &str) -> Result<String, String> {
+    let bytes = s.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'+' => out.push(b' '),
+            b'%' => {
+                let pair = bytes.get(i + 1..i + 3).ok_or("Invalid percent encoding")?;
+                let hex = std::str::from_utf8(pair).map_err(|e| e.to_string())?;
+                out.push(u8::from_str_radix(hex, 16).map_err(|e| e.to_string())?);
+                i += 2;
             }
-            i += 1;
+            b => out.push(b),
         }
-        String::from_utf8(out).map_err(|e| e.to_string())
+        i += 1;
     }
+    String::from_utf8(out).map_err(|e| e.to_string())
+}
+
+fn resolve_args(query: &str) -> Result<Value, String> {
     let mut args = json!({});
     for pair in query.split('&').filter(|s| !s.is_empty()) {
         let (key, value) = pair
             .split_once('=')
             .ok_or("Expected query parameter=value")?;
-        let key = decode(key)?;
-        let value = decode(value)?;
+        let key = query_param_decode(key)?;
+        let value = query_param_decode(value)?;
         let target = match key.as_str() {
             "q" => "phrase",
             "vessel" => "vessel",
@@ -306,6 +636,29 @@ fn resolve_args(query: &str) -> Result<Value, String> {
         } else {
             json!(value)
         };
+    }
+    Ok(args)
+}
+
+fn query_args(query: &str) -> Result<Value, String> {
+    let mut args = json!({});
+    for pair in query.split('&').filter(|s| !s.is_empty()) {
+        let (key, value) = pair
+            .split_once('=')
+            .ok_or("Expected query parameter=value")?;
+        let key = query_param_decode(key)?;
+        let value = query_param_decode(value)?;
+        match key.as_str() {
+            "sql" => args["sql"] = json!(value),
+            "max_rows" => {
+                let n: u64 = value
+                    .parse()
+                    .map_err(|e| format!("invalid max_rows: {e}"))?;
+                args["max_rows"] = json!(n);
+            }
+            "format" => args["format"] = json!(value),
+            _ => args[key] = json!(value),
+        }
     }
     Ok(args)
 }
@@ -342,7 +695,7 @@ impl Reply {
         stream.flush()
     }
 }
-pub(crate) fn handle(
+pub fn handle(
     stream: &mut TcpStream,
     server: Option<&TiServer>,
     method: &str,
@@ -364,7 +717,6 @@ pub(crate) fn handle(
     };
     stream.set_read_timeout(Some(std::time::Duration::from_secs(30)))?;
     let mut length = None;
-    let mut accept = "";
     for line in headers.lines() {
         if let Some((name, value)) = line.split_once(':') {
             if name.eq_ignore_ascii_case("content-length") {
@@ -379,14 +731,16 @@ pub(crate) fn handle(
             if name.eq_ignore_ascii_case("transfer-encoding") {
                 return Reply::error(400, "Transfer-Encoding is unsupported").write(stream);
             }
-            if name.eq_ignore_ascii_case("accept") {
-                accept = value.trim();
-            }
         }
     }
     let length = length.unwrap_or(0);
-    if length > ti_sql::MAX_BYTES {
-        return Reply::error(413, "Request exceeds 64 KiB").write(stream);
+    let max_allowed = if path.starts_with("/ti/shards/") {
+        16 * 1024 * 1024
+    } else {
+        ti_sql::MAX_BYTES
+    };
+    if length > max_allowed {
+        return Reply::error(413, "Request body exceeds maximum size").write(stream);
     }
     let mut body = initial[..initial.len().min(length)].to_vec();
     while body.len() < length {
@@ -399,7 +753,7 @@ pub(crate) fn handle(
         }
     }
     server
-        .response(method, path, &body, accept)
+        .response(method, path, &body, headers)
         .unwrap_or_else(|e| Reply::error(400, &e))
         .write(stream)
 }
