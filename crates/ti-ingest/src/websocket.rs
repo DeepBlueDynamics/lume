@@ -90,9 +90,11 @@ pub fn subscribe_signalk<S: std::io::Read + std::io::Write>(
 }
 
 /// Process a single text message from the Signal K stream.
+#[allow(clippy::too_many_arguments)]
 pub fn process_message(
     text: &str,
     self_urn: &str,
+    receive_time: std::time::SystemTime,
     bucketer: &mut WatermarkBucketer,
     config: &TiConfig,
     catalog: &dyn Catalog,
@@ -114,7 +116,11 @@ pub fn process_message(
         let _ = rec.record_delta(&delta);
     }
 
-    let (raw_points, meta) = decode_delta(&delta, self_urn, bucketer.max_event_time());
+    let recv_secs = receive_time
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let (raw_points, meta) = decode_delta(&delta, self_urn, recv_secs);
     for (p, v) in meta {
         if let Some(units) = v.get("units").and_then(|u| u.as_str()) {
             bucketer.classifier_mut().register_meta_units(&p, units);
@@ -173,15 +179,20 @@ pub fn run_stream_loop(
                 while running.load(Ordering::Relaxed) {
                     match socket.read() {
                         Ok(Message::Text(text)) => {
-                            documents.ingest_message(
-                                &text,
-                                self_urn,
-                                chrono::Utc::now().timestamp(),
-                                config,
-                            )?;
+                            let receive_time = std::time::SystemTime::now();
+                            let recv_secs = receive_time
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_secs() as i64)
+                                .unwrap_or(0);
+                            if let Err(e) = documents.ingest_message(
+                                &text, self_urn, recv_secs, config,
+                            ) {
+                                eprintln!("Error ingesting notification document: {e}");
+                            }
                             if let Err(e) = process_message(
                                 &text,
                                 self_urn,
+                                receive_time,
                                 bucketer,
                                 config,
                                 catalog,
@@ -222,9 +233,11 @@ pub fn run_stream_loop(
 }
 
 /// Process a single text message from the Signal K stream across multiple stores.
+#[allow(clippy::too_many_arguments)]
 pub fn process_message_multi(
     text: &str,
     self_urn: &str,
+    receive_time: std::time::SystemTime,
     bucketer: &mut MultiStoreBucketer,
     config: &TiConfig,
     catalogs: &BTreeMap<String, &dyn Catalog>,
@@ -246,7 +259,11 @@ pub fn process_message_multi(
         let _ = rec.record_delta(&delta);
     }
 
-    let (raw_points, meta) = decode_delta(&delta, self_urn, bucketer.max_event_time());
+    let recv_secs = receive_time
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let (raw_points, meta) = decode_delta(&delta, self_urn, recv_secs);
     for (p, v) in meta {
         if let Some(units) = v.get("units").and_then(|u| u.as_str()) {
             bucketer.register_meta_units(&p, units);
@@ -305,15 +322,20 @@ pub fn run_stream_loop_multi(
                 while running.load(Ordering::Relaxed) {
                     match socket.read() {
                         Ok(Message::Text(text)) => {
-                            documents.ingest_message(
-                                &text,
-                                self_urn,
-                                chrono::Utc::now().timestamp(),
-                                config,
-                            )?;
+                            let receive_time = std::time::SystemTime::now();
+                            let recv_secs = receive_time
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_secs() as i64)
+                                .unwrap_or(0);
+                            if let Err(e) = documents.ingest_message(
+                                &text, self_urn, recv_secs, config,
+                            ) {
+                                eprintln!("Error ingesting notification document: {e}");
+                            }
                             if let Err(e) = process_message_multi(
                                 &text,
                                 self_urn,
+                                receive_time,
                                 bucketer,
                                 config,
                                 catalogs,
@@ -426,6 +448,7 @@ mod tests {
         let count = process_message(
             &text,
             "vessels.urn:mrn:imo:mmsi:230999999",
+            std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1772510400),
             &mut bucketer,
             &config,
             catalog.as_ref(),
@@ -501,6 +524,7 @@ mod tests {
         let count = process_message_multi(
             &delta.to_string(),
             "vessels.urn:mrn:imo:mmsi:230999999",
+            std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1772510400),
             &mut bucketer,
             &config,
             &catalogs,
@@ -511,5 +535,273 @@ mod tests {
 
         assert_eq!(count, 1);
         bucketer.flush_all(&config, &catalogs, &mut sinks).unwrap();
+    }
+
+    #[test]
+    fn test_websocket_receive_time_skew_and_epoch_prevention() {
+        use ti_contracts::{ShardSink, ShardSource};
+
+        let tmp = tempfile::tempdir().unwrap();
+        let config = TiConfig::default();
+        let mut store = ti_store::Store::open_or_create(tmp.path(), config.width_seconds).unwrap();
+        let catalog = std::sync::Arc::clone(store.catalog());
+        let mut bucketer = WatermarkBucketer::new(&config);
+
+        // Injected receive time: 2026-06-01T12:00:00Z (1_780_315_200)
+        let recv_secs = 1_780_315_200i64;
+        let receive_time =
+            std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(recv_secs as u64);
+
+        // 1. Delta within 5 min (120 s ahead): 2026-06-01T12:02:00Z (1_780_315_320)
+        let delta_close = serde_json::json!({
+            "context": "vessels.self",
+            "updates": [{
+                "$source": "n2k.115",
+                "timestamp": "2026-06-01T12:02:00.000Z",
+                "values": [{
+                    "path": "navigation.speedOverGround",
+                    "value": 5.5
+                }]
+            }]
+        });
+
+        // 2. Delta > 5 min off (2 hours behind): 2026-06-01T10:00:00Z (1_780_308_000)
+        let delta_skewed = serde_json::json!({
+            "context": "vessels.self",
+            "updates": [{
+                "$source": "n2k.115",
+                "timestamp": "2026-06-01T10:00:00.000Z",
+                "values": [{
+                    "path": "navigation.speedOverGround",
+                    "value": 6.0
+                }]
+            }]
+        });
+
+        // 3. Delta at 2020-01-01 EPOCH (1_577_836_800)
+        let delta_epoch = serde_json::json!({
+            "context": "vessels.self",
+            "updates": [{
+                "$source": "n2k.115",
+                "timestamp": "2020-01-01T00:00:00.000Z",
+                "values": [{
+                    "path": "navigation.speedOverGround",
+                    "value": 7.0
+                }]
+            }]
+        });
+
+        let urn = "vessels.urn:mrn:imo:mmsi:230999999";
+        let c1 = process_message(
+            &delta_close.to_string(),
+            urn,
+            receive_time,
+            &mut bucketer,
+            &config,
+            catalog.as_ref(),
+            &mut store,
+            &mut None,
+        )
+        .unwrap();
+        assert_eq!(c1, 1);
+
+        let c2 = process_message(
+            &delta_skewed.to_string(),
+            urn,
+            receive_time,
+            &mut bucketer,
+            &config,
+            catalog.as_ref(),
+            &mut store,
+            &mut None,
+        )
+        .unwrap();
+        assert_eq!(c2, 1);
+
+        let c3 = process_message(
+            &delta_epoch.to_string(),
+            urn,
+            receive_time,
+            &mut bucketer,
+            &config,
+            catalog.as_ref(),
+            &mut store,
+            &mut None,
+        )
+        .unwrap();
+        assert_eq!(c3, 1);
+
+        bucketer
+            .flush_all(&config, catalog.as_ref(), &mut store)
+            .unwrap();
+
+        // Verify that bucketer event times and all shards are in 2026, never 2020 (EPOCH).
+        assert!(bucketer.max_event_time() >= recv_secs);
+
+        let shard_keys = store.shards(None, 0, u32::MAX);
+        assert!(!shard_keys.is_empty(), "Store should have open shards");
+
+        for key in shard_keys {
+            // Shard index 0 corresponds to 2020-01-01 (EPOCH). 2026 shards are >= 300.
+            assert!(
+                key.shard >= 300,
+                "Shard index {} was near EPOCH instead of 2026",
+                key.shard
+            );
+            let entry = store.seal(key).unwrap();
+            let ts_from = ti_contracts::EPOCH + (entry.from as i64 * config.width_seconds as i64);
+            let ts_to =
+                ti_contracts::EPOCH + ((entry.to as i64 + 1) * config.width_seconds as i64);
+            assert!(
+                ts_from >= 1_700_000_000,
+                "Sealed shard ts_from {} was near EPOCH instead of 2026",
+                ts_from
+            );
+            assert!(
+                ts_to >= 1_700_000_000,
+                "Sealed shard ts_to {} was near EPOCH instead of 2026",
+                ts_to
+            );
+        }
+    }
+
+    #[test]
+    fn test_websocket_bad_notification_frame_does_not_stop_loop() {
+        use ti_contracts::ShardSource;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let local_addr = listener.local_addr().unwrap();
+
+        let running = Arc::new(AtomicBool::new(true));
+        let running_server = Arc::clone(&running);
+
+        let now = chrono::Utc::now();
+        let ts1 = (now - chrono::Duration::seconds(100)).to_rfc3339();
+        let ts_bad = (now - chrono::Duration::seconds(80)).to_rfc3339();
+        let ts2 = (now - chrono::Duration::seconds(50)).to_rfc3339();
+        let ts2_clone = ts2.clone();
+
+        let server_thread = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = tungstenite::accept(stream).unwrap();
+
+            // Receive subscription messages
+            let _ = ws.read().unwrap();
+            let _ = ws.read().unwrap();
+
+            // 1. Good delta 1
+            let delta1 = serde_json::json!({
+                "context": "vessels.self",
+                "updates": [{
+                    "$source": "n2k.115",
+                    "timestamp": ts1,
+                    "values": [{
+                        "path": "navigation.speedOverGround",
+                        "value": 5.1
+                    }]
+                }]
+            });
+            ws.send(Message::Text(delta1.to_string())).unwrap();
+
+            // 2. Bad notification frame: invalid notification state triggers an error in NotificationDocuments::ingest
+            let bad_notif = serde_json::json!({
+                "context": "vessels.self",
+                "updates": [{
+                    "$source": "n2k.115",
+                    "timestamp": ts_bad,
+                    "values": [{
+                        "path": "notifications.security",
+                        "value": {
+                            "state": "invalid_bogus_state",
+                            "message": "test error"
+                        }
+                    }]
+                }]
+            });
+            ws.send(Message::Text(bad_notif.to_string())).unwrap();
+
+            // 3. Good delta 2 (different 10 s bucket so universe has 2 buckets)
+            let delta2 = serde_json::json!({
+                "context": "vessels.self",
+                "updates": [{
+                    "$source": "n2k.115",
+                    "timestamp": ts2_clone,
+                    "values": [{
+                        "path": "navigation.speedOverGround",
+                        "value": 5.8
+                    }]
+                }]
+            });
+            ws.send(Message::Text(delta2.to_string())).unwrap();
+
+            // Ping to verify client has processed delta2
+            ws.send(Message::Ping(vec![])).unwrap();
+            assert!(matches!(ws.read().unwrap(), Message::Pong(_)));
+
+            // Signal shutdown and close connection
+            running_server.store(false, Ordering::Relaxed);
+            ws.close(None).unwrap();
+        });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let config = TiConfig {
+            store_root: tmp.path().to_string_lossy().into_owned(),
+            signal_k: ti_contracts::SignalKConfig {
+                url: format!("ws://{local_addr}/signalk/v1/stream?subscribe=none"),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let mut store = ti_store::Store::open_or_create(tmp.path(), config.width_seconds).unwrap();
+        let catalog = std::sync::Arc::clone(store.catalog());
+        let mut bucketer = WatermarkBucketer::new(&config);
+
+        let running_client = Arc::clone(&running);
+        let stream_res = run_stream_loop(
+            "vessels.urn:mrn:imo:mmsi:230999999",
+            &config,
+            catalog.as_ref(),
+            &mut store,
+            &mut bucketer,
+            running_client,
+            None,
+        );
+
+        assert!(
+            stream_res.is_ok(),
+            "run_stream_loop should not fail on bad notification: {:?}",
+            stream_res
+        );
+        server_thread.join().unwrap();
+
+        // Verify that both good deltas were processed into store open shards
+        let ts2_secs = chrono::DateTime::parse_from_rfc3339(&ts2)
+            .unwrap()
+            .timestamp();
+        let ts2_bucket =
+            ((ts2_secs - ti_contracts::EPOCH) / (config.width_seconds as i64)) as u32;
+
+        let ts2_col = ts2_bucket & 0xffff;
+
+        let shard_keys = store.shards(None, 0, u32::MAX);
+        assert!(!shard_keys.is_empty(), "Store should contain open shards");
+        let mut delta2_found = false;
+        let mut total_records = 0;
+        for key in &shard_keys {
+            let shard = store.open_shard(key).unwrap();
+            total_records += shard.data.universe().len();
+            if shard.data.universe().contains(ts2_col) {
+                delta2_found = true;
+            }
+        }
+        assert!(
+            delta2_found,
+            "Delta 2 bucket must be present in store after bad notification frame"
+        );
+        assert_eq!(
+            total_records, 3,
+            "Expected 3 buckets across stream including delta 2"
+        );
     }
 }
