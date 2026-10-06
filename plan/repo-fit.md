@@ -120,6 +120,6 @@ against plugin and server source. The main corrections:
 - **Notifications:** `nominal` is a valid state, and clearing an alarm sets `state: "normal"`.
 - **Notes:** the endpoint returns an object keyed by UUID. The only time field is `timestamp`, which is last-modified, so the "time range" of a note is weakly defined.
 
-Lead decision (D-number assigned at the next merge; agents are using D18+): the oracle's and TI's `raw` is a **normalizing view** over the real layout:
+Decision **D20** (lead): the oracle's and TI's `raw` is a **normalizing view** over the real layout:
 `context, ts TIMESTAMP, path, value DOUBLE, value_str VARCHAR, source VARCHAR`, plus flattened
 object keys. Corpus oracles target that view. The generator writes the real signalk-parquet layout.

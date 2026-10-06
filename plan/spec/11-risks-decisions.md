@@ -52,12 +52,10 @@ and cheaply.
 | D17 | Contract types derive `Debug, Clone, PartialEq` (plus `Eq` where all fields allow); `Predicate`/`FieldValue` also need them for proptest | Lead decision: spec/10 showed derives only on `ShardKey`, but W1's proptests and every lane's fixtures need to construct, print and compare these values. Applied in W0 part 2 |
 | D18 | serde 1.0 with derive in ti-contracts | W0 part 2: ti.toml schema and frozen WAL value serialization; root default build still gates TI dependencies behind ti |
 | D19 | toml 0.9 in ti-contracts | W0 part 2: parse the typed ti.toml schema, reject unknown keys and report key-qualified validation errors; pure Rust |
+| D20 | `raw` (for both the DuckDB oracle and TI) is a normalizing view over the real signalk-parquet layout: `context, ts TIMESTAMP, path, value DOUBLE, value_str VARCHAR, source`, with object keys flattened to `path.key` | Lead decision after [design/signalk-formats.md](../design/signalk-formats.md) found string timestamps, no `$source` column and per-file value types. Oracles stay layout-independent, and the generator writes the real layout so the view is tested against it ([repo-fit §10](../repo-fit.md)) |
+| D21 | Ordinary set fields are single-valued per bucket: exactly one row bit per column, the last preferred-source value. Rows are pairwise disjoint and union to presence; the Arrow type is Utf8. `$source` stays multi-valued `List<Utf8>`, and W4 rewrites `=` to `array_has` | Lead ruling at the contracts freeze: with Exact pushdown, a filter must agree with the projected value, because DataFusion doesn't re-check it. Mid-bucket changes are covered by `@starts` / edge counts. Enforced by `validate_ordinary_set_rows` |
 
-### Set-field freeze (lead ruling, 2026-10-06)
-
-Ordinary set fields keep exactly one last preferred-source value per bucket. Their rows are pairwise disjoint and union to presence; Arrow is Utf8. $source remains multi-valued List<Utf8>; W4 rewrites scalar equality to array_has before type coercion. Exact pushdown must agree with projection. Numbering will be assigned by the integrator: D19 is already the TOML dependency decision, and Prawn owns D20+.
-
-New decisions go below as D20+. Every new runtime dependency needs a line here
+New decisions go below as D22+ (Zygomorphic Prawn's corpus/generator lane takes the next numbers). Every new runtime dependency needs a line here
 (PR rule, [10-contracts](10-contracts.md)).
 
 ## Sources (from spec)
