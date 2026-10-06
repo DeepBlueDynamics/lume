@@ -212,6 +212,54 @@ impl VisitorMut for Rewriter<'_> {
         }
     }
 }
+/// sqlparser 0.62 parses the right operand of `IS [NOT] DISTINCT FROM` with
+/// `parse_expr`, so `a IS DISTINCT FROM 'x' AND b > 1` becomes
+/// `a IS DISTINCT FROM ('x' AND b > 1)`. Re-associate: the comparison takes the
+/// leftmost operand of the swallowed AND/OR chain, parenthesized so the printed
+/// SQL re-parses the same way in DataFusion.
+struct DistinctFromPrecedence;
+fn leftmost_logical_operand(e: &mut Expr) -> &mut Expr {
+    match e {
+        Expr::BinaryOp {
+            left,
+            op: BinaryOperator::And | BinaryOperator::Or | BinaryOperator::Xor,
+            ..
+        } => leftmost_logical_operand(left),
+        _ => e,
+    }
+}
+impl VisitorMut for DistinctFromPrecedence {
+    type Break = ();
+    fn post_visit_expr(&mut self, e: &mut Expr) -> ControlFlow<()> {
+        let negated = match e {
+            Expr::IsDistinctFrom(_, rhs) | Expr::IsNotDistinctFrom(_, rhs)
+                if matches!(
+                    **rhs,
+                    Expr::BinaryOp {
+                        op: BinaryOperator::And | BinaryOperator::Or | BinaryOperator::Xor,
+                        ..
+                    }
+                ) =>
+            {
+                matches!(e, Expr::IsNotDistinctFrom(..))
+            }
+            _ => return ControlFlow::Continue(()),
+        };
+        let (lhs, mut chain) = match std::mem::replace(e, Expr::Value(Value::Null.into())) {
+            Expr::IsDistinctFrom(l, r) | Expr::IsNotDistinctFrom(l, r) => (l, *r),
+            _ => unreachable!("matched above"),
+        };
+        let slot = leftmost_logical_operand(&mut chain);
+        let operand = Box::new(std::mem::replace(slot, Expr::Value(Value::Null.into())));
+        *slot = Expr::Nested(Box::new(if negated {
+            Expr::IsNotDistinctFrom(lhs, operand)
+        } else {
+            Expr::IsDistinctFrom(lhs, operand)
+        }));
+        *e = chain;
+        ControlFlow::Continue(())
+    }
+}
 /// DataFusion accepts named table-function arguments but does not bind their
 /// names. Normalize intervals arguments before handing the AST to it.
 struct IntervalArgs;
@@ -356,6 +404,7 @@ pub fn rewrite_sql(sql: &str, catalog: &SqlCatalog) -> Result<String> {
             "table {names} is derived and read-only; DML/DDL is rejected"
         )));
     }
+    let _ = statement.visit(&mut DistinctFromPrecedence);
     if let ControlFlow::Break(e) = statement.visit(&mut IntervalArgs) {
         return Err(e);
     }
@@ -373,4 +422,29 @@ pub fn rewrite_sql(sql: &str, catalog: &SqlCatalog) -> Result<String> {
         return Err(e);
     }
     Ok(statement.to_string())
+}
+
+#[cfg(test)]
+mod distinct_from_tests {
+    use super::*;
+    fn fixed(sql: &str) -> String {
+        let mut statements = Parser::parse_sql(&GenericDialect {}, sql).unwrap();
+        let _ = statements[0].visit(&mut DistinctFromPrecedence);
+        statements[0].to_string()
+    }
+    #[test]
+    fn distinct_from_binds_tighter_than_and_or() {
+        assert_eq!(
+            fixed("SELECT 1 FROM t WHERE a IS DISTINCT FROM 'x' AND b < 2 AND c > 3"),
+            "SELECT 1 FROM t WHERE (a IS DISTINCT FROM 'x') AND b < 2 AND c > 3"
+        );
+        assert_eq!(
+            fixed("SELECT 1 FROM t WHERE a IS NOT DISTINCT FROM 'x' OR b IS DISTINCT FROM 'y' AND c > 3"),
+            "SELECT 1 FROM t WHERE (a IS NOT DISTINCT FROM 'x') OR (b IS DISTINCT FROM 'y') AND c > 3"
+        );
+        assert_eq!(
+            fixed("SELECT 1 FROM t WHERE a IS DISTINCT FROM 'x'"),
+            "SELECT 1 FROM t WHERE a IS DISTINCT FROM 'x'"
+        );
+    }
 }
