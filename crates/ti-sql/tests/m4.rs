@@ -343,15 +343,42 @@ async fn deterministic_random_aggregates_match_materialization() {
     }
     compare(&s, &baseline, "SELECT count(*),count(wind),sum(wind),min(wind),max(wind) FROM telemetry WHERE wind IS NULL").await;
 }
+fn benchmark_parameter(name: &str, default: u32) -> u32 {
+    let value = match std::env::var(name) {
+        Ok(value) => value
+            .parse::<u32>()
+            .unwrap_or_else(|_| panic!("{name} must be a positive u32")),
+        Err(std::env::VarError::NotPresent) => default,
+        Err(error) => panic!("{name}: {error}"),
+    };
+    assert!(value > 0, "{name} must be positive");
+    value
+}
+
 #[tokio::test]
 #[ignore = "synthetic one-year Q4 performance measurement"]
 async fn synthetic_year_benchmark() {
     use std::time::Instant;
+    let width = u64::from(benchmark_parameter("TI_Q4_WIDTH_SECONDS", 60));
+    let vessels = benchmark_parameter("TI_Q4_VESSELS", 50);
+    let days = benchmark_parameter("TI_Q4_DAYS", 365);
+    let runs = benchmark_parameter("TI_Q4_RUNS", 3);
+    assert!(
+        !runs.is_multiple_of(2),
+        "TI_Q4_RUNS must be odd for an exact median"
+    );
+    let buckets = u32::try_from((u64::from(days) * 86_400).div_ceil(width))
+        .expect("benchmark duration exceeds the u32 bucket space");
+    let profile = if cfg!(debug_assertions) {
+        "debug"
+    } else {
+        "release"
+    };
     let build = Instant::now();
-    let s = generated(60, 50, 365 * 24 * 60, false).await;
+    let s = generated(width, vessels, buckets, false).await;
     println!(
-        "fixture: 365 days, 50 vessels, width=60s, {} buckets, build={:?}",
-        50u64 * 365 * 24 * 60,
+        "fixture: {days} days, {vessels} vessels, width={width}s, {} buckets, build={:?}, {profile} profile",
+        u64::from(vessels) * u64::from(buckets),
         build.elapsed()
     );
     let baseline =
@@ -364,7 +391,7 @@ async fn synthetic_year_benchmark() {
     assert!(plan.contains("BitmapAggregateExec chosen"), "{plan}");
     let mut bitmap = vec![];
     let mut materialized = vec![];
-    for _ in 0..3 {
+    for run in 0..runs {
         let t = Instant::now();
         let a = s.query(sql).await.unwrap();
         bitmap.push(t.elapsed().as_secs_f64());
@@ -372,9 +399,16 @@ async fn synthetic_year_benchmark() {
         let b = baseline.query(sql).await.unwrap();
         materialized.push(t.elapsed().as_secs_f64());
         assert_eq!(formatted(&a), formatted(&b));
+        println!(
+            "Q4 run {}: bitmap={:.6}s, materialized={:.6}s; identical results",
+            run + 1,
+            bitmap[run as usize],
+            materialized[run as usize]
+        );
     }
     bitmap.sort_by(f64::total_cmp);
     materialized.sort_by(f64::total_cmp);
-    println!("Q4 median: bitmap={:.6}s, materialized={:.6}s, ratio={:.2}x; bitmap runs={bitmap:?}; materialized runs={materialized:?}; debug profile",
-        bitmap[1], materialized[1], materialized[1]/bitmap[1]);
+    let middle = (runs / 2) as usize;
+    println!("Q4 median: bitmap={:.6}s, materialized={:.6}s, ratio={:.2}x; bitmap runs={bitmap:?}; materialized runs={materialized:?}; {profile} profile",
+        bitmap[middle], materialized[middle], materialized[middle]/bitmap[middle]);
 }
