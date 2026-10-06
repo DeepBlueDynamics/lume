@@ -294,13 +294,11 @@ impl WatermarkBucketer {
 }
 
 fn source_priority(path: &str, source: &str, config: &TiConfig) -> usize {
-    if let Some(list) = config.source_priorities.get(path) {
-        if let Some(pos) = list.iter().position(|s| s == source) {
-            return pos;
-        }
-        return list.len() + 10;
-    }
-    0
+    config
+        .source_priorities
+        .get(path)
+        .and_then(|l| l.iter().position(|s| s == source))
+        .unwrap_or(0)
 }
 
 fn populate_window(
@@ -379,6 +377,20 @@ impl MultiStoreBucketer {
         self.bucketers.keys()
     }
 
+    pub fn max_event_time(&self) -> i64 {
+        self.bucketers
+            .values()
+            .map(|b| b.max_event_time())
+            .max()
+            .unwrap_or(EPOCH)
+    }
+
+    pub fn register_meta_units(&mut self, path: &str, units: &str) {
+        for b in self.bucketers.values_mut() {
+            b.classifier_mut().register_meta_units(path, units);
+        }
+    }
+
     /// Ingest a normalized data point, fanning it out to every store whose allow-list matches.
     /// Returns the number of stores that ingested the point.
     #[allow(clippy::too_many_arguments)]
@@ -454,5 +466,109 @@ impl MultiStoreBucketer {
             }
         }
         Ok(total)
+    }
+
+    /// Ingest a batch of raw data points in backfill mode.
+    /// For each store whose sink and catalog are provided, points are normalized,
+    /// filtered by that store's allow-list, classified, accumulated into that store's
+    /// bucket windows, and emitted with `rewrite: true`.
+    /// Records are applied to each store's sink in chunks of at most `chunk_size` records.
+    /// Returns the number of buckets emitted per store.
+    pub fn backfill_raw_points(
+        &mut self,
+        raw_points: &[crate::decode::RawDataPoint],
+        config: &TiConfig,
+        catalogs: &BTreeMap<String, &dyn Catalog>,
+        sinks: &mut BTreeMap<String, &mut dyn ShardSink>,
+        chunk_size: usize,
+    ) -> Result<BTreeMap<String, usize>> {
+        let mut emitted_counts = BTreeMap::new();
+
+        for (name, bucketer) in &mut self.bucketers {
+            if let (Some(catalog), Some(sink)) = (catalogs.get(name), sinks.get_mut(name)) {
+                let mut windows: BTreeMap<(VesselOrd, u32), BucketWindow> = BTreeMap::new();
+                let width_seconds = bucketer.width_seconds();
+                let store_aggs = bucketer.store_aggs().clone();
+                let store_aggs_opt = if store_aggs.is_empty() {
+                    None
+                } else {
+                    Some(&store_aggs)
+                };
+
+                for raw in raw_points {
+                    let norm_points = crate::normalize::normalize_point(
+                        raw.clone(),
+                        &config.allow_paths,
+                        &config.deny_paths,
+                    );
+                    for p in norm_points {
+                        if !bucketer.is_path_allowed(&p.path, config) {
+                            continue;
+                        }
+
+                        let canonical_urn = if p.context.starts_with("vessels.urn:") {
+                            p.context.clone()
+                        } else if p.context.starts_with("urn:") {
+                            format!("vessels.{}", p.context)
+                        } else {
+                            p.context.clone()
+                        };
+
+                        let vessel = catalog.register_vessel(&VesselSpec {
+                            urn: canonical_urn,
+                            name: None,
+                            mmsi: None,
+                        })?;
+                        let bucket_ix = bucket_of(p.timestamp, width_seconds)?;
+
+                        let (eff_path, kind) = match bucketer
+                            .classifier_mut()
+                            .classify(&p.context, &p.path, &p.value)
+                        {
+                            Some(res) => res,
+                            None => continue,
+                        };
+
+                        let window = windows.entry((vessel, bucket_ix)).or_default();
+                        populate_window(
+                            window,
+                            &eff_path,
+                            &p.value,
+                            &p.source,
+                            p.timestamp,
+                            &kind,
+                            config,
+                        )?;
+                    }
+                }
+
+                let mut buckets_emitted = 0;
+                let mut pending = Vec::new();
+                for ((vessel, bucket_ix), window) in windows {
+                    let records = window.emit_records_with_aggs(
+                        vessel,
+                        bucket_ix,
+                        true,
+                        store_aggs_opt,
+                        config,
+                        *catalog,
+                    )?;
+                    if !records.is_empty() {
+                        pending.extend(records);
+                        buckets_emitted += 1;
+                        if pending.len() >= chunk_size {
+                            sink.apply(&pending)?;
+                            pending.clear();
+                        }
+                    }
+                }
+                if !pending.is_empty() {
+                    sink.apply(&pending)?;
+                }
+                emitted_counts.insert(name.clone(), buckets_emitted);
+            }
+        }
+
+        Ok(emitted_counts)
     }
 }

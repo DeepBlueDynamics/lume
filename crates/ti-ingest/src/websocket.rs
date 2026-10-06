@@ -7,6 +7,7 @@
 //! - Reconnect loop with exponential backoff
 //! - Live session recording to NDJSON via `DeltaRecorder`
 
+use std::collections::BTreeMap;
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -20,7 +21,7 @@ use tungstenite::{connect, Message, WebSocket};
 use crate::decode::decode_delta;
 use crate::normalize::normalize_point;
 use crate::recorder::DeltaRecorder;
-use crate::watermark::WatermarkBucketer;
+use crate::watermark::{MultiStoreBucketer, WatermarkBucketer};
 
 /// Build the two Signal K subscription messages required by spec 06:
 /// 1. All paths at 1000ms period with instant policy.
@@ -211,6 +212,130 @@ pub fn run_stream_loop(
     Ok(())
 }
 
+/// Process a single text message from the Signal K stream across multiple stores.
+pub fn process_message_multi(
+    text: &str,
+    self_urn: &str,
+    bucketer: &mut MultiStoreBucketer,
+    config: &TiConfig,
+    catalogs: &BTreeMap<String, &dyn Catalog>,
+    sinks: &mut BTreeMap<String, &mut dyn ShardSink>,
+    recorder: &mut Option<DeltaRecorder>,
+) -> Result<usize> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Ok(0);
+    }
+
+    // Try parsing as a delta
+    let delta: crate::decode::SignalKDelta = match serde_json::from_str(trimmed) {
+        Ok(d) => d,
+        Err(_) => return Ok(0), // Ignore non-delta messages (e.g. server hello / responses)
+    };
+
+    if let Some(rec) = recorder {
+        let _ = rec.record_delta(&delta);
+    }
+
+    let (raw_points, meta) = decode_delta(&delta, self_urn, bucketer.max_event_time());
+    for (p, v) in meta {
+        if let Some(units) = v.get("units").and_then(|u| u.as_str()) {
+            bucketer.register_meta_units(&p, units);
+        }
+    }
+
+    let mut points_ingested = 0;
+    for raw in raw_points {
+        let norm_points = normalize_point(raw, &config.allow_paths, &config.deny_paths);
+        for p in norm_points {
+            bucketer.ingest_point(
+                &p.context,
+                &p.path,
+                &p.source,
+                p.timestamp,
+                &p.value,
+                config,
+                catalogs,
+                sinks,
+            )?;
+            points_ingested += 1;
+        }
+    }
+
+    Ok(points_ingested)
+}
+
+/// Run the blocking Signal K stream loop with reconnect and exponential backoff across multiple stores.
+pub fn run_stream_loop_multi(
+    self_urn: &str,
+    config: &TiConfig,
+    catalogs: &BTreeMap<String, &dyn Catalog>,
+    sinks: &mut BTreeMap<String, &mut dyn ShardSink>,
+    bucketer: &mut MultiStoreBucketer,
+    running: Arc<AtomicBool>,
+    mut recorder: Option<DeltaRecorder>,
+) -> Result<()> {
+    let url = &config.signal_k.url;
+    let token = config.signal_k.token.as_deref();
+
+    let mut backoff = Duration::from_secs(1);
+    let max_backoff = Duration::from_secs(30);
+
+    while running.load(Ordering::Relaxed) {
+        match connect_signalk(url, token) {
+            Ok(mut socket) => {
+                backoff = Duration::from_secs(1);
+                if let Err(e) = subscribe_signalk(&mut socket) {
+                    eprintln!("Failed to send subscribe messages: {e}");
+                    std::thread::sleep(backoff);
+                    continue;
+                }
+
+                while running.load(Ordering::Relaxed) {
+                    match socket.read() {
+                        Ok(Message::Text(text)) => {
+                            if let Err(e) = process_message_multi(
+                                &text,
+                                self_urn,
+                                bucketer,
+                                config,
+                                catalogs,
+                                sinks,
+                                &mut recorder,
+                            ) {
+                                eprintln!("Error processing Signal K message: {e}");
+                            }
+                        }
+                        Ok(Message::Ping(payload)) => {
+                            let _ = socket.send(Message::Pong(payload));
+                        }
+                        Ok(Message::Close(_)) => {
+                            break;
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            if running.load(Ordering::Relaxed) {
+                                eprintln!("Signal K stream read error: {e}");
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                if running.load(Ordering::Relaxed) {
+                    eprintln!("Signal K connection error ({e}), retrying in {backoff:?}...");
+                    std::thread::sleep(backoff);
+                    backoff = (backoff * 2).min(max_backoff);
+                }
+            }
+        }
+    }
+
+    bucketer.flush_all(config, catalogs, sinks)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -298,5 +423,76 @@ mod tests {
             .unwrap();
 
         server_thread.join().unwrap();
+    }
+
+    #[test]
+    fn test_websocket_process_message_multi() {
+        use ti_contracts::StoreConfig;
+
+        let tmp_default = tempfile::tempdir().unwrap();
+        let tmp_hr = tempfile::tempdir().unwrap();
+
+        let mut config = TiConfig::default();
+        let mut stores = BTreeMap::new();
+        stores.insert(
+            "default".to_string(),
+            StoreConfig {
+                width: "10s".to_string(),
+                retention: "30d".to_string(),
+                ..Default::default()
+            },
+        );
+        stores.insert(
+            "hr".to_string(),
+            StoreConfig {
+                width: "1s".to_string(),
+                retention: "7d".to_string(),
+                paths: Some(vec!["navigation.*".to_string()]),
+                ..Default::default()
+            },
+        );
+        config.stores = stores;
+
+        let mut default_store = ti_store::Store::open_or_create(tmp_default.path(), 10).unwrap();
+        let default_catalog = std::sync::Arc::clone(default_store.catalog());
+
+        let mut hr_store = ti_store::Store::open_or_create(tmp_hr.path(), 1).unwrap();
+        let hr_catalog = std::sync::Arc::clone(hr_store.catalog());
+
+        let mut catalogs: BTreeMap<String, &dyn Catalog> = BTreeMap::new();
+        catalogs.insert("default".to_string(), default_catalog.as_ref());
+        catalogs.insert("hr".to_string(), hr_catalog.as_ref());
+
+        let mut sinks: BTreeMap<String, &mut dyn ShardSink> = BTreeMap::new();
+        sinks.insert("default".to_string(), &mut default_store);
+        sinks.insert("hr".to_string(), &mut hr_store);
+
+        let mut bucketer = MultiStoreBucketer::new(&config).unwrap();
+
+        let delta = serde_json::json!({
+            "context": "vessels.self",
+            "updates": [{
+                "$source": "n2k.115",
+                "timestamp": "2026-03-03T04:00:00.000Z",
+                "values": [{
+                    "path": "navigation.speedOverGround",
+                    "value": 6.8
+                }]
+            }]
+        });
+
+        let count = process_message_multi(
+            &delta.to_string(),
+            "vessels.urn:mrn:imo:mmsi:230999999",
+            &mut bucketer,
+            &config,
+            &catalogs,
+            &mut sinks,
+            &mut None,
+        )
+        .unwrap();
+
+        assert_eq!(count, 1);
+        bucketer.flush_all(&config, &catalogs, &mut sinks).unwrap();
     }
 }

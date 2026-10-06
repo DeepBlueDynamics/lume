@@ -1,4 +1,4 @@
-use crate::{core_error, rewrite_sql, ScanReport, SqlCatalog, TelemetryProvider};
+use crate::{core_error, ScanReport, SqlCatalog, TelemetryProvider};
 use datafusion::arrow::array::{
     Array, ArrayRef, BooleanArray, StringArray, TimestampSecondArray, UInt32Array, UInt64Array,
     UInt8Array,
@@ -20,6 +20,7 @@ pub struct SqlSession {
     reports: Arc<Mutex<Vec<ScanReport>>>,
     aggregate_diagnostics: Arc<Mutex<Vec<String>>>,
     text: std::sync::atomic::AtomicBool,
+    pub extra_catalogs: Arc<Mutex<BTreeMap<String, Arc<SqlCatalog>>>>,
 }
 fn timestamp(v: Vec<i64>) -> ArrayRef {
     Arc::new(TimestampSecondArray::from(v).with_timezone("UTC"))
@@ -223,6 +224,7 @@ impl SqlSession {
             }),
         );
         register_functions(&context, source.clone(), catalog.clone());
+        let extra_catalogs = Arc::new(Mutex::new(BTreeMap::new()));
         Ok(Self {
             context,
             catalog,
@@ -230,6 +232,7 @@ impl SqlSession {
             reports,
             aggregate_diagnostics,
             text: std::sync::atomic::AtomicBool::new(false),
+            extra_catalogs,
         })
     }
     /// Install the W5 document index: the `docs` table and `match(body, q)` on it.
@@ -271,17 +274,52 @@ impl SqlSession {
         self.context.register_table(name, provider)?;
         Ok(())
     }
+    /// Register an additional store as its own telemetry table (e.g. `telemetry_hr`).
+    pub fn register_store_table(
+        &self,
+        table_name: &str,
+        source: Arc<dyn ShardSource>,
+        catalog: Arc<SqlCatalog>,
+    ) -> Result<()> {
+        let provider = Arc::new(TelemetryProvider {
+            source,
+            catalog: catalog.clone(),
+            reports: self.reports.clone(),
+        });
+        self.context.register_table(table_name, provider)?;
+        self.extra_catalogs
+            .lock()
+            .map_err(|_| DataFusionError::Execution("extra_catalogs lock poisoned".into()))?
+            .insert(table_name.to_string(), catalog);
+        Ok(())
+    }
+    /// Retrieve all active catalogs (default catalog + all registered extra catalogs).
+    pub fn all_catalogs(&self) -> Result<Vec<Arc<SqlCatalog>>> {
+        let mut cats = vec![self.catalog.clone()];
+        let extras = self
+            .extra_catalogs
+            .lock()
+            .map_err(|_| DataFusionError::Execution("extra_catalogs lock poisoned".into()))?;
+        for cat in extras.values() {
+            cats.push(cat.clone());
+        }
+        Ok(cats)
+    }
     pub async fn register_raw(&self, root: &std::path::Path) -> Result<()> {
         crate::raw::register_raw(&self.context, root).await
     }
     /// Prepare a read-only DataFrame. W7 can bind placeholders with DataFusion's
     /// with_param_values API; the same analyzer then protects timestamp precision.
     pub async fn prepare(&self, sql: &str) -> Result<datafusion::dataframe::DataFrame> {
-        let sql = rewrite_sql(sql, &self.catalog)?;
+        let catalogs = self.all_catalogs()?;
+        let cat_refs: Vec<&SqlCatalog> = catalogs.iter().map(|c| c.as_ref()).collect();
+        let sql = crate::rewrite_sql_with_catalogs(sql, &cat_refs)?;
         self.context.sql(&sql).await
     }
     pub async fn query(&self, sql: &str) -> Result<Vec<RecordBatch>> {
-        let sql = rewrite_sql(sql, &self.catalog)?;
+        let catalogs = self.all_catalogs()?;
+        let cat_refs: Vec<&SqlCatalog> = catalogs.iter().map(|c| c.as_ref()).collect();
+        let sql = crate::rewrite_sql_with_catalogs(sql, &cat_refs)?;
         let statements = datafusion::sql::sqlparser::parser::Parser::parse_sql(
             &datafusion::sql::sqlparser::dialect::GenericDialect {},
             &sql,
@@ -312,7 +350,9 @@ impl SqlSession {
             .lock()
             .map_err(|_| DataFusionError::Execution("aggregate diagnostics lock poisoned".into()))?
             .len();
-        let rewritten = rewrite_sql(sql, &self.catalog)?;
+        let catalogs = self.all_catalogs()?;
+        let cat_refs: Vec<&SqlCatalog> = catalogs.iter().map(|c| c.as_ref()).collect();
+        let rewritten = crate::rewrite_sql_with_catalogs(sql, &cat_refs)?;
         let dataframe = self.context.sql(&rewritten).await?;
         let physical = dataframe.create_physical_plan().await?;
         let plan = datafusion::physical_plan::displayable(physical.as_ref())

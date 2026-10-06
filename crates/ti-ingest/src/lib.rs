@@ -27,14 +27,15 @@ pub use derived::{DerivedEvent, DerivedTracker};
 pub use influx::{map_influx_point, InfluxPoint, InfluxValue};
 pub use normalize::{normalize_point, NormalizedPoint, NormalizedValue};
 pub use parquet::{
-    backfill_directory, backfill_parquet_file, compute_file_hash, hash_to_hex, read_parquet_points,
+    backfill_directory, backfill_directory_stores, backfill_parquet_file,
+    backfill_parquet_file_stores, compute_file_hash, hash_to_hex, read_parquet_points,
     BackfillStatus,
 };
 pub use recorder::{DeltaRecorder, DeltaReplay};
 pub use watermark::{MultiStoreBucketer, WatermarkBucketer};
 pub use websocket::{
-    build_subscription_messages, connect_signalk, process_message, run_stream_loop,
-    subscribe_signalk,
+    build_subscription_messages, connect_signalk, process_message, process_message_multi,
+    run_stream_loop, run_stream_loop_multi, subscribe_signalk,
 };
 
 pub fn init() {}

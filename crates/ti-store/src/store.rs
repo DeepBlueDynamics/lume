@@ -226,21 +226,12 @@ impl Store {
         let cutoff_ts = now_timestamp - (retention_seconds as i64);
         let mut dropped = Vec::new();
 
-        // Check sealed shards in manifest
+        // Check sealed shards in manifest only: open shards are active and
+        // must never be dropped while still open (to prevent resurrection on WAL replay).
         for entry in self.manifest.entries() {
             let end_ts = EPOCH + ((entry.to as i64 + 1) * (self.width_seconds as i64));
             if end_ts <= cutoff_ts {
                 dropped.push(entry.key);
-            }
-        }
-
-        // Check open shards
-        for key in self.open_shards.keys() {
-            let base = key.shard << 16;
-            let end = base | 0xffff;
-            let end_ts = EPOCH + ((end as i64 + 1) * (self.width_seconds as i64));
-            if end_ts <= cutoff_ts && !dropped.contains(key) {
-                dropped.push(*key);
             }
         }
 
