@@ -5,6 +5,8 @@
   // The webapp is served at /signalk-lume-ti/, but the plugin router (and its API) lives at
   // /plugins/signalk-lume-ti/. Requests need the user's Signal K login (same-origin cookie).
   const apiBase = '/plugins/signalk-lume-ti';
+  // Signal K guards plugin routes; a 401 means this browser has no Signal K session yet.
+  const loginHint = 'Not logged in to Signal K. Log in at /admin/#/login (top-right Login), then reload this page.';
 
   let lastQueryRows = [];
   let lastQueryColumns = [];
@@ -108,6 +110,7 @@
 
       const elapsedMs = Math.round(performance.now() - t0);
 
+      if (res.status === 401) throw new Error(loginHint);
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({ error: res.statusText }));
         throw new Error(errJson.error || `HTTP ${res.status}: ${res.statusText}`);
@@ -241,6 +244,7 @@
 
     try {
       const res = await fetch(`${apiBase}/api/schema`);
+      if (res.status === 401) throw new Error(loginHint);
       if (!res.ok) {
         throw new Error(`Failed loading schema: HTTP ${res.status}`);
       }

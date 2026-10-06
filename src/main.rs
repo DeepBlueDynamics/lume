@@ -16,6 +16,14 @@ use lume::search::{
 };
 
 fn main() {
+    // Debug builds of the TI serve path (DataFusion + pgwire futures) exceed the 1 MB Windows main stack.
+    let main = std::thread::Builder::new().stack_size(64 << 20).spawn(lume_main).expect("spawn main thread");
+    if let Err(panic) = main.join() {
+        std::panic::resume_unwind(panic);
+    }
+}
+
+fn lume_main() {
     let mut args: Vec<String> = env::args().collect();
     
     // Parse global --shivvr-url parameter first

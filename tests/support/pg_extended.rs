@@ -2,7 +2,11 @@ use super::*;
 const VERIFIER: &str = "SCRAM-SHA-256$4096:W22ZaJ0SNY7soEsUEjb6gQ==$WG5d8oPm3OtcPnkdi4Uo7BkeZkBFzpcXkuLmtbsT4qY=:wfPLwcE6nTWhTAmQ7tl2KeoiWGPlZqQxSrmfPwDl2dU=";
 fn connection_config(server: &Server) -> tokio_postgres::Config {
     let mut config = tokio_postgres::Config::new();
-    config.host(server.pg.rsplit_once(':').unwrap().0).port(server.pg.rsplit(':').next().unwrap().parse().unwrap()).user("lume").dbname("ti");
+    config
+        .host(server.pg.rsplit_once(':').unwrap().0)
+        .port(server.pg.rsplit(':').next().unwrap().parse().unwrap())
+        .user("lume")
+        .dbname("ti");
     config
 }
 #[test]
@@ -59,7 +63,14 @@ fn scram_accept_reject_unknown_user_on_explicit_loopback() {
             config.password("pencil");
             let (client, connection) = config.connect(tokio_postgres::NoTls).await.unwrap();
             let task = tokio::spawn(connection);
-            assert_eq!(client.query_one("SELECT 42::BIGINT AS n", &[]).await.unwrap().get::<_, i64>(0), 42);
+            assert_eq!(
+                client
+                    .query_one("SELECT 42::BIGINT AS n", &[])
+                    .await
+                    .unwrap()
+                    .get::<_, i64>(0),
+                42
+            );
             drop(client);
             task.await.unwrap().unwrap();
         });
