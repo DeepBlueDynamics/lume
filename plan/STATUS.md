@@ -1,68 +1,80 @@
 # Lume TI — Status board
 
-Last updated: **2026-10-06** (docs keeper, after `39c0096`: **HTTP `/ti` and `ti_resolve` merged**, **M5 item 1 met** at 93/100; full corpus 58/0/4)
+Last updated: **2026-10-06** (docs keeper, after `dd2db2f`: **W9 and W10 accepted**, pgwire, ti-sync, live ingest service, Signal K plugin, D37/D38; Pi 5 deployment under way)
 
-Integration branch `plan/lume-ti` is at `39c0096`. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46 at `8e87a11`. Host checks on `39c0096`: `cargo test --features ti` **55 passed**, strict clippy clean, default build green.
-Workspace members: `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench`, `ti-geo`. Next free decision: **D37** (ask the lead before taking it).
+Integration branch `plan/lume-ti` is at `dd2db2f`. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46 at `8e87a11`; `cargo test --features ti` was 55 at `39c0096` (not recounted since).
+Workspace members: `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench`, `ti-geo`, `ti-sync`. Signal K plugin: `plugins/signalk-lume-ti/`. Next free decision: **D39** (ask the lead before taking it).
 Setup and workflow: [SETUP.md](SETUP.md).
 
 ## Critical path right now
 
-- **✅ FULL GOLDEN CORPUS: 58 passed, 0 failed, 4 excluded** (`cb39a4d`). `lume ti verify` now always runs geo and `intervals()`; text is skipped only when no document index is registered. The q7 oracles are D35-rounded (lat/lon at scale 7). The 4 exclusions are contract questions, with reasons in `tests/golden/corpus.json`: `q1-007`, `q6-006` and `q2-001` (count-path semantics; need a `count_paths` contract) and `qx-003` (DataFusion 55 cannot decorrelate an expression-keyed correlated scalar subquery; `qx-013` verifies the same result in join form).
-- **M4 is still open on item 3**: the `croaring` frozen-view evaluation has not started. Item 1 is met except the 4 contract exclusions, and item 2 (Q4 72.4×) is met.
-- **✅ M5 item 1 MET** (`39c0096`): `ti_resolve` returns the right column in the top 3 for **93/100** phrases in `tests/golden/resolve.json`, over 488 columns (fixture accuracy). The MCP tools are live in `lume serve`, and HTTP `/ti` is merged (`bce7779`).
-- **✅ M2 item 2 CLOSED** (`11c0edc`, Artificial Shark): full-set backfill idempotence on one store. M2 stays open on item 3 (Pi 5 throughput/RSS).
-- **Cold open is fast on the host.** The earlier ~70 s was the container's bind mount. On the Windows host (`4626591` `open_timing` example): `Store::open` 0.07 s, `session_from_store` 1.78 s, `lume ti status` 2.17 s wall, `count(*)` over `telemetry` 2.99 s.
-- **🟡 Licence decision needed (user, before publishing):** `src/ti_resolve/signalk_paths.json` (150 KB) is extracted from SignalK/specification 1.8.4 @ `fb628fb4` under **CC-BY-SA 2.0**. It ships with its own `LICENSE` and `README.md` in `src/ti_resolve/`. See user item 16.
+- **🚢 Deploying to the user's Raspberry Pi 5** (HaLOS Marine RPI, `192.168.68.61`, Signal K v2.31.1 in a container, Ubuntu 24.04 with glibc 2.39).
+  - KIP and Freeboard-SK are installed. InfluxDB, Grafana, QuestDB and OpenCPN are installed but **paused during the build**.
+  - Lume is being built **natively on the Pi**. The fat-LTO final link needed swap: rustc reached about 6 GB RSS, and 10 GB of temporary swap files were added.
+  - **Next:** install `signalk-lume-ti` with the arm64 binary ([SETUP §3](SETUP.md)).
+  - **The Pi runs hot without an Active Cooler** (82–86 °C under load).
+- **✅ W10 alerts ACCEPTED** (`a8f32bd` + `6d51df5`). Signal K notifications become `alerts` documents (`d656dd4`). Bitmap alert rules run on closed buckets, with history, hold, caps and live document refresh. Host DuckDB oracle: **118/118/118** ranges, and `match(alerts, 'battery')` covers 357 buckets.
+- **✅ W9 generic Parquet ACCEPTED** (`167f391` + `dd2db2f`). Mapped long/wide Parquet and document import, common backfill drivers, D38 entity identity, and a robot-fleet golden set. Robot DuckDB oracle: **14/14** non-empty and matching. `lume ti verify` on robots: **14/0/0**. Boat regression on the new backfill path: **65/65 seal hashes identical**, corpus **58/0/4**. Backfill ran at 174,769 rows/s.
+- **✅ Sealed-data repair fixed** (`b23514a`). An append to a sealed shard used to lose data. Now the shard is restored and resealed as a new version, and identical content keeps the same hash. The host suite passes, including the 1,000-run kill -9 test.
+- **Merged surfaces:**
+  - pgwire, read-only and simple-query (`--pg`, D37, `451bfc7`). The 20 scripted fleet questions pass as a regression (20/20), but **the M5 item 2 agent run is still open**; the lead does it.
+  - `lume ti ingest` live service (`75a1a4f`).
+  - `lume ti backfill --parquet|--signalk`.
+  - `lume ti rules list|test`.
+  - `lume ti repl` (`f1bb15a`).
+  - The `signalk-lume-ti` plugin (`31841c3`).
+- **M6 in progress:** ti-sync merged (`13c58c0`), with the lossy two-node test (20 % chunk loss, 30 min outage) passing in process. HTTP transport and the 50-vessel shore test are in flight.
 - **In flight:**
-  - Long Horse: read-only **pgwire** (`--pg-port`, off by default, loopback), then **M5 item 2** (20 scripted questions).
-  - Artificial Shark: rebasing D30 end to end (`5ac2971`) onto `39c0096` (conflict in `engine.rs`). Content: multi-store backfill and stream, the `telemetry_hr` SQL table, retention that drops only sealed shards.
-- **Next:** the `croaring` evaluation (M4 item 3), the `count_paths` contract, pgwire and the rest of M5, `lume sql`, W8.
-- **Agents are working again** (both lanes merged code in this round). Docker Desktop's earlier outage ("unable to start") froze them from about 08:51 UTC; the lead carried M3 and W5 in the meantime.
-- **Disk: 42.9 GB free** on the host. Root `target/` is 8.7 GB. The dev profile uses `debug = "line-tables-only"` (none for dependencies) since `3354bd0`, and agents cap their `target/` at 15 GB. See [SETUP §8](SETUP.md).
+  - Long Horse: `lume sql` (SQL over ordinary Lume indexes) plus `lume ti query --docs-index`. Its clone has `f711cfc`, not merged yet.
+  - Artificial Shark: M6 HTTP sync transport with bearer auth, the 50-vessel shore fleet test, and the lossy test over HTTP.
+- **🟡 User decisions:** item 16, the CC-BY-SA licence on `src/ti_resolve/signalk_paths.json`, is still needed before publishing.
+- **Disk policy (lead):**
+  - Keep at least **25 GB free** on the host.
+  - Keep all build caches together at **25 GB or less**, and each agent's `target/` at **8 GB or less**.
+  - Run `cargo clean` after each handoff.
+  - Delete verification stores immediately.
+  - See [SETUP §8](SETUP.md).
 
 ## Pane changes (about 06:00 UTC)
 
 | Role | Now | Formerly |
 |---|---|---|
-| W4/W6/W5/W7 SQL and surfaces owner | **Long Horse** `a05c4a5e`, nemesis8/hyperia | Rigid Roadrunner `d58ca1b1`, n8-sly-viper |
-| W3 ingest + corpus part 3 owner | **Artificial Shark** `9be462c8`, nemesis8/n8-spry-tapir | Romantic Pike `90fc608c`, n8-keen-kiwi |
+| W4–W7, W9, W10 SQL, surfaces, Parquet, alerts | **Long Horse** `888bff45`, nemesis8/n8-hazy-badger | Rigid Roadrunner `d58ca1b1`, n8-sly-viper |
+| W3 ingest, W8 sync and bench, plugin | **Artificial Shark** `fd91f4b1`, nemesis8/n8-quiet-crane | Romantic Pike `90fc608c`, n8-keen-kiwi |
 | Corpus and generator | Lead took it over and merged it (`c65e515`) | Zygomorphic Prawn `eccaf836`, n8-noble-toad: **retired** (permanently offline, per the user) |
 | Host build pane | **Compact Echidna** `6914c38e` | Regular Pheasant `364a3fc7` (gone) |
 
-Commit messages, the decisions log and older docs use the former names. Pane ids changed when the containers came back after the Docker outage (user-confirmed 2026-10-06): Long Horse `a05c4a5e`, Artificial Shark `9be462c8`.
+Commit messages, the decisions log and older docs use the former names. Re-check pane ids with Hyperia `terminal_status` before mailing.
 
 ## Recent merges into `plan/lume-ti`
 
 | Commit | What |
 |---|---|
-| `39c0096` | Merge `ti/w7-surfaces` (`8caac42`, Long Horse). **`ti_resolve`** via MCP and `GET /ti/resolve?q=`: 93/100 top-3 on `tests/golden/resolve.json` over 488 columns. `lume serve --bind <IP>`: loopback `127.0.0.1` by default when `--ti-store` is set, plain `lume serve` keeps `0.0.0.0`. No wildcard CORS on `/ti` or the TI server's `/mcp`. Adds `src/ti_resolve/signalk_paths.json` (CC-BY-SA 2.0, see user item 16) |
-| `0b3a17a` | Host rustfmt after the W7 HTTP merge |
-| `400557c` | Root README: forward-looking Lume TI section with the current state and benchmarks |
-| `bce7779` | Merge `ti/w7-surfaces` (`635fbd1`, Long Horse). **HTTP `/ti` on `lume serve --ti-store`**: `POST /ti/query` (Arrow IPC or JSON, chosen by `Accept`), `GET /ti/schema`, `POST /ti/explain`, `GET /ti/status`. One shared engine; one width header read per shard |
-| `4626591` | `ti-sql` `open_timing` example (per-stage store/session/query timing) |
-| `b95f890` | Docs refresh after the full corpus, M2 item 2, W7 CLI/MCP and D30 merges |
-| `26e535a` | Host fmt of the W7 CLI/engine/MCP code (container lacks rustfmt), 2 strict-clippy fixes (`field_reassign_with_default` in `retention.rs` and `multi_store_fanout.rs`), and `surfaces.rs` scratch under `CARGO_TARGET_TMPDIR` so the tests run on the host |
-| `20117c4` | Merge `ti/w3-ingest` (`11c0edc`, `7d4a081`, Artificial Shark). **M2 full-set idempotence** on one store, with throughput and index size. **D30** `MultiStoreBucketer` fan-out, per-store aggregates, `Store::enforce_retention`, `StoreSet` |
-| `31fd76a` | Merge `ti/w7-surfaces` (`6afb2ab`, Long Horse). `lume ti query|explain|status|import-docs` on a shared `TiEngine`. In-process MCP tools `ti_query`, `ti_schema`, `ti_explain`, `ti_status` (`src/ti_mcp.rs`), capped at 500 rows and 64 KiB. Bucket width is read from the store |
-| `cb39a4d` | **Verify always runs geo and `intervals()`**; text is skipped only without a document index. q7 oracles D35-rounded; `q7-004`/`q7-005` match TI exactly. Fixture placeholder entries carry explicit `exclude` reasons. Full store **58/0/4** |
-| `3354bd0` | Cargo: `line-tables-only` debug info, none for dependencies (full DataFusion debug info had grown build caches to ~81 GB) |
-| `b0ba6b0` | Docs refresh after W5 text |
-| `cd9bb3e` | Text oracles cover `[ts_start, ts_end)` (spec/14, D36). `q2-001` and `q6-006` join the count-path exclusion. `q6-004` sort adds `sog`. Verify 47/0/15 |
-| `11d961a` | **W5:** `ti-sql` `DocsProvider` (`docs` table): `match(body, q)` with Exact pushdown and the BM25 score. `open_store_with_documents`, `run_cli_with`. `lume ti` uses `LumeText` |
-| `ad05f94` | **W5:** root `src/ti_text.rs` `LumeText` (`TextIndex` + `DocumentIndex` on Lume's `Bm25Index`, `--features ti`) for `match()` over notes/logbook/alerts. Adds `Bm25Index::search_quiet` |
-| `c1d4941` | **W5:** `ti-store` `DocStore` at `<store>/docs/documents.json`. `ti-ingest` imports docs Parquet with content-addressed ids. `backfill_store` imports `<ancestor>/docs`. New example `import_docs` |
-| `711d2c4` | **Closes M3.** D35: oracles round per-bucket aggregates to the path's catalog scale before filtering. Corpus `exclude` field; `qx-013`. Full store 42/0/20 |
+| `167f391` + `dd2db2f` | **W9 final** (`ebdb848`, Long Horse): mapped document import (`lume ti import-docs --parquet`), common backfill drivers, the robot-fleet generator (`ti-bench gen --profile robots`) and a 14-query golden set (`tests/golden/robots/`) with a host DuckDB oracle. **Accepted** (see Critical path). `dd2db2f`: host fmt and a run-time `CARGO_TARGET_TMPDIR` fix |
+| `c4e3a63` | **D38** entity identity (opaque `<kind>.urn:<id>`) and bounded per-entity watermark backfill with a scratch journal (`70d047d`). Host D38 regression: 65/65 seal hashes identical, corpus 58/0/4 |
+| `31841c3` + `08836bb` | **`signalk-lume-ti` plugin** (`ec3d43b`, Artificial Shark): supervision, Signal K access-request auth, loopback proxy, SQL webapp. Also `ti-bench --hz` with per-path override and the W8 bench harness (`2159fa6`) |
+| `dfce248` + `b6c6ee0` | **W9 first slice** (`857d777`): mapped long/wide Parquet reader, units/scales, `lume ti backfill --parquet`. Host fmt and strict clippy |
+| `b23514a` + `6297cf2` | **Sealed-data repair** (`67b44ca`): appends to a sealed shard restore it and reseal as a new version; identical content keeps the hash. Host suite incl. the 1,000-run kill -9 test passes |
+| `75a1a4f` + `cdd9628` | **`lume ti ingest` live service** (`4971810`, `e6b604a`): reconnect, flush/seal/retention timers, SIGTERM WAL flush, `ingest_status.json`, `--serve` on loopback by default. `cdd9628` gates the shutdown-signal handler to `cfg(unix)` |
+| `a8f32bd` + `6d51df5` | **W10 rules** (`1760742`): bitmap alert rules with history, hold, caps and live document refresh. `6d51df5` fixes the rules oracle (raw path encoding; 30 s hold, because the 5 min hold gave zero runs and passed vacuously). **W10 accepted** (118/118/118) |
+| `8d232ca` + `0344835` | Live `receive_time` fix (live timestamps were clamped to EPOCH) and non-fatal notification errors (`3c192b0`) |
+| `6bd99a4`, `d656dd4`, `a1c65e9` | W10 step 1: `ClosedBucketObserver` hook (`1afb7f3`), and Signal K notifications kept as `alerts` documents in live ingest and backfill (`cb61ff7`). Host fmt/clippy |
+| `13c58c0` + `12cad6a` | **ti-sync** (`0f2f642`, Artificial Shark): manifest diff, resumable chunked shipping, shore import, lossy two-node test (20 % loss, 30 min outage); D30 follow-ups. Host fixes |
+| `451bfc7` | **pgwire** (`7118ef8`, Long Horse): read-only simple-query Postgres listener (`--pg`, **D37**) and the 20 scripted fleet questions (regression 20/20) |
+| `41858ed`, `e72298b` | W10 lane file (notifications as alerts; rules that write their own alerts) and W9 lane file (generic time-series Parquet) |
+| `f1bb15a`, `1d362d0` | `lume ti repl` and `backfill_store` `TI_WIDTH`. README: documents and time series in one store |
+| `ef9148a` | **D30 end to end** (`4a90c96`, Artificial Shark): multi-store backfill and stream, the `telemetry_hr` table, retention drops only sealed shards |
+| `d3ce0f0` | Docs refresh after W7 HTTP and `ti_resolve` |
 
-Earlier: `6dc19c5` docs, `f6c47b4` ingest `profiles.opt_in` + `TI_OPT_IN`, `b07ec05` `IS [NOT] DISTINCT FROM` precedence, `f5806c0` D34 tolerance, `bfd7373` D33 default profile, `8f776da`/`82a8aa5`/`829c771` backfill speed + `backfill_store`, `5632aad` idempotence compares content, `b4a1879` **Q4 72.4×**, `be6ffdb` docs, `312f6a0` **corpus part 3, closes M0**, `443a4f2` docs, `19ab9fb` W6 rustfmt, `8931877` **W6 geo**, `47b2515` D30 follow-ups, `0fe2960` corpus calibration, `fe5ea3a` D30 config, `8afa646` D14 amendment, `b4e8da6` Q4 bench env vars, `2c8ba1c` M2 `#[ignore]` + DuckDB cross-check, `c88fb75` DuckDB table macros + `gen_expected.py`, `6c29ea2` D31, `7dd6be4` root README rewrite (MCP port 5863), `8b89e48` W4 part 2, `4c55f60` M2 harness, `571cc2b` D30, `71b7fcd` window fix, `c65e515` corpus lane, `33c67b1` store fix + SQL Store adapter, `46d69f4` W3 foundation, `98816b5` W4 foundation, `cf98c61` W2 (**M1 complete**), `922fc07` D27, `f7faf5f` W1, `1297968` search library, `96ac45d` contracts freeze, `06dd5c5` workspace. Full list: `git log --oneline --first-parent plan/lume-ti`.
+Earlier: `39c0096` `ti_resolve` 93/100 + `--bind`, `0b3a17a` fmt, `400557c` README TI section, `bce7779` **HTTP `/ti`**, `4626591` `open_timing`, `b95f890` docs, `26e535a` host fmt, `20117c4` **M2 idempotence + D30 fan-out**, `31fd76a` **W7 CLI/MCP**, `cb39a4d` **full corpus 58/0/4**, `3354bd0` line-tables-only, `b0ba6b0` docs, `cd9bb3e`/`11d961a`/`ad05f94`/`c1d4941` **W5 text**, `6dc19c5` docs, `711d2c4` **closes M3**, `f6c47b4`, `b07ec05`, `f5806c0` D34, `bfd7373` D33, `8f776da`/`82a8aa5`/`829c771` backfill speed, `5632aad`, `b4a1879` **Q4 72.4×**, `be6ffdb`, `312f6a0` **closes M0**, `8931877` **W6 geo**, `cf98c61` W2 (**M1 complete**), `f7faf5f` W1, `96ac45d` contracts freeze, `06dd5c5` workspace. Full list: `git log --oneline --first-parent plan/lume-ti`.
 
 ## Agents
 
 | Agent (pane name) | Pane | Lane/scope | Branch | Clone | Last known state |
 |---|---|---|---|---|---|
-| Industrial Pike | `ee764a09` | Lead and integrator. Owns the host runs (data generation, `gen_expected.py`, store backfill, `lume ti verify`, Q4 bench) and disk cleanup. Carried M3 and W5 text during the Docker outage. Measured host cold-open timings (`4626591`; the ~70 s was the container bind mount). Merged W7 HTTP and `ti_resolve`. Runs fmt and 1.96 clippy on the host when a container lacks them | `plan/lume-ti` | shared tree | `39c0096` |
-| Long Horse (formerly Rigid Roadrunner) | `a05c4a5e` | **W7 surfaces.** CLI and MCP tools (`31fd76a`), HTTP `/ti` (`bce7779`) and `ti_resolve` (`39c0096`) merged. Now: read-only pgwire, then M5 item 2 | `ti/w7-surfaces` | `.lanes/w4` | Last merged `8caac42` |
-| Artificial Shark (formerly Romantic Pike) | `9be462c8` | **D30 end to end** (`5ac2971`): multi-store backfill and stream, the `telemetry_hr` SQL table, retention that drops only sealed shards. M2 idempotence and the D30 fan-out merged (`20117c4`) | `ti/w3-ingest` | `.lanes/w3` | **Rebasing** `5ac2971` onto `39c0096` (`engine.rs` conflict) |
+| Industrial Pike | `ee764a09` | Lead and integrator. Host runs and oracles (DuckDB, `lume ti verify`, rules and robots oracles, D38 regression), host fmt/clippy at merge, disk policy. **Pi 5 deployment.** Owns the M5 item 2 agent run | `plan/lume-ti` | shared tree | `dd2db2f` |
+| Long Horse (formerly Rigid Roadrunner) | `888bff45` | **`lume sql`**: SQL over ordinary Lume indexes, plus `lume ti query --docs-index`. Delivered pgwire, W9 and W10 | `ti/w7-surfaces` | `.lanes/w4` | `f711cfc` "read-only SQL over Lume indexes and shared TI sessions", not merged yet |
+| Artificial Shark (formerly Romantic Pike) | `fd91f4b1` | **M6**: HTTP sync transport with bearer auth, the 50-vessel shore fleet test, the lossy test over HTTP. Delivered ti-sync, the live ingest service, the plugin, `--hz` and the bench harness | `ti/w3-ingest` | `.lanes/w3` | At `c4e3a63` with uncommitted changes (`Cargo.toml`/`.lock`, `ti-bench` `gen.rs`/`model.rs`/`write.rs`, …) |
 | Zygomorphic Prawn | `eccaf836` | — | — | `.lanes/corpus` (retired) | **Retired.** Its `target/` has been deleted |
 | Compact Echidna (formerly Regular Pheasant) | `6914c38e` | Host build pane (PowerShell 7, rustc 1.96.1). Not an agent | — | — | Bulk data and DuckDB jobs run here. **Check free disk before big builds** |
 
@@ -74,58 +86,49 @@ Week numbers count from kickoff. A milestone closes only when every gate test pa
 
 | Milestone | Lanes | Weeks | Gate status |
 |---|---|---|---|
-| M0 Contracts | W0 | 1 | **✅ Complete** (`312f6a0`). All 4 gate items done in week 1 |
-| M1 Core and store | W1, W2 | 2–4 | **Complete** (`cf98c61`) |
-| M2 Ingest | W3 | 2–5 | **In progress.** Items 1 (replay) and 2 (full-set idempotence, `11c0edc`) passed. Item 3 (Pi 5 throughput/RSS) is open |
-| M3 SQL and pushdown | W4 | 2–6 | **✅ Closed 2026-10-06** (`711d2c4`). Full-store verify 42/0/20 at close |
-| M4 Text, geo, intervals | W4, W5, W6 | 6–8 | **In progress.** Item 1 met except 4 contract exclusions (full corpus **58/0/4**, `cb39a4d`). Item 2 met (72.4×). **Item 3 (`croaring` evaluation) not started** |
-| M5 Agent surface | W7 | 7–9 | **In progress.** **Item 1 met** (`39c0096`): MCP tools live in `lume serve`, `ti_resolve` 93/100 top-3. Item 2 (20 scripted questions) next, after pgwire. Item 3 (Signal K plugin, psql/Grafana) open |
-| M6 Fleet and benchmarks | W8, integrator | 9–12 | Not started |
+| M0 Contracts | W0 | 1 | **✅ Complete** (`312f6a0`) |
+| M1 Core and store | W1, W2 | 2–4 | **Complete** (`cf98c61`). Sealed-data repair hardened in `b23514a` |
+| M2 Ingest | W3 | 2–5 | **In progress.** Items 1 and 2 passed. Item 3 (Pi 5 throughput/RSS) is open; the Pi 5 is now being set up |
+| M3 SQL and pushdown | W4 | 2–6 | **✅ Closed 2026-10-06** (`711d2c4`) |
+| M4 Text, geo, intervals | W4, W5, W6 | 6–8 | **In progress.** Item 1 met except 4 contract exclusions (58/0/4). Item 2 met (72.4×). **Item 3 (`croaring` evaluation) not started** |
+| M5 Agent surface | W7 | 7–9 | **In progress.** Item 1 met (93/100). Item 2: scripted questions pass as a regression (20/20), but **the agent run is still open** (lead). Item 3: plugin and pgwire merged; Pi install and psql/Grafana smoke set open |
+| M6 Fleet and benchmarks | W8, integrator | 9–12 | **In progress.** ti-sync and the lossy two-node test merged (`13c58c0`); HTTP transport and the 50-vessel shore test in flight; benchmark harness merged (`2159fa6`), report not written |
 
-Remaining after M4: the D30 high-resolution store ([design/hi-res-store.md](design/hi-res-store.md); fan-out merged in `20117c4`, end-to-end wiring in flight), `lume sql` over plain indexes, the rest of W7, then W8.
-
-### M0 gate detail
-
-| # | Gate item | State |
-|---|---|---|
-| 1 | `ti-contracts` merged with types, traits, doc comments | **Done** (`96ac45d`) |
-| 2 | `ti.toml` schema with defaults | **Done** (`96ac45d`; multi-store extension `fe5ea3a`) |
-| 3 | `ti-bench gen` reproduces the correctness set byte-identically from a seed | **Done** (`c65e515`; window pinned `71b7fcd`) |
-| 4 | ≥ 60 golden queries with oracle twins and expected output | **Done** (`312f6a0`). 61 JSONs: 60 with rows + `qx-006` `expect_empty`. 10 queries narrowed to a 6 h window under D32 |
+Also landed outside the original milestones: W9 generic Parquet (accepted) and W10 alerts (accepted). Remaining: `lume sql` (Long Horse), M6, the `croaring` evaluation and the Pi 5 deployment.
 
 ### M2 gate detail
 
 | # | Gate item | State |
 |---|---|---|
-| 1 | Replaying a recorded 24 h delta log yields `BucketRecord`s equal to oracle bucketing | **Passing on real data**: 460,112/460,112 against both the Rust oracle and DuckDB (`day=060`), and again with real H3 cells (`8931877`) |
-| 2 | Parquet backfill of the correctness set is idempotent | **✅ Passed** (`11c0edc`, merged `20117c4`), on one store: 11,500 files, 95,924,426 rows. Initial backfill 785.87 s (122,061 rows/s in the test harness), rerun 633.44 s. All **65 sealed shards identical** (key, from, to, bytes, hash). Index 585.6 MB |
-| 3 | Pi 5 sustains 20,000 values/s for 1 h within the CPU and RSS budget | **Open.** 181,783 values/s in release on the **host (x86), not a Pi 5**. RSS is "n/a" on non-Linux. A Pi 5 run is still needed (unconfirmed whether planned) |
-
-### M3 gate detail
-
-**Closed by the lead on 2026-10-06** (`711d2c4`). Reproduce with the commands in [SETUP §3](SETUP.md).
-
-| # | Gate item | State |
-|---|---|---|
-| 1 | All non-text, non-geo golden queries match the oracle (fixture, then real store) | **Done.** Full store (5 vessels × 90 d, 95.9M raw rows, `TI_OPT_IN=last`): 42 passed, 0 failed, 20 excluded at close. Tolerance is D34, oracle quantization D35 |
-| 2 | `EXPLAIN` shows Exact pushdown for every expression marked Exact | Closed with the gate. No separate run is recorded here (unconfirmed) |
-| 3 | `raw` table queries the same Parquet and matches DuckDB exactly | Closed with the gate. No separate run is recorded here (unconfirmed) |
+| 1 | Replaying a recorded 24 h delta log yields `BucketRecord`s equal to oracle bucketing | **Passing on real data**: 460,112/460,112 (`8931877`) |
+| 2 | Parquet backfill of the correctness set is idempotent | **✅ Passed** (`11c0edc`): 65 sealed shards identical on rerun. Still holds on the W9 backfill path (65/65, `167f391`) |
+| 3 | Pi 5 sustains 20,000 values/s for 1 h within the CPU and RSS budget | **Open.** Only a host x86 figure so far (181,783 values/s). The user's Pi 5 is being set up; note that it runs at 82–86 °C under load without an Active Cooler |
 
 ### M4 gate detail
 
 | # | Gate item | State |
 |---|---|---|
-| 1 | Full golden corpus green, including `match()`, `in_bbox`, `within_nm` and `intervals()` | **Met except 4 contract exclusions** (`cb39a4d`): full store **58 passed, 0 failed, 4 excluded**. Text (W5, D36), geo (q7, D35-rounded oracles) and `intervals()` (q5) all verify. Excluded: `q1-007`, `q6-006`, `q2-001` (need a `count_paths` contract) and `qx-003` (DataFusion 55 decorrelation limit; `qx-013` covers it in join form) |
-| 2 | `BitmapAggregateExec` ≥ 10× faster than the materializing path on Q4 at shore scale | **Met in release**: 40.3 ms vs 2.92 s = **72.4×** (W = 10 s, 5 vessel-years, `b4a1879`) |
+| 1 | Full golden corpus green, including `match()`, `in_bbox`, `within_nm` and `intervals()` | **Met except 4 contract exclusions**: 58 passed, 0 failed, 4 excluded (`q1-007`, `q6-006`, `q2-001` need a `count_paths` contract; `qx-003` DataFusion 55 limit, covered by `qx-013`). Re-confirmed after D38 and W9 |
+| 2 | `BitmapAggregateExec` ≥ 10× faster than the materializing path on Q4 at shore scale | **Met in release**: 72.4× (`b4a1879`) |
 | 3 | `croaring` frozen-view evaluation written up in the decisions log, adopt or reject | **Open. Not started** |
 
 ### M5 gate detail
 
 | # | Gate item | State |
 |---|---|---|
-| 1 | MCP tools live in `lume serve`, and `ti_resolve` returns the right column in the top 3 for ≥ 90 % of a 100-phrase test set | **✅ Met** (`39c0096`). `ti_query`/`ti_schema`/`ti_explain`/`ti_status`/`ti_resolve` are live in `lume serve --ti-store` (MCP and HTTP `/ti`). `ti_resolve`: **93/100** top-3 on `tests/golden/resolve.json` over 488 columns. This is fixture accuracy |
-| 2 | A nemesis8 agent with only Lume MCP answers 20 scripted fleet questions; integrator grades against oracle results | Open. Long Horse takes it after pgwire |
-| 3 | Signal K plugin installs on HALPI2 / OpenPlotter; psql and Grafana pass a 20-query smoke set | Open. Read-only pgwire (`--pg-port`, off by default, loopback) is in progress (Long Horse) |
+| 1 | MCP tools live in `lume serve`, and `ti_resolve` returns the right column in the top 3 for ≥ 90 % of a 100-phrase test set | **✅ Met** (`39c0096`): 93/100 (fixture accuracy) |
+| 2 | A nemesis8 agent with only Lume MCP answers 20 scripted fleet questions; integrator grades against oracle results | **Open.** The 20 questions exist (`tests/golden/fleet_questions.json`) and pass as a regression (20/20, `451bfc7`). The agent-only run and grading are still to do (lead) |
+| 3 | Signal K plugin installs on a HALPI2 from the HaLOS Marine container store, and on OpenPlotter from the Signal K App Store (Pi 4 4 GB and Pi 5), obtains a token and supervises ingest. psql and Grafana pass a 20-query smoke set | **Open.** Plugin merged (`31841c3`) with access-request auth and supervision. pgwire merged (`451bfc7`; SCRAM/TLS pending). Pi 5 install is next. Store-based installs, Pi 4, OpenPlotter and the psql/Grafana smoke set are not done |
+
+### M6 gate detail
+
+| # | Gate item | State |
+|---|---|---|
+| 1 | Two-node sync converges with 20 % chunk loss and a 30-minute link outage | **In progress.** Passes in the in-process lossy two-node test (`13c58c0`). The rerun over the HTTP transport with bearer auth is in flight (Artificial Shark) |
+| 2 | Shore node answers fleet queries across 50 synthetic vessels | **In progress** (Artificial Shark) |
+| 3 | Benchmark report against every target; go/no-go in the decisions log | **Open.** W8 bench harness and `ti-bench --hz` merged (`2159fa6`); no report yet |
+
+M0, M1 and M3 gate details are unchanged since they closed; see `git show d3ce0f0:plan/STATUS.md`.
 
 ## Open decisions waiting on the user
 
@@ -142,7 +145,7 @@ From [spec/11-risks-decisions.md](spec/11-risks-decisions.md) (open questions):
 
 From [spec/02-pilot-vessel.md](spec/02-pilot-vessel.md) (owner assumptions to confirm):
 
-9. Boat computer: exact HALPI model, CM5 RAM size, OS image (HaLOS Marine or desktop + OpenCPN), and whether OpenCPN runs on the same HALPI.
+9. Boat computer: exact HALPI model, CM5 RAM size, OS image (HaLOS Marine or desktop + OpenCPN), and whether OpenCPN runs on the same HALPI. *(The test device now is a Raspberry Pi 5 on HaLOS Marine RPI with OpenCPN installed.)*
 10. Final NMEA 2000 equipment list: MFD brand, instrument vendor, engine gateway.
 11. Whether Victron stays on 2.0, and whether a Cerbo GX or Venus OS device is aboard.
 12. Consent to record 90 days of data for the benchmark dataset, and what may be shared publicly.
@@ -152,28 +155,29 @@ Spec deviations and proposals needing the user:
 
 14. **D27: accept `zstd-sys` (C)**, forced in by DataFusion 55.1.0's `arrow-ipc`. Amends D11 and deviates from spec/10 (C bindings only for `croaring`). Awaiting spec-owner confirmation.
 15. **Pinned `rust-toolchain.toml`**, proposed because the host (rustc 1.96.1) and the containers (1.99) report different clippy lints.
-16. **Licence of `src/ti_resolve/signalk_paths.json`** (150 KB, merged in `39c0096`). It is extracted from SignalK/specification 1.8.4 @ `fb628fb4` under **CC-BY-SA 2.0**, with its own `LICENSE` and `README.md` in `src/ti_resolve/`. Lume is BSD-3. Is shipping it acceptable? Decide before publishing.
+16. **Licence of `src/ti_resolve/signalk_paths.json`** (150 KB, `39c0096`). Extracted from SignalK/specification 1.8.4 @ `fb628fb4` under **CC-BY-SA 2.0**, with its own `LICENSE` and `README.md` in `src/ti_resolve/`. Lume is BSD-3. Decide before publishing.
+17. **Pi 5 cooling:** the user's Pi 5 reaches 82–86 °C under load without an Active Cooler. Fit one before the M2 item 3 one-hour run (suggestion; unconfirmed whether planned).
 
 ## Open items (team, not user)
 
-- [ ] **`croaring` frozen-view evaluation** (M4 item 3), written up in the decisions log.
-- [ ] **`count_paths` contract** for count-path semantics (`q1-007`, `q6-006`, `q2-001`; spec/05).
-- [ ] **`qx-003`**: DataFusion 55 cannot decorrelate it. Keep the join-form `qx-013`, or revisit on a DataFusion upgrade.
-- [ ] **User licence decision** on `src/ti_resolve/signalk_paths.json` (CC-BY-SA 2.0) before publishing (user item 16).
-- [ ] Read-only pgwire (`--pg-port`, off by default, loopback), then M5 item 2 (Long Horse).
-- [x] W7 HTTP `/ti` on `lume serve --ti-store` (`bce7779`) and `ti_resolve` 93/100 (`39c0096`).
-- [ ] D30 end to end (`5ac2971`, rebasing onto `39c0096`): multi-store backfill and stream, `telemetry_hr` SQL table, retention drops only sealed shards (Artificial Shark).
-- [ ] Meridian VHF transcripts and live notes polling (`GET /signalk/v2/api/resources/notes` every 60 s). Not done; they go with W7 and the ingest service.
+- [ ] **Pi 5 deployment** (lead): finish the native build, install `signalk-lume-ti` with the arm64 binary, then resume InfluxDB/Grafana/QuestDB/OpenCPN.
+- [ ] **M5 item 2 agent run** (lead): a Lume-MCP-only agent answers the 20 scripted questions; grade against oracle results.
+- [ ] **`lume sql`** and `lume ti query --docs-index` (Long Horse; `f711cfc` in the clone).
+- [ ] **M6**: HTTP sync transport with bearer auth, 50-vessel shore fleet test, lossy test over HTTP (Artificial Shark). Then the benchmark report and the go/no-go.
+- [ ] **`croaring` frozen-view evaluation** (M4 item 3).
+- [ ] **`count_paths` contract** (`q1-007`, `q6-006`, `q2-001`; spec/05).
+- [ ] **`qx-003`**: keep the join-form `qx-013`, or revisit on a DataFusion upgrade.
+- [ ] pgwire SCRAM/TLS (D37 notes it as pending). Keep `--pg` on loopback until then.
+- [ ] **User licence decision** on `signalk_paths.json` (user item 16).
+- [ ] Meridian VHF transcripts and live notes polling (`GET /signalk/v2/api/resources/notes` every 60 s). Not done.
 - [ ] Pi 5 throughput/RSS run for M2 item 3.
-- [x] Full golden corpus: 58/0/4 (`cb39a4d`); q7 oracles D35-rounded.
-- [x] M2 full-set idempotence on one store (`11c0edc`).
-- [x] W7 CLI and in-process MCP tools (`31fd76a`); D30 multi-store fan-out and retention (`20117c4`).
-- [x] W5 text: `match()` lexical BM25 (D36), docs table, docs import (`c1d4941`…`cd9bb3e`).
-- [x] Docker back up; both agents working again.
-- [x] Disk: 42.9 GB free, root `target/` 8.7 GB (line-tables-only debug info since `3354bd0`); agents cap `target/` at 15 GB.
-- [x] Index size: 729.3 MB vs 1,892.7 MB raw (0.39×) via `backfill_store` with `TI_OPT_IN=last`; 554 MB (0.29×) without. The M2 gate's store measured 585.6 MB (`11c0edc`; its aggregate settings were not reported here).
+- [ ] `tests/golden/README.md` still describes the W10 rule as `for 5m`, but the oracle and test now use a 30 s hold (`6d51df5`). Owner to fix (outside docs-keeper scope).
+- [x] W10 alerts accepted (118/118/118; `match(alerts,'battery')` 357 buckets).
+- [x] W9 accepted (robots 14/14 DuckDB, verify 14/0/0; boat 65/65 hashes, 58/0/4; 174,769 rows/s).
+- [x] Sealed-data repair (`b23514a`); D38 regression 65/65, 58/0/4 (`c4e3a63`).
+- [x] Live ingest service, plugin, pgwire, ti-sync, D30 end to end.
 - [ ] Verify [signalk-formats §1.3](design/signalk-formats.md) against a **real** signalk-parquet `.parquet` file with DuckDB `DESCRIBE`.
-- [ ] Strict TI checks are not in `ci.yml` yet. Containers lacking rustfmt or clippy rely on the lead's host run (as in `26e535a`).
+- [ ] Strict TI checks are not in `ci.yml` yet. Containers lacking rustfmt or clippy rely on the lead's host run.
 - [ ] Toolchain drift between the host and the containers (item 15).
 
 Also undecided: the repo-fit items in [repo-fit.md](repo-fit.md), such as the W7a/W7b split (§6). These are lead decisions unless escalated (unconfirmed).

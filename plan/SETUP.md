@@ -9,7 +9,7 @@ Items marked *(unconfirmed)* are conventions the docs keeper has not verified. A
 
 Lume is a Rust crate (`lume` 0.12.0, edition 2021): `src/lib.rs` plus a CLI in `src/main.rs`.
 By default it has four direct dependencies (`tantivy-fst`, `ureq`, `serde`, `serde_json`) and a committed `Cargo.lock`.
-The repo is now a Cargo workspace. The root `lume` package stays at `.`, and Lume TI (the telemetry index) lives in members under `crates/ti-*` (merged so far: `crates/ti-contracts`, `crates/ti-core`, `crates/ti-store`, `crates/ti-sql`, `crates/ti-ingest`, `crates/ti-bench` and `crates/ti-geo`). TI is compiled only behind the `ti` cargo feature, which is off by default.
+The repo is now a Cargo workspace. The root `lume` package stays at `.`, and Lume TI (the telemetry index) lives in members under `crates/ti-*` (merged so far: `crates/ti-contracts`, `crates/ti-core`, `crates/ti-store`, `crates/ti-sql`, `crates/ti-ingest`, `crates/ti-bench`, `crates/ti-geo` and `crates/ti-sync`). The Signal K plugin lives in `plugins/signalk-lume-ti/` (Node, not a Cargo member). TI is compiled only behind the `ti` cargo feature, which is off by default.
 
 **`ti-contracts` is frozen** (`96ac45d`). It holds the shared types and traits, the catalog, the Arrow schemas, the WAL/shard envelopes, the `TiEngine` facade and the `ti.toml` schema (`config.rs`). The first contracts PR after the freeze, the D30 `[stores.*]` multi-store config (`fe5ea3a`), shows the process. Empty `stores` means the legacy single store. Otherwise a `"default"` store is required, each width must divide 3600, and retention is typed (`s/m/h/d` or `"forever"`). The spec/10 mirror of the new `config.rs` is still pending, so read the source until it lands. [spec/10](spec/10-contracts.md) mirrors its source, and [spec/14](spec/14-semantics.md) freezes the behavioral rules. **Any change to a boundary in it needs a contracts PR approved by the lead (integrator).** Build your lane against the crate as it is, and mock other lanes behind its traits. If you think a contract is wrong, mail the lead. Don't patch it in your lane.
 
@@ -52,6 +52,7 @@ cargo test  --locked -p ti-sql             # DataFusion SQL layer
 cargo test  --locked -p ti-ingest          # decode, bucketer, sources, recorder/replay
 cargo test  --locked -p ti-bench           # generator, including the window pin test
 cargo test  --locked -p ti-geo             # H3 covers, in_bbox/within_nm, proptests
+cargo test  --locked -p ti-sync            # manifest diff, chunked shipping, shore import, lossy two-node test
 ```
 
 **Data-dependent tests (M2 gate).** These need a dataset in `.lanes/data/` and run in release:
@@ -93,15 +94,19 @@ lume ti query "<sql>" --store <root> [--json] [--width <seconds>]
 lume ti explain "<sql>" --store <root> [--json] [--width <seconds>]
 lume ti status --store <root> [--width <seconds>]
 lume ti import-docs <docs_dir> --store <root> [--width <seconds>]
+lume ti import-docs --parquet <glob> --entity <col> --time <col> [--time-end <col>] --title <col> --body <col> --store <root>
+lume ti repl --store <root> [--width <seconds>]
 ```
 
 - `--store` is required. By default the bucket width is read from the store. `--width` overrides it.
+- `import-docs --parquet` is the W9 mapped document import (`ebdb848`). See `tests/golden/robots/README.md` for a full example with `--time-unit`, `--id` and `--kind`.
+- `repl` is interactive SQL over one opened store (`f1bb15a`).
 - The same engine backs the MCP tools `ti_query`, `ti_schema`, `ti_explain`, `ti_status` and `ti_resolve` (`src/ti_mcp.rs`). `ti_query` is read-only and capped at 500 rows and 64 KiB.
 
 **`lume serve` with TI** (`bce7779`, `39c0096`; needs `--features ti`):
 
 ```sh
-lume serve --ti-store <store> [--bind <IP>] [--port <PORT>]
+lume serve --ti-store <store> [--bind <IP>] [--port <PORT>] [--pg <port>]
 ```
 
 - With `--ti-store`, the server binds to **loopback `127.0.0.1` by default**. Pass `--bind <IP>` to expose it. Plain `lume serve` (no TI) still binds `0.0.0.0`. `/ti` and the TI server's `/mcp` send no wildcard CORS.
@@ -115,26 +120,21 @@ lume serve --ti-store <store> [--bind <IP>] [--port <PORT>]
   | `GET /ti/status` | Store status |
   | `GET /ti/resolve?q=<phrase>` | `ti_resolve`: phrase to column (93/100 top-3 on `tests/golden/resolve.json`) |
 
-- Read-only pgwire (`--pg-port`, off by default, loopback) is in progress and not merged.
+- **Postgres wire** (`451bfc7`, D37): `--pg <port>` adds a read-only simple-query Postgres listener on the same bind address. It is off by default and needs `--ti-store`. SCRAM and TLS are still pending, so keep it on loopback.
 
-**`lume ti ingest` live service & Raspberry Pi 5 deployment** (needs `--features ti`):
+**`lume ti ingest`: the live service** (`75a1a4f`; needs `--features ti`):
 
 ```sh
-lume ti ingest --signalk ws://<host>:3000 --store <root> [--config <path>] [--token <file|token>] [--serve] [--self-urn <urn>]
+lume ti ingest --signalk ws://<host>:3000 --store <root> [--config <path>] [--token <file|token>] [--self-urn <urn>] [--serve] [--bind <IP>] [--port <port>] [--pg <port>]
 ```
 
-- **Live Stream Loop:** Connects to Signal K WebSocket, subscribes per `spec/06`, and commits records under the D16 group-commit WAL. Reconnects with exponential backoff on disconnect.
-- **Timers:** Maintenance ticks run every 200 ms during read lulls:
-  * WAL group-commit fsync every 1 s.
-  * Flush dirty rows and close mature watermark buckets every 60 s or 50,000 records.
-  * Seal open shards whose time span ended more than 1 hour ago (`now - shard_end >= 3600`).
-  * Enforce retention sweep across configured stores via `StoreSet`.
-  * Update operational status (`<store>/ingest_status.json`) with lag seconds, last delta timestamp, and reconnects.
-- **Token Handling:** Signal K device tokens can be specified via a file path (`--token /etc/lume/signalk-token`), a literal string, or inside `ti.toml` under `[signal_k] token = "..."`. If a path is provided, the file is read and stripped of whitespace.
-- **Integrated Query Server (`--serve`):** Because multi-process concurrent access to an open store root is unsafe (potential race conditions between in-memory open shard state, WAL truncations, and directory writes), `--serve` runs the query server (port 5863, bound to loopback `127.0.0.1` by default; pass `--bind <IP>` to expose) inside the *same* process alongside the live ingest service, reusing the same serve path and flags as `lume serve --ti-store` with no wildcard CORS on `/ti` or the TI `/mcp`.
-- **Clean Shutdown:** On `SIGTERM` or `Ctrl-C` (`SIGINT`), the service traps the signal, cleanly exits the stream loop, flushes all open bucket windows and dirty shards, synchronizes and shuts down all WALs (`spec/03`), updates `ingest_status.json` (`"running": false`), and exits.
-- **Raspberry Pi 5 Systemd Unit:**
-  For deployment under HaLOS / Linux on a Pi 5:
+- It connects to the Signal K WebSocket, subscribes per spec/06 and commits under the D16 group-commit WAL. It reconnects with exponential backoff. Live timestamps use the receive time (`8d232ca`). Notification errors are not fatal; notifications become `alerts` documents (`d656dd4`).
+- **Timers:** WAL group-commit fsync every 1 s. Flush and close mature buckets every 60 s or 50,000 records. Seal shards whose span ended more than 1 h ago. Retention sweep across the configured stores (`StoreSet`). Alert rules run on closed buckets (W10).
+- **Status:** `<store>/ingest_status.json` reports lag, the last delta timestamp, reconnects and `running`.
+- **Token:** pass a file path or a literal with `--token`, or set `[signal_k] token` in `ti.toml`. Without `--config`, `<store>/ti.toml` is used if it exists.
+- **`--serve`** runs the query server in the **same process**, because two processes must not open one live store. It binds loopback `127.0.0.1:5863` by default (`--bind`, `--port`), with the same `/ti` and `/mcp` surface as `lume serve --ti-store`. `--pg <port>` adds the read-only Postgres listener.
+- **Shutdown:** SIGTERM or Ctrl-C flushes open buckets and dirty shards, syncs the WALs, sets `"running": false` and exits.
+- **Pi 5 systemd unit** (when not running under the Signal K plugin):
 
   ```ini
   [Unit]
@@ -150,8 +150,6 @@ lume ti ingest --signalk ws://<host>:3000 --store <root> [--config <path>] [--to
   ExecStart=/usr/local/bin/lume ti ingest --signalk ws://127.0.0.1:3000 --store /var/lib/lume/store --token /etc/lume/signalk-token --serve
   Restart=always
   RestartSec=5s
-
-  # Resource controls for Raspberry Pi 5
   CPUWeight=50
   Nice=10
   MemoryMax=1.5G
@@ -162,24 +160,52 @@ lume ti ingest --signalk ws://<host>:3000 --store <root> [--config <path>] [--to
   WantedBy=multi-user.target
   ```
 
-- **Signal K Plugin Deployment (`signalk-lume-ti`):**
-  When running Signal K in a container (e.g. `signalk-server-docker` on HaLOS):
-  * **Target Environment:** Container is Ubuntu 24.04.4 LTS (`glibc 2.39`), Linux `aarch64`. The host is Debian 13 (`glibc 2.41`). No musl build required; native dynamically linked `aarch64` build (`GLIBC <= 2.39`) runs directly in the container.
-  * **Installation into `/home/node/.signalk`:**
-    ```bash
-    cd /home/node/.signalk
-    npm install /path/to/plugins/signalk-lume-ti
-    ```
-    or copy the plugin folder into `/home/node/.signalk/node_modules/signalk-lume-ti`.
-  * **Binary Placement:**
-    Place the compiled `lume` aarch64 binary in `/home/node/.signalk/node_modules/signalk-lume-ti/bin/linux-arm64/lume` (executable `chmod +x`), or install to `/usr/local/bin/lume`.
-  * **Activation:**
-    Enable "Lume TI" in Signal K Admin UI (`Plugin Config`). The plugin automatically supervises `lume ti ingest --serve` as a managed child process with auto-restart, stores the database in `<dataDir>/lume-ti`, handles device token authentication, and serves the SQL console webapp.
+**`lume ti backfill`** (needs `--features ti`):
 
+```sh
+# Signal K signalk-parquet raw tier
+lume ti backfill --signalk <raw_dir> --store <root> [--self-urn <urn>] [--width <seconds>]
+# Generic long or wide Parquet (W9, D38)
+lume ti backfill --parquet <glob> --entity <col> --time <col> (--metric <col> --value <col> | --wide) [--time-unit s|ms|us|ns|rfc3339] [--timezone UTC|+HH:MM] [--units units.toml] [--prefix <path prefix>] --store <root>
+```
+
+- `--signalk` defaults `--self-urn` to `vessels.urn:mrn:imo:mmsi:367000000`. The width comes from `--width`, then `<store>/ti.toml`, then 10 s for a new store.
+- `--parquet` maps columns explicitly. Entity ids are opaque `<kind>.urn:<id>` strings (D38). Backfill is bounded per entity by a watermark with a scratch journal (`c4e3a63`). On the host it ran at 174,769 rows/s, and re-backfilling the boat store this way gave 65/65 identical seal hashes and 58/0/4.
+- The robot-fleet example (`--wide --prefix robot. --units ...`) is in `tests/golden/robots/README.md`.
+
+**`lume ti rules`** (W10, needs `--features ti`). Rules are defined in `<store>/ti.toml`:
+
+```sh
+lume ti rules list --store <root> [--json]
+lume ti rules test <name> --store <root> [--json]   # dry run: alerts the rule would write, nothing stored
+```
+
+**Signal K plugin `signalk-lume-ti`** (`31841c3`). Full instructions are in [plugins/signalk-lume-ti/README.md](../plugins/signalk-lume-ti/README.md). In short:
+
+1. Install the plugin into the Signal K data dir: `cd /home/node/.signalk && npm install /path/to/plugins/signalk-lume-ti`, or copy the folder into `node_modules/`.
+2. Put an `aarch64` `lume` binary (built with `--features ti`) at `node_modules/signalk-lume-ti/bin/linux-arm64/lume` (`chmod +x`), or on `PATH`, or set `lumePath` in the plugin config. The `signalk-server-docker` container is Ubuntu 24.04 with glibc 2.39, so a glibc `aarch64-unknown-linux-gnu` build linked against glibc ≤ 2.39 works; musl is not needed.
+3. Enable **Lume TI** under Server → Plugin Config in the Signal K admin UI.
+
+The plugin supervises `lume ti ingest --signalk ws://127.0.0.1:3000 --store <dataDir>/lume-ti --serve --bind 127.0.0.1 --port 5863`, restarts it with backoff, and stops it with SIGTERM. It handles the Signal K access-request token (`<dataDir>/token.txt`) and proxies the SQL console webapp through `/plugins/signalk-lume-ti/api/*`, so nothing listens off loopback. Plugin tests: `cd plugins/signalk-lume-ti && npm test`.
+
+**Host oracles for W9 and W10** (Python DuckDB, testing only; run from the repo root on the host):
+
+```powershell
+$env:CARGO_INCREMENTAL = '0'
+# W10 rules: runs the ignored golden_battery_rule_ranges test and checks it against DuckDB (accepted at 118/118/118)
+py -3 -E tests/golden/rules_oracle.py --data-dir .lanes/data/correctness --store .lanes/data/store-full
+# W9 robots: build the debug binaries first, then generate, import, compare and verify (accepted at 14/14 and verify 14/0/0)
+cargo build --features ti --bin lume
+cargo build -p ti-bench
+py -3 -E tests/golden/robots/oracle.py --data-dir <data> --store <store> --prepare
+```
+
+- `robots/oracle.py` expects `target/debug/lume` and `target/debug/ti-bench` unless you pass `--lume-bin` / `--bench-bin`. `--prepare` generates the robot data (`ti-bench gen --profile robots`) and imports the boat, robots and incident documents. `--write-expected` refreshes the checked-in outputs from DuckDB.
+- Delete the robot store and data when you finish (see the disk policy in §8).
 
 A plain `cargo test` only tests the root crate, because `default-members = ["."]`.
 
-**Strict checks, scoped to each TI crate.** Run both for every `crates/ti-*` crate you touch (currently `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench` and `ti-geo`):
+**Strict checks, scoped to each TI crate.** Run both for every `crates/ti-*` crate you touch (currently `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench`, `ti-geo` and `ti-sync`), and for the root crate with `--features ti` when you touch `src/ti_*.rs`:
 
 ```sh
 cargo clippy -p <ti crate> -- -D warnings
@@ -273,7 +299,13 @@ The host's C: drive is shared by every clone, every `target/` and `.lanes/data/`
 
 - **Check free space before big builds and full-set tests**, for example `Get-PSDrive C` in PowerShell or `df -h /c` in Git Bash. If space is tight, tell the lead before you start.
 - **Build with `CARGO_INCREMENTAL=0`** (`$env:CARGO_INCREMENTAL = '0'` in PowerShell). Incremental caches are the largest part of `target/`.
-- Since `3354bd0` the dev profile uses `debug = "line-tables-only"` and no debug info for dependencies. Full DataFusion debug info had grown the caches to about 81 GB across `target/` and the clones. **Keep each agent's `target/` under 15 GB.** At the last check (2026-10-06), the host had 42.9 GB free and root `target/` was 8.7 GB.
+- Since `3354bd0` the dev profile uses `debug = "line-tables-only"` and no debug info for dependencies. Full DataFusion debug info had grown the caches to about 81 GB across `target/` and the clones.
+- **Disk policy (lead, current):**
+  - Keep **at least 25 GB free** on C:.
+  - Keep **all build caches together at 25 GB or less** (root `target/` plus every clone's `target/`).
+  - Keep **each agent's `target/` at 8 GB or less**.
+  - Run **`cargo clean` after each handoff**.
+  - **Delete verification stores as soon as the run is done** (robot stores, temp boat stores, oracle scratch).
 - **Delete retired clones' `target/` directories.** Ask the lead first, unless the clone is your own.
 - **Shrink your own `target/`** when you finish a lane or switch branches, with `cargo clean` or by deleting `target/debug/incremental`.
 - **Never build two full Stores at once.** Test code included: build, measure and drop one store before the next.
@@ -327,7 +359,7 @@ py -3 -E tests/golden/gen_expected.py --data-dir <correctness> --output-dir <dir
   | DuckDB | Out-of-process oracle only: the CLI or the `duckdb` Python package 1.5.6 (D14, amended in `8afa646`). Never a bundled Rust crate. See §8 |
   | Release builds | `cargo-zigbuild` for musl targets |
 
-  The log also records pure-Rust Parquet codecs only, with no zstd (D11), `blake3` with `pure` (D12), and an early aarch64-musl smoke test for pgwire SCRAM, which pulls in `ring` (D13). **D27 amends D11:** `zstd-sys` (C) is accepted because DataFusion's `arrow-ipc` forces it in. That deviates from the spec's croaring-only C rule and is awaiting spec-owner confirmation. D18 (`serde`) and D19 (`toml`) cover the dependencies of `ti-contracts`. D23 is `proptest` (a `ti-core` dev-dependency). D24 (`bincode`) and D25 (`crc32fast`) are in `ti-store`. D22 (`ti-bench`: arrow/parquet 59.2 with pure-Rust codecs, chrono) is logged (`71b7fcd`). D26 (DataFusion) and D27 (`zstd-sys`) are logged. D28 (`tungstenite`) and D29 (`parquet`) are reserved for W3. D30 is the 1 s high-resolution store ([design/hi-res-store.md](design/hi-res-store.md)). D31 (`h3o` 0.11 + `geo` 0.33.1, exact-pinned) is logged for `ti-geo`. D32 keeps golden expected outputs small (target ≤ 256 KB per entry, a few MB in total; narrow the window in both twins rather than store huge results). D33 (fixed default aggregate profile per path), D34 (verify tolerance ±1 × 10^−scale), D35 (oracles round bucket aggregates to scale) and D36 (`match()` is lexical Lume BM25: OR by default, uppercase `AND` intersects, docs cover `[ts_start, ts_end)`) are behavioral, not dependencies. D37 records optional root pgwire =0.41.0 with server-api only and disabled defaults, existing async runtime adapters, and the tokio-postgres smoke-test dev-dependency. SCRAM/TLS remains pending. The next free number is **D38**. Ask the lead before taking it.
+  The log also records pure-Rust Parquet codecs only, with no zstd (D11), `blake3` with `pure` (D12), and an early aarch64-musl smoke test for pgwire SCRAM, which pulls in `ring` (D13). **D27 amends D11:** `zstd-sys` (C) is accepted because DataFusion's `arrow-ipc` forces it in. That deviates from the spec's croaring-only C rule and is awaiting spec-owner confirmation. D18 (`serde`) and D19 (`toml`) cover the dependencies of `ti-contracts`. D23 is `proptest` (a `ti-core` dev-dependency). D24 (`bincode`) and D25 (`crc32fast`) are in `ti-store`. D22 (`ti-bench`: arrow/parquet 59.2 with pure-Rust codecs, chrono) is logged (`71b7fcd`). D26 (DataFusion) and D27 (`zstd-sys`) are logged. D28 (`tungstenite`) and D29 (`parquet`) are reserved for W3. D30 is the 1 s high-resolution store ([design/hi-res-store.md](design/hi-res-store.md)). D31 (`h3o` 0.11 + `geo` 0.33.1, exact-pinned) is logged for `ti-geo`. D32 keeps golden expected outputs small (target ≤ 256 KB per entry, a few MB in total; narrow the window in both twins rather than store huge results). D33 (fixed default aggregate profile per path), D34 (verify tolerance ±1 × 10^−scale), D35 (oracles round bucket aggregates to scale) and D36 (`match()` is lexical Lume BM25: OR by default, uppercase `AND` intersects, docs cover `[ts_start, ts_end)`) are behavioral, not dependencies. D37 records optional root pgwire =0.41.0 with server-api only and disabled defaults, existing async runtime adapters, and the tokio-postgres smoke-test dev-dependency. SCRAM/TLS remains pending. D38 is entity identity for generic Parquet: opaque `<kind>.urn:<id>` ids with shared validation, and existing `vessels.urn:` strings unchanged. The next free number is **D39**. Ask the lead before taking it.
 - The contracts crate itself depends on `arrow-array`, `arrow-schema`, `roaring`, `serde` and `toml` only, not DataFusion.
 
 ## 10. How the lead merges
