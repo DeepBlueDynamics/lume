@@ -211,6 +211,9 @@ mod tests {
             assert!(status["ingest_lag_seconds"].is_null());
             assert!(status["vessels"].is_array());
             assert!(status["unavailable"].is_array());
+            assert!(status["active_alerts"].is_array());
+            assert!(status["active_alert_count"].is_number());
+            assert!(status["active_alerts_truncated"].is_boolean());
             assert!(
                 dispatch(&engine, "ti_query", &json!({"sql":"SELECT 1","max_rows":0}))
                     .await

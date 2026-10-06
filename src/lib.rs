@@ -38,6 +38,8 @@ pub mod search;
 #[cfg(feature = "ti")]
 pub mod ti_text;
 #[cfg(feature = "ti")]
+pub mod ti_rules;
+#[cfg(feature = "ti")]
 mod ti_mcp;
 #[cfg(feature = "ti")]
 mod ti_http;

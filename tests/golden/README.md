@@ -149,3 +149,24 @@ Q1: 7, Q2: 6, Q3: 7, Q4: 18, Q5: 5, Q6: 6, Q7: 6, Q8: 6 (total 61). Every class 
 - [x] 61 entries, every Q1–Q8 ≥ 4, both SQL texts present
 - [x] All `oracle_sql` parse+bind in DuckDB (1.5.6) against an empty `raw`/`docs`/catalog schema
 - [ ] Expected outputs (`expected/*.json`) — part 2, once `ti-bench gen` exists
+
+## W10 rule oracle
+
+On the host (Python DuckDB 1.5.6), run from the repository root:
+
+```powershell
+$env:CARGO_INCREMENTAL = '0'
+py -3 tests/golden/rules_oracle.py --data-dir .lanes/data/correctness --store .lanes/data/store-full
+```
+
+The script runs the ignored `golden_battery_rule_ranges` Rust test, which dry-runs
+`"electrical.batteries.house.voltage@min" < 24.6 for 5m` and checks generated alert
+ranges against `intervals()`, plus `match(alerts, 'battery')` coverage. It then
+independently groups the raw voltage parquet into fixed-width buckets in DuckDB,
+rounds the bucket minimum to the catalog's BSI scale (D35), and extracts contiguous
+five-minute runs. It prints a JSON diff and exits nonzero on any mismatch.
+
+The golden store's documents/configuration are not modified. DuckDB scratch stays
+under `target/tmp`, with 512 MiB memory and a 4 GiB spill cap, and is deleted on exit.
+Do not run it concurrently with another full build. Unit/integration rules checks
+do not need DuckDB; this host oracle is the additional golden acceptance check.

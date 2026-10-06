@@ -59,6 +59,7 @@ pub struct DocStore {
     path: Option<PathBuf>,
     docs: BTreeMap<(String, String), Document>,
     version: u64,
+    stamp: Option<(std::time::SystemTime, u64)>,
 }
 
 impl DocStore {
@@ -68,6 +69,7 @@ impl DocStore {
             path: None,
             docs: BTreeMap::new(),
             version: 0,
+            stamp: None,
         }
     }
 
@@ -79,7 +81,12 @@ impl DocStore {
             ..Self::in_memory()
         };
         if path.exists() {
-            let stored: Vec<StoredDocument> = serde_json::from_slice(&std::fs::read(&path)?)
+            let mut file = std::fs::File::open(&path)?;
+            let metadata = file.metadata()?;
+            store.stamp = Some((metadata.modified()?, metadata.len()));
+            let mut bytes = Vec::new();
+            std::io::Read::read_to_end(&mut file, &mut bytes)?;
+            let stored: Vec<StoredDocument> = serde_json::from_slice(&bytes)
                 .map_err(|e| Error::Corrupt(format!("{}: {e}", path.display())))?;
             for doc in stored.into_iter().map(Document::from) {
                 doc.validate()?;
@@ -89,8 +96,34 @@ impl DocStore {
         Ok(store)
     }
 
+    fn file_stamp(path: &Path) -> Result<Option<(std::time::SystemTime, u64)>> {
+        match std::fs::metadata(path) {
+            Ok(meta) => Ok(Some((meta.modified()?, meta.len()))),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Reload externally published documents and invalidate readers' caches.
+    pub fn refresh(&mut self) -> Result<bool> {
+        let Some(path) = &self.path else { return Ok(false) };
+        let stamp = Self::file_stamp(path)?;
+        if stamp == self.stamp { return Ok(false) }
+        let root = path.parent().and_then(Path::parent)
+            .ok_or_else(|| Error::Corrupt("invalid document store path".into()))?;
+        let fresh = Self::open(root)?;
+        let changed = fresh.docs != self.docs;
+        if changed {
+            self.docs = fresh.docs;
+            self.version += 1;
+        }
+        self.stamp = fresh.stamp;
+        Ok(changed)
+    }
+
     /// Insert or replace each document, then persist once.
     pub fn upsert_all(&mut self, docs: impl IntoIterator<Item = Document>) -> Result<()> {
+        self.refresh()?;
         let mut changed = false;
         for doc in docs {
             doc.validate()?;
@@ -108,6 +141,7 @@ impl DocStore {
 
     /// Remove the vessel's document; a missing id is idempotent.
     pub fn delete(&mut self, vessel: &str, id: &str) -> Result<()> {
+        self.refresh()?;
         if self.docs.remove(&(vessel.into(), id.into())).is_some() {
             self.commit()?;
         }
@@ -140,6 +174,8 @@ impl DocStore {
             let stored: Vec<StoredDocument> =
                 self.docs.values().map(StoredDocument::from).collect();
             atomic_write_json(path, &stored)?;
+            // Force the next read to verify the published snapshot, including a concurrent rename.
+            self.stamp = None;
         }
         Ok(())
     }
