@@ -506,14 +506,21 @@ impl OpenShard {
                 .push(rec);
         }
 
-        let mut staged = self.data.clone();
+        // Stage only the fields this batch touches: cloning the whole shard per call made
+        // backfill quadratic in the number of fields already in the shard.
+        let mut staged: BTreeMap<u32, FieldData> = BTreeMap::new();
+        for &(_, id) in groups.keys() {
+            staged
+                .entry(id)
+                .or_insert_with(|| self.data.fields[&id].clone());
+        }
         for ((col, id), group) in groups {
             let rewrite = group[0].rewrite;
             if group.iter().any(|rec| rec.rewrite != rewrite) {
                 return Err(Error::InvalidInput("mixed rewrite flags".into()));
             }
 
-            let field = staged.fields.get_mut(&id).expect("validated field");
+            let field = staged.get_mut(&id).expect("validated field");
             let distinct: Vec<_> = group.iter().map(|r| &r.value).collect();
             let scalar = matches!(field, FieldData::Bsi(_) | FieldData::Count(_))
                 || matches!(field, FieldData::Set(f) if !f.is_multi());
@@ -561,7 +568,7 @@ impl OpenShard {
             }
         }
 
-        self.data = staged;
+        self.data.fields.extend(staged);
         self.dirty = true;
         self.has_data = true;
         Ok(())

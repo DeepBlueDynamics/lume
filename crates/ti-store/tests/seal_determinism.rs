@@ -236,7 +236,11 @@ fn test_seal_determinism_all_field_types() {
             },
         ];
 
-        store.apply(&records).unwrap();
+        // One apply is one transaction (spec/14): a (bucket, field) group must agree on
+        // rewrite, so the bucket-20 rewrite is applied as its own transaction, as ingest does.
+        let (initial, rewrites) = records.split_at(records.len() - 2);
+        store.apply(initial).unwrap();
+        store.apply(rewrites).unwrap();
 
         let shard_key = ShardKey {
             vessel: v0,

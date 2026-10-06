@@ -239,14 +239,19 @@ impl ShardSink for Store {
             }
         }
 
-        // Apply to in-memory open shards
+        // Apply to in-memory open shards, one call per shard so each shard stages its
+        // touched fields once per batch rather than once per record.
+        let mut by_shard: BTreeMap<ShardKey, Vec<BucketRecord>> = BTreeMap::new();
         for rec in recs {
             let key = ShardKey {
                 vessel: rec.vessel,
                 shard: rec.bucket >> 16,
             };
+            by_shard.entry(key).or_default().push(rec.clone());
+        }
+        for (key, shard_recs) in by_shard {
             let shard = self.open_shards.get_mut(&key).unwrap();
-            shard.apply(std::slice::from_ref(rec))?;
+            shard.apply(&shard_recs)?;
         }
 
         Ok(())
