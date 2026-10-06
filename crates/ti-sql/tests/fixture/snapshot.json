@@ -1,0 +1,168 @@
+{
+  "width_seconds": 1,
+  "fields": [
+    {
+      "id": 1,
+      "path": "speed",
+      "agg": "Mean",
+      "kind": {
+        "Bsi": {
+          "scale": 2
+        }
+      },
+      "units": "m/s"
+    },
+    {
+      "id": 2,
+      "path": "state",
+      "agg": null,
+      "kind": "Set",
+      "units": null
+    },
+    {
+      "id": 3,
+      "path": "speed$source",
+      "agg": null,
+      "kind": "Set",
+      "units": null
+    },
+    {
+      "id": 4,
+      "path": "present",
+      "agg": null,
+      "kind": "Presence",
+      "units": null
+    }
+  ],
+  "vessels": [
+    {
+      "ord": 1,
+      "urn": "vessels.urn:test:1",
+      "name": "Fixture",
+      "mmsi": null,
+      "first_seen": 1577836800,
+      "last_seen": 1577836803
+    }
+  ],
+  "dictionaries": {
+    "2": {
+      "1": "on",
+      "2": "off"
+    },
+    "3": {
+      "1": "gps",
+      "2": "ais"
+    }
+  },
+  "records": [
+    {
+      "vessel": 1,
+      "bucket": 0,
+      "field": 4,
+      "value": "Present",
+      "rewrite": false
+    },
+    {
+      "vessel": 1,
+      "bucket": 0,
+      "field": 1,
+      "value": {
+        "Int": -100
+      },
+      "rewrite": false
+    },
+    {
+      "vessel": 1,
+      "bucket": 0,
+      "field": 2,
+      "value": {
+        "SetValue": 2
+      },
+      "rewrite": false
+    },
+    {
+      "vessel": 1,
+      "bucket": 0,
+      "field": 3,
+      "value": {
+        "SetValue": 1
+      },
+      "rewrite": false
+    },
+    {
+      "vessel": 1,
+      "bucket": 0,
+      "field": 3,
+      "value": {
+        "SetValue": 2
+      },
+      "rewrite": false
+    },
+    {
+      "vessel": 1,
+      "bucket": 1,
+      "field": 4,
+      "value": "Present",
+      "rewrite": false
+    },
+    {
+      "vessel": 1,
+      "bucket": 1,
+      "field": 1,
+      "value": {
+        "Int": 0
+      },
+      "rewrite": false
+    },
+    {
+      "vessel": 1,
+      "bucket": 1,
+      "field": 2,
+      "value": {
+        "SetValue": 1
+      },
+      "rewrite": false
+    },
+    {
+      "vessel": 1,
+      "bucket": 1,
+      "field": 3,
+      "value": {
+        "SetValue": 2
+      },
+      "rewrite": false
+    },
+    {
+      "vessel": 1,
+      "bucket": 2,
+      "field": 4,
+      "value": "Present",
+      "rewrite": false
+    },
+    {
+      "vessel": 1,
+      "bucket": 2,
+      "field": 1,
+      "value": {
+        "Int": 125
+      },
+      "rewrite": false
+    },
+    {
+      "vessel": 1,
+      "bucket": 2,
+      "field": 2,
+      "value": {
+        "SetValue": 1
+      },
+      "rewrite": false
+    },
+    {
+      "vessel": 1,
+      "bucket": 3,
+      "field": 4,
+      "value": "Present",
+      "rewrite": false
+    }
+  ]
+}

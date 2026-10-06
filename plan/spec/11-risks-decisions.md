@@ -57,12 +57,11 @@ and cheaply.
 | D23 | proptest 1.x as a ti-core dev-dependency | W1: 10,000-case independent scalar/bitmap checks for signed BSI, predicate trees and D21 rewrites; coordinated with Prawn (D22 reserved for ti-bench), no new root runtime dependency |
 | D24 | bincode 1.3 in ti-store | W2: length-prefixed little-endian fixed-integer serialization for WAL record payloads (spec 14 §79); pinned 1.3.3 in Cargo.lock. WAL payload encoding is an on-disk format versioned by the frozen WAL header (v1); any change of encoder or major version requires a header version bump plus a migration note |
 | D25 | crc32fast 1.4+ in ti-store | W2: IEEE CRC32 frame checksum for WAL records over sequence LE and payload (spec 14 §78); pure-Rust fast table-based CRC32, already in shared lockfile |
+| D26 | DataFusion =55.1.0, defaults disabled; sql/parquet/nested/datetime/math/string features; zstd-sys allowed by D27; async-trait 0.1, tokio 1 runtime/macros, futures 0.3, existing serde/serde_json for ti-sql | W4 read-only SQL, custom TableProvider/streaming executor, array_has rewrite, golden verification; root remains optional behind ti. DataFusion's additive transitive features enable zstd-sys; the lead approved this exception in D27. No vendoring or patches; bzip2/lzma C bindings remain excluded |
 
 Reserved, and written by the owning lane at merge (agreed among the lanes on 2026-10-06):
 
 - D22: Zygomorphic Prawn, `ti-bench` generator crate (arrow/parquet 59.x pure-Rust codecs, chrono; dev/optional)
-
-- D26: Rigid Roadrunner, W4 DataFusion `=55.1.0` with default features off and an explicit feature list
 
 | # | Decision | Why |
 |---|---|---|

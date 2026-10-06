@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "bucket_width_seconds": 1,
+  "entries": [
+    {
+      "id": "numeric",
+      "ti_sql": "SELECT count(*) AS n FROM telemetry WHERE speed >= 0",
+      "oracle_sql": "SELECT count(*) AS n FROM telemetry WHERE speed >= 0",
+      "expected_path": "expected/numeric.json",
+      "tolerance": {
+        "exact": [
+          "n"
+        ]
+      }
+    },
+    {
+      "id": "nulls",
+      "ti_sql": "SELECT count(*) AS n FROM telemetry WHERE NOT(speed >= 0)",
+      "oracle_sql": "SELECT count(*) AS n FROM telemetry WHERE NOT(speed >= 0)",
+      "expected_path": "expected/nulls.json",
+      "tolerance": {
+        "exact": [
+          "n"
+        ]
+      }
+    },
+    {
+      "id": "source",
+      "ti_sql": "SELECT count(*) AS n FROM telemetry WHERE \"speed$source\" = 'gps'",
+      "oracle_sql": "SELECT count(*) AS n FROM telemetry WHERE list_contains(\"speed$source\", 'gps')",
+      "expected_path": "expected/source.json",
+      "tolerance": {
+        "exact": [
+          "n"
+        ]
+      }
+    },
+    {
+      "id": "null-in",
+      "ti_sql": "SELECT count(*) AS n FROM telemetry WHERE \"speed$source\" NOT IN ('gps',NULL)",
+      "oracle_sql": "SELECT count(*) AS n FROM telemetry WHERE NOT (list_contains(\"speed$source\", 'gps') OR NULL)",
+      "expected_path": "expected/null-in.json",
+      "tolerance": {
+        "exact": [
+          "n"
+        ]
+      }
+    },
+    {
+      "id": "quantize",
+      "ti_sql": "SELECT speed, ts FROM telemetry WHERE speed=1.254",
+      "oracle_sql": "SELECT speed, ts FROM telemetry WHERE speed=round(1.254,2)",
+      "expected_path": "expected/quantize.json",
+      "tolerance": {
+        "sort": [
+          "ts"
+        ],
+        "exact": [
+          "ts"
+        ],
+        "bsi": {
+          "speed": 2
+        }
+      }
+    },
+    {
+      "id": "residual",
+      "ti_sql": "SELECT count(*) AS n FROM telemetry WHERE speed+1 > 1",
+      "oracle_sql": "SELECT count(*) AS n FROM telemetry WHERE speed+1 > 1",
+      "expected_path": "expected/residual.json",
+      "tolerance": {
+        "exact": [
+          "n"
+        ]
+      }
+    },
+    {
+      "id": "excluded-intervals",
+      "ti_sql": "SELECT intervals('fixture')",
+      "oracle_sql": "",
+      "expected_path": "",
+      "tolerance": {}
+    },
+    {
+      "id": "excluded-match",
+      "ti_sql": "SELECT match('fixture')",
+      "oracle_sql": "",
+      "expected_path": "",
+      "tolerance": {}
+    },
+    {
+      "id": "excluded-in_bbox",
+      "ti_sql": "SELECT in_bbox('fixture')",
+      "oracle_sql": "",
+      "expected_path": "",
+      "tolerance": {}
+    },
+    {
+      "id": "excluded-within_nm",
+      "ti_sql": "SELECT within_nm('fixture')",
+      "oracle_sql": "",
+      "expected_path": "",
+      "tolerance": {}
+    }
+  ]
+}
