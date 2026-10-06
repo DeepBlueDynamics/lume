@@ -5,6 +5,13 @@ edition = "2021"
 license = "BSD-3-Clause"
 description = "Ingest pipeline for Lume Telemetry Index (decode, normalize, bucket, watermark)"
 
+[[example]]
+name = "profile_backfill"
+required-features = ["backfill-profile"]
+
+[features]
+backfill-profile = []
+
 [dependencies]
 ti-contracts = { path = "../ti-contracts" }
 ti-store = { path = "../ti-store" }
