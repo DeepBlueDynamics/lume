@@ -111,9 +111,7 @@ impl ResourceClient {
         let response = match request.call() {
             Ok(response) => response,
             Err(ureq::Error::Status(404, _)) => return Ok(None),
-            Err(ureq::Error::Status(401, _))
-                if self.token.as_deref().is_none_or(str::is_empty) =>
-            {
+            Err(ureq::Error::Status(401, _)) if self.token.as_deref().is_none_or(str::is_empty) => {
                 return Ok(None);
             }
             Err(_) => return Err(invalid(format!("Signal K document request failed: {path}"))),
