@@ -757,8 +757,13 @@ pub fn serve_with_ti(port:u16,root:&std::path::Path)->Result<(),String>{
 }
 #[cfg(feature = "ti")]
 pub fn serve_with_ti_on(port:u16,root:&std::path::Path,bind:&str)->Result<(),String>{
+    serve_with_ti_pg_on(port,root,bind,None)
+}
+#[cfg(feature = "ti")]
+pub fn serve_with_ti_pg_on(port:u16,root:&std::path::Path,bind:&str,pg:Option<u16>)->Result<(),String>{
     let bind=bind.parse::<std::net::IpAddr>().map_err(|e|format!("Invalid bind address: {e}"))?;
     let ti=std::sync::Arc::new(crate::ti_http::TiServer::open(root)?);
+    let _pg=pg.map(|port|crate::ti_pg::start(ti.clone(),std::net::SocketAddr::new(bind,port))).transpose()?;
     serve_configured(port,Some(ti),bind)
 }
 fn serve_configured(port:u16,_ti:TiState,bind:std::net::IpAddr)->Result<(),String>{

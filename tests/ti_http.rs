@@ -9,11 +9,14 @@ use std::{
 use ti_contracts::{
     Agg, BucketRecord, Catalog, FieldKind, FieldSpec, FieldValue, ShardSink, VesselSpec,
 };
+#[path = "support/pg.rs"]
+mod pg_tests;
 static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 struct Server {
     child: Child,
     root: PathBuf,
     url: String,
+    pg: String,
 }
 impl Drop for Server {
     fn drop(&mut self) {
@@ -26,7 +29,8 @@ impl Server {
     fn start() -> Self {
         Self::start_on(None)
     }
-    fn start_on(bind: Option<&str>) -> Self {
+    fn start_on(bind: Option<&str>) -> Self { Self::start_with(bind,false) }
+    fn start_with(bind: Option<&str>,pg:bool) -> Self {
         let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!(
             "http-{}-{}",
             std::process::id(),
@@ -83,6 +87,7 @@ impl Server {
         if let Some(bind) = bind {
             command.args(["--bind", bind]);
         }
+        if pg { command.args(["--pg","0"]); }
         let child = command
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -92,11 +97,17 @@ impl Server {
             child,
             root,
             url: String::new(),
+            pg: String::new(),
         };
         let mut line = String::new();
-        BufReader::new(server.child.stdout.take().unwrap())
-            .read_line(&mut line)
-            .unwrap();
+        let mut output=BufReader::new(server.child.stdout.take().unwrap());
+        output.read_line(&mut line).unwrap();
+        if pg {
+            let address=line.split_whitespace().last().unwrap();
+            assert!(address.starts_with(&format!("{}:",bind.unwrap_or("127.0.0.1"))),"{line}");
+            server.pg=address.replace("0.0.0.0","127.0.0.1");
+            line.clear();output.read_line(&mut line).unwrap();
+        }
         let address = line.split_whitespace().last().expect("server startup line");
         assert!(
             address.starts_with(&format!("http://{}:", bind.unwrap_or("127.0.0.1"))),

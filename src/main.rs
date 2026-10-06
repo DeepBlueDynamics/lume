@@ -142,12 +142,15 @@ fn main() {
                     eprintln!("--bind requires an IP address");std::process::exit(2);
                 })
             });
+            let pg=args.iter().position(|a|a=="--pg").map(|pos|{
+                args.get(pos+1).and_then(|s|s.parse::<u16>().ok()).unwrap_or_else(||{
+                    eprintln!("--pg requires a port from 0 to 65535");std::process::exit(2);
+                })
+            });
+            if pg.is_some() && ti_store.is_none(){eprintln!("--pg requires --ti-store");std::process::exit(2);}
             #[cfg(feature = "ti")]
             let result=match ti_store{
-                Some(root)=>match bind{
-                    Some(bind)=>lume::agent::serve_with_ti_on(port,std::path::Path::new(root),bind),
-                    None=>lume::agent::serve_with_ti(port,std::path::Path::new(root)),
-                },
+                Some(root)=>lume::agent::serve_with_ti_pg_on(port,std::path::Path::new(root),bind.unwrap_or("127.0.0.1"),pg),
                 None=>lume::agent::serve_on(port,bind.unwrap_or("0.0.0.0")),
             };
             #[cfg(not(feature = "ti"))]
@@ -2116,6 +2119,7 @@ USAGE:
 OPTIONS:
   -p, --port <PORT>      Port to bind the HTTP server to [default: 5863 — "LUME" on a phone keypad]
   --ti-store <ROOT>     Open one shared TI engine for /ti and MCP (requires feature ti)
+  --pg <PORT>          Enable read-only simple-query Postgres; requires --ti-store [off by default]
   --bind <IP>           Bind address [with TI: 127.0.0.1; otherwise: 0.0.0.0]
   -h, --help             Prints help information
 "#);

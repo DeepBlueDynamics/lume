@@ -80,12 +80,16 @@ impl PathsResolver {
             .into_iter()
             .map(|field| {
                 let path = field.path.split('#').next().unwrap_or(&field.path);
+                let path = path.strip_suffix("$source").unwrap_or(path);
                 let description = descriptions()
                     .iter()
                     .filter(|p| matches(&p.pattern, path))
                     .max_by_key(|p| p.pattern.split('.').filter(|s| *s != "*").count())
                     .map(|p| p.description.clone())
                     .unwrap_or_else(|| format!("Store telemetry column: {}", words(&field.path)));
+                let description = if field.path.ends_with("$source") {
+                    format!("Reporting sources and provenance for: {description}")
+                } else { description };
                 Column {
                     name: ti_sql::field_name(&field),
                     field,

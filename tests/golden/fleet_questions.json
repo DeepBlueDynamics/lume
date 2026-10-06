@@ -1,0 +1,1335 @@
+{
+  "version": 1,
+  "store": "store-full",
+  "data": "correctness",
+  "expected_source": "Existing tests/golden/expected outputs computed by the DuckDB corpus oracle; source_entry preserves provenance.",
+  "gate": "Integrator must separately run and grade an agent restricted to Lume MCP. The deterministic regression is not that gate.",
+  "entries": [
+    {
+      "id": "fleet-01",
+      "question": "What was vessel 367000000's maximum true wind speed at noon UTC on May 1, 2026?",
+      "resolve_phrase": "maximum true wind speed",
+      "expected_column": "environment.wind.speedTrue@max",
+      "sql_template": "SELECT vessel, ts, \"{column}\" AS wind_max\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts = TIMESTAMP '2026-05-01 12:00:00'\nORDER BY ts",
+      "oracle_sql": "SELECT context AS vessel,\n       time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS ts,\n       round(round(max(value), 3), 3) AS wind_max\nFROM raw\nWHERE path = 'environment.wind.speedTrue' AND context = 'vessels.urn:mrn:imo:mmsi:367000000'\nGROUP BY 1, 2\nHAVING ts = TIMESTAMP '2026-05-01 12:00:00'\nORDER BY ts",
+      "expected": [
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "ts": "2026-05-01 12:00:00",
+          "wind_max": 4.979
+        }
+      ],
+      "tolerance": {
+        "sort": [
+          "vessel",
+          "ts"
+        ],
+        "exact": [
+          "vessel",
+          "ts"
+        ],
+        "bsi": {
+          "wind_max": 3
+        }
+      },
+      "source_entry": "q1-001"
+    },
+    {
+      "id": "fleet-02",
+      "question": "What was the house battery's mean voltage on vessel 367000000 at 18:00 UTC on May 1, 2026?",
+      "resolve_phrase": "mean house battery voltage",
+      "expected_column": "electrical.batteries.house.voltage@mean",
+      "sql_template": "SELECT vessel, ts, \"{column}\" AS batt_v\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts = TIMESTAMP '2026-05-01 18:00:00'\nORDER BY ts",
+      "oracle_sql": "SELECT context AS vessel,\n       time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS ts,\n       round(round(avg(value), 3), 3) AS batt_v\nFROM raw\nWHERE path = 'electrical.batteries.house.voltage' AND context = 'vessels.urn:mrn:imo:mmsi:367000000'\nGROUP BY 1, 2\nHAVING ts = TIMESTAMP '2026-05-01 18:00:00'\nORDER BY ts",
+      "expected": [
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "ts": "2026-05-01 18:00:00",
+          "batt_v": 27.108
+        }
+      ],
+      "tolerance": {
+        "sort": [
+          "vessel",
+          "ts"
+        ],
+        "exact": [
+          "vessel",
+          "ts"
+        ],
+        "bsi": {
+          "batt_v": 3
+        }
+      },
+      "source_entry": "q1-003"
+    },
+    {
+      "id": "fleet-03",
+      "question": "What was vessel 367000000's minimum depth below transducer at 14:00 UTC on May 1, 2026?",
+      "resolve_phrase": "minimum depth below transducer",
+      "expected_column": "environment.depth.belowTransducer@min",
+      "sql_template": "SELECT vessel, ts, \"{column}\" AS depth_min\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts = TIMESTAMP '2026-05-01 14:00:00'\nORDER BY ts",
+      "oracle_sql": "SELECT context AS vessel,\n       time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS ts,\n       round(round(min(value), 2), 2) AS depth_min\nFROM raw\nWHERE path = 'environment.depth.belowTransducer' AND context = 'vessels.urn:mrn:imo:mmsi:367000000'\nGROUP BY 1, 2\nHAVING ts = TIMESTAMP '2026-05-01 14:00:00'\nORDER BY ts",
+      "expected": [
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "ts": "2026-05-01 14:00:00",
+          "depth_min": 7.03
+        }
+      ],
+      "tolerance": {
+        "sort": [
+          "vessel",
+          "ts"
+        ],
+        "exact": [
+          "vessel",
+          "ts"
+        ],
+        "bsi": {
+          "depth_min": 2
+        }
+      },
+      "source_entry": "q1-005"
+    },
+    {
+      "id": "fleet-04",
+      "question": "What was vessel 367000000's port propulsion state at 08:00 UTC on May 1, 2026?",
+      "resolve_phrase": "port propulsion state",
+      "expected_column": "propulsion.port.state",
+      "sql_template": "SELECT vessel, ts, \"{column}\" AS port_state\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts = TIMESTAMP '2026-05-01 08:00:00'\nORDER BY ts",
+      "oracle_sql": "SELECT context AS vessel,\n       time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS ts,\n       arg_max(value_str, ts) AS port_state\nFROM raw WHERE path='propulsion.port.state' AND context='vessels.urn:mrn:imo:mmsi:367000000'\nGROUP BY 1,2 HAVING ts = TIMESTAMP '2026-05-01 08:00:00'\nORDER BY ts",
+      "expected": [
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "ts": "2026-05-01 08:00:00",
+          "port_state": "off"
+        }
+      ],
+      "tolerance": {
+        "sort": [
+          "vessel",
+          "ts"
+        ],
+        "exact": [
+          "vessel",
+          "ts",
+          "port_state"
+        ],
+        "bsi": {}
+      },
+      "source_entry": "q1-006"
+    },
+    {
+      "id": "fleet-05",
+      "question": "How many May 2026 buckets had vessel 367000000 moving over 3.086 m/s while its main engine was not started?",
+      "resolve_phrase": "maximum speed over ground",
+      "expected_column": "navigation.speedOverGround@max",
+      "sql_template": "SELECT vessel, count(*) AS n\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND \"{column}\" > 3.086\n  AND \"propulsion.main.state\" IS DISTINCT FROM 'started'\n  AND ts >= TIMESTAMP '2026-05-01' AND ts < TIMESTAMP '2026-06-01'\nGROUP BY vessel",
+      "oracle_sql": "WITH sog AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='navigation.speedOverGround' GROUP BY 1,2),\nmain AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, arg_max(value_str, ts) AS st\n  FROM raw WHERE path='propulsion.main.state' GROUP BY 1,2)\nSELECT sog.vessel, count(*) AS n\nFROM sog JOIN main ON sog.vessel=main.vessel AND sog.bkt=main.bkt\nWHERE sog.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND sog.v > 3.086 AND main.st IS DISTINCT FROM 'started'\n  AND sog.bkt >= TIMESTAMP '2026-05-01' AND sog.bkt < TIMESTAMP '2026-06-01'\nGROUP BY sog.vessel",
+      "expected": [
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "n": 2773
+        }
+      ],
+      "tolerance": {
+        "sort": [
+          "vessel"
+        ],
+        "exact": [
+          "vessel",
+          "n"
+        ],
+        "bsi": {}
+      },
+      "source_entry": "q3-001"
+    },
+    {
+      "id": "fleet-06",
+      "question": "Since May 1, how many buckets on vessel 367000000 had minimum house voltage below 25 V and maximum solar power above 100 W?",
+      "resolve_phrase": "minimum house battery voltage",
+      "expected_column": "electrical.batteries.house.voltage@min",
+      "sql_template": "SELECT vessel, count(*) AS n\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND \"{column}\" < 25.0\n  AND \"electrical.solar.house.panelPower@max\" > 100.0\n  AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY vessel",
+      "oracle_sql": "WITH vv AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(min(value), 3) AS v\n  FROM raw WHERE path='electrical.batteries.house.voltage' GROUP BY 1,2),\nsol AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 1) AS v\n  FROM raw WHERE path='electrical.solar.house.panelPower' GROUP BY 1,2)\nSELECT vv.vessel, count(*) AS n\nFROM vv JOIN sol ON vv.vessel=sol.vessel AND vv.bkt=sol.bkt\nWHERE vv.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND vv.v < 25.0 AND sol.v > 100.0 AND vv.bkt >= TIMESTAMP '2026-05-01'\nGROUP BY vv.vessel",
+      "expected": [
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "n": 13610
+        }
+      ],
+      "tolerance": {
+        "sort": [
+          "vessel"
+        ],
+        "exact": [
+          "vessel",
+          "n"
+        ],
+        "bsi": {}
+      },
+      "source_entry": "q3-002"
+    },
+    {
+      "id": "fleet-07",
+      "question": "Since May 1, how many anchored buckets on vessel 367000000 had minimum depth below transducer under 3 m?",
+      "resolve_phrase": "minimum depth below transducer",
+      "expected_column": "environment.depth.belowTransducer@min",
+      "sql_template": "SELECT vessel, count(*) AS n\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND \"{column}\" < 3.0\n  AND \"navigation.state\" = 'anchored'\n  AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY vessel",
+      "oracle_sql": "WITH d AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(min(value), 2) AS v\n  FROM raw WHERE path='environment.depth.belowTransducer' GROUP BY 1,2),\nst AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt\n  FROM raw WHERE path='navigation.state' GROUP BY 1,2 HAVING arg_max(value_str, ts) = 'anchored')\nSELECT d.vessel, count(*) AS n\nFROM d JOIN st ON d.vessel=st.vessel AND d.bkt=st.bkt\nWHERE d.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND d.v < 3.0 AND d.bkt >= TIMESTAMP '2026-05-01'\nGROUP BY d.vessel",
+      "expected": [
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "n": 54019
+        }
+      ],
+      "tolerance": {
+        "sort": [
+          "vessel"
+        ],
+        "exact": [
+          "vessel",
+          "n"
+        ],
+        "bsi": {}
+      },
+      "source_entry": "q3-003"
+    },
+    {
+      "id": "fleet-08",
+      "question": "Since May 1, how many buckets on vessel 367000000 had maximum true wind speed above 12.86 m/s?",
+      "resolve_phrase": "maximum true wind speed",
+      "expected_column": "environment.wind.speedTrue@max",
+      "sql_template": "SELECT vessel, count(*) AS n\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND \"{column}\" > 12.86\n  AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY vessel",
+      "oracle_sql": "WITH w AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='environment.wind.speedTrue' GROUP BY 1,2)\nSELECT w.vessel, count(*) AS n\nFROM w WHERE w.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND w.v > 12.86 AND w.bkt >= TIMESTAMP '2026-05-01'\nGROUP BY w.vessel",
+      "expected": [
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "n": 2041
+        }
+      ],
+      "tolerance": {
+        "sort": [
+          "vessel"
+        ],
+        "exact": [
+          "vessel",
+          "n"
+        ],
+        "bsi": {}
+      },
+      "source_entry": "q3-004"
+    },
+    {
+      "id": "fleet-09",
+      "question": "How many mean speed-over-ground reports did vessel 367000000 have between May 1 and May 2 inclusive?",
+      "resolve_phrase": "mean speed over ground",
+      "expected_column": "navigation.speedOverGround@mean",
+      "sql_template": "SELECT vessel, count(\"{column}\") AS n\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND ts BETWEEN TIMESTAMP '2026-05-01' AND TIMESTAMP '2026-05-02'\nGROUP BY vessel",
+      "oracle_sql": "WITH sog AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt\n  FROM raw WHERE path='navigation.speedOverGround' GROUP BY 1,2)\nSELECT sog.vessel, count(*) AS n\nFROM sog WHERE sog.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND sog.bkt BETWEEN TIMESTAMP '2026-05-01' AND TIMESTAMP '2026-05-02'\nGROUP BY sog.vessel",
+      "expected": [
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "n": 8641
+        }
+      ],
+      "tolerance": {
+        "sort": [
+          "vessel"
+        ],
+        "exact": [
+          "vessel",
+          "n"
+        ],
+        "bsi": {}
+      },
+      "source_entry": "q3-005"
+    },
+    {
+      "id": "fleet-10",
+      "question": "Since May 1, how many buckets on vessel 367000000 had either port or starboard propulsion started?",
+      "resolve_phrase": "port propulsion state",
+      "expected_column": "propulsion.port.state",
+      "sql_template": "SELECT vessel, count(*) AS n\nFROM telemetry\nWHERE vessel='vessels.urn:mrn:imo:mmsi:367000000'\n  AND (\"{column}\"='started' OR \"propulsion.starboard.state\"='started')\n  AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY vessel",
+      "oracle_sql": "WITH p AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt\n  FROM raw WHERE path='propulsion.port.state' GROUP BY 1,2 HAVING arg_max(value_str, ts) = 'started'),\ns AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt\n  FROM raw WHERE path='propulsion.starboard.state' GROUP BY 1,2 HAVING arg_max(value_str, ts) = 'started')\nSELECT COALESCE(p.vessel, s.vessel) AS vessel, count(*) AS n\nFROM p FULL JOIN s ON p.vessel=s.vessel AND p.bkt=s.bkt\nWHERE COALESCE(p.vessel, s.vessel)='vessels.urn:mrn:imo:mmsi:367000000' AND (p.vessel IS NOT NULL OR s.vessel IS NOT NULL)\n  AND COALESCE(p.bkt, s.bkt) >= TIMESTAMP '2026-05-01'\nGROUP BY 1",
+      "expected": [
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "n": 38487
+        }
+      ],
+      "tolerance": {
+        "sort": [
+          "vessel"
+        ],
+        "exact": [
+          "vessel",
+          "n"
+        ],
+        "bsi": {}
+      },
+      "source_entry": "q3-006"
+    },
+    {
+      "id": "fleet-11",
+      "question": "Since May 1, how many buckets on vessel 367000000 had minimum house battery voltage between 22 and 26 V?",
+      "resolve_phrase": "minimum house battery voltage",
+      "expected_column": "electrical.batteries.house.voltage@min",
+      "sql_template": "SELECT vessel, count(*) AS n\nFROM telemetry\nWHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND \"{column}\" BETWEEN 22.0 AND 26.0\n  AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY vessel",
+      "oracle_sql": "WITH vv AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(min(value), 3) AS v\n  FROM raw WHERE path='electrical.batteries.house.voltage' GROUP BY 1,2)\nSELECT vessel, count(*) AS n\nFROM vv WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND v BETWEEN 22.0 AND 26.0 AND bkt >= TIMESTAMP '2026-05-01'\nGROUP BY vessel",
+      "expected": [
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "n": 122518
+        }
+      ],
+      "tolerance": {
+        "sort": [
+          "vessel"
+        ],
+        "exact": [
+          "vessel",
+          "n"
+        ],
+        "bsi": {}
+      },
+      "source_entry": "q3-007"
+    },
+    {
+      "id": "fleet-12",
+      "question": "What was vessel 367000000's average mean house battery voltage in each hour of May 1 UTC?",
+      "resolve_phrase": "mean house battery voltage",
+      "expected_column": "electrical.batteries.house.voltage@mean",
+      "sql_template": "SELECT vessel, date_trunc('hour', ts) AS hr,\n       avg(\"{column}\") AS batt_v\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-01' AND ts < TIMESTAMP '2026-05-02'\nGROUP BY vessel, hr ORDER BY hr",
+      "oracle_sql": "WITH vv AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(avg(value), 3) AS v\n  FROM raw WHERE path='electrical.batteries.house.voltage' GROUP BY 1,2)\nSELECT vessel, date_trunc('hour', bkt) AS hr, round(avg(v), 3) AS batt_v\nFROM vv WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-05-01' AND bkt < TIMESTAMP '2026-05-02'\nGROUP BY vessel, hr ORDER BY hr",
+      "expected": [
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "hr": "2026-05-01 00:00:00",
+          "batt_v": 26.98
+        },
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "hr": "2026-05-01 01:00:00",
+          "batt_v": 27.018
+        },
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "hr": "2026-05-01 02:00:00",
+          "batt_v": 27.014
+        },
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "hr": "2026-05-01 03:00:00",
+          "batt_v": 26.985
+        },
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "hr": "2026-05-01 04:00:00",
+          "batt_v": 27.004
+        },
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "hr": "2026-05-01 05:00:00",
+          "batt_v": 27.002
+        },
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "hr": "2026-05-01 06:00:00",
+          "batt_v": 26.996
+        },
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "hr": "2026-05-01 07:00:00",
+          "batt_v": 27.024
+        },
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "hr": "2026-05-01 08:00:00",
+          "batt_v": 27.005
+        },
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "hr": "2026-05-01 09:00:00",
+          "batt_v": 27.001
+        },
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "hr": "2026-05-01 10:00:00",
+          "batt_v": 27.001
+        },
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "hr": "2026-05-01 11:00:00",
+          "batt_v": 27.006
+        },
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "hr": "2026-05-01 12:00:00",
+          "batt_v": 26.99
+        },
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "hr": "2026-05-01 13:00:00",
+          "batt_v": 27.007
+        },
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "hr": "2026-05-01 14:00:00",
+          "batt_v": 26.985
+        },
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "hr": "2026-05-01 15:00:00",
+          "batt_v": 26.955
+        },
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "hr": "2026-05-01 16:00:00",
+          "batt_v": 26.995
+        },
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "hr": "2026-05-01 17:00:00",
+          "batt_v": 27.01
+        },
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "hr": "2026-05-01 18:00:00",
+          "batt_v": 27.026
+        },
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "hr": "2026-05-01 19:00:00",
+          "batt_v": 27.017
+        },
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "hr": "2026-05-01 20:00:00",
+          "batt_v": 26.992
+        },
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "hr": "2026-05-01 21:00:00",
+          "batt_v": 27.036
+        },
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "hr": "2026-05-01 22:00:00",
+          "batt_v": 26.978
+        },
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "hr": "2026-05-01 23:00:00",
+          "batt_v": 26.998
+        }
+      ],
+      "tolerance": {
+        "sort": [
+          "vessel",
+          "hr"
+        ],
+        "exact": [
+          "vessel",
+          "hr"
+        ],
+        "bsi": {
+          "batt_v": 3
+        }
+      },
+      "source_entry": "q4-002"
+    },
+    {
+      "id": "fleet-13",
+      "question": "Since May 1, what was vessel 367000000's minimum house state of charge each day, alongside the previous day's minimum?",
+      "resolve_phrase": "minimum house battery state of charge",
+      "expected_column": "electrical.batteries.house.stateOfCharge@min",
+      "sql_template": "WITH d AS (\n  SELECT date_bin(INTERVAL '1 day', ts) AS day,\n         min(\"{column}\") AS min_soc\n  FROM telemetry\n  WHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-01'\n  GROUP BY day)\nSELECT day, min_soc, lag(min_soc) OVER (ORDER BY day) AS prev_min_soc\nFROM d ORDER BY day",
+      "oracle_sql": "WITH soc AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(min(value), 4) AS v\n  FROM raw WHERE path='electrical.batteries.house.stateOfCharge' GROUP BY 1,2),\nd AS (\n  SELECT time_bucket(INTERVAL '1 day', bkt, TIMESTAMP '2020-01-01') AS day, round(min(v), 4) AS min_soc\n  FROM soc WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-05-01' GROUP BY day)\nSELECT day, min_soc, lag(min_soc) OVER (ORDER BY day) AS prev_min_soc\nFROM d ORDER BY day",
+      "expected": [
+        {
+          "day": "2026-05-01 00:00:00",
+          "min_soc": 0.7602,
+          "prev_min_soc": null
+        },
+        {
+          "day": "2026-05-02 00:00:00",
+          "min_soc": 0.7566,
+          "prev_min_soc": 0.7602
+        },
+        {
+          "day": "2026-05-03 00:00:00",
+          "min_soc": 0.268,
+          "prev_min_soc": 0.7566
+        },
+        {
+          "day": "2026-05-04 00:00:00",
+          "min_soc": 0.2678,
+          "prev_min_soc": 0.268
+        },
+        {
+          "day": "2026-05-05 00:00:00",
+          "min_soc": 0.269,
+          "prev_min_soc": 0.2678
+        },
+        {
+          "day": "2026-05-06 00:00:00",
+          "min_soc": 0.2858,
+          "prev_min_soc": 0.269
+        },
+        {
+          "day": "2026-05-07 00:00:00",
+          "min_soc": 0.2745,
+          "prev_min_soc": 0.2858
+        },
+        {
+          "day": "2026-05-08 00:00:00",
+          "min_soc": 0.2601,
+          "prev_min_soc": 0.2745
+        },
+        {
+          "day": "2026-05-09 00:00:00",
+          "min_soc": 0.265,
+          "prev_min_soc": 0.2601
+        },
+        {
+          "day": "2026-05-10 00:00:00",
+          "min_soc": 0.7601,
+          "prev_min_soc": 0.265
+        },
+        {
+          "day": "2026-05-11 00:00:00",
+          "min_soc": 0.7643,
+          "prev_min_soc": 0.7601
+        },
+        {
+          "day": "2026-05-12 00:00:00",
+          "min_soc": 0.754,
+          "prev_min_soc": 0.7643
+        },
+        {
+          "day": "2026-05-13 00:00:00",
+          "min_soc": 0.759,
+          "prev_min_soc": 0.754
+        },
+        {
+          "day": "2026-05-14 00:00:00",
+          "min_soc": 0.2809,
+          "prev_min_soc": 0.759
+        },
+        {
+          "day": "2026-05-15 00:00:00",
+          "min_soc": 0.2799,
+          "prev_min_soc": 0.2809
+        },
+        {
+          "day": "2026-05-16 00:00:00",
+          "min_soc": 0.756,
+          "prev_min_soc": 0.2799
+        },
+        {
+          "day": "2026-05-17 00:00:00",
+          "min_soc": 0.7587,
+          "prev_min_soc": 0.756
+        },
+        {
+          "day": "2026-05-18 00:00:00",
+          "min_soc": 0.2613,
+          "prev_min_soc": 0.7587
+        },
+        {
+          "day": "2026-05-19 00:00:00",
+          "min_soc": 0.7565,
+          "prev_min_soc": 0.2613
+        },
+        {
+          "day": "2026-05-20 00:00:00",
+          "min_soc": 0.2652,
+          "prev_min_soc": 0.7565
+        },
+        {
+          "day": "2026-05-21 00:00:00",
+          "min_soc": 0.2701,
+          "prev_min_soc": 0.2652
+        },
+        {
+          "day": "2026-05-22 00:00:00",
+          "min_soc": 0.2625,
+          "prev_min_soc": 0.2701
+        },
+        {
+          "day": "2026-05-23 00:00:00",
+          "min_soc": 0.7606,
+          "prev_min_soc": 0.2625
+        },
+        {
+          "day": "2026-05-24 00:00:00",
+          "min_soc": 0.761,
+          "prev_min_soc": 0.7606
+        },
+        {
+          "day": "2026-05-25 00:00:00",
+          "min_soc": 0.2738,
+          "prev_min_soc": 0.761
+        },
+        {
+          "day": "2026-05-26 00:00:00",
+          "min_soc": 0.2729,
+          "prev_min_soc": 0.2738
+        },
+        {
+          "day": "2026-05-27 00:00:00",
+          "min_soc": 0.268,
+          "prev_min_soc": 0.2729
+        },
+        {
+          "day": "2026-05-28 00:00:00",
+          "min_soc": 0.2962,
+          "prev_min_soc": 0.268
+        },
+        {
+          "day": "2026-05-29 00:00:00",
+          "min_soc": 0.2842,
+          "prev_min_soc": 0.2962
+        },
+        {
+          "day": "2026-05-30 00:00:00",
+          "min_soc": 0.7579,
+          "prev_min_soc": 0.2842
+        },
+        {
+          "day": "2026-05-31 00:00:00",
+          "min_soc": 0.2591,
+          "prev_min_soc": 0.7579
+        }
+      ],
+      "tolerance": {
+        "sort": [
+          "day"
+        ],
+        "exact": [
+          "day"
+        ],
+        "bsi": {
+          "min_soc": 4,
+          "prev_min_soc": 4
+        }
+      },
+      "source_entry": "q4-003"
+    },
+    {
+      "id": "fleet-14",
+      "question": "Across the fleet since May 1, which hourly average mean house state-of-charge values fell more than 0.05 from the previous hour?",
+      "resolve_phrase": "mean house battery state of charge",
+      "expected_column": "electrical.batteries.house.stateOfCharge@mean",
+      "sql_template": "WITH h AS (\n  SELECT date_bin(INTERVAL '1 hour', ts) AS hr,\n         avg(\"{column}\") AS soc\n  FROM telemetry WHERE ts >= TIMESTAMP '2026-05-01' GROUP BY hr),\nd AS (SELECT hr, soc, soc - lag(soc) OVER (ORDER BY hr) AS delta FROM h)\nSELECT * FROM d WHERE delta < -0.05 ORDER BY hr",
+      "oracle_sql": "WITH soc AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(avg(value), 4) AS v\n  FROM raw WHERE path='electrical.batteries.house.stateOfCharge' GROUP BY 1,2),\nh AS (\n  SELECT time_bucket(INTERVAL '1 hour', bkt, TIMESTAMP '2020-01-01') AS hr, round(avg(v), 4) AS soc\n  FROM soc WHERE bkt >= TIMESTAMP '2026-05-01' GROUP BY hr),\nd AS (SELECT hr, soc, soc - lag(soc) OVER (ORDER BY hr) AS delta FROM h)\nSELECT * FROM d WHERE delta < -0.05 ORDER BY hr",
+      "expected": [
+        {
+          "hr": "2026-05-18 00:00:00",
+          "soc": 0.7021,
+          "delta": -0.0796
+        },
+        {
+          "hr": "2026-05-25 12:00:00",
+          "soc": 0.7469,
+          "delta": -0.07469999999999999
+        },
+        {
+          "hr": "2026-05-28 12:00:00",
+          "soc": 0.7809,
+          "delta": -0.08089999999999997
+        },
+        {
+          "hr": "2026-05-29 12:00:00",
+          "soc": 0.7022,
+          "delta": -0.07479999999999998
+        }
+      ],
+      "tolerance": {
+        "sort": [
+          "hr"
+        ],
+        "exact": [
+          "hr"
+        ],
+        "bsi": {
+          "soc": 4,
+          "delta": 4
+        }
+      },
+      "source_entry": "q4-004"
+    },
+    {
+      "id": "fleet-15",
+      "question": "Since May 1, what was vessel 367000000's average mean speed over ground for each UTC day?",
+      "resolve_phrase": "mean speed over ground",
+      "expected_column": "navigation.speedOverGround@mean",
+      "sql_template": "SELECT date_bin(INTERVAL '1 day', ts) AS day,\n       avg(\"{column}\") AS sog\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY day ORDER BY day",
+      "oracle_sql": "WITH sog AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(avg(value), 3) AS v\n  FROM raw WHERE path='navigation.speedOverGround' GROUP BY 1,2)\nSELECT time_bucket(INTERVAL '1 day', bkt, TIMESTAMP '2020-01-01') AS day, round(avg(v), 3) AS sog\nFROM sog WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-05-01'\nGROUP BY day ORDER BY day",
+      "expected": [
+        {
+          "day": "2026-05-01 00:00:00",
+          "sog": 0.101
+        },
+        {
+          "day": "2026-05-02 00:00:00",
+          "sog": 0.1
+        },
+        {
+          "day": "2026-05-03 00:00:00",
+          "sog": 0.099
+        },
+        {
+          "day": "2026-05-04 00:00:00",
+          "sog": 0.101
+        },
+        {
+          "day": "2026-05-05 00:00:00",
+          "sog": 0.1
+        },
+        {
+          "day": "2026-05-06 00:00:00",
+          "sog": 0.1
+        },
+        {
+          "day": "2026-05-07 00:00:00",
+          "sog": 4.003
+        },
+        {
+          "day": "2026-05-08 00:00:00",
+          "sog": 4.004
+        },
+        {
+          "day": "2026-05-09 00:00:00",
+          "sog": 3.994
+        },
+        {
+          "day": "2026-05-10 00:00:00",
+          "sog": 0.099
+        },
+        {
+          "day": "2026-05-11 00:00:00",
+          "sog": 0.1
+        },
+        {
+          "day": "2026-05-12 00:00:00",
+          "sog": 0.1
+        },
+        {
+          "day": "2026-05-13 00:00:00",
+          "sog": 0.1
+        },
+        {
+          "day": "2026-05-14 00:00:00",
+          "sog": 0.1
+        },
+        {
+          "day": "2026-05-15 00:00:00",
+          "sog": 0.1
+        },
+        {
+          "day": "2026-05-16 00:00:00",
+          "sog": 0.1
+        },
+        {
+          "day": "2026-05-17 00:00:00",
+          "sog": 0.101
+        },
+        {
+          "day": "2026-05-18 00:00:00",
+          "sog": 0.099
+        },
+        {
+          "day": "2026-05-19 00:00:00",
+          "sog": 0.1
+        },
+        {
+          "day": "2026-05-20 00:00:00",
+          "sog": 3.985
+        },
+        {
+          "day": "2026-05-21 00:00:00",
+          "sog": 0.1
+        },
+        {
+          "day": "2026-05-22 00:00:00",
+          "sog": 0.1
+        },
+        {
+          "day": "2026-05-23 00:00:00",
+          "sog": 0.101
+        },
+        {
+          "day": "2026-05-24 00:00:00",
+          "sog": 0.1
+        },
+        {
+          "day": "2026-05-25 00:00:00",
+          "sog": 0.101
+        },
+        {
+          "day": "2026-05-26 00:00:00",
+          "sog": 0.1
+        },
+        {
+          "day": "2026-05-27 00:00:00",
+          "sog": 0.101
+        },
+        {
+          "day": "2026-05-28 00:00:00",
+          "sog": 0.101
+        },
+        {
+          "day": "2026-05-29 00:00:00",
+          "sog": 0.1
+        },
+        {
+          "day": "2026-05-30 00:00:00",
+          "sog": 0.1
+        },
+        {
+          "day": "2026-05-31 00:00:00",
+          "sog": 2.054
+        }
+      ],
+      "tolerance": {
+        "sort": [
+          "day"
+        ],
+        "exact": [
+          "day"
+        ],
+        "bsi": {
+          "sog": 3
+        }
+      },
+      "source_entry": "q8-002"
+    },
+    {
+      "id": "fleet-16",
+      "question": "Since May 1, what was vessel 367000000's average mean outside temperature for each UTC day?",
+      "resolve_phrase": "mean outside temperature",
+      "expected_column": "environment.outside.temperature@mean",
+      "sql_template": "SELECT date_bin(INTERVAL '1 day', ts) AS day,\n       avg(\"{column}\") AS temp\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY day ORDER BY day",
+      "oracle_sql": "WITH t AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(avg(value), 2) AS v\n  FROM raw WHERE path='environment.outside.temperature' GROUP BY 1,2)\nSELECT time_bucket(INTERVAL '1 day', bkt, TIMESTAMP '2020-01-01') AS day, round(avg(v), 2) AS temp\nFROM t WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-05-01'\nGROUP BY day ORDER BY day",
+      "expected": [
+        {
+          "day": "2026-05-01 00:00:00",
+          "temp": 18.05
+        },
+        {
+          "day": "2026-05-02 00:00:00",
+          "temp": 18.07
+        },
+        {
+          "day": "2026-05-03 00:00:00",
+          "temp": 17.94
+        },
+        {
+          "day": "2026-05-04 00:00:00",
+          "temp": 17.98
+        },
+        {
+          "day": "2026-05-05 00:00:00",
+          "temp": 17.99
+        },
+        {
+          "day": "2026-05-06 00:00:00",
+          "temp": 18.01
+        },
+        {
+          "day": "2026-05-07 00:00:00",
+          "temp": 18.04
+        },
+        {
+          "day": "2026-05-08 00:00:00",
+          "temp": 18.01
+        },
+        {
+          "day": "2026-05-09 00:00:00",
+          "temp": 18.06
+        },
+        {
+          "day": "2026-05-10 00:00:00",
+          "temp": 17.98
+        },
+        {
+          "day": "2026-05-11 00:00:00",
+          "temp": 18.07
+        },
+        {
+          "day": "2026-05-12 00:00:00",
+          "temp": 17.98
+        },
+        {
+          "day": "2026-05-13 00:00:00",
+          "temp": 18.01
+        },
+        {
+          "day": "2026-05-14 00:00:00",
+          "temp": 18.01
+        },
+        {
+          "day": "2026-05-15 00:00:00",
+          "temp": 17.94
+        },
+        {
+          "day": "2026-05-16 00:00:00",
+          "temp": 17.97
+        },
+        {
+          "day": "2026-05-17 00:00:00",
+          "temp": 17.98
+        },
+        {
+          "day": "2026-05-18 00:00:00",
+          "temp": 18.03
+        },
+        {
+          "day": "2026-05-19 00:00:00",
+          "temp": 18
+        },
+        {
+          "day": "2026-05-20 00:00:00",
+          "temp": 17.99
+        },
+        {
+          "day": "2026-05-21 00:00:00",
+          "temp": 17.93
+        },
+        {
+          "day": "2026-05-22 00:00:00",
+          "temp": 17.98
+        },
+        {
+          "day": "2026-05-23 00:00:00",
+          "temp": 18.04
+        },
+        {
+          "day": "2026-05-24 00:00:00",
+          "temp": 17.93
+        },
+        {
+          "day": "2026-05-25 00:00:00",
+          "temp": 17.99
+        },
+        {
+          "day": "2026-05-26 00:00:00",
+          "temp": 18.03
+        },
+        {
+          "day": "2026-05-27 00:00:00",
+          "temp": 18.01
+        },
+        {
+          "day": "2026-05-28 00:00:00",
+          "temp": 18
+        },
+        {
+          "day": "2026-05-29 00:00:00",
+          "temp": 18
+        },
+        {
+          "day": "2026-05-30 00:00:00",
+          "temp": 18
+        },
+        {
+          "day": "2026-05-31 00:00:00",
+          "temp": 17.95
+        }
+      ],
+      "tolerance": {
+        "sort": [
+          "day"
+        ],
+        "exact": [
+          "day"
+        ],
+        "bsi": {
+          "temp": 2
+        }
+      },
+      "source_entry": "q8-003"
+    },
+    {
+      "id": "fleet-17",
+      "question": "Since May 1, what was vessel 367000000's average mean house battery current for each UTC day?",
+      "resolve_phrase": "mean house battery current",
+      "expected_column": "electrical.batteries.house.current@mean",
+      "sql_template": "SELECT date_bin(INTERVAL '1 day', ts) AS day,\n       avg(\"{column}\") AS current_avg\nFROM telemetry\nWHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY day ORDER BY day",
+      "oracle_sql": "WITH c AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(avg(value), 2) AS v\n  FROM raw WHERE path='electrical.batteries.house.current' GROUP BY 1,2)\nSELECT time_bucket(INTERVAL '1 day', bkt, TIMESTAMP '2020-01-01') AS day, round(avg(v), 2) AS current_avg\nFROM c WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-05-01'\nGROUP BY day ORDER BY day",
+      "expected": [
+        {
+          "day": "2026-05-01 00:00:00",
+          "current_avg": 1.99
+        },
+        {
+          "day": "2026-05-02 00:00:00",
+          "current_avg": 1.99
+        },
+        {
+          "day": "2026-05-03 00:00:00",
+          "current_avg": 2
+        },
+        {
+          "day": "2026-05-04 00:00:00",
+          "current_avg": 1.98
+        },
+        {
+          "day": "2026-05-05 00:00:00",
+          "current_avg": 2
+        },
+        {
+          "day": "2026-05-06 00:00:00",
+          "current_avg": 1.99
+        },
+        {
+          "day": "2026-05-07 00:00:00",
+          "current_avg": -14.98
+        },
+        {
+          "day": "2026-05-08 00:00:00",
+          "current_avg": -15.02
+        },
+        {
+          "day": "2026-05-09 00:00:00",
+          "current_avg": -14.93
+        },
+        {
+          "day": "2026-05-10 00:00:00",
+          "current_avg": 2.01
+        },
+        {
+          "day": "2026-05-11 00:00:00",
+          "current_avg": 1.99
+        },
+        {
+          "day": "2026-05-12 00:00:00",
+          "current_avg": 2
+        },
+        {
+          "day": "2026-05-13 00:00:00",
+          "current_avg": 2.01
+        },
+        {
+          "day": "2026-05-14 00:00:00",
+          "current_avg": 2.02
+        },
+        {
+          "day": "2026-05-15 00:00:00",
+          "current_avg": 1.99
+        },
+        {
+          "day": "2026-05-16 00:00:00",
+          "current_avg": 2.02
+        },
+        {
+          "day": "2026-05-17 00:00:00",
+          "current_avg": 2.02
+        },
+        {
+          "day": "2026-05-18 00:00:00",
+          "current_avg": 2.03
+        },
+        {
+          "day": "2026-05-19 00:00:00",
+          "current_avg": 2
+        },
+        {
+          "day": "2026-05-20 00:00:00",
+          "current_avg": -14.99
+        },
+        {
+          "day": "2026-05-21 00:00:00",
+          "current_avg": 2
+        },
+        {
+          "day": "2026-05-22 00:00:00",
+          "current_avg": 2.02
+        },
+        {
+          "day": "2026-05-23 00:00:00",
+          "current_avg": 2
+        },
+        {
+          "day": "2026-05-24 00:00:00",
+          "current_avg": 1.99
+        },
+        {
+          "day": "2026-05-25 00:00:00",
+          "current_avg": 2.02
+        },
+        {
+          "day": "2026-05-26 00:00:00",
+          "current_avg": 2
+        },
+        {
+          "day": "2026-05-27 00:00:00",
+          "current_avg": 1.99
+        },
+        {
+          "day": "2026-05-28 00:00:00",
+          "current_avg": 2
+        },
+        {
+          "day": "2026-05-29 00:00:00",
+          "current_avg": 2
+        },
+        {
+          "day": "2026-05-30 00:00:00",
+          "current_avg": 2.01
+        },
+        {
+          "day": "2026-05-31 00:00:00",
+          "current_avg": -6.52
+        }
+      ],
+      "tolerance": {
+        "sort": [
+          "day"
+        ],
+        "exact": [
+          "day"
+        ],
+        "bsi": {
+          "current_avg": 2
+        }
+      },
+      "source_entry": "q8-006"
+    },
+    {
+      "id": "fleet-18",
+      "question": "Since May 1, on which UTC days did vessel 367000000 have maximum true wind speed over 12.86 m/s?",
+      "resolve_phrase": "maximum true wind speed",
+      "expected_column": "environment.wind.speedTrue@max",
+      "sql_template": "SELECT date_bin(INTERVAL '1 day', ts) AS day,\n       max(CASE WHEN \"{column}\" > 12.86 THEN 1 ELSE 0 END) AS had_gale\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY day\nHAVING max(CASE WHEN \"{column}\" > 12.86 THEN 1 ELSE 0 END) = 1\nORDER BY day",
+      "oracle_sql": "WITH w AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='environment.wind.speedTrue' GROUP BY 1,2)\nSELECT time_bucket(INTERVAL '1 day', bkt, TIMESTAMP '2020-01-01') AS day,\n       max(CASE WHEN v > 12.86 THEN 1 ELSE 0 END) AS had_gale\nFROM w WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-05-01'\nGROUP BY day\nHAVING max(CASE WHEN v > 12.86 THEN 1 ELSE 0 END) = 1\nORDER BY day",
+      "expected": [
+        {
+          "day": "2026-05-07 00:00:00",
+          "had_gale": 1
+        },
+        {
+          "day": "2026-05-08 00:00:00",
+          "had_gale": 1
+        },
+        {
+          "day": "2026-05-09 00:00:00",
+          "had_gale": 1
+        },
+        {
+          "day": "2026-05-20 00:00:00",
+          "had_gale": 1
+        },
+        {
+          "day": "2026-05-31 00:00:00",
+          "had_gale": 1
+        }
+      ],
+      "tolerance": {
+        "sort": [
+          "day"
+        ],
+        "exact": [
+          "day",
+          "had_gale"
+        ],
+        "bsi": {}
+      },
+      "source_entry": "qx-005"
+    },
+    {
+      "id": "fleet-19",
+      "question": "Since May 1, what were the ten highest maximum true-wind-speed buckets on vessel 367000000?",
+      "resolve_phrase": "maximum true wind speed",
+      "expected_column": "environment.wind.speedTrue@max",
+      "sql_template": "SELECT ts, \"{column}\" AS wind_max\nFROM telemetry\nWHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-01'\nORDER BY wind_max DESC LIMIT 10",
+      "oracle_sql": "WITH w AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='environment.wind.speedTrue' GROUP BY 1,2)\nSELECT bkt AS ts, round(v, 3) AS wind_max\nFROM w WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-05-01'\nORDER BY wind_max DESC LIMIT 10",
+      "expected": [
+        {
+          "ts": "2026-05-20 12:25:50",
+          "wind_max": 16.73
+        },
+        {
+          "ts": "2026-05-07 01:57:10",
+          "wind_max": 16.527
+        },
+        {
+          "ts": "2026-05-09 06:21:10",
+          "wind_max": 16.517
+        },
+        {
+          "ts": "2026-05-31 19:49:50",
+          "wind_max": 16.42
+        },
+        {
+          "ts": "2026-05-31 18:52:20",
+          "wind_max": 16.32
+        },
+        {
+          "ts": "2026-05-08 16:50:40",
+          "wind_max": 16.304
+        },
+        {
+          "ts": "2026-05-20 17:05:50",
+          "wind_max": 16.288
+        },
+        {
+          "ts": "2026-05-09 08:37:00",
+          "wind_max": 16.269
+        },
+        {
+          "ts": "2026-05-08 00:52:30",
+          "wind_max": 16.244
+        },
+        {
+          "ts": "2026-05-08 21:35:50",
+          "wind_max": 16.244
+        }
+      ],
+      "tolerance": {
+        "sort": [
+          "ts"
+        ],
+        "exact": [
+          "ts"
+        ],
+        "bsi": {
+          "wind_max": 3
+        }
+      },
+      "source_entry": "qx-011"
+    },
+    {
+      "id": "fleet-20",
+      "question": "Since May 1, what were the bucket count and average mean house battery voltage for vessels 367000000 and 367000001 separately?",
+      "resolve_phrase": "mean house battery voltage",
+      "expected_column": "electrical.batteries.house.voltage@mean",
+      "sql_template": "SELECT vessel, count(*) AS n, avg(\"{column}\") AS batt_v\nFROM telemetry\nWHERE vessel IN ('vessels.urn:mrn:imo:mmsi:367000000','vessels.urn:mrn:imo:mmsi:367000001') AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY vessel ORDER BY vessel",
+      "oracle_sql": "WITH vv AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(avg(value), 3) AS v\n  FROM raw WHERE path='electrical.batteries.house.voltage' GROUP BY 1,2)\nSELECT vessel, count(*) AS n, round(avg(v), 3) AS batt_v\nFROM vv WHERE vessel IN ('vessels.urn:mrn:imo:mmsi:367000000','vessels.urn:mrn:imo:mmsi:367000001') AND bkt >= TIMESTAMP '2026-05-01'\nGROUP BY vessel ORDER BY vessel",
+      "expected": [
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "n": 267840,
+          "batt_v": 26.178
+        },
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000001",
+          "n": 267840,
+          "batt_v": 25.912
+        }
+      ],
+      "tolerance": {
+        "sort": [
+          "vessel"
+        ],
+        "exact": [
+          "vessel",
+          "n"
+        ],
+        "bsi": {
+          "batt_v": 3
+        }
+      },
+      "source_entry": "qx-012"
+    }
+  ],
+  "regression": {
+    "description": "Independent three-bucket fixture: vessel 367000000 at May 1 12:00:00/10/20 UTC. Values: wind max=4 m/s, house voltage mean/min=24 V, depth min=2 m, SOG mean/max=5 m/s, SOC mean/min=0.85, outside mean temperature=280 K, mean house current=3 A, port state=started, main state=stopped. Other registered paths have no data.",
+    "expected": {
+      "fleet-01": [
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "ts": "2026-05-01T12:00:00",
+          "wind_max": 4
+        }
+      ],
+      "fleet-02": [],
+      "fleet-03": [],
+      "fleet-04": [],
+      "fleet-05": [
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "n": 3
+        }
+      ],
+      "fleet-06": [],
+      "fleet-07": [],
+      "fleet-08": [],
+      "fleet-09": [
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "n": 3
+        }
+      ],
+      "fleet-10": [
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "n": 3
+        }
+      ],
+      "fleet-11": [
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "n": 3
+        }
+      ],
+      "fleet-12": [
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "hr": "2026-05-01T12:00:00",
+          "batt_v": 24
+        }
+      ],
+      "fleet-13": [
+        {
+          "day": "2026-05-01T00:00:00",
+          "min_soc": 0.85,
+          "prev_min_soc": null
+        }
+      ],
+      "fleet-14": [],
+      "fleet-15": [
+        {
+          "day": "2026-05-01T00:00:00",
+          "sog": 5
+        }
+      ],
+      "fleet-16": [
+        {
+          "day": "2026-05-01T00:00:00",
+          "temp": 280
+        }
+      ],
+      "fleet-17": [
+        {
+          "day": "2026-05-01T00:00:00",
+          "current_avg": 3
+        }
+      ],
+      "fleet-18": [],
+      "fleet-19": [
+        {
+          "ts": "2026-05-01T12:00:00",
+          "wind_max": 4
+        },
+        {
+          "ts": "2026-05-01T12:00:10",
+          "wind_max": 4
+        },
+        {
+          "ts": "2026-05-01T12:00:20",
+          "wind_max": 4
+        }
+      ],
+      "fleet-20": [
+        {
+          "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+          "n": 3,
+          "batt_v": 24
+        }
+      ]
+    }
+  }
+}
