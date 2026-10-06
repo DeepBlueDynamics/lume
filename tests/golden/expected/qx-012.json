@@ -1,0 +1,12 @@
+[
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "n": 267840,
+    "batt_v": 26.178
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000001",
+    "n": 267840,
+    "batt_v": 25.912
+  }
+]

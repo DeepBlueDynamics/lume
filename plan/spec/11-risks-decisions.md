@@ -77,7 +77,11 @@ Reserved, and written by the owning lane at merge (agreed among the lanes on 202
 |---|---|---|
 | D31 | `ti-geo` uses exact `h3o` 0.11.0 (BSD-3-Clause, explicit `std`/`geo` features) and `geo` 0.33.1 (MIT OR Apache-2.0, default features disabled), one shared geo/geo-types version | W6: pure-Rust H3 indexing at resolutions 5/7/9 and conservative `ContainmentMode::Covers` tiling. The h3o geometry API accepts geo polygons; the lead approved the direct matching geo dependency. No optional PROJ, triangulation, threading or native geometry bindings are enabled. Reuses D23 proptest for cover completeness checks |
 
-The next free number is **D32**. Ask the lead before taking one. Every new runtime dependency needs a line here
+| # | Decision | Why |
+|---|---|---|
+| D32 | Golden expected outputs must stay small, aiming for ≤ 256 KB per entry and a few MB in total. A query whose result set is large is narrowed, identically in `ti_sql` and `oracle_sql`, to a window that still exercises its logic (joins, windows, set operations, geo), not committed as megabytes of raw rows | Lead decision, 2026-10-06: the first full run produced 89 MB of JSON, because 10 queries returned a month of 10 s buckets. Narrowing those ten to 2026-05-07 00:00–06:00 UTC cut the total to 2.1 MB (largest 243 KB) with no loss of coverage |
+
+The next free number is **D33**. Ask the lead before taking one. Every new runtime dependency needs a line here
 (PR rule, [10-contracts](10-contracts.md)).
 
 ## Sources (from spec)

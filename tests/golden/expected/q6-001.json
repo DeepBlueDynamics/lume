@@ -1,0 +1,32 @@
+[
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-02 12:00:00",
+    "roll_max": 0.0618
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-05 00:00:00",
+    "roll_max": 0.3381
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-10 00:00:00",
+    "roll_max": 0.0814
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-12 12:00:00",
+    "roll_max": 0.0736
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-15 00:00:00",
+    "roll_max": 0.189
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-30 00:00:00",
+    "roll_max": 0.1354
+  }
+]

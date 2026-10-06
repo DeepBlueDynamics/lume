@@ -1,0 +1,12 @@
+[
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-17 00:00:00",
+    "p_min": 100833.0
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-19 12:00:00",
+    "p_min": 100556.0
+  }
+]

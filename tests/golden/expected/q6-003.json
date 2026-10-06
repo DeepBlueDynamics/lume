@@ -1,0 +1,17 @@
+[
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:00:00",
+    "wind_max": 9.308
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-08 00:00:00",
+    "wind_max": 8.469
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-20 00:00:00",
+    "wind_max": 12.219
+  }
+]
