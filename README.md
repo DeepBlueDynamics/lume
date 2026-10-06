@@ -24,6 +24,7 @@ A high-performance Rust library and CLI suite featuring an FST-backed phrase mat
     *   [7. Crawling Web Pages (`lume crawl`)](#cli-crawl)
     *   [8. Retrieval Evaluation (`lume eval`)](#cli-eval)
 *   [⚡ Performance & Roadmap](#performance)
+*   [🛰️ Lume TI: Telemetry Index (in development)](#lume-ti)
 *   [🐍 Python Extractor & Q&A Generator](#python-extractor)
 *   [💻 Codebase Indexing & Search Demo](#codebase-demo)
 *   [📖 The Backstory: How Lume Connects](#backstory)
@@ -250,6 +251,62 @@ Lume is written in Rust (zero-dependency core: `tantivy-fst`, `serde`, `ureq`) a
 *   **Search**: lexical BM25 retrieval is **microsecond-class** at the core — two-stage roaring-bitmap pruning runs in ~10 µs on these corpora — with full lexical queries sub-millisecond. Hybrid queries add a dense round-trip (milliseconds), and the SKG significance boost is free arithmetic on counts the roaring intersection already produced.
 *   **Vector inversion**: a cutting-edge technique — embed text to its 768-d GTR-T5 vector, then **reconstruct text back from the raw vector** via Shivvr's `/invert` endpoint (round-trips at ~0.88 self-similarity locally). Used by the inversion-steered generator ([src/inversion.rs](src/inversion.rs)) to hill-climb candidates toward a target in embedding space — fully local, no token needed.
 *   **Roadmap**: on-the-fly fine-tuning of open embedding models (GTE and others) so the semantic space adapts to your corpus, rather than relying on a fixed GTR-T5 encoder.
+
+---
+
+## <a name="lume-ti"></a>🛰️ Lume TI: Telemetry Index (in development)
+
+Lume TI is a read-only SQL engine over boat telemetry (Signal K). It is built into Lume behind the `ti` cargo feature, so the default `lume` build keeps its four dependencies. Data is bucketed into 10-second columns and stored as roaring bitmaps, with one shard per vessel per 2¹⁶ buckets. Queries run through Apache DataFusion, with filters pushed down into bitmap AND/OR/ANDNOT operations. It is designed to run on the boat's Raspberry Pi beside Signal K and OpenCPN, and to sync sealed shards to shore. The full build plan is in [`plan/`](plan/README.md).
+
+### Why it is different
+
+Most stores are good at either analytics or search. TI puts **numeric thresholds, discrete states, events, geography and full text in one column space**, so a single SQL query can combine all of them, with every filter evaluated as a bitmap before any row is read:
+
+```sql
+SELECT vessel, date_bin(INTERVAL '10 minutes', ts) AS win, max("environment.wind.speedTrue@max")
+FROM telemetry
+WHERE "propulsion.port.state" = 'started' AND "electrical.bilge.pumpCycles" > 3
+  AND "environment.wind.speedTrue@max" > 12.9 AND match(notes, 'leak OR water')
+  AND ts > now() - INTERVAL '90 days'
+GROUP BY vessel, win;
+```
+
+| | Lume TI | Columnar SQL (DuckDB, ClickHouse) | Time-series DB (InfluxDB) | Search engine (Lucene/Tantivy) |
+|---|---|---|---|---|
+| Multi-condition filters across many paths | bitmap ANDs, microseconds per shard | full column scans | weak across measurements | n/a |
+| Full text joined with telemetry | `match()` is just another bitmap | no index | no | yes, but no telemetry |
+| Geography (`in_bbox`, `within_nm`) | H3 cell bitmaps | functions over scans | limited | limited |
+| "Runs where X held for N minutes" | `intervals()` read straight from bitmap runs | window-function SQL | difficult | no |
+| Full SQL (joins, CTEs, windows) | yes (DataFusion), plus psql/Grafana over Postgres wire | yes | partial | no |
+| Runs on a Pi beside the chartplotter | designed for it: about 1.5 GB cap, low priority | DuckDB yes, ClickHouse heavy | yes | yes |
+
+*This table is a design comparison, not a measurement. The head-to-head DuckDB benchmark comes next. The spec's bar is ≥5× faster than DuckDB on selective multi-filter queries and parity on broad scans. Where bitmaps don't pay off, broad queries route to an exact `raw` table over Parquet.*
+
+### Measured so far
+
+All numbers are from an x86 dev host or its Linux containers. **None are from a Pi yet**, and the spec's Q1–Q8 p95 targets haven't been run.
+
+**Writes (ingest and storage)**
+
+| Benchmark | Result | Target |
+|---|---|---|
+| Live ingest path (decode → normalize → bucket → store), release build | **181,783 values/s** on the host; 75,515 values/s at **72 MB peak RSS** in a container | Pi 5: ≥ 20,000 values/s, ≤ 400 MB RSS |
+| Ingest correctness: replaying 24 h of deltas against an independent oracle | **153,374 / 153,374** bucket records match | exact |
+| Backfill idempotence (same Parquet twice) | identical sealed-manifest hash | identical |
+| Crash safety: 1,000 seeded `kill -9` runs (mid-apply, mid-flush, flush/truncate) | **0 lost, 0 duplicated** acknowledged records; 36 s on the host | 0 / 0 |
+| Seal determinism | byte-identical shard files and BLAKE3 hash | identical |
+
+**Queries**
+
+| Benchmark | Result | Notes |
+|---|---|---|
+| Bit-sliced range compare (depth 16, full 65,536-bucket shard) | **41 µs** per compare | release; about 2 ms per field per vessel-year (48 shards) |
+| Q4 "max wind per day, 1 year", bitmap aggregate vs materialize-then-aggregate | **3.01 s vs 47.87 s, 15.9× faster** | 50 vessels × 365 days (26.28 M buckets), **debug build**, W = 60 s; identical results. M4 target is ≥ 10× |
+| SQL correctness | 13 SQL tests (real store included); the core evaluator has 4 property-test suites × 10,000 cases against a naive model | the 61-query golden corpus vs DuckDB is in progress |
+
+### Not measured yet
+
+Index size per vessel-year (budgeted at 0.6–1.0 GB), Q1–Q8 p95 latencies against DuckDB on the reference machines, release-build query times, and anything on a Pi 4, Pi 5 or HALPI2, including the contention test alongside OpenCPN.
 
 ---
 
