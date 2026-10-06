@@ -90,7 +90,7 @@ target/release/lume.exe ti verify --store .lanes/data/store-full --corpus tests/
 **`lume ti` CLI** (`31fd76a`; needs `--features ti`, like `verify`):
 
 ```sh
-lume ti query "<sql>" --store <root> [--json] [--width <seconds>]
+lume ti query "<sql>" --store <root> [--json] [--width <seconds>] [--docs-index <lume-index>]
 lume ti explain "<sql>" --store <root> [--json] [--width <seconds>]
 lume ti status --store <root> [--width <seconds>]
 lume ti import-docs <docs_dir> --store <root> [--width <seconds>]
@@ -99,6 +99,9 @@ lume ti repl --store <root> [--width <seconds>]
 ```
 
 - `--store` is required. By default the bucket width is read from the store. `--width` overrides it.
+- Top-level `lume --help` lists `ti query`, `repl`, `ingest` and `status`, but only in `--features ti` builds (`b3cce8b`).
+- `lume sql` (`c130bc1`) is read-only SQL over ordinary Lume indexes (MCP tool `lume_sql`); `--docs-index` attaches a Lume index to TI sessions.
+- `main` runs on a 64 MB thread (`2bbcc4b`), because the debug build overflowed the 1 MB Windows main-thread stack.
 - `import-docs --parquet` is the W9 mapped document import (`ebdb848`). See `tests/golden/robots/README.md` for a full example with `--time-unit`, `--id` and `--kind`.
 - `repl` is interactive SQL over one opened store (`f1bb15a`).
 - The same engine backs the MCP tools `ti_query`, `ti_schema`, `ti_explain`, `ti_status` and `ti_resolve` (`src/ti_mcp.rs`). `ti_query` is read-only and capped at 500 rows and 64 KiB.
@@ -120,7 +123,7 @@ lume serve --ti-store <store> [--bind <IP>] [--port <PORT>] [--pg <port>]
   | `GET /ti/status` | Store status |
   | `GET /ti/resolve?q=<phrase>` | `ti_resolve`: phrase to column (93/100 top-3 on `tests/golden/resolve.json`) |
 
-- **Postgres wire** (`451bfc7`, D37): `--pg <port>` adds a read-only simple-query Postgres listener on the same bind address. It is off by default and needs `--ti-store`. SCRAM and TLS are still pending, so keep it on loopback.
+- **Postgres wire** (`451bfc7`, D37): `--pg <port>` adds a read-only Postgres listener on the same bind address. It is off by default and needs `--ti-store`. Since `7c4cb23` it is typed and Grafana-compatible: extended protocol, `pg_catalog`, and Grafana macros. Auth is verifier-only SCRAM-SHA-256 (D42: no plaintext password storage). TLS is not offered, so keep it on loopback.
 
 **`lume ti ingest`: the live service** (`75a1a4f`; needs `--features ti`):
 
@@ -185,8 +188,20 @@ lume ti rules test <name> --store <root> [--json]   # dry run: alerts the rule w
 1. Install the plugin into the Signal K data dir: `cd /home/node/.signalk && npm install /path/to/plugins/signalk-lume-ti`, or copy the folder into `node_modules/`.
 2. Put an `aarch64` `lume` binary (built with `--features ti`) at `node_modules/signalk-lume-ti/bin/linux-arm64/lume` (`chmod +x`), or on `PATH`, or set `lumePath` in the plugin config. The `signalk-server-docker` container is Ubuntu 24.04 with glibc 2.39, so a glibc `aarch64-unknown-linux-gnu` build linked against glibc ≤ 2.39 works; musl is not needed.
 3. Enable **Lume TI** under Server → Plugin Config in the Signal K admin UI.
+4. **Select Lume TI as the server's default history provider.** `signalk-to-influxdb2` also registers one, so don't assume Lume is chosen.
 
-The plugin supervises `lume ti ingest --signalk ws://127.0.0.1:3000 --store <dataDir>/lume-ti --serve --bind 127.0.0.1 --port 5863`, restarts it with backoff, and stops it with SIGTERM. It handles the Signal K access-request token (`<dataDir>/token.txt`) and proxies the SQL console webapp through `/plugins/signalk-lume-ti/api/*`, so nothing listens off loopback. Plugin tests: `cd plugins/signalk-lume-ti && npm test`.
+The plugin supervises `lume ti ingest --signalk ws://127.0.0.1:3000 --store <dataDir>/lume-ti --serve --bind 127.0.0.1 --port 5863`, restarts it with backoff, and stops it with SIGTERM. It handles the Signal K access-request token (`<dataDir>/token.txt`) and proxies the SQL console webapp through `/plugins/signalk-lume-ti/api/*`, so nothing listens off loopback. The webapp's `apiBase` is `/plugins/signalk-lume-ti` (`530f6b1`). Plugin tests: `cd plugins/signalk-lume-ti && npm test` (17/17 at `e09bb87`).
+
+- **History API** (`e09bb87`): the plugin is a Signal K v2.31 History API provider, answering from Lume's loopback HTTP. `first`/`last` need the `@last` aggregate retained in the store. Rust side: `cargo test --features ti --test ti_http` (8/8).
+- **Webapp 401:** the webapp shows a login hint. Log in to Signal K's own admin at `/admin/#/login`; a HaLOS SSO session is not enough (`2bbcc4b`).
+- **Native Pi 5 build:** fat LTO OOMs on the Pi (rustc about 6 GB RSS, even with 10 GB temporary swap). Use thin LTO:
+
+  ```sh
+  CARGO_PROFILE_RELEASE_LTO=thin CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 CARGO_BUILD_JOBS=2 \
+    cargo build --release --locked --features ti --bin lume
+  ```
+
+- **Influx-vs-Lume benchmark (Pi):** `signalk-to-influxdb2` 2.3.0 writes InfluxDB bucket `marine` at 1 s (self vessel only). The paired query harness `bench/influx_vs_lume.py` (stdlib-only) is in progress on `ti/bench-influx`.
 
 **Host oracles for W9 and W10** (Python DuckDB, testing only; run from the repo root on the host):
 
@@ -204,6 +219,7 @@ py -3 -E tests/golden/robots/oracle.py --data-dir <data> --store <store> --prepa
 - Delete the robot store and data when you finish (see the disk policy in §8).
 
 A plain `cargo test` only tests the root crate, because `default-members = ["."]`.
+**Tests bind loopback only** (`0c169c2`). Never bind `0.0.0.0` in a test: on Windows it triggers Firewall prompts.
 
 **Strict checks, scoped to each TI crate.** Run both for every `crates/ti-*` crate you touch (currently `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench`, `ti-geo` and `ti-sync`), and for the root crate with `--features ti` when you touch `src/ti_*.rs`:
 
@@ -359,7 +375,7 @@ py -3 -E tests/golden/gen_expected.py --data-dir <correctness> --output-dir <dir
   | DuckDB | Out-of-process oracle only: the CLI or the `duckdb` Python package 1.5.6 (D14, amended in `8afa646`). Never a bundled Rust crate. See §8 |
   | Release builds | `cargo-zigbuild` for musl targets |
 
-  The log also records pure-Rust Parquet codecs only, with no zstd (D11), `blake3` with `pure` (D12), and an early aarch64-musl smoke test for pgwire SCRAM, which pulls in `ring` (D13). **D27 amends D11:** `zstd-sys` (C) is accepted because DataFusion's `arrow-ipc` forces it in. That deviates from the spec's croaring-only C rule and is awaiting spec-owner confirmation. D18 (`serde`) and D19 (`toml`) cover the dependencies of `ti-contracts`. D23 is `proptest` (a `ti-core` dev-dependency). D24 (`bincode`) and D25 (`crc32fast`) are in `ti-store`. D22 (`ti-bench`: arrow/parquet 59.2 with pure-Rust codecs, chrono) is logged (`71b7fcd`). D26 (DataFusion) and D27 (`zstd-sys`) are logged. D28 (`tungstenite`) and D29 (`parquet`) are reserved for W3. D30 is the 1 s high-resolution store ([design/hi-res-store.md](design/hi-res-store.md)). D31 (`h3o` 0.11 + `geo` 0.33.1, exact-pinned) is logged for `ti-geo`. D32 keeps golden expected outputs small (target ≤ 256 KB per entry, a few MB in total; narrow the window in both twins rather than store huge results). D33 (fixed default aggregate profile per path), D34 (verify tolerance ±1 × 10^−scale), D35 (oracles round bucket aggregates to scale) and D36 (`match()` is lexical Lume BM25: OR by default, uppercase `AND` intersects, docs cover `[ts_start, ts_end)`) are behavioral, not dependencies. D37 records optional root pgwire =0.41.0 with server-api only and disabled defaults, existing async runtime adapters, and the tokio-postgres smoke-test dev-dependency. SCRAM/TLS remains pending. D38 is entity identity for generic Parquet: opaque `<kind>.urn:<id>` ids with shared validation, and existing `vessels.urn:` strings unchanged. The next free number is **D39**. Ask the lead before taking it.
+  The log also records pure-Rust Parquet codecs only, with no zstd (D11), `blake3` with `pure` (D12), and an early aarch64-musl smoke test for pgwire SCRAM, which pulls in `ring` (D13). **D27 amends D11:** `zstd-sys` (C) is accepted because DataFusion's `arrow-ipc` forces it in. That deviates from the spec's croaring-only C rule and is awaiting spec-owner confirmation. D18 (`serde`) and D19 (`toml`) cover the dependencies of `ti-contracts`. D23 is `proptest` (a `ti-core` dev-dependency). D24 (`bincode`) and D25 (`crc32fast`) are in `ti-store`. D22 (`ti-bench`: arrow/parquet 59.2 with pure-Rust codecs, chrono) is logged (`71b7fcd`). D26 (DataFusion) and D27 (`zstd-sys`) are logged. D28 (`tungstenite`) and D29 (`parquet`) are reserved for W3. D30 is the 1 s high-resolution store ([design/hi-res-store.md](design/hi-res-store.md)). D31 (`h3o` 0.11 + `geo` 0.33.1, exact-pinned) is logged for `ti-geo`. D32 keeps golden expected outputs small (target ≤ 256 KB per entry, a few MB in total; narrow the window in both twins rather than store huge results). D33 (fixed default aggregate profile per path), D34 (verify tolerance ±1 × 10^−scale), D35 (oracles round bucket aggregates to scale) and D36 (`match()` is lexical Lume BM25: OR by default, uppercase `AND` intersects, docs cover `[ts_start, ts_end)`) are behavioral, not dependencies. D37 records optional root pgwire =0.41.0 with server-api only and disabled defaults, existing async runtime adapters, and the tokio-postgres smoke-test dev-dependency. D38 is entity identity for generic Parquet: opaque `<kind>.urn:<id>` ids with shared validation, and existing `vessels.urn:` strings unchanged. D39 is benchmark-only `croaring =2.8.0` in the isolated `bench/croaring-eval` workspace (not a Lume dependency). D40 rejects CRoaring adoption for M4. D41 lets `ti-ingest` reuse root `ureq` 2.12 for Signal K Resources/logbook polling. D42 adds TI-optional `sha2`, `hmac`, `base64`, `rand`, `chrono` and pgwire's `pg-type-chrono` for verifier-only SCRAM, with no ring/aws-lc; TLS is still not offered. The next free number is **D43**. Ask the lead before taking it.
 - The contracts crate itself depends on `arrow-array`, `arrow-schema`, `roaring`, `serde` and `toml` only, not DataFusion.
 
 ## 10. How the lead merges
