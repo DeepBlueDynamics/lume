@@ -100,7 +100,7 @@ async fn test_multi_store_backfill_and_query_fanout() {
     let toml_content = format!(
         r#"
 width_seconds = 10
-store_root = "{}"
+store_root = '{}'
 
 [stores.default]
 width = "10s"

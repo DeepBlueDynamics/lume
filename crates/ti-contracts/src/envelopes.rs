@@ -49,7 +49,7 @@ pub struct ShardFileHeader {
 
 /// Federation identity for one immutable shard version and its catalog snapshot.
 /// hash identifies canonical field contents; catalog_hash prevents ambiguous row IDs.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TransferIdentity {
     /// Canonical URN used to remap the vessel.
     pub vessel_urn: String,

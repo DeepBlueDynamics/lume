@@ -57,6 +57,13 @@ paths = ["navigation.position", "navigation.speedOverGround", "..."]   # allow-l
 - `width` is fixed at store creation (spec/05); changing it means rebuilding that store only.
 - If `[stores.hr]` is omitted, there is no high-resolution store, and v1 behaves exactly as today.
 
+## Table Naming Convention (`table_name_for_store`)
+
+Non-default stores configured under `[stores.<name>]` are registered as their own tables in SQL queries via `table_name_for_store(name)`:
+- `"default"` or `"telemetry"` maps to the primary table `"telemetry"`.
+- Non-default store names (such as `"hr"`) map to `"telemetry_<name>"` (e.g., `"telemetry_hr"`).
+- Store names that already begin with `"telemetry_"` are preserved as-is.
+
 ## Size
 
 About 15–20 fields at 1 s comes to roughly 0.5–2 GB per vessel-year, depending on the
