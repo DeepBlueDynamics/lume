@@ -385,7 +385,12 @@ fn execute_tool_by_name(name: &str, args: serde_json::Value, default_db: &str) -
     }
 }
 
-fn handle_mcp_request(req_val: serde_json::Value) -> serde_json::Value {
+#[cfg(feature = "ti")]
+type TiState = Option<std::sync::Arc<crate::ti_http::TiServer>>;
+#[cfg(not(feature = "ti"))]
+type TiState = ();
+
+fn handle_mcp_request(req_val: serde_json::Value, _ti: &TiState) -> serde_json::Value {
     let id = req_val.get("id").cloned().unwrap_or(serde_json::Value::Null);
     let method = match req_val.get("method").and_then(|m| m.as_str()) {
         Some(m) => m,
@@ -517,7 +522,13 @@ fn handle_mcp_request(req_val: serde_json::Value) -> serde_json::Value {
             };
             let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
             
-            match execute_tool_by_name(name, arguments, ".lume-index") {
+            #[cfg(feature = "ti")]
+            let result = if let Some(server) = _ti.as_ref().filter(|_| matches!(name,"ti_query"|"ti_schema"|"ti_explain"|"ti_status")) {
+                server.mcp(name,&arguments)
+            } else { execute_tool_by_name(name,arguments,".lume-index") };
+            #[cfg(not(feature = "ti"))]
+            let result = execute_tool_by_name(name,arguments,".lume-index");
+            match result {
                 Ok(out) => {
                     json!({
                         "jsonrpc": "2.0",
@@ -563,7 +574,7 @@ fn handle_mcp_request(req_val: serde_json::Value) -> serde_json::Value {
     }
 }
 
-fn handle_connection(mut stream: TcpStream) -> std::io::Result<()> {
+fn handle_connection(mut stream: TcpStream, _ti: &TiState) -> std::io::Result<()> {
     let mut buffer = [0; 8192];
     let mut bytes_read = 0;
     loop {
@@ -593,6 +604,14 @@ fn handle_connection(mut stream: TcpStream) -> std::io::Result<()> {
     let method = parts[0];
     let path = parts[1];
 
+    #[cfg(feature = "ti")]
+    if method != "OPTIONS" && path.starts_with("/ti/") {
+        let Some(end) = find_subsequence(&buffer[..bytes_read], b"\r\n\r\n") else {
+            stream.write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n")?;
+            return Ok(());
+        };
+        return crate::ti_http::handle(&mut stream,_ti.as_deref(),method,path,&req_str[..end],&buffer[end+4..bytes_read]);
+    }
     if method == "OPTIONS" {
         let response = "HTTP/1.1 200 OK\r\n\
                         Access-Control-Allow-Origin: *\r\n\
@@ -678,7 +697,7 @@ fn handle_connection(mut stream: TcpStream) -> std::io::Result<()> {
             }
         };
 
-        let response_json = handle_mcp_request(rpc_req);
+        let response_json = handle_mcp_request(rpc_req, _ti);
         if response_json.is_null() {
             let response = "HTTP/1.1 204 No Content\r\n\
                             Access-Control-Allow-Origin: *\r\n\r\n";
@@ -715,12 +734,24 @@ fn handle_connection(mut stream: TcpStream) -> std::io::Result<()> {
 const MAX_CONCURRENT_CONNECTIONS: usize = 64;
 
 pub fn serve(port: u16) -> Result<(), String> {
+    #[cfg(feature = "ti")]
+    let ti = None;
+    #[cfg(not(feature = "ti"))]
+    let ti = ();
+    serve_configured(port,ti)
+}
+#[cfg(feature = "ti")]
+pub fn serve_with_ti(port: u16,root: &std::path::Path) -> Result<(),String> {
+    let ti = std::sync::Arc::new(crate::ti_http::TiServer::open(root)?);
+    serve_configured(port,Some(ti))
+}
+fn serve_configured(port: u16, _ti: TiState) -> Result<(), String> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port))
         .map_err(|e| format!("Failed to bind to port {}: {}", port, e))?;
-    println!("Lume MCP HTTP server listening on http://0.0.0.0:{}", port);
+    println!("Lume MCP HTTP server listening on http://{}", listener.local_addr().map_err(|e|e.to_string())?);
 
     let active = Arc::new(AtomicUsize::new(0));
     for stream in listener.incoming() {
@@ -735,8 +766,12 @@ pub fn serve(port: u16) -> Result<(), String> {
                 }
                 active.fetch_add(1, Ordering::AcqRel);
                 let active = Arc::clone(&active);
+                #[cfg(feature = "ti")]
+                let ti = _ti.clone();
+                #[cfg(not(feature = "ti"))]
+                let ti = ();
                 std::thread::spawn(move || {
-                    if let Err(e) = handle_connection(stream) {
+                    if let Err(e) = handle_connection(stream, &ti) {
                         eprintln!("Error handling connection: {}", e);
                     }
                     active.fetch_sub(1, Ordering::AcqRel);

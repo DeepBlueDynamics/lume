@@ -132,7 +132,19 @@ fn main() {
                     }
                 }
             }
-            if let Err(e) = lume::agent::serve(port) {
+            let ti_store = args.iter().position(|a| a == "--ti-store").map(|pos| {
+                args.get(pos+1).filter(|s|!s.starts_with("--")).map(String::as_str).unwrap_or_else(|| {
+                    eprintln!("--ti-store requires a store root");std::process::exit(2);
+                })
+            });
+            #[cfg(feature = "ti")]
+            let result = match ti_store {
+                Some(root)=>lume::agent::serve_with_ti(port,std::path::Path::new(root)),
+                None=>lume::agent::serve(port),
+            };
+            #[cfg(not(feature = "ti"))]
+            let result = if ti_store.is_some(){Err("--ti-store requires a build with --features ti".to_string())}else{lume::agent::serve(port)};
+            if let Err(e) = result {
                 eprintln!("Error starting serve mode: {}", e);
                 std::process::exit(1);
             }
@@ -2095,6 +2107,7 @@ USAGE:
 
 OPTIONS:
   -p, --port <PORT>      Port to bind the HTTP server to [default: 5863 — "LUME" on a phone keypad]
+  --ti-store <ROOT>     Open one shared TI engine for /ti and MCP (requires feature ti)
   -h, --help             Prints help information
 "#);
 }

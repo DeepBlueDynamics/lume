@@ -75,3 +75,17 @@ Verified in the container on 2026-10-06, based on 3354bd0:
 - Host Rust 1.96 formatting and strict clippy are assigned to Pike, confirmed by Hyperia mail.
 
 MCP query envelopes cap both decoded JSON and encoded text content, with a 500-row ceiling and a 64 KiB budget. Large UTF-8 rows are omitted with a truncation hint. Status distinguishes unavailable ingest/sync metrics instead of reporting zero lag. HTTP/pgwire and the remaining M5 surfaces are outside this slice.
+
+## W7 width and shared HTTP checkpoint
+
+Verified in the container on 2026-10-06 after rebasing ti/w7-surfaces onto 26e535a (including 20117c4 and the host scratch-dir fixes):
+
+- `cargo test -p lume -p ti-sql --features ti`: root 51 unit + 1 HTTP integration passed; ti-sql 29 passed, 2 existing tests ignored; zero failures. This includes the full root feature-ti suite and all ordinary SQL integration tests.
+- The HTTP integration starts the real CLI on 0.0.0.0 with port 0 and a sealed two-row Store in CARGO_TARGET_TMPDIR. It checks all four routes, Arrow IPC decoding and units/canonical names, JSON ti_query shape/equivalence, row truncation, empty timestamp schema, large UTF-8 byte cap, DML rejection with HTTP 400, and HTTP/MCP reuse after hiding the catalog directory.
+- Default `cargo build` (without ti) passed after rebase. Only the existing root cands assignment warning remains.
+- `git diff HEAD --check`: passed after conflict resolution. No dependencies or frozen contracts changed.
+- Fresh-process `time target/debug/lume ti status --store /workspace/lume/.lanes/data/store-full`: before 85.546 s, after 70.199 s; identical observed status, 17.94% elapsed decrease. The baseline was 6afb2ab; the after run used the representative-header change before HTTP. OS caches were not purged. Remaining snapshot/catalog startup profiling belongs to Pike.
+- All builds used CARGO_INCREMENTAL=0, two jobs, one build at a time and workspace TMPDIR. Final target measurement 5.8 GB, below 15 GB.
+- Rust 1.96 fmt/strict clippy for this slice remain assigned to Pike's host; not run in this container.
+
+HTTP and configured-server MCP requests share one startup TiEngine/runtime through Arc, with serialized admission and diagnostic reset. Arrow IPC stream-format responses are bounded and buffered before HTTP writing, with row count/truncation/hint headers and units metadata. Catalog/shard refresh, ingest supervision, LAN-only binding, NUTS/bearer auth and pgwire are outside this slice; see W7-serve.md.
