@@ -25,6 +25,14 @@ use crate::manifest::Manifest;
 use crate::shard::{OpenShard, SealedShard};
 use crate::wal::Wal;
 
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+struct RetentionState {
+    cutoff: Option<i64>,
+    dropped_late_records: u64,
+    #[serde(default)]
+    active_open: Vec<ShardKey>,
+}
+
 pub struct Store {
     root: PathBuf,
     width_seconds: u64,
@@ -34,6 +42,7 @@ pub struct Store {
     open_shards: BTreeMap<ShardKey, OpenShard>,
     sealed_shards: BTreeMap<ShardKey, SealedShard>,
     text_index: Option<Arc<dyn TextIndex>>,
+    retention: RetentionState,
 }
 
 impl Store {
@@ -49,6 +58,12 @@ impl Store {
         let catalog = Arc::new(DiskCatalog::open_or_create(root)?);
         let manifest = Arc::new(Manifest::open_or_create(root)?);
 
+        let retention_path = root.join("retention.json");
+        let mut retention: RetentionState = if retention_path.exists() {
+            serde_json::from_slice(&fs::read(retention_path)?)
+                .map_err(|e| Error::Corrupt(format!("retention state: {e}")))?
+        } else { RetentionState::default() };
+        let previous_dropped = retention.dropped_late_records;
         let mut wals = BTreeMap::new();
         let mut open_shards: BTreeMap<ShardKey, OpenShard> = BTreeMap::new();
 
@@ -66,7 +81,17 @@ impl Store {
                                     if let Ok(Some(open_shard)) =
                                         OpenShard::load_open(root, v_ord, s_no, catalog.as_ref())
                                     {
-                                        open_shards.insert(open_shard.data.key, open_shard);
+                                        let key = open_shard.data.key;
+                                        let end = i128::from(EPOCH) + (i128::from(key.shard) + 1) * 65536 * i128::from(width_seconds);
+                                        let mut restored = if retention.cutoff.is_some_and(|cutoff| end <= i128::from(cutoff)) {
+                                            OpenShard::new(key)
+                                        } else {
+                                            Self::restore_open(root, key, catalog.as_ref(), &manifest)?
+                                        };
+                                        restored.data.fields.extend(open_shard.data.fields);
+                                        restored.data.specs.extend(open_shard.data.specs);
+                                        restored.has_data = true;
+                                        open_shards.insert(key, restored);
                                     }
                                 }
                             }
@@ -83,29 +108,35 @@ impl Store {
             wals.insert(vessel_ord, wal);
 
             for (_seq, batch) in replayed_batches {
-                for rec in &batch {
-                    let key = ShardKey {
-                        vessel: rec.vessel,
-                        shard: rec.bucket >> 16,
-                    };
-                    let shard = open_shards
-                        .entry(key)
-                        .or_insert_with(|| OpenShard::new(key));
-                    if let Ok(spec) = catalog.field(rec.field) {
-                        let _ = shard.register_field(spec);
+                let mut by_shard: BTreeMap<ShardKey, Vec<BucketRecord>> = BTreeMap::new();
+                for rec in batch {
+                    let replay_key = ShardKey { vessel: rec.vessel, shard: rec.bucket >> 16 };
+                    if Self::record_expired(&rec, width_seconds, retention.cutoff) && !retention.active_open.contains(&replay_key) {
+                        retention.dropped_late_records += 1;
+                        continue;
                     }
+                    let key = ShardKey { vessel: rec.vessel, shard: rec.bucket >> 16 };
+                    if let std::collections::btree_map::Entry::Vacant(entry) = open_shards.entry(key) {
+                        entry.insert(Self::restore_open(root, key, catalog.as_ref(), &manifest)?);
+                    }
+                    let shard = open_shards.get_mut(&key).expect("restored shard");
+                    shard.register_field(catalog.field(rec.field)?)?;
                     if let FieldValue::SetValue(row_id) = rec.value {
-                        if let Ok(val) = catalog.set_value(rec.field, row_id) {
-                            let _ = shard.register_set_value(rec.field, row_id, &val);
-                        }
+                        shard.register_set_value(rec.field, row_id, &catalog.set_value(rec.field, row_id)?)?;
                     }
-                    let _ = shard.apply(std::slice::from_ref(rec));
+                    by_shard.entry(key).or_default().push(rec);
+                }
+                for (key, records) in by_shard {
+                    open_shards.get_mut(&key).expect("restored shard").apply(&records)?;
                 }
             }
 
             vessel_ord += 1;
         }
 
+        if retention.dropped_late_records != previous_dropped {
+            crate::catalog::atomic_write_json(&root.join("retention.json"), &retention)?;
+        }
         Ok(Self {
             root: root.to_path_buf(),
             width_seconds,
@@ -115,7 +146,24 @@ impl Store {
             open_shards,
             sealed_shards: BTreeMap::new(),
             text_index: None,
+            retention,
         })
+    }
+
+    fn record_expired(record: &BucketRecord, width: u64, cutoff: Option<i64>) -> bool {
+        let end = i128::from(EPOCH) + (i128::from(record.bucket) + 1) * i128::from(width);
+        cutoff.is_some_and(|cutoff| end <= i128::from(cutoff))
+    }
+
+    /// Late records rejected after a persisted retention cutoff has been installed.
+    pub fn dropped_late_records(&self) -> u64 { self.retention.dropped_late_records }
+
+    fn restore_open(root: &Path, key: ShardKey, catalog: &dyn Catalog, manifest: &Manifest) -> Result<OpenShard> {
+        if let Some(entry) = manifest.get(key) {
+            let sealed = SealedShard::load(root, key.vessel, key.shard, entry.version, catalog)?;
+            let has_data = !sealed.data.universe().is_empty();
+            Ok(OpenShard { data: sealed.data, dirty: false, has_data })
+        } else { Ok(OpenShard::new(key)) }
     }
 
     pub fn with_text_index(mut self, text: Arc<dyn TextIndex>) -> Self {
@@ -203,6 +251,10 @@ impl Store {
         self.open_shards.remove(&key);
         self.sealed_shards.remove(&key);
         self.manifest.remove(key)?;
+        if self.retention.active_open.contains(&key) {
+            self.retention.active_open.retain(|active| *active != key);
+            crate::catalog::atomic_write_json(&self.root.join("retention.json"), &self.retention)?;
+        }
 
         let shard_dir = self
             .root
@@ -223,7 +275,11 @@ impl Store {
         now_timestamp: i64,
         retention_seconds: u64,
     ) -> Result<usize> {
-        let cutoff_ts = now_timestamp - (retention_seconds as i64);
+        let cutoff_ts = i64::try_from(i128::from(now_timestamp) - i128::from(retention_seconds))
+            .map_err(|_| Error::Overflow("retention cutoff"))?;
+        self.retention.cutoff = Some(self.retention.cutoff.map_or(cutoff_ts, |old| old.max(cutoff_ts)));
+        self.retention.active_open = self.open_shards.keys().copied().filter(|key| self.manifest.get(*key).is_none()).collect();
+        crate::catalog::atomic_write_json(&self.root.join("retention.json"), &self.retention)?;
         let mut dropped = Vec::new();
 
         // Check sealed shards in manifest only: open shards are active and
@@ -257,6 +313,18 @@ impl ShardSink for Store {
             return Ok(());
         }
 
+        let retained;
+        let recs = if self.retention.cutoff.is_some() {
+            retained = recs.iter().filter(|rec| !Self::record_expired(rec, self.width_seconds, self.retention.cutoff) || self.retention.active_open.contains(&ShardKey { vessel: rec.vessel, shard: rec.bucket >> 16 }))
+                .cloned().collect::<Vec<_>>();
+            let dropped = recs.len() - retained.len();
+            if dropped > 0 {
+                self.retention.dropped_late_records += dropped as u64;
+                crate::catalog::atomic_write_json(&self.root.join("retention.json"), &self.retention)?;
+            }
+            retained.as_slice()
+        } else { recs };
+        if recs.is_empty() { return Ok(()); }
         ti_contracts::validate_clear_records(recs)?;
 
         // Ensure fields exist in open shards
@@ -266,10 +334,10 @@ impl ShardSink for Store {
                 vessel: rec.vessel,
                 shard: rec.bucket >> 16,
             };
-            let shard = self
-                .open_shards
-                .entry(key)
-                .or_insert_with(|| OpenShard::new(key));
+            if let std::collections::btree_map::Entry::Vacant(entry) = self.open_shards.entry(key) {
+                entry.insert(Self::restore_open(&self.root, key, self.catalog.as_ref(), &self.manifest)?);
+            }
+            let shard = self.open_shards.get_mut(&key).expect("restored shard");
             shard.register_field(spec)?;
             if let FieldValue::SetValue(row_id) = rec.value {
                 if let Ok(val) = self.catalog.set_value(rec.field, row_id) {
@@ -325,13 +393,21 @@ impl ShardSink for Store {
             None => 1,
         };
 
-        let mut shard = self
-            .open_shards
-            .remove(&key)
-            .unwrap_or_else(|| OpenShard::new(key));
+        let mut shard = match self.open_shards.remove(&key) {
+            Some(shard) => shard,
+            None => Self::restore_open(&self.root, key, self.catalog.as_ref(), &self.manifest)?,
+        };
 
         let entry = shard.seal_to(&self.root, &urn, next_version, self.width_seconds)?;
         self.manifest.upsert(entry.clone())?;
+        if self.retention.active_open.contains(&key) {
+            self.retention.active_open.retain(|active| *active != key);
+            crate::catalog::atomic_write_json(&self.root.join("retention.json"), &self.retention)?;
+        }
+        // Keep WAL-replayable open staging until the manifest makes the new seal authoritative.
+        let open_dir = self.root.join("shards").join(key.vessel.to_string())
+            .join(key.shard.to_string()).join("open");
+        if open_dir.exists() { fs::remove_dir_all(open_dir)?; }
 
         // Re-load into sealed_shards
         let sealed = SealedShard::load(
