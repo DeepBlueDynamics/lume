@@ -2,7 +2,7 @@
 //! completed snapshots are reconciled on that thread, serializing all document writes.
 use serde_json::Value;
 use std::{
-    cell::Cell,
+    cell::{Cell, RefCell},
     collections::{BTreeMap, BTreeSet},
     io::Read,
     path::{Path, PathBuf},
@@ -68,6 +68,8 @@ pub struct ResourceClient {
     agent: ureq::Agent,
     cancel: Arc<AtomicBool>,
     deadline: Cell<Option<Instant>>,
+    missing: RefCell<BTreeMap<String, Instant>>,
+    notices: RefCell<Vec<String>>,
 }
 impl ResourceClient {
     pub fn new(url: &str, token: Option<String>) -> Result<Self> {
@@ -87,6 +89,8 @@ impl ResourceClient {
             token,
             cancel: Arc::new(AtomicBool::new(false)),
             deadline: Cell::new(None),
+            missing: RefCell::new(BTreeMap::new()),
+            notices: RefCell::new(Vec::new()),
             agent: ureq::AgentBuilder::new()
                 .timeout(Duration::from_secs(5))
                 .redirects(0)
@@ -107,6 +111,11 @@ impl ResourceClient {
         let response = match request.call() {
             Ok(response) => response,
             Err(ureq::Error::Status(404, _)) => return Ok(None),
+            Err(ureq::Error::Status(401, _))
+                if self.token.as_deref().is_none_or(str::is_empty) =>
+            {
+                return Ok(None);
+            }
             Err(_) => return Err(invalid(format!("Signal K document request failed: {path}"))),
         };
         let mut bytes = Vec::new();
@@ -121,10 +130,30 @@ impl ResourceClient {
             .map(Some)
             .map_err(|_| invalid("invalid resource JSON"))
     }
+    fn absent_at(&self, source: &str, now: Instant) {
+        let mut missing = self.missing.borrow_mut();
+        if missing
+            .get(source)
+            .is_none_or(|last| now.duration_since(*last) >= Duration::from_secs(3600))
+        {
+            missing.insert(source.to_owned(), now);
+            self.notices
+                .borrow_mut()
+                .push(format!("Signal K document source not present: {source}"));
+        }
+    }
+    /// Drain rate-limited source notices; absence never authorizes document deletion.
+    pub fn take_notices(&self) -> Vec<String> {
+        std::mem::take(&mut *self.notices.borrow_mut())
+    }
     pub fn notes(&self) -> Result<Option<ResourceSnapshot>> {
         self.deadline
             .set(Some(Instant::now() + Duration::from_secs(45)));
-        self.get("/signalk/v2/api/resources/notes")?
+        let value = self.get("/signalk/v2/api/resources/notes")?;
+        if value.is_none() {
+            self.absent_at("notes", Instant::now());
+        }
+        value
             .map(|v| {
                 entries(v).map(|entries| ResourceSnapshot {
                     kind: "notes".into(),
@@ -148,6 +177,7 @@ impl ResourceClient {
             }));
         }
         let Some(days) = self.get("/plugins/signalk-logbook/logs")? else {
+            self.absent_at("logbook", Instant::now());
             return Ok(None);
         };
         let days = days
@@ -383,6 +413,9 @@ impl DocumentPoller {
                         Ok(None) => {}
                         Err(e) => eprintln!("Signal K document poll: {e}"),
                     }
+                    for notice in client.take_notices() {
+                        eprintln!("{notice}");
+                    }
                 }
                 match stopped.recv_timeout(POLL_INTERVAL.saturating_sub(started.elapsed())) {
                     Err(mpsc::RecvTimeoutError::Timeout) => {}
@@ -404,5 +437,21 @@ impl Drop for DocumentPoller {
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
+    }
+}
+
+#[cfg(test)]
+mod missing_source_tests {
+    use super::*;
+    #[test]
+    fn notices_are_per_source_and_at_most_hourly() {
+        let client = ResourceClient::new("http://127.0.0.1:1", None).unwrap();
+        let now = Instant::now();
+        client.absent_at("logbook", now);
+        client.absent_at("logbook", now + Duration::from_secs(3599));
+        client.absent_at("notes", now);
+        assert_eq!(client.take_notices().len(), 2);
+        client.absent_at("logbook", now + Duration::from_secs(3600));
+        assert_eq!(client.take_notices().len(), 1);
     }
 }

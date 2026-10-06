@@ -75,12 +75,14 @@ def query_id(text, influx):
 
 
 class MockPair:
-    def __init__(self, mismatch=False, error=False, influx_rows=None, lume_rows=None, coverage=(FROM, TO)):
+    def __init__(self, mismatch=False, error=False, influx_rows=None, lume_rows=None, coverage=(FROM, TO), metrics=None, samples=None):
         self.mismatch = mismatch
         self.error = error
         self.influx_rows = influx_rows or ROWS
         self.lume_rows = lume_rows or ROWS
         self.coverage = coverage
+        self.metrics = metrics or {}
+        self.samples = samples or []
         self.calls = []
         self.servers = []
 
@@ -119,6 +121,18 @@ class MockPair:
                             return
                         if role == "influx" and "edge:" in text:
                             self.reply([{"edge": "first", "at": pair.coverage[0]}, {"edge": "last", "at": pair.coverage[1]}], True)
+                            return
+                        if role == "influx" and 'keep(columns: ["_measurement", "_field", "_value"])' in text:
+                            content = "".join(csv_reply([row]) + "\n" for row in pair.samples).encode()
+                            self.send_response(200)
+                            self.send_header("Content-Type", "text/csv")
+                            self.send_header("Content-Length", str(len(content)))
+                            self.end_headers()
+                            self.wfile.write(content)
+                            return
+                        if (role == "lume" and "AS speed" in text and " HAVING " not in text) or (role == "influx" and "join(tables: {s: s, d: d}" in text and "r._value_s >" not in text):
+                            rows = pair.metrics.get(role, [])
+                            self.reply(rows if role == "influx" else {"rows": rows, "truncated": False}, role == "influx")
                             return
                         rows = (pair.influx_rows if role == "influx" else pair.lume_rows)[query_id(text, role == "influx")]
                         if role == "influx":
@@ -417,3 +431,82 @@ class PiRegressions(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PolishRegressions(unittest.TestCase):
+    def test_threshold_edge_probes_both_metrics_and_rejects_unbounded_or_other_errors(self):
+        at = bench.result_time(FROM)
+        for speed, depth, expected in ((3.197, 3.0, "FIDELITY"), (3.1, 3.0, "MISMATCH"),
+                                       (3.197, 2.0, "MISMATCH")):
+            with self.subTest(speed=speed, depth=depth):
+                raw = {**ROWS, 4: [{"time": FROM, "speed": 3.2019, "depth": 3.0}]}
+                retained = {**ROWS, 4: []}
+                metrics = {"influx": [{"_time": FROM, "speed": 3.2019, "depth": 3.0}],
+                           "lume": [{"time": FROM, "speed": speed, "depth": depth}]}
+                with MockPair(influx_rows=raw, lume_rows=retained, metrics=metrics) as pair:
+                    _, _, _, report = run_main(pair, "--from", FROM, "--to", TO, "--sog-gt", "3.2")
+                    q = report["queries"][3]
+                    self.assertEqual(q["status"], expected, q["checks"])
+                    self.assertIn(at, q["checks"][0]["threshold_evidence"])
+                    if expected == "FIDELITY":
+                        self.assertIn("threshold edge", str(q["checks"][0]["fidelity"]))
+                        self.assertGreater(q["max_observed_difference"]["speed_absolute"], 0)
+        args = bench.parse_args(["--sog-gt", "3.2"])
+        args.width = 10
+        left = [{"time": at, "speed": 3.2019, "depth": 3.0},
+                {"time": bench.result_time(TO), "speed": 5.0, "depth": 2.0}]
+        right = [{"time": bench.result_time(TO), "speed": 7.0, "depth": 2.0}]
+        evidence = {at: {"influx": [left[0]], "lume": [{"time": at, "speed": 3.197, "depth": 3.0}]}}
+        self.assertEqual(bench.assess({"id": 4}, left, right, args, evidence)["status"], "MISMATCH")
+
+    def test_q6_type_and_schema_evidence_explains_only_verified_paths(self):
+        parent = "environment.current"
+        extra = "navigation.state"
+        numeric = "unexplained.numeric"
+        leaves = {parent + ".drift": parent + ".drift@mean", parent + ".setTrue": parent + ".setTrue@mean"}
+        raw = {**ROWS, 6: ROWS[6] + [{"path": p, "count": 1, "bucket_count": 1} for p in (parent, extra)]}
+        retained = {**ROWS, 6: ROWS[6] + [{"path": p, "count": 1} for p in leaves]}
+        samples = [{"_measurement": parent, "_field": "value", "_value": '{"drift":0.5,"setTrue":1.2}'},
+                   {"_measurement": extra, "_field": "value", "_value": "motoring"}]
+        schema = {**CATALOG, "tables": [{"name": "telemetry", "columns":
+                  CATALOG["tables"][0]["columns"] + [{"name": c} for c in leaves.values()]}]}
+        for unknown in (False, True):
+            influx = {**raw, 6: raw[6] + ([{"path": numeric, "count": 1, "bucket_count": 1}] if unknown else [])}
+            with MockPair(influx_rows=influx, lume_rows=retained, samples=samples + (
+                    [{"_measurement": numeric, "_field": "value", "_value": 4.0}] if unknown else [])) as pair:
+                with patch.object(bench.Client, "schema", return_value=schema):
+                    _, _, _, report = run_main(pair, "--from", FROM, "--to", TO)
+                q = report["queries"][5]
+                self.assertEqual(q["status"], "MISMATCH" if unknown else "FIDELITY", q["checks"])
+                reasons = q["checks"][0]["path_classifications"]
+                self.assertEqual(reasons[extra]["reason"], "non-numeric value")
+                self.assertEqual(reasons[parent]["reason"], "object split into leaves")
+                self.assertEqual(reasons[parent + ".drift"]["schema_leaves"], sorted(leaves))
+                if unknown:
+                    self.assertEqual(reasons[numeric]["reason"], "unexplained")
+
+    def test_depth_threshold_edge_and_missing_probe_remain_explicit(self):
+        args = bench.parse_args(["--sog-gt", "3.2", "--depth-lt", "5"])
+        args.width = 10
+        at = bench.result_time(FROM)
+        included = {"time": at, "speed": 4.0, "depth": 4.99}
+        excluded = {"time": at, "speed": 4.0, "depth": 5.01}
+        item = {"id": 4}
+        evidence = {at: {"influx": [included], "lume": [excluded]}}
+        self.assertEqual(bench.assess(item, [included], [], args, evidence)["status"], "FIDELITY")
+        self.assertEqual(bench.assess(item, [included], [], args)["status"], "MISMATCH")
+        excluded["depth"] = 5.1
+        self.assertEqual(bench.assess(item, [included], [], args, evidence)["status"], "MISMATCH")
+
+    def test_mixed_numeric_and_string_field_types_are_not_excused(self):
+        path = "navigation.state"
+        raw = {**ROWS, 6: ROWS[6] + [{"path": path, "count": 2, "bucket_count": 1}]}
+        samples = [{"_measurement": path, "_field": "value", "_value": "motoring"},
+                   {"_measurement": path, "_field": "value", "_value": 3.0}]
+        with MockPair(influx_rows=raw, samples=samples) as pair:
+            _, _, _, report = run_main(pair, "--from", FROM, "--to", TO)
+            q = report["queries"][5]
+            self.assertEqual(q["status"], "MISMATCH")
+            classification = q["checks"][0]["path_classifications"][path]
+            self.assertEqual(classification["reason"], "unexplained")
+            self.assertEqual(classification["field_types"], ["float", "str"])
