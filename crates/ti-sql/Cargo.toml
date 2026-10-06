@@ -8,6 +8,7 @@ description = "Read-only DataFusion SQL over Lume TI bitmap shards"
 [dependencies]
 ti-contracts = { path = "../ti-contracts" }
 ti-core = { path = "../ti-core" }
+ti-store = { path = "../ti-store" }
 datafusion = { version = "=55.1.0", default-features = false, features = ["sql", "parquet", "nested_expressions", "datetime_expressions", "math_expressions", "string_expressions"] }
 async-trait = "0.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

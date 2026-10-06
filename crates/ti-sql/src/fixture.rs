@@ -61,13 +61,15 @@ pub fn run_cli(args: &[String]) -> Result<()> {
             .and_then(|i| args.get(i + 1))
     };
     if args.first().map(String::as_str) != Some("verify") {
-        return Err(DataFusionError::Plan("usage: lume ti verify --fixture snapshot.json --corpus tests/golden [--raw root] [--oracle duckdb --oracle-setup setup.sql]".into()));
+        return Err(DataFusionError::Plan("usage: lume ti verify (--fixture snapshot.json | --store root) --corpus tests/golden [--raw root] [--oracle duckdb --oracle-setup setup.sql]".into()));
     }
-    let fixture = arg("--fixture").ok_or_else(|| {
-        DataFusionError::Plan(
-            "verify requires --fixture until the W2 store adapter is integrated".into(),
-        )
-    })?;
+    let fixture = arg("--fixture");
+    let store = arg("--store");
+    if fixture.is_some() == store.is_some() {
+        return Err(DataFusionError::Plan(
+            "verify requires exactly one of --fixture or --store".into(),
+        ));
+    }
     let corpus = arg("--corpus")
         .map(String::as_str)
         .unwrap_or("tests/golden");
@@ -82,7 +84,18 @@ pub fn run_cli(args: &[String]) -> Result<()> {
         .transpose()?;
     let runtime = tokio::runtime::Runtime::new()?;
     let report = runtime.block_on(async {
-        let session = open_fixture(Path::new(fixture)).await?;
+        let session = if let Some(fixture) = fixture {
+            open_fixture(Path::new(fixture)).await?
+        } else {
+            let metadata: crate::Corpus =
+                serde_json::from_slice(&std::fs::read(Path::new(corpus).join("corpus.json"))?)
+                    .map_err(|e| DataFusionError::External(Box::new(e)))?;
+            crate::open_store(
+                Path::new(store.expect("validated store option")),
+                metadata.bucket_width_seconds,
+            )
+            .await?
+        };
         if let Some(raw) = arg("--raw") {
             session.register_raw(Path::new(raw)).await?;
         }

@@ -2551,6 +2551,7 @@ dependencies = [
  "serde_json",
  "ti-contracts",
  "ti-core",
+ "ti-store",
  "tokio",
 ]
 
