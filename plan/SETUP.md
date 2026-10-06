@@ -405,3 +405,39 @@ The lead (Industrial Pike) is the only one who writes to `plan/lume-ti`.
 3. The lead reviews it and merges it into `plan/lume-ti` in the shared tree. Merge style (merge commit, squash or fast-forward) is the lead's call *(unconfirmed)*.
 4. The docs keeper refreshes [STATUS.md](STATUS.md) and this file after each merge.
 5. When `plan/lume-ti` is merged to `main` is not yet decided *(unconfirmed)*. The spec wants lanes integrated on `main` daily behind the `ti` flag ([spec/10](spec/10-contracts.md)).
+
+
+## 11. Plugin-managed PostgreSQL / Grafana
+
+See [plugin setup](../plugins/signalk-lume-ti/README.md#postgresql--grafana-on-the-halos-pi)
+and [Grafana provisioning](../bench/grafana/lume-ti-datasource.yaml).
+Use the plugin webapp's admin-only PostgreSQL form; never enter a plaintext
+password in ordinary Signal K options. Default PG port is 5864, user grafana,
+disabled until a SCRAM verifier is configured.
+
+The lead's docker inspect of the live HaLOS Pi verified host networking for
+Signal K/Lume, but Grafana shares InfluxDB's bridge namespace. Grafana uses
+halos.local:5864, resolving to docker0 at 172.17.0.1. Set pgBind to that specific
+IP, not 0.0.0.0. HTTP remains 127.0.0.1:5863. Defaults stay loopback.
+
+Both serve and ti ingest --serve support:
+- --pg <port> enables PG.
+- --pg-bind <IP> changes only the PG listener, defaulting to --bind.
+- --pg-auth-config <path> reads only the auth section of a private ti.toml.
+  It takes precedence over store_root/ti.toml auth, replacing it entirely:
+  **no merging**, including when the override has no users. Other sections
+  are ignored and do not affect ingestion/query settings. Unix refuses
+  group/world-accessible files (chmod 600). Credential changes require restart.
+
+The plugin writes its data-dir ti.toml atomically with mode 0600 and passes
+--pg-auth-config, keeping store/ti.toml intact. Provisioning uses
+secureJsonData.password: $__env{LUME_PG_PASSWORD}; supply that environment
+secret to Grafana with the same password entered in the plugin.
+sslmode disable is for loopback/local Docker-host transport only.
+
+Run bash tests/pg_smoke.sh host:port grafana ti on the Pi with PGPASSWORD or
+PGPASSFILE configured. It executes twenty Grafana/psql SQL cases, actual
+\\d telemetry, and SCRAM rejection. The loopback Rust test independently
+authenticates a Node-derived verifier and decodes typed timestamp/double rows.
+Pi Save & Test and the actual psql run are deployment checks, not claimed by
+container mocks.

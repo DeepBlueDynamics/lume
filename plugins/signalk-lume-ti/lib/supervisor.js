@@ -38,6 +38,9 @@ class Supervisor {
     this.serveBind = options.serveBind || '127.0.0.1';
     this.tokenPath = options.tokenPath || null;
     this.configPath = options.configPath || null;
+    this.pgPort = options.pgPort ?? null;
+    this.pgBind = options.pgBind || '127.0.0.1';
+    this.pgAuthConfig = options.pgAuthConfig || null;
     this.extraArgs = options.extraArgs || [];
 
     this.backoffInitialMs = options.backoffInitialMs || 1000;
@@ -80,6 +83,11 @@ class Supervisor {
 
     if (this.tokenPath && fs.existsSync(this.tokenPath)) {
       args.push('--token', this.tokenPath);
+    }
+
+    if (this.pgPort !== null) {
+      if (!this.pgAuthConfig || !fs.existsSync(this.pgAuthConfig)) throw new Error('PostgreSQL auth config is missing');
+      args.push('--pg', String(this.pgPort), '--pg-bind', this.pgBind, '--pg-auth-config', this.pgAuthConfig);
     }
 
     if (Array.isArray(this.extraArgs) && this.extraArgs.length > 0) {

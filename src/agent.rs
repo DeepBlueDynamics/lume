@@ -764,10 +764,18 @@ pub fn serve_with_ti_on(port:u16,root:&std::path::Path,bind:&str)->Result<(),Str
 }
 #[cfg(feature = "ti")]
 pub fn serve_with_ti_pg_on(port:u16,root:&std::path::Path,bind:&str,pg:Option<u16>)->Result<(),String>{
-    let bind=bind.parse::<std::net::IpAddr>().map_err(|e|format!("Invalid bind address: {e}"))?;
-    let ti=std::sync::Arc::new(crate::ti_http::TiServer::open(root)?);
-    let _pg=pg.map(|port|crate::ti_pg::start(ti.clone(),std::net::SocketAddr::new(bind,port))).transpose()?;
-    serve_configured(port,Some(ti),bind)
+    serve_with_ti_pg_config(port, root, bind, pg, None, None)
+}
+#[cfg(feature = "ti")]
+pub fn serve_with_ti_pg_config(
+    port: u16, root: &std::path::Path, bind: &str, pg: Option<u16>,
+    pg_bind: Option<&str>, pg_auth_config: Option<&std::path::Path>,
+) -> Result<(), String> {
+    let mut ti = crate::ti_http::TiServer::open(root)?;
+    if let Some(path) = pg_auth_config {
+        ti = ti.with_pg_auth_config(path)?;
+    }
+    serve_with_ti_server_pg_bind(port, std::sync::Arc::new(ti), bind, pg, pg_bind)
 }
 #[cfg(feature = "ti")]
 pub fn serve_with_ti_server(
@@ -776,13 +784,24 @@ pub fn serve_with_ti_server(
     bind: &str,
     pg: Option<u16>,
 ) -> Result<(), String> {
-    let bind = bind
-        .parse::<std::net::IpAddr>()
+    serve_with_ti_server_pg_bind(port, ti, bind, pg, None)
+}
+#[cfg(feature = "ti")]
+pub fn serve_with_ti_server_pg_bind(
+    port: u16,
+    ti: std::sync::Arc<crate::ti_http::TiServer>,
+    bind: &str,
+    pg: Option<u16>,
+    pg_bind: Option<&str>,
+) -> Result<(), String> {
+    let http_bind = bind.parse::<std::net::IpAddr>()
         .map_err(|e| format!("Invalid bind address: {e}"))?;
+    let pg_bind = pg_bind.unwrap_or(bind).parse::<std::net::IpAddr>()
+        .map_err(|e| format!("Invalid pg bind address: {e}"))?;
     let _pg = pg
-        .map(|port| crate::ti_pg::start(ti.clone(), std::net::SocketAddr::new(bind, port)))
+        .map(|port| crate::ti_pg::start(ti.clone(), std::net::SocketAddr::new(pg_bind, port)))
         .transpose()?;
-    serve_configured(port, Some(ti), bind)
+    serve_configured(port, Some(ti), http_bind)
 }
 fn serve_configured(port:u16,_ti:TiState,bind:std::net::IpAddr)->Result<(),String>{
     use std::sync::atomic::{AtomicUsize, Ordering};

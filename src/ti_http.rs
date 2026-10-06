@@ -15,6 +15,7 @@ pub struct TiServer {
     resolver: RwLock<Arc<crate::ti_resolve::PathsResolver>>,
     width: Option<u64>,
     last_reload: Mutex<Option<Instant>>,
+    pg_auth_users: Option<Vec<ti_contracts::ScramUser>>,
 }
 impl TiServer {
     pub fn open(root: &Path) -> Result<Self, String> {
@@ -47,7 +48,13 @@ impl TiServer {
             gate: Mutex::new(()),
             width,
             last_reload: Mutex::new(None),
+            pg_auth_users: None,
         })
+    }
+    /// External auth replaces store auth entirely; ingest/query configuration is untouched.
+    pub fn with_pg_auth_config(mut self, path: &Path) -> Result<Self, String> {
+        self.pg_auth_users = Some(crate::ti_pg_auth::load_users(path)?);
+        Ok(self)
     }
     pub fn reload_engine(&self) -> Result<(), String> {
         let now = Instant::now();
@@ -96,7 +103,14 @@ impl TiServer {
         engine.session.reset_diagnostics().map_err(|e| e.to_string())?;
         self.runtime.block_on(ti_sql::postgres::query(&engine, sql, parameters)).map_err(|e| e.to_string())
     }
+    /// Fail before starting ingestion when pg credentials or listener policy are invalid.
+    pub fn validate_pg_auth(&self, bind: &str) -> Result<(), String> {
+        let ip: std::net::IpAddr = bind.parse().map_err(|_| "Invalid pg bind address")?;
+        crate::ti_pg_auth::AuthConfig::new(self.pg_users()?, !ip.is_loopback())?;
+        Ok(())
+    }
     pub(crate) fn pg_users(&self) -> Result<Vec<ti_contracts::ScramUser>, String> {
+        if let Some(users) = &self.pg_auth_users { return Ok(users.clone()); }
         let path = self.root.join("ti.toml");
         if !path.exists() { return Ok(vec![]); }
         Ok(ti_contracts::TiConfig::from_toml(&std::fs::read_to_string(path).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?.auth.scram_users)

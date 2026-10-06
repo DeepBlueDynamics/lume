@@ -31,6 +31,20 @@ fn test_ingest_serve_live_queries_grow_without_restart() {
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
     let store_root = root.join("store");
+    std::fs::create_dir_all(&store_root).unwrap();
+    let store_config = "width_seconds=10\n[signal_k]\nurl='ws://127.0.0.1:29999'\n";
+    std::fs::write(store_root.join("ti.toml"), store_config).unwrap();
+    let auth_path = root.join("pg-auth.toml");
+    // The production Node-derived verifier is independently cross-tested in ti_http.
+    std::fs::write(&auth_path, "width_seconds=0\n[[auth.scram_users]]\nusername='grafana'\nverifier='SCRAM-SHA-256$4096:W22ZaJ0SNY7soEsUEjb6gQ==$WG5d8oPm3OtcPnkdi4Uo7BkeZkBFzpcXkuLmtbsT4qY=:wfPLwcE6nTWhTAmQ7tl2KeoiWGPlZqQxSrmfPwDl2dU='\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&auth_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let pg_listener = TcpListener::bind("127.0.0.2:0").unwrap();
+    let pg_port = pg_listener.local_addr().unwrap().port();
+    drop(pg_listener);
 
     // 1. Mock Signal K WebSocket server
     let ws_listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -80,6 +94,9 @@ fn test_ingest_serve_live_queries_grow_without_restart() {
             &serve_port.to_string(),
             "--bind",
             "127.0.0.1",
+            "--pg", &pg_port.to_string(),
+            "--pg-bind", "127.0.0.2",
+            "--pg-auth-config", auth_path.to_str().unwrap(),
         ])
         .stdout(Stdio::null())
         .stderr(Stdio::inherit())
@@ -112,6 +129,17 @@ fn test_ingest_serve_live_queries_grow_without_restart() {
         ready,
         "lume ti ingest --serve server failed to become ready"
     );
+
+    ti_sql::surface_runtime().unwrap().block_on(async {
+        let mut config = tokio_postgres::Config::new();
+        config.host("127.0.0.2").port(pg_port).user("grafana").password("pencil").dbname("ti");
+        let (client, connection) = config.connect(tokio_postgres::NoTls).await.unwrap();
+        let task = tokio::spawn(connection);
+        assert_eq!(client.query_one("SELECT 42::BIGINT", &[]).await.unwrap().get::<_, i64>(0), 42);
+        drop(client);
+        task.await.unwrap().unwrap();
+    });
+    assert_eq!(std::fs::read_to_string(store_root.join("ti.toml")).unwrap(), store_config);
 
     // Helper to query row count
     let query_count = || -> u64 {

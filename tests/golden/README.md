@@ -160,11 +160,11 @@ py -3 tests/golden/rules_oracle.py --data-dir .lanes/data/correctness --store .l
 ```
 
 The script runs the ignored `golden_battery_rule_ranges` Rust test, which dry-runs
-`"electrical.batteries.house.voltage@min" < 24.6 for 5m` and checks generated alert
+`"electrical.batteries.house.voltage@min" < 24.6 for 30s` and checks generated alert
 ranges against `intervals()`, plus `match(alerts, 'battery')` coverage. It then
 independently groups the raw voltage parquet into fixed-width buckets in DuckDB,
 rounds the bucket minimum to the catalog's BSI scale (D35), and extracts contiguous
-five-minute runs. It prints a JSON diff and exits nonzero on any mismatch.
+30-second runs. It prints a JSON diff and exits nonzero on any mismatch.
 
 The golden store's documents/configuration are not modified. DuckDB scratch stays
 under `target/tmp`, with 512 MiB memory and a 4 GiB spill cap, and is deleted on exit.

@@ -9,6 +9,7 @@ const { TokenManager } = require('./lib/auth');
 const { Supervisor } = require('./lib/supervisor');
 const { collectStoreStatus } = require('./lib/status');
 const { createHistoryProvider } = require('./lib/history');
+const {pgOptions, writePgConfig, registerPgRoutes} = require('./lib/pg');
 
 /**
  * Signal K Plugin Factory Function.
@@ -22,6 +23,7 @@ module.exports = function (app) {
   let tokenManager = null;
   let statusInterval = null;
   let pluginConfig = {};
+  let restartWithConfig = null;
   let currentBinaryInfo = null;
 
   const plugin = {
@@ -44,6 +46,13 @@ module.exports = function (app) {
           default: 5863,
           description: 'Local loopback port for the integrated query server (default 5863)',
         },
+        enablePg: {type: 'boolean', title: 'Enable PostgreSQL (Grafana)', default: false},
+        pgPort: {type: 'integer', title: 'PostgreSQL port', default: 5864, minimum: 1, maximum: 65535},
+        pgUser: {type: 'string', title: 'PostgreSQL user', default: 'grafana'},
+        pgBind: {type: 'string', title: 'PostgreSQL bind IP', default: '127.0.0.1',
+          description: 'Use 172.17.0.1 (docker0) for HaLOS Grafana; HTTP remains on loopback.'},
+        pgVerifier: {type: 'string', title: 'SCRAM verifier (managed)',
+          description: 'Set/change password in the webapp PostgreSQL settings. Never paste a plaintext password here.'},
         lumePath: {
           type: 'string',
           title: 'Custom lume binary path (optional)',
@@ -66,7 +75,15 @@ module.exports = function (app) {
      * @param {function} restartPlugin - Signal K callback to restart plugin.
      */
     start: function (configuration, restartPlugin) {
-      pluginConfig = configuration || {};
+      pluginConfig = {...(configuration || {})};
+      // Passwords only enter through the dedicated pre-persistence endpoint.
+      if (pluginConfig.pgPassword) {
+        delete pluginConfig.pgPassword;
+        throw new Error('Use the webapp PostgreSQL password form');
+      }
+      const pg = pgOptions(pluginConfig);
+      restartWithConfig = restartPlugin;
+      const pgAuthConfig = writePgConfig(app.getDataDirPath(), pg);
       const dataDir = app.getDataDirPath();
       const storeDir = path.join(dataDir, 'lume-ti');
       const tokenPath = path.join(dataDir, 'token.txt');
@@ -129,6 +146,9 @@ module.exports = function (app) {
         storeDir,
         servePort,
         serveBind: '127.0.0.1',
+        pgPort: pg.enablePg ? pg.pgPort : null,
+        pgBind: pg.pgBind,
+        pgAuthConfig,
         tokenPath: fs.existsSync(tokenPath) ? tokenPath : null,
         onLog: (line, isErr) => log(line, isErr),
         onStateChange: () => updateStatus(app, supervisor, storeDir),
@@ -152,6 +172,7 @@ module.exports = function (app) {
      * Stop the plugin.
      */
     stop: function () {
+      restartWithConfig = null;
       if (history) {
         history.stop();
         history = null;
@@ -184,6 +205,14 @@ module.exports = function (app) {
      * @param {object} router - Express router.
      */
     registerWithRouter: function (router) {
+      registerPgRoutes(router, app, () => {
+        const saved = typeof app.readPluginOptions === 'function' ? app.readPluginOptions() : null;
+        return saved?.configuration || pluginConfig;
+      }, safe => {
+        pluginConfig = safe;
+        if (typeof restartWithConfig === 'function') restartWithConfig(safe);
+      });
+      router.get('/pg.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'pg.js')));
       // 1. Status API
       router.get('/api/status', (req, res) => {
         const dataDir = typeof app.getDataDirPath === 'function' ? app.getDataDirPath() : '';

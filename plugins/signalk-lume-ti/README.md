@@ -177,3 +177,76 @@ CARGO_INCREMENTAL=0 cargo test --features ti --test ti_http history_provider_rea
 
 This test starts Lume on an ephemeral loopback port and invokes the Node
 provider against its actual schema/query endpoints. Node must be on PATH.
+
+
+## PostgreSQL / Grafana on the HaLOS Pi
+
+PostgreSQL is off by default. In the Lume webapp's **PostgreSQL / Grafana**
+tab, log in as a Signal K administrator, enter a password and save:
+
+| Option | Default | HaLOS Grafana setting |
+|---|---|---|
+| enablePg | false | true |
+| pgPort | 5864 | 5864 (avoids PostgreSQL's 5432) |
+| pgUser | grafana | grafana |
+| pgBind | 127.0.0.1 | **172.17.0.1 (docker0)** |
+
+The lead verified the live Pi with docker inspect: Signal K/Lume is host-networked;
+Grafana shares InfluxDB's bridge namespace, so Grafana's localhost is not the Pi.
+Its ExtraHosts maps halos.local to host-gateway, resolving to 172.17.0.1.
+Use halos.local:5864 in Grafana, and bind pgwire specifically to that docker0 IP.
+Do not use 0.0.0.0. The plugin rejects wildcard PG addresses. HTTP always stays
+127.0.0.1:5863, preserving its existing proxy and History provider.
+
+The password exists only in the dedicated form/request. Printable ASCII
+passwords (1–1024 characters) are supported so Node and PostgreSQL SASLprep
+cannot diverge. Node crypto.pbkdf2 derives SCRAM-SHA-256 with 4096 iterations
+and a fresh 16-byte random salt before app.savePluginOptions is called.
+Only pgVerifier and an empty pgPassword are persisted; the form clears its
+password on every submission, including failures. Blank keeps the current
+verifier. Saving restarts a running plugin; a disabled Signal K plugin remains
+disabled until enabled in Admin.
+
+Do not enter passwords in Signal K's ordinary plugin options: its
+[v2.31 configuration route](https://github.com/SignalK/signalk-server/blob/v2.31.0/src/interfaces/plugins.ts)
+persists options before start(), without a pre-save plugin hook. The schema
+therefore contains safe options and the verifier only. The dedicated
+POST /plugins/signalk-lume-ti/api/pg/config route checks Signal K's
+[allowConfigure / authenticated admin principal](https://github.com/SignalK/signalk-server/blob/v2.31.0/src/tokensecurity.ts).
+Readonly/readwrite users get 403, anonymous users 401; Signal K's explicitly
+disabled security strategy retains its own open configuration behavior.
+Requests must be JSON, at most 4096 bytes. Pre-parsed requests require a
+bounded Content-Length; raw chunked requests are counted as read.
+No password or request body is echoed or logged.
+
+The plugin atomically writes a verifier-only ti.toml in its data directory
+with mode 0600 and supplies --pg-auth-config <path> to Lume. This **replaces**
+store_root/ti.toml's auth section, **without merging users**, and ignores all
+other sections of the auth file. The store's ingestion/query settings are
+unaffected. Unix rejects group/world-accessible auth files; secure the parent
+directory too. Changes take effect on restart. --pg-bind applies only to PG
+and defaults to --bind when omitted from the CLI.
+
+Copy [the provisioning file](../../bench/grafana/lume-ti-datasource.yaml) into
+/etc/grafana/provisioning/datasources/ in the Grafana container and provide
+LUME_PG_PASSWORD through its environment/secret configuration, matching the
+password set in the webapp. It uses secureJsonData.password with
+$__env{LUME_PG_PASSWORD}, following the Pi's existing Influx datasource pattern.
+Set enablePg first, then restart Grafana and use datasource Save & Test.
+sslmode disable is only for loopback/local Docker-host transport; do not
+expose this listener to the LAN or shore.
+
+On the Pi, with psql and Python 3 installed and PGPASSWORD or PGPASSFILE set:
+
+```bash
+bash tests/pg_smoke.sh halos.local:5864 grafana ti
+```
+
+This runs twenty source-pinned SQL cases: Grafana connection/metadata probes,
+pg_catalog and psql describe probes, expanded $__timeFilter(ts) and
+$__timeGroup(ts,'1m') expressions, date_bin, timestamps/doubles and typed nulls.
+It also invokes psql's actual \\d telemetry and rejects a wrong SCRAM password.
+Runtime macro bounds use the last 24h. Unit tests replay the same twenty cases
+against real Lume on loopback and decode timestamp/double rows through
+tokio-postgres; the Node-derived deterministic verifier authenticates there.
+The live Pi/Grafana Save & Test and psql smoke remain deployment checks.
