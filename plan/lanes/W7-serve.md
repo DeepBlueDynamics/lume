@@ -64,7 +64,7 @@ Agent end-to-end: plain-English question → correct rows.
 - [ ] Plugin installs on HALPI2 (HaLOS Marine store) and OpenPlotter (Pi 4 4 GB + Pi 5), gets a token, supervises ingest; psql + Grafana pass a 20-query smoke set
 
 ## Stretch (M6+)
-- Signal K History API provider (`/signalk/v2/api/history/values`).
+- [x] Signal K History API provider (`/signalk/v2/api/history/values`, `/contexts`, `/paths`); implementation and verification details below.
 
 ## Note
 This lane is far larger than the others (Rust server + Node plugin + container packaging + pg wire). Consider splitting into W7a (Rust surfaces) and W7b (packaging/plugin) — see [repo-fit](../repo-fit.md) §6.
@@ -177,3 +177,34 @@ aarch64 Pi smoke: set PGPASSWORD or PGPASSFILE for a configured user, then run
 typed queries, the source-pinned client probes (Python 3 stdlib), and SCRAM accept/reject. Actual psql
 and D13 aarch64 results remain pending that run; the fixture replay alone does
 not mark M5 item 3 or D13 complete.
+
+## Signal K History provider (2026-10-06)
+
+The Node plugin registers the Signal K 2.31 HistoryApi interface using
+registerHistoryApiProvider; Signal K owns HTTP parsing, authentication and
+provider selection. The three standard history endpoints delegate to Lume
+schema/SELECT calls over loopback. Plugin stop unregisters the provider.
+No new runtime dependencies or telemetry writes are introduced.
+
+Values use date_bin with request-start-aligned bins, retained numeric
+mean/min/max, ordered first/last over retained last, and paired position
+latitude/longitude structs. Optional 1-second telemetry_hr is preferred for
+finer resolution. Missing retained aggregates, unsupported methods/parameters
+and per-source requests fail explicitly. This is bucket-level history;
+first/last cannot reconstruct discarded raw samples. Contexts/paths are
+filtered against data in the requested time range. Queries chunk/retry only
+at bin boundaries so a truncated HTTP response never becomes partial history.
+
+Node coverage exercises the five aggregate mappings, range/Temporal forms,
+multi-series null alignment, HR selection, position pairing, truncation,
+unsupported requests, loopback transport and lifecycle cleanup. The real
+Lume integration is tests/ti_http.rs::history_provider_real_http, invoking
+test/history-real.cjs against an ephemeral loopback server. README documents
+explicit provider URLs, choosing the default provider, and KIP/Freeboard
+verification. Verified Node suite: 17/17 passed. Real Lume HTTP provider integration passed,
+covering all five numeric methods, paired position first/last, 10-second bins,
+contexts and paths against a generated retained-aggregate store. Actual Pi chart
+UI verification remains a deployment check. The same compiled ti_http integration
+binary also passed all 8 HTTP/pgwire tests. A cargo re-invocation unexpectedly
+started rebuilding dependencies; it was stopped and the already-built binary
+was used for that full-file regression. Target stayed at 2.0 GiB before cleanup.

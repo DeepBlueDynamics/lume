@@ -8,6 +8,7 @@ const { resolveLumeBinary } = require('./lib/resolver');
 const { TokenManager } = require('./lib/auth');
 const { Supervisor } = require('./lib/supervisor');
 const { collectStoreStatus } = require('./lib/status');
+const { createHistoryProvider } = require('./lib/history');
 
 /**
  * Signal K Plugin Factory Function.
@@ -17,6 +18,7 @@ const { collectStoreStatus } = require('./lib/status');
  */
 module.exports = function (app) {
   let supervisor = null;
+  let history = null;
   let tokenManager = null;
   let statusInterval = null;
   let pluginConfig = {};
@@ -133,6 +135,10 @@ module.exports = function (app) {
       });
 
       supervisor.start();
+      if (typeof app.registerHistoryApiProvider === 'function') {
+        history = createHistoryProvider({app, port:servePort});
+        app.registerHistoryApiProvider(history.provider);
+      } else log('History API provider registration unavailable; Signal K 2.31+ required.');
 
       // 4. Periodic status updates (every 5 seconds)
       statusInterval = setInterval(() => {
@@ -146,6 +152,11 @@ module.exports = function (app) {
      * Stop the plugin.
      */
     stop: function () {
+      if (history) {
+        history.stop();
+        history = null;
+        if (typeof app.unregisterHistoryApiProvider === 'function') app.unregisterHistoryApiProvider();
+      }
       if (statusInterval) {
         clearInterval(statusInterval);
         statusInterval = null;

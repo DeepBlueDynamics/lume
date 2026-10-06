@@ -17,7 +17,11 @@ test('Plugin lifecycle, supervision, status, and router proxying', async () => {
   const statusUpdates = [];
   const debugLogs = [];
 
+  let registeredHistory = null;
+  let unregisteredHistory = false;
   const mockApp = {
+    registerHistoryApiProvider: provider => { registeredHistory = provider; },
+    unregisterHistoryApiProvider: () => { unregisteredHistory = true; },
     getDataDirPath: () => tmpDir,
     debug: (msg) => debugLogs.push(msg),
     setPluginStatus: (msg) => statusUpdates.push(msg),
@@ -49,6 +53,8 @@ test('Plugin lifecycle, supervision, status, and router proxying', async () => {
     autoRequestToken: false,
   });
 
+  assert.ok(registeredHistory);
+  for (const method of ['getValues','getContexts','getPaths']) assert.strictEqual(typeof registeredHistory[method], 'function');
   // Give child time to boot and start HTTP mock
   await waitFor(async () => {
     try { return (await httpFetch(`http://127.0.0.1:${servePort}/ti/schema`, 'GET')).statusCode === 200; }
@@ -141,6 +147,7 @@ test('Plugin lifecycle, supervision, status, and router proxying', async () => {
 
   // 4. Stop plugin
   plugin.stop();
+  assert.strictEqual(unregisteredHistory, true);
   await waitFor(() => statusUpdates[statusUpdates.length - 1].includes('Stopped'));
 
   const stoppedStatus = statusUpdates[statusUpdates.length - 1];
