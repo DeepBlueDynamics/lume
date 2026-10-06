@@ -56,12 +56,19 @@ cargo test  --locked -p ti-bench           # generator, including the window pin
 **Data-dependent tests (M2 gate).** These need a dataset in `.lanes/data/` and run in release:
 
 ```sh
-TI_DATA_DIR=<dir> cargo test --release -p ti-ingest --test m2_gate -- --nocapture
+TI_DATA_DIR=<dir> cargo test --release -p ti-ingest --test m2_gate -- --ignored --nocapture
 # e.g. TI_DATA_DIR=.lanes/data/w3-smoke (smoke) or .lanes/data/correctness (full set)
+# one day only:  TI_REPLAY_DAY=060 TI_DATA_DIR=<dir> cargo test --release -p ti-ingest --test m2_gate test_m2_oracle_replay_24h -- --ignored --nocapture
 ```
 
-On the host in PowerShell, use `$env:TI_DATA_DIR = '<dir>'; cargo test --release -p ti-ingest --test m2_gate -- --nocapture`.
-**Warning:** without data these tests currently **skip silently and report a pass**. A fix (`#[ignore]`) is pending, so check the `--nocapture` output for real match counts. Peak RSS currently reads 0.00 MB on non-Linux hosts.
+On the host in PowerShell, use `$env:TI_DATA_DIR = '<dir>'; cargo test --release -p ti-ingest --test m2_gate -- --ignored --nocapture`.
+Since `2c8ba1c`, the backfill-idempotence and 24 h replay tests are `#[ignore = "needs TI_DATA_DIR"]`. **They only run with `--ignored`**, and they fail fast if the dir is missing; they no longer pass silently. The replay day is auto-detected (`day=060` on the correctness set) unless `TI_REPLAY_DAY` is set. The throughput/RSS test isn't ignored. RSS shows "n/a" on non-Linux.
+
+**Q4 benchmark (M4 item 2).** This is `synthetic_year_benchmark` in `crates/ti-sql/tests/m4.rs`, which is also `#[ignore]`. You can tune it with `TI_Q4_WIDTH_SECONDS` (default 60), `TI_Q4_VESSELS` (50), `TI_Q4_DAYS` (365) and `TI_Q4_RUNS` (3, must be odd):
+
+```sh
+TI_Q4_WIDTH_SECONDS=10 TI_Q4_VESSELS=5 cargo test --release -p ti-sql --test m4 synthetic_year_benchmark -- --ignored --nocapture
+```
 
 A plain `cargo test` only tests the root crate, because `default-members = ["."]`.
 
@@ -172,6 +179,21 @@ cargo run --release --locked -p ti-bench -- gen --root <dir> [--days N]
 
 Set `TI_BENCH_VERIFY_DETERMINISM=1` to regenerate into `<dir>.regen` and fail if any file differs. The lead's M0 check was `gen --days 1` run twice, which gave an identical sha256 over 258 files (about 20 MB/day). Without `--days`, it generates the default correctness window `START_SECS..END_SECS` in `crates/ti-bench/src/gen.rs`. That is 2026-03-01T00:00Z..2026-06-01T00:00Z (fixed in `71b7fcd`, pinned by `crates/ti-bench/tests/window.rs`). If you change the window, update `tests/golden/corpus.json` and the pin test together.
 
+### DuckDB on the host (oracle and expected outputs only)
+
+**DuckDB 1.5.6 is installed on the host** as a Python package (user-approved, `pip --user`). It is for oracle and expected-output work only. It is **not a product dependency** (D14: the oracle runs outside the Rust build). Run DuckDB jobs on the host. In a container, DuckDB reading through the bind mount took about 126 s per query.
+
+```powershell
+py -3 -E tests/golden/gen_expected.py --data-dir <correctness> --output-dir <dir>
+# e.g. --data-dir .lanes/data/correctness --output-dir .lanes/data/expected
+```
+
+- Use **`-E`, not `-I`**. `-I` also hides user site-packages, which is where `duckdb` is installed.
+- Other flags: `--corpus` (default `tests/golden/corpus.json`), `--raw-view-sql` (default `tests/golden/raw_view.sql`), `--query <id>` for a single query (e.g. `q1-001`), and `--no-materialize` to use views instead of in-memory tables.
+- The default `--data-dir` is the container path `/workspace/lume/.lanes/data/correctness`, so always pass it on the host.
+- `raw_view.sql` defines the DuckDB TABLE MACROs `read_raw(...)` and `read_docs(...)`. The old `CREATE FUNCTION` form never parsed in DuckDB (fixed in `c88fb75`).
+- Write generated outputs to `.lanes/data/`. The owning agent commits the JSONs into `tests/golden/expected/`.
+
 ## 9. Dependency policy
 
 - **Every new runtime dependency needs a line in the decisions log** ([spec/11](spec/11-risks-decisions.md), D8+) before it merges. This is a PR rule from [spec/10](spec/10-contracts.md).
@@ -183,10 +205,10 @@ Set `TI_BENCH_VERIFY_DETERMINISM=1` to regenerate into `<dir>.regen` and fail if
   | DataFusion | `=55.1.0`, `default-features = false` (its defaults pull in C compression libs) |
   | arrow | `"59.2"`, resolves to 59.3.0 via `Cargo.lock` |
   | roaring | `0.11.5` for TI. The existing `MiniRoaring` stays in place for BM25 |
-  | DuckDB | Used as an oracle through the **CLI**, not as a bundled Rust crate |
+  | DuckDB | Used as an oracle outside the Rust build, never as a bundled Rust crate (D14 says "CLI"; in practice the host uses the DuckDB 1.5.6 Python package, see §8) |
   | Release builds | `cargo-zigbuild` for musl targets |
 
-  The log also records pure-Rust Parquet codecs only, with no zstd (D11), `blake3` with `pure` (D12), and an early aarch64-musl smoke test for pgwire SCRAM, which pulls in `ring` (D13). **D27 amends D11:** `zstd-sys` (C) is accepted because DataFusion's `arrow-ipc` forces it in. That deviates from the spec's croaring-only C rule and is awaiting spec-owner confirmation. D18 (`serde`) and D19 (`toml`) cover the dependencies of `ti-contracts`. D23 is `proptest` (a `ti-core` dev-dependency). D24 (`bincode`) and D25 (`crc32fast`) are in `ti-store`. D22 (`ti-bench`: arrow/parquet 59.2 with pure-Rust codecs, chrono) is logged (`71b7fcd`). D26 (DataFusion) and D27 (`zstd-sys`) are logged. D28 (`tungstenite`) and D29 (`parquet`) are reserved for W3. D30 is the 1 s high-resolution store ([design/hi-res-store.md](design/hi-res-store.md)). The next free number is **D31**. Ask the lead before taking it.
+  The log also records pure-Rust Parquet codecs only, with no zstd (D11), `blake3` with `pure` (D12), and an early aarch64-musl smoke test for pgwire SCRAM, which pulls in `ring` (D13). **D27 amends D11:** `zstd-sys` (C) is accepted because DataFusion's `arrow-ipc` forces it in. That deviates from the spec's croaring-only C rule and is awaiting spec-owner confirmation. D18 (`serde`) and D19 (`toml`) cover the dependencies of `ti-contracts`. D23 is `proptest` (a `ti-core` dev-dependency). D24 (`bincode`) and D25 (`crc32fast`) are in `ti-store`. D22 (`ti-bench`: arrow/parquet 59.2 with pure-Rust codecs, chrono) is logged (`71b7fcd`). D26 (DataFusion) and D27 (`zstd-sys`) are logged. D28 (`tungstenite`) and D29 (`parquet`) are reserved for W3. D30 is the 1 s high-resolution store ([design/hi-res-store.md](design/hi-res-store.md)). D31 is reserved for W6 (`h3o` 0.11). The next free number is **D32**. Ask the lead before taking it.
 - The contracts crate itself depends on `arrow-array`, `arrow-schema`, `roaring`, `serde` and `toml` only, not DataFusion.
 
 ## 10. How the lead merges
