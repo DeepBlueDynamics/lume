@@ -55,14 +55,22 @@ and cheaply.
 | D20 | `raw` (for both the DuckDB oracle and TI) is a normalizing view over the real signalk-parquet layout: `context, ts TIMESTAMP, path, value DOUBLE, value_str VARCHAR, source`, with object keys flattened to `path.key` | Lead decision after [design/signalk-formats.md](../design/signalk-formats.md) found string timestamps, no `$source` column and per-file value types. Oracles stay layout-independent, and the generator writes the real layout so the view is tested against it ([repo-fit §10](../repo-fit.md)) |
 | D21 | Ordinary set fields are single-valued per bucket: exactly one row bit per column, the last preferred-source value. Rows are pairwise disjoint and union to presence; the Arrow type is Utf8. `$source` stays multi-valued `List<Utf8>`, and W4 rewrites `=` to `array_has` | Lead ruling at the contracts freeze: with Exact pushdown, a filter must agree with the projected value, because DataFusion doesn't re-check it. Mid-bucket changes are covered by `@starts` / edge counts. Enforced by `validate_ordinary_set_rows` |
 | D23 | proptest 1.x as a ti-core dev-dependency | W1: 10,000-case independent scalar/bitmap checks for signed BSI, predicate trees and D21 rewrites; coordinated with Prawn (D22 reserved for ti-bench), no new root runtime dependency |
+| D24 | bincode 1.3 in ti-store | W2: length-prefixed little-endian fixed-integer serialization for WAL record payloads (spec 14 §79); pinned 1.3.3 in Cargo.lock. WAL payload encoding is an on-disk format versioned by the frozen WAL header (v1); any change of encoder or major version requires a header version bump plus a migration note |
+| D25 | crc32fast 1.4+ in ti-store | W2: IEEE CRC32 frame checksum for WAL records over sequence LE and payload (spec 14 §78); pure-Rust fast table-based CRC32, already in shared lockfile |
 | D26 | DataFusion =55.1.0, defaults disabled; sql/parquet/nested/datetime/math/string features; zstd-sys allowed by D27; async-trait 0.1, tokio 1 runtime/macros, futures 0.3, existing serde/serde_json for ti-sql | W4 read-only SQL, custom TableProvider/streaming executor, array_has rewrite, golden verification; root remains optional behind ti. DataFusion's additive transitive features enable zstd-sys; the lead approved this exception in D27. No vendoring or patches; bzip2/lzma C bindings remain excluded |
 
 Reserved, and written by the owning lane at merge (agreed among the lanes on 2026-10-06):
 
 - D22: Zygomorphic Prawn, `ti-bench` generator crate (arrow/parquet 59.x pure-Rust codecs, chrono; dev/optional)
-- D24, D25: Romantic Pike, W2 `bincode` and `crc32fast`
 
-The next free number is **D26**. Ask the lead before taking one. Every new runtime dependency needs a line here
+| # | Decision | Why |
+|---|---|---|
+| D27 | **Amends D11.** Accept `zstd-sys` (C, built via `cc`), which DataFusion 55.1.0 forces in through `arrow-ipc`'s zstd feature even with `default-features = false` and only `sql` enabled. No other C codec crates are allowed: bzip2, lzma and liblzma must stay absent, checked with `cargo tree --features ti -i <crate>`. TI must not *enable* any further C codec itself. Musl builds compile it through cargo-zigbuild (D15). Add an early aarch64-musl `cargo zigbuild -p ti-sql` smoke test, like D13 | Lead ruling on W4's finding, verified independently by the lead in a scratch project. The alternative, vendoring 4 patched DataFusion crates, would mean re-patching on every quarterly DataFusion upgrade (spec/11 risk "DataFusion API churn"). **Spec deviation:** spec/10's PR rule says C bindings are allowed only for `croaring`. This decision makes a recorded exception for `zstd-sys` and asks the spec owner to confirm |
+
+- D28: Romantic Pike, W3 `tungstenite` 0.24 (blocking, no TLS features; ws:// LAN only)
+- D29: Romantic Pike, W3 `parquet` 59.2 (default-features off; arrow plus exactly the codecs signalk-parquet writes; zstd only via the existing D27 crate)
+
+The next free number is **D30**. Ask the lead before taking one. Every new runtime dependency needs a line here
 (PR rule, [10-contracts](10-contracts.md)).
 
 ## Sources (from spec)
