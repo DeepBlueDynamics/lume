@@ -8,7 +8,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use ti_contracts::{
-    bucket_of, BucketIx, Catalog, Result, ShardSink, TiConfig, VesselOrd, VesselSpec, EPOCH,
+    bucket_of, BucketIx, Catalog, Result, ShardSink, StoreConfig, TiConfig, VesselOrd, VesselSpec,
+    EPOCH,
 };
 
 use crate::bucket::BucketWindow;
@@ -17,6 +18,10 @@ use crate::derived::{DerivedEvent, DerivedTracker};
 use crate::normalize::NormalizedValue;
 
 pub struct WatermarkBucketer {
+    width_seconds: u64,
+    store_name: String,
+    store_aggs: BTreeMap<String, Vec<String>>,
+    paths: Option<Vec<String>>,
     max_event_time: i64,
     open_buckets: BTreeMap<(VesselOrd, BucketIx), BucketWindow>,
     closed_buckets: BTreeSet<(VesselOrd, BucketIx)>,
@@ -27,11 +32,54 @@ pub struct WatermarkBucketer {
 impl WatermarkBucketer {
     pub fn new(config: &TiConfig) -> Self {
         Self {
+            width_seconds: config.width_seconds,
+            store_name: "default".into(),
+            store_aggs: BTreeMap::new(),
+            paths: None,
             max_event_time: EPOCH,
             open_buckets: BTreeMap::new(),
             closed_buckets: BTreeSet::new(),
             classifier: Classifier::new(config),
             derived: DerivedTracker::new(&config.derived),
+        }
+    }
+
+    pub fn new_for_store(name: &str, store: &StoreConfig, config: &TiConfig) -> Result<Self> {
+        let width_seconds = store.width_seconds()?;
+        Ok(Self {
+            width_seconds,
+            store_name: name.to_string(),
+            store_aggs: store.aggs.clone(),
+            paths: store.paths.clone(),
+            max_event_time: EPOCH,
+            open_buckets: BTreeMap::new(),
+            closed_buckets: BTreeSet::new(),
+            classifier: Classifier::new(config),
+            derived: DerivedTracker::new(&config.derived),
+        })
+    }
+
+    pub fn width_seconds(&self) -> u64 {
+        self.width_seconds
+    }
+
+    pub fn store_name(&self) -> &str {
+        &self.store_name
+    }
+
+    pub fn store_aggs(&self) -> &BTreeMap<String, Vec<String>> {
+        &self.store_aggs
+    }
+
+    pub fn paths(&self) -> Option<&[String]> {
+        self.paths.as_deref()
+    }
+
+    pub fn is_path_allowed(&self, path: &str, config: &TiConfig) -> bool {
+        if let Some(ref allow_list) = self.paths {
+            crate::normalize::is_path_allowed(path, allow_list, &config.deny_paths)
+        } else {
+            crate::normalize::is_path_allowed(path, &config.allow_paths, &config.deny_paths)
         }
     }
 
@@ -82,7 +130,7 @@ impl WatermarkBucketer {
             mmsi: None,
         })?;
 
-        let bucket_ix = bucket_of(ts, config.width_seconds)?;
+        let bucket_ix = bucket_of(ts, self.width_seconds)?;
         if ts > self.max_event_time {
             self.max_event_time = ts;
         }
@@ -112,6 +160,11 @@ impl WatermarkBucketer {
         }
 
         let is_closed = self.closed_buckets.contains(&(vessel, bucket_ix));
+        let store_aggs_opt = if self.store_aggs.is_empty() {
+            None
+        } else {
+            Some(&self.store_aggs)
+        };
 
         if is_closed {
             // Late arrival after bucket close -> emit immediately with rewrite: true
@@ -128,7 +181,14 @@ impl WatermarkBucketer {
             for event in derived_events {
                 populate_derived_event(&mut late_window, event, source);
             }
-            let records = late_window.emit_records(vessel, bucket_ix, true, config, catalog)?;
+            let records = late_window.emit_records_with_aggs(
+                vessel,
+                bucket_ix,
+                true,
+                store_aggs_opt,
+                config,
+                catalog,
+            )?;
             if !records.is_empty() {
                 sink.apply(&records)?;
             }
@@ -160,16 +220,29 @@ impl WatermarkBucketer {
             .open_buckets
             .keys()
             .filter(|(_, b)| {
-                let bucket_end = EPOCH + (((*b as i64) + 1) * (config.width_seconds as i64));
+                let bucket_end = EPOCH + (((*b as i64) + 1) * (self.width_seconds as i64));
                 bucket_end <= watermark
             })
             .cloned()
             .collect();
 
+        let store_aggs_opt = if self.store_aggs.is_empty() {
+            None
+        } else {
+            Some(&self.store_aggs)
+        };
+
         for key in to_close {
             if let Some(window) = self.open_buckets.remove(&key) {
                 let (vessel, bucket) = key;
-                let records = window.emit_records(vessel, bucket, false, config, catalog)?;
+                let records = window.emit_records_with_aggs(
+                    vessel,
+                    bucket,
+                    false,
+                    store_aggs_opt,
+                    config,
+                    catalog,
+                )?;
                 if !records.is_empty() {
                     sink.apply(&records)?;
                 }
@@ -190,10 +263,24 @@ impl WatermarkBucketer {
     ) -> Result<usize> {
         let mut count = 0;
         let keys: Vec<(VesselOrd, BucketIx)> = self.open_buckets.keys().cloned().collect();
+
+        let store_aggs_opt = if self.store_aggs.is_empty() {
+            None
+        } else {
+            Some(&self.store_aggs)
+        };
+
         for key in keys {
             if let Some(window) = self.open_buckets.remove(&key) {
                 let (vessel, bucket) = key;
-                let records = window.emit_records(vessel, bucket, false, config, catalog)?;
+                let records = window.emit_records_with_aggs(
+                    vessel,
+                    bucket,
+                    false,
+                    store_aggs_opt,
+                    config,
+                    catalog,
+                )?;
                 if !records.is_empty() {
                     sink.apply(&records)?;
                 }
@@ -259,5 +346,113 @@ fn populate_derived_event(window: &mut BucketWindow, event: DerivedEvent, source
         | DerivedEvent::NotificationRaise { output } => {
             window.add_count(&output, 1, source);
         }
+    }
+}
+
+/// Multi-store routing and bucketing coordinator (D30).
+/// Routes incoming points to every configured store whose `paths` allow-list matches,
+/// bucketing each stream independently at that store's width with its aggregates.
+pub struct MultiStoreBucketer {
+    bucketers: BTreeMap<String, WatermarkBucketer>,
+}
+
+impl MultiStoreBucketer {
+    /// Initialize a bucketer for each store configured in `config.resolved_stores()`.
+    pub fn new(config: &TiConfig) -> Result<Self> {
+        let mut bucketers = BTreeMap::new();
+        for (name, store_cfg) in config.resolved_stores() {
+            let b = WatermarkBucketer::new_for_store(&name, &store_cfg, config)?;
+            bucketers.insert(name, b);
+        }
+        Ok(Self { bucketers })
+    }
+
+    pub fn bucketer(&self, store_name: &str) -> Option<&WatermarkBucketer> {
+        self.bucketers.get(store_name)
+    }
+
+    pub fn bucketer_mut(&mut self, store_name: &str) -> Option<&mut WatermarkBucketer> {
+        self.bucketers.get_mut(store_name)
+    }
+
+    pub fn stores(&self) -> impl Iterator<Item = &String> {
+        self.bucketers.keys()
+    }
+
+    /// Ingest a normalized data point, fanning it out to every store whose allow-list matches.
+    /// Returns the number of stores that ingested the point.
+    #[allow(clippy::too_many_arguments)]
+    pub fn ingest_point(
+        &mut self,
+        context: &str,
+        path: &str,
+        source: &str,
+        ts: i64,
+        value: &NormalizedValue,
+        config: &TiConfig,
+        catalogs: &BTreeMap<String, &dyn Catalog>,
+        sinks: &mut BTreeMap<String, &mut dyn ShardSink>,
+    ) -> Result<usize> {
+        let mut matched = 0;
+        for (name, bucketer) in &mut self.bucketers {
+            if bucketer.is_path_allowed(path, config) {
+                if let (Some(catalog), Some(sink)) = (catalogs.get(name), sinks.get_mut(name)) {
+                    bucketer.ingest_point(
+                        context,
+                        path,
+                        source,
+                        ts,
+                        value.clone(),
+                        config,
+                        *catalog,
+                        *sink,
+                    )?;
+                    matched += 1;
+                }
+            }
+        }
+        Ok(matched)
+    }
+
+    /// Ingest a raw Signal K data point, normalizing it and fanning it out to every matching store.
+    pub fn ingest_raw(
+        &mut self,
+        raw: crate::decode::RawDataPoint,
+        config: &TiConfig,
+        catalogs: &BTreeMap<String, &dyn Catalog>,
+        sinks: &mut BTreeMap<String, &mut dyn ShardSink>,
+    ) -> Result<usize> {
+        let norm_pts =
+            crate::normalize::normalize_point(raw, &config.allow_paths, &config.deny_paths);
+        let mut total = 0;
+        for p in norm_pts {
+            total += self.ingest_point(
+                &p.context,
+                &p.path,
+                &p.source,
+                p.timestamp,
+                &p.value,
+                config,
+                catalogs,
+                sinks,
+            )?;
+        }
+        Ok(total)
+    }
+
+    /// Close and emit all open buckets across all stores.
+    pub fn flush_all(
+        &mut self,
+        config: &TiConfig,
+        catalogs: &BTreeMap<String, &dyn Catalog>,
+        sinks: &mut BTreeMap<String, &mut dyn ShardSink>,
+    ) -> Result<usize> {
+        let mut total = 0;
+        for (name, bucketer) in &mut self.bucketers {
+            if let (Some(catalog), Some(sink)) = (catalogs.get(name), sinks.get_mut(name)) {
+                total += bucketer.flush_all(config, *catalog, *sink)?;
+            }
+        }
+        Ok(total)
     }
 }

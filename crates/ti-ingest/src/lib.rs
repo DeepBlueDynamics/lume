@@ -20,7 +20,7 @@ pub mod recorder;
 pub mod watermark;
 pub mod websocket;
 
-pub use bucket::BucketWindow;
+pub use bucket::{resolve_aggs_for_path, BucketWindow};
 pub use classify::Classifier;
 pub use decode::{decode_delta, RawDataPoint, SignalKDelta, SignalKSource, SignalKUpdate};
 pub use derived::{DerivedEvent, DerivedTracker};
@@ -31,7 +31,7 @@ pub use parquet::{
     BackfillStatus,
 };
 pub use recorder::{DeltaRecorder, DeltaReplay};
-pub use watermark::WatermarkBucketer;
+pub use watermark::{MultiStoreBucketer, WatermarkBucketer};
 pub use websocket::{
     build_subscription_messages, connect_signalk, process_message, run_stream_loop,
     subscribe_signalk,
