@@ -812,11 +812,7 @@ impl OpenShard {
         hasher.update(&canonical_bytes);
         let hash = *hasher.finalize().as_bytes();
 
-        // Clean up open staging dir if present
-        let open_dir = shard_dir.join("open");
-        if open_dir.exists() {
-            let _ = fs::remove_dir_all(open_dir);
-        }
+        // The owner removes open staging only after atomically publishing this version's manifest.
 
         self.dirty = false;
 
