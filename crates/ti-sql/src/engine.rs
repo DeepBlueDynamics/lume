@@ -108,10 +108,17 @@ impl TiEngine {
         width: Option<u64>,
         documents: Option<&DocumentsFactory>,
     ) -> Result<Self> {
+        let has_explicit_width = width.is_some();
         let width = store_width(root, width)?;
-        let session = match documents {
-            Some(factory) => crate::open_store_with_documents(root, width, factory).await?,
-            None => crate::open_store(root, width).await?,
+        let session = match (documents, has_explicit_width) {
+            (Some(factory), true) => {
+                crate::open_or_create_store_with_documents(root, width, factory).await?
+            }
+            (Some(factory), false) => {
+                crate::open_store_with_documents(root, width, factory).await?
+            }
+            (None, true) => crate::open_or_create_store(root, width).await?,
+            (None, false) => crate::open_store(root, width).await?,
         };
         let config_path = root.join("ti.toml");
         let mut skipped_stores = Vec::new();

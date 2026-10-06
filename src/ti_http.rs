@@ -4,17 +4,23 @@ use std::{
     io::{Read, Write},
     net::TcpStream,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, RwLock},
+    time::{Duration, Instant},
 };
-pub(crate) struct TiServer {
-    engine: Arc<ti_sql::TiEngine>,
+pub struct TiServer {
+    engine: RwLock<Arc<ti_sql::TiEngine>>,
     runtime: ti_sql::SurfaceRuntime,
     root: PathBuf,
     gate: Mutex<()>,
-    resolver: crate::ti_resolve::PathsResolver,
+    resolver: RwLock<Arc<crate::ti_resolve::PathsResolver>>,
+    width: Option<u64>,
+    last_reload: Mutex<Option<Instant>>,
 }
 impl TiServer {
-    pub(crate) fn open(root: &Path) -> Result<Self, String> {
+    pub fn open(root: &Path) -> Result<Self, String> {
+        Self::open_with_width(root, None)
+    }
+    pub fn open_with_width(root: &Path, width: Option<u64>) -> Result<Self, String> {
         let runtime = ti_sql::surface_runtime().map_err(|e| e.to_string())?;
         let factory = |root: &Path, store: &ti_store::Store, width: u64| {
             Ok(Arc::new(crate::ti_text::LumeText::open(
@@ -24,21 +30,63 @@ impl TiServer {
             )?) as Arc<dyn ti_contracts::DocumentIndex>)
         };
         let engine = runtime
-            .block_on(ti_sql::TiEngine::open(root, None, Some(&factory)))
+            .block_on(ti_sql::TiEngine::open(root, width, Some(&factory)))
             .map_err(|e| e.to_string())?;
         let resolver = crate::ti_resolve::PathsResolver::new(&engine.session.catalog);
+        let canonical_root = if root.exists() {
+            root.canonicalize().map_err(|e| e.to_string())?
+        } else {
+            root.to_path_buf()
+        };
         Ok(Self {
-            resolver,
-            engine: Arc::new(engine),
+            resolver: RwLock::new(Arc::new(resolver)),
+            engine: RwLock::new(Arc::new(engine)),
             runtime,
-            root: root.canonicalize().map_err(|e| e.to_string())?,
+            root: canonical_root,
             gate: Mutex::new(()),
+            width,
+            last_reload: Mutex::new(None),
         })
     }
-    pub(crate) fn mcp(&self, name: &str, args: &Value) -> Result<String, String> {
+    pub fn reload_engine(&self) -> Result<(), String> {
+        let now = Instant::now();
+        {
+            let mut last = self.last_reload.lock().map_err(|e| e.to_string())?;
+            if let Some(prev) = *last {
+                if now.duration_since(prev) < Duration::from_secs(5) {
+                    return Ok(());
+                }
+            }
+            *last = Some(now);
+        }
+        let factory = |root: &Path, store: &ti_store::Store, width: u64| {
+            Ok(Arc::new(crate::ti_text::LumeText::open(
+                root,
+                store.catalog().clone(),
+                width,
+            )?) as Arc<dyn ti_contracts::DocumentIndex>)
+        };
+        let engine = self
+            .runtime
+            .block_on(ti_sql::TiEngine::open(
+                &self.root,
+                self.width,
+                Some(&factory),
+            ))
+            .map_err(|e| e.to_string())?;
+        let resolver = crate::ti_resolve::PathsResolver::new(&engine.session.catalog);
+        let _guard = self.gate.lock().map_err(|e| e.to_string())?;
+        let mut engine_guard = self.engine.write().map_err(|e| e.to_string())?;
+        *engine_guard = Arc::new(engine);
+        let mut resolver_guard = self.resolver.write().map_err(|e| e.to_string())?;
+        *resolver_guard = Arc::new(resolver);
+        Ok(())
+    }
+    pub fn mcp(&self, name: &str, args: &Value) -> Result<String, String> {
         if !args.is_object() {
             return Err("arguments must be an object".into());
         }
+        let engine = self.engine.read().map_err(|e| e.to_string())?.clone();
         if let Some(root) = args.get("store") {
             let root = root.as_str().ok_or("store must be a string")?;
             if Path::new(root).canonicalize().map_err(|e| e.to_string())? != self.root {
@@ -46,25 +94,30 @@ impl TiServer {
             }
         }
         if let Some(width) = args.get("width_seconds") {
-            if width.as_u64() != Some(self.engine.session.catalog.width_seconds) {
+            if width.as_u64() != Some(engine.session.catalog.width_seconds) {
                 return Err("store bucket width mismatch".into());
             }
         }
         let _guard = self.gate.lock().map_err(|e| e.to_string())?;
-        self.engine
+        engine
             .session
             .reset_diagnostics()
             .map_err(|e| e.to_string())?;
-        let reply = self.dispatch(name, args)?;
+        let reply = self.dispatch(name, args, &engine)?;
         serde_json::to_string(&reply).map_err(|e| e.to_string())
     }
-    fn dispatch(&self, name: &str, args: &Value) -> Result<Value, String> {
+    fn dispatch(
+        &self,
+        name: &str,
+        args: &Value,
+        engine: &ti_sql::TiEngine,
+    ) -> Result<Value, String> {
         if name == "ti_resolve" {
-            self.runtime
-                .block_on(self.resolver.resolve(&self.engine, args))
+            let resolver = self.resolver.read().map_err(|e| e.to_string())?.clone();
+            self.runtime.block_on(resolver.resolve(engine, args))
         } else {
             self.runtime
-                .block_on(crate::ti_mcp::dispatch(&self.engine, name, args))
+                .block_on(crate::ti_mcp::dispatch(engine, name, args))
         }
     }
     fn response(
@@ -93,8 +146,9 @@ impl TiServer {
         if !args.is_object() {
             return Err("body must be a JSON object".into());
         }
+        let engine = self.engine.read().map_err(|e| e.to_string())?.clone();
         let _guard = self.gate.lock().map_err(|e| e.to_string())?;
-        self.engine
+        engine
             .session
             .reset_diagnostics()
             .map_err(|e| e.to_string())?;
@@ -120,7 +174,7 @@ impl TiServer {
                 .min(500) as usize;
             let (body, count, truncated) = self
                 .runtime
-                .block_on(self.engine.query_arrow(sql, limit))
+                .block_on(engine.query_arrow(sql, limit))
                 .map_err(|e| e.to_string())?;
             return Ok(Reply {
                 status: 200,
@@ -147,7 +201,7 @@ impl TiServer {
         if path == "/ti/query" {
             args["format"] = json!("json");
         }
-        let reply = self.dispatch(name, &args)?;
+        let reply = self.dispatch(name, &args, &engine)?;
         Ok(Reply::json(200, reply))
     }
 }

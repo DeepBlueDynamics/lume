@@ -26,10 +26,20 @@ pub async fn open_store(root: &Path, width_seconds: u64) -> Result<SqlSession> {
         ));
     }
     session_from_store(
-        Arc::new(Store::open_or_create(root, width_seconds).map_err(core_error)?),
+        Arc::new(Store::open_readonly(root, width_seconds).map_err(core_error)?),
         width_seconds,
     )
     .await
+}
+
+/// Open or create an empty store when width is explicitly provided.
+pub async fn open_or_create_store(root: &Path, width_seconds: u64) -> Result<SqlSession> {
+    let store = if root.join("catalog").is_dir() {
+        Store::open_readonly(root, width_seconds).map_err(core_error)?
+    } else {
+        Store::open_or_create(root, width_seconds).map_err(core_error)?
+    };
+    session_from_store(Arc::new(store), width_seconds).await
 }
 
 /// Builds the W5 document index for an opened store: `(store_root, store, width_seconds)`.
@@ -48,7 +58,24 @@ pub async fn open_store_with_documents(
             "existing store catalog directory required".into(),
         ));
     }
-    let store = Store::open_or_create(root, width_seconds).map_err(core_error)?;
+    let store = Store::open_readonly(root, width_seconds).map_err(core_error)?;
+    let index = documents(root, &store, width_seconds).map_err(core_error)?;
+    let text: Arc<dyn ti_contracts::TextIndex> = index.clone();
+    let session = session_from_store(Arc::new(store.with_text_index(text)), width_seconds).await?;
+    session.register_documents(index)?;
+    Ok(session)
+}
+
+pub async fn open_or_create_store_with_documents(
+    root: &Path,
+    width_seconds: u64,
+    documents: &DocumentsFactory,
+) -> Result<SqlSession> {
+    let store = if root.join("catalog").is_dir() {
+        Store::open_readonly(root, width_seconds).map_err(core_error)?
+    } else {
+        Store::open_or_create(root, width_seconds).map_err(core_error)?
+    };
     let index = documents(root, &store, width_seconds).map_err(core_error)?;
     let text: Arc<dyn ti_contracts::TextIndex> = index.clone();
     let session = session_from_store(Arc::new(store.with_text_index(text)), width_seconds).await?;
