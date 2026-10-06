@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lume TI — Signal K Timeseries</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-layout">
+    <header class="app-header">
+      <div class="brand">
+        <span class="logo-icon">⚓</span>
+        <h1>Lume TI</h1>
+        <span class="badge" id="supervisor-badge">Checking...</span>
+      </div>
+      <div class="header-metrics" id="header-metrics">
+        <div class="metric"><span class="label">Ingest Lag:</span> <span class="val" id="metric-lag">--</span></div>
+        <div class="metric"><span class="label">Disk Size:</span> <span class="val" id="metric-disk">--</span></div>
+        <div class="metric"><span class="label">WAL Size:</span> <span class="val" id="metric-wal">--</span></div>
+        <div class="metric"><span class="label">Records:</span> <span class="val" id="metric-records">--</span></div>
+      </div>
+    </header>
+
+    <nav class="nav-tabs">
+      <button class="tab-btn active" data-tab="tab-console">SQL Console</button>
+      <button class="tab-btn" data-tab="tab-schema">Schema Browser</button>
+      <button class="tab-btn" data-tab="tab-status">Status & Diagnostics</button>
+    </nav>
+
+    <main class="app-content">
+      <!-- 1. SQL Console Tab -->
+      <section id="tab-console" class="tab-panel active">
+        <div class="query-toolbar">
+          <span class="toolbar-label">Quick Queries:</span>
+          <button class="preset-btn" data-query="SELECT ts, &quot;navigation.speedOverGround&quot;, &quot;environment.wind.speedTrue&quot; FROM telemetry ORDER BY ts DESC LIMIT 50;">Recent SOG & Wind</button>
+          <button class="preset-btn" data-query="SELECT ts, &quot;navigation.speedOverGround&quot; FROM telemetry_hr ORDER BY ts DESC LIMIT 50;">1s High-Res SOG</button>
+          <button class="preset-btn" data-query="SELECT ts, &quot;navigation.position.latitude&quot;, &quot;navigation.position.longitude&quot; FROM telemetry WHERE &quot;navigation.position.latitude&quot; IS NOT NULL ORDER BY ts DESC LIMIT 50;">Recent Positions</button>
+          <button class="preset-btn" data-query="SELECT time_bucket(INTERVAL '1 hour', ts) as hour, avg(&quot;electrical.batteries.house.voltage&quot;) as avg_v FROM telemetry GROUP BY 1 ORDER BY 1 DESC LIMIT 24;">Hourly Voltage</button>
+          <button class="preset-btn" data-query="SELECT count(*) as total_buckets FROM telemetry;">Bucket Count</button>
+        </div>
+
+        <div class="editor-container">
+          <textarea id="sql-input" placeholder="SELECT ts, &quot;navigation.speedOverGround&quot; FROM telemetry ORDER BY ts DESC LIMIT 20;" spellcheck="false"></textarea>
+          <div class="editor-actions">
+            <button id="run-btn" class="primary-btn">▶ Run Query (Ctrl+Enter)</button>
+            <button id="export-csv-btn" class="secondary-btn" disabled>⬇ Export CSV</button>
+            <span id="query-meta" class="query-meta"></span>
+          </div>
+        </div>
+
+        <div id="query-error" class="alert-box error hidden"></div>
+
+        <div class="results-container">
+          <div class="results-header">
+            <h3>Query Results</h3>
+            <span id="results-count" class="results-count">0 rows</span>
+          </div>
+          <div class="table-scroll" id="table-scroll">
+            <table id="results-table">
+              <thead id="results-thead"></thead>
+              <tbody id="results-tbody">
+                <tr><td class="empty-state">Run a query to view telemetry records.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. Schema Browser Tab -->
+      <section id="tab-schema" class="tab-panel">
+        <div class="schema-header">
+          <h3>Registered Tables and Columns</h3>
+          <button id="refresh-schema-btn" class="secondary-btn">↻ Refresh Schema</button>
+        </div>
+        <div id="schema-error" class="alert-box error hidden"></div>
+        <div id="schema-tree" class="schema-tree">
+          <div class="loading-state">Loading schema...</div>
+        </div>
+      </section>
+
+      <!-- 3. Status & Diagnostics Tab -->
+      <section id="tab-status" class="tab-panel">
+        <div class="status-grid">
+          <div class="card">
+            <h3>Supervisor Status</h3>
+            <table class="diag-table">
+              <tr><td>State:</td><td><strong id="diag-state">--</strong></td></tr>
+              <tr><td>Process ID:</td><td id="diag-pid">--</td></tr>
+              <tr><td>Uptime:</td><td id="diag-uptime">--</td></tr>
+              <tr><td>Crash Restarts:</td><td id="diag-restarts">--</td></tr>
+              <tr><td>Binary Path:</td><td id="diag-binary" class="monospace">--</td></tr>
+              <tr><td>Binary Source:</td><td id="diag-source">--</td></tr>
+              <tr><td>Query Port:</td><td id="diag-port">--</td></tr>
+            </table>
+          </div>
+
+          <div class="card">
+            <h3>Storage & WAL</h3>
+            <table class="diag-table">
+              <tr><td>Store Root:</td><td id="diag-store-dir" class="monospace">--</td></tr>
+              <tr><td>Total Disk Size:</td><td id="diag-disk-bytes">--</td></tr>
+              <tr><td>WAL Size:</td><td id="diag-wal-bytes">--</td></tr>
+              <tr><td>Shards Size:</td><td id="diag-shards-bytes">--</td></tr>
+              <tr><td>Sealed Shards:</td><td id="diag-shard-count">--</td></tr>
+            </table>
+          </div>
+
+          <div class="card">
+            <h3>Live Ingest Stream</h3>
+            <table class="diag-table">
+              <tr><td>Stream Lag:</td><td><strong id="diag-lag">--</strong></td></tr>
+              <tr><td>Last Delta:</td><td id="diag-last-delta">--</td></tr>
+              <tr><td>Records Ingested:</td><td id="diag-records">--</td></tr>
+              <tr><td>Reconnects:</td><td id="diag-reconnects">--</td></tr>
+              <tr><td>Service Running:</td><td id="diag-ingest-running">--</td></tr>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

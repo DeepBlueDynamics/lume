@@ -1,15 +1,22 @@
-//! `ti-bench gen` — synthetic signalk-parquet generator for the Lume TI golden corpus.
+//! `ti-bench` — synthetic signalk-parquet generator and golden-corpus benchmark runner.
 
 use std::path::Path;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
-        eprintln!("usage: ti-bench gen --root <dir> [--seed <n>] [--perf]");
+        eprintln!("usage: ti-bench <gen|bench> [args...]");
         std::process::exit(2);
     }
     match args[1].as_str() {
         "gen" => gen(&args),
+        "bench" => {
+            if let Err(e) = bench(&args).await {
+                eprintln!("benchmark error: {e}");
+                std::process::exit(1);
+            }
+        }
         other => {
             eprintln!("unknown command: {other}");
             std::process::exit(2);
@@ -57,7 +64,25 @@ fn gen(args: &[String]) {
             ti_bench::CORRECTNESS_VESSELS
         });
 
-    let (raw, docs, cats) = ti_bench::write::write_all_stream(&root, seed, n_vessels, start, end);
+    let hz = arg(args, "--hz").and_then(|s| s.parse::<f64>().ok());
+    let per_path = args.iter().any(|a| a == "--per-path" || a == "--per-path-override");
+    let gen_config = if per_path {
+        ti_bench::gen::GenConfig {
+            hz: hz.unwrap_or(1.0),
+            per_path_override: true,
+        }
+    } else if let Some(rate) = hz {
+        ti_bench::gen::GenConfig {
+            hz: rate,
+            per_path_override: false,
+        }
+    } else {
+        ti_bench::gen::GenConfig::default()
+    };
+
+    let (raw, docs, cats) = ti_bench::write::write_all_stream_with_config(
+        &root, seed, n_vessels, start, end, &gen_config,
+    );
     eprintln!(
         "wrote {} raw files, {} doc files, {} catalog files to {}",
         raw, docs, cats, root
@@ -67,7 +92,9 @@ fn gen(args: &[String]) {
     if std::env::var("TI_BENCH_VERIFY_DETERMINISM").is_ok() {
         let tmp = format!("{}.regen", root);
         let _ = std::fs::remove_dir_all(&tmp);
-        ti_bench::write::write_all_stream(&tmp, seed, n_vessels, start, end);
+        ti_bench::write::write_all_stream_with_config(
+            &tmp, seed, n_vessels, start, end, &gen_config,
+        );
         let same = dirs_identical(Path::new(&root), Path::new(&tmp));
         std::fs::remove_dir_all(&tmp).ok();
         if !same {
@@ -76,6 +103,33 @@ fn gen(args: &[String]) {
         }
         eprintln!("determinism check passed (identical file hashes)");
     }
+}
+
+async fn bench(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    let store = arg(args, "--store")
+        .unwrap_or_else(|| "/workspace/lume/.lanes/data/store-full".to_string());
+    let parquet = arg(args, "--parquet")
+        .unwrap_or_else(|| "/workspace/lume/.lanes/data/correctness".to_string());
+    let corpus = arg(args, "--corpus")
+        .unwrap_or_else(|| "tests/golden/corpus.json".to_string());
+    let out_dir = arg(args, "--out-dir")
+        .unwrap_or_else(|| "bench/results".to_string());
+    let iterations = arg(args, "--iterations")
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(5);
+    let class_filter = arg(args, "--class");
+
+    ti_bench::harness::run_benchmark(
+        &store,
+        &parquet,
+        &corpus,
+        &out_dir,
+        iterations,
+        class_filter.as_deref(),
+    )
+    .await?;
+
+    Ok(())
 }
 
 /// Compare two directory trees for byte-identical contents (file names + hashes).

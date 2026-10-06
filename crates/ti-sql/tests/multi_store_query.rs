@@ -195,3 +195,46 @@ paths = ["navigation.*"]
     let def_data_rows = rows_json(&def_data).unwrap();
     assert_eq!(def_data_rows.len(), 2);
 }
+
+#[tokio::test]
+async fn test_store_hz1_query() {
+    let store_path = std::path::Path::new("/workspace/lume/.lanes/data/store-hz1");
+    if !store_path.exists() {
+        eprintln!("store-hz1 does not exist, skipping");
+        return;
+    }
+
+    let engine = TiEngine::open(store_path, None, None).await.unwrap();
+
+    // 1. telemetry_hr count
+    let hr_batches = engine
+        .session
+        .query("SELECT count(*) FROM telemetry_hr")
+        .await
+        .unwrap();
+    let hr_rows = rows_json(&hr_batches).unwrap();
+    assert_eq!(hr_rows.len(), 1);
+    let hr_count = hr_rows[0].values().next().unwrap().as_i64().unwrap();
+    println!("store-hz1 telemetry_hr count: {hr_count}");
+    // 2 days = 172,800 seconds (2 x 86,400)
+    assert!(
+        (hr_count - 172_800).abs() <= 100,
+        "telemetry_hr count should be approximately 172,800 (2 x 86,400), got {hr_count}"
+    );
+
+    // 2. telemetry (10s) count
+    let def_batches = engine
+        .session
+        .query("SELECT count(*) FROM telemetry")
+        .await
+        .unwrap();
+    let def_rows = rows_json(&def_batches).unwrap();
+    assert_eq!(def_rows.len(), 1);
+    let def_count = def_rows[0].values().next().unwrap().as_i64().unwrap();
+    println!("store-hz1 telemetry count: {def_count}");
+    // 2 days at 10s = 17,280 buckets
+    assert!(
+        (def_count - 17_280).abs() <= 20,
+        "telemetry count should be approximately 17,280, got {def_count}"
+    );
+}

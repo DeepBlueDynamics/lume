@@ -3195,6 +3195,10 @@ dependencies = [
  "arrow",
  "chrono",
  "parquet",
+ "serde",
+ "serde_json",
+ "ti-sql",
+ "tokio",
 ]
 
 [[package]]

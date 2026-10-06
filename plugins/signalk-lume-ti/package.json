@@ -1,0 +1,29 @@
+{
+  "name": "signalk-lume-ti",
+  "version": "0.1.0",
+  "description": "Lume TI high-resolution timeseries store and query engine for Signal K",
+  "main": "index.js",
+  "keywords": [
+    "signalk-node-server-plugin",
+    "signalk-webapp",
+    "signalk-category-utility"
+  ],
+  "signalk": {
+    "appPath": "/signalk-lume-ti"
+  },
+  "author": "Lume Authors",
+  "license": "BSD-3-Clause",
+  "scripts": {
+    "test": "node --test 'test/**/*.test.js'"
+  },
+  "files": [
+    "index.js",
+    "lib/",
+    "public/",
+    "bin/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

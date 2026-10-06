@@ -61,6 +61,18 @@ pub fn write_all_stream(
     start: i64,
     end: i64,
 ) -> (u64, u64, u64) {
+    write_all_stream_with_config(root, seed, n_vessels, start, end, &gen::GenConfig::default())
+}
+
+/// Streaming entry point with explicit GenConfig.
+pub fn write_all_stream_with_config(
+    root: &str,
+    seed: u64,
+    n_vessels: usize,
+    start: i64,
+    end: i64,
+    config: &gen::GenConfig,
+) -> (u64, u64, u64) {
     let mut raw = 0u64;
     let mut docs = 0u64;
 
@@ -71,7 +83,7 @@ pub fn write_all_stream(
         docs += write_docs(root, d);
         let _ = context;
     };
-    gen::stream(seed, n_vessels, start, end, &mut on_day, &mut on_docs);
+    gen::stream_with_config(seed, n_vessels, start, end, config, &mut on_day, &mut on_docs);
 
     let cats = write_catalogs(root, n_vessels, start, end);
     (raw, docs, cats)

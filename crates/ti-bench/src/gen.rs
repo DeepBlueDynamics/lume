@@ -127,6 +127,29 @@ impl Clone for Doc {
     }
 }
 
+pub use crate::model::is_hr_path;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GenConfig {
+    pub hz: f64,
+    pub per_path_override: bool,
+}
+
+impl Default for GenConfig {
+    fn default() -> Self {
+        Self {
+            hz: 0.1,
+            per_path_override: false,
+        }
+    }
+}
+
+impl GenConfig {
+    pub fn is_default(&self) -> bool {
+        (self.hz - 0.1).abs() < 1e-6 && !self.per_path_override
+    }
+}
+
 pub struct Generated {
     pub samples: Vec<Sample>,
     pub positions: Vec<Position>,
@@ -136,15 +159,27 @@ pub struct Generated {
 
 /// Collecting wrapper over [`stream`] for small windows (tests only).
 pub fn generate(seed: u64, n_vessels: usize, start: i64, end: i64) -> Generated {
+    generate_with_config(seed, n_vessels, start, end, &GenConfig::default())
+}
+
+/// Collecting wrapper over [`stream_with_config`] for small windows.
+pub fn generate_with_config(
+    seed: u64,
+    n_vessels: usize,
+    start: i64,
+    end: i64,
+    config: &GenConfig,
+) -> Generated {
     let mut samples = Vec::new();
     let mut positions = Vec::new();
     let mut attitudes = Vec::new();
     let mut docs = Vec::new();
-    stream(
+    stream_with_config(
         seed,
         n_vessels,
         start,
         end,
+        config,
         &mut |_ctx, _day, s, p, a| {
             samples.extend_from_slice(s);
             positions.extend_from_slice(p);
@@ -176,6 +211,26 @@ pub fn stream(
     on_day: &mut DaySink,
     on_docs: &mut DocsSink,
 ) {
+    stream_with_config(
+        seed,
+        n_vessels,
+        start,
+        end,
+        &GenConfig::default(),
+        on_day,
+        on_docs,
+    );
+}
+
+pub fn stream_with_config(
+    seed: u64,
+    n_vessels: usize,
+    start: i64,
+    end: i64,
+    config: &GenConfig,
+    on_day: &mut DaySink,
+    on_docs: &mut DocsSink,
+) {
     for v in 0..n_vessels {
         let context = model::VESSEL_URNS[v.min(model::VESSEL_URNS.len() - 1)].to_string();
         let mut vseed = SplitMix64::new(
@@ -183,7 +238,9 @@ pub fn stream(
                 .wrapping_mul(0x9E37_79B9_7F4A_7C15),
         );
         let segs = build_schedule(&mut vseed, start, end);
-        gen_vessel(&mut vseed, &context, &segs, v, start, end, on_day, on_docs);
+        gen_vessel(
+            &mut vseed, &context, &segs, v, start, end, config, on_day, on_docs,
+        );
     }
 }
 
@@ -199,6 +256,7 @@ fn gen_vessel(
     vessel_idx: usize,
     start: i64,
     end: i64,
+    config: &GenConfig,
     on_day: &mut DaySink,
     on_docs: &mut DocsSink,
 ) {
@@ -213,106 +271,228 @@ fn gen_vessel(
     let mut attitudes: Vec<Attitude> = Vec::new();
     let mut cur_day = day_start(start);
 
-    let mut t = start;
-    while t < end {
-        let d0 = day_start(t);
-        if d0 != cur_day {
-            on_day(context, cur_day, &samples, &positions, &attitudes);
-            samples.clear();
-            positions.clear();
-            attitudes.clear();
-            cur_day = d0;
-        }
+    if config.is_default() {
+        let mut t = start;
+        while t < end {
+            let d0 = day_start(t);
+            if d0 != cur_day {
+                on_day(context, cur_day, &samples, &positions, &attitudes);
+                samples.clear();
+                positions.clear();
+                attitudes.clear();
+                cur_day = d0;
+            }
 
-        let state = state_at(segs, t);
-        let is_nav = state == VesselState::Passage;
+            let state = state_at(segs, t);
+            let is_nav = state == VesselState::Passage;
 
-        // numeric paths
-        for p in model::NUMERIC_PATHS {
-            let val = numeric_value(rng, p, state, is_nav, t);
-            samples.push(Sample {
-                context: context.to_string(),
-                path: p.to_string(),
-                ts_secs: t,
-                value: Some(val),
-                value_str: None,
-                source_label: src.clone(),
-                source_type: stype.clone(),
-            });
-        }
-
-        // position object
-        if state == VesselState::Passage {
-            lat += rng.range(-0.001, 0.001);
-            lon += rng.range(-0.001, 0.001);
-        }
-        positions.push(Position {
-            context: context.to_string(),
-            ts_secs: t,
-            latitude: lat,
-            longitude: lon,
-            source_label: src.clone(),
-            source_type: stype.clone(),
-        });
-
-        // attitude object
-        let roll = if is_nav {
-            rng.range(-0.1, 0.1)
-        } else {
-            rng.range(-0.35, 0.35)
-        };
-        let pitch = if is_nav { rng.range(-0.05, 0.05) } else { 0.0 };
-        attitudes.push(Attitude {
-            context: context.to_string(),
-            ts_secs: t,
-            roll,
-            pitch,
-            source_label: src.clone(),
-            source_type: stype.clone(),
-        });
-
-        // set fields
-        let (main_st, port_st, stbd_st, nav_st) = state_strings(state, rng, vessel_idx);
-        for (p, v) in [
-            ("propulsion.main.state", main_st),
-            ("propulsion.port.state", port_st),
-            ("propulsion.starboard.state", stbd_st),
-            ("navigation.state", nav_st),
-        ] {
-            samples.push(Sample {
-                context: context.to_string(),
-                path: p.to_string(),
-                ts_secs: t,
-                value: None,
-                value_str: Some(v.to_string()),
-                source_label: src.clone(),
-                source_type: stype.clone(),
-            });
-        }
-
-        // bilge pump cycles, correlated with heel
-        let heel = if is_nav { 0.1 } else { 0.35 };
-        let bilge_prob = if rng.next_f64() < heel * 0.2 {
-            0.9
-        } else {
-            0.01
-        };
-        if rng.next_f64() < bilge_prob {
-            let cycles = 1 + rng.below(4) as i64;
-            for _ in 0..cycles {
+            // numeric paths
+            for p in model::NUMERIC_PATHS {
+                let val = numeric_value(rng, p, state, is_nav, t);
                 samples.push(Sample {
                     context: context.to_string(),
-                    path: "electrical.bilge.pumpCycles".to_string(),
+                    path: p.to_string(),
                     ts_secs: t,
-                    value: Some(1.0),
+                    value: Some(val),
                     value_str: None,
                     source_label: src.clone(),
                     source_type: stype.clone(),
                 });
             }
-        }
 
-        t += BUCKET_W;
+            // position object
+            if state == VesselState::Passage {
+                lat += rng.range(-0.001, 0.001);
+                lon += rng.range(-0.001, 0.001);
+            }
+            positions.push(Position {
+                context: context.to_string(),
+                ts_secs: t,
+                latitude: lat,
+                longitude: lon,
+                source_label: src.clone(),
+                source_type: stype.clone(),
+            });
+
+            // attitude object
+            let roll = if is_nav {
+                rng.range(-0.1, 0.1)
+            } else {
+                rng.range(-0.35, 0.35)
+            };
+            let pitch = if is_nav { rng.range(-0.05, 0.05) } else { 0.0 };
+            attitudes.push(Attitude {
+                context: context.to_string(),
+                ts_secs: t,
+                roll,
+                pitch,
+                source_label: src.clone(),
+                source_type: stype.clone(),
+            });
+
+            // set fields
+            let (main_st, port_st, stbd_st, nav_st) = state_strings(state, rng, vessel_idx);
+            for (p, v) in [
+                ("propulsion.main.state", main_st),
+                ("propulsion.port.state", port_st),
+                ("propulsion.starboard.state", stbd_st),
+                ("navigation.state", nav_st),
+            ] {
+                samples.push(Sample {
+                    context: context.to_string(),
+                    path: p.to_string(),
+                    ts_secs: t,
+                    value: None,
+                    value_str: Some(v.to_string()),
+                    source_label: src.clone(),
+                    source_type: stype.clone(),
+                });
+            }
+
+            // bilge pump cycles, correlated with heel
+            let heel = if is_nav { 0.1 } else { 0.35 };
+            let bilge_prob = if rng.next_f64() < heel * 0.2 {
+                0.9
+            } else {
+                0.01
+            };
+            if rng.next_f64() < bilge_prob {
+                let cycles = 1 + rng.below(4) as i64;
+                for _ in 0..cycles {
+                    samples.push(Sample {
+                        context: context.to_string(),
+                        path: "electrical.bilge.pumpCycles".to_string(),
+                        ts_secs: t,
+                        value: Some(1.0),
+                        value_str: None,
+                        source_label: src.clone(),
+                        source_type: stype.clone(),
+                    });
+                }
+            }
+
+            t += BUCKET_W;
+        }
+    } else {
+        let step_secs = if config.per_path_override {
+            1i64
+        } else {
+            (1.0 / config.hz).round().max(1.0) as i64
+        };
+        let mut t = start;
+        while t < end {
+            let d0 = day_start(t);
+            if d0 != cur_day {
+                on_day(context, cur_day, &samples, &positions, &attitudes);
+                samples.clear();
+                positions.clear();
+                attitudes.clear();
+                cur_day = d0;
+            }
+
+            let state = state_at(segs, t);
+            let is_nav = state == VesselState::Passage;
+            let is_10s = (t - start) % 10 == 0;
+
+            // numeric paths
+            for p in model::NUMERIC_PATHS {
+                let is_hr = is_hr_path(p);
+                if is_hr || (!config.per_path_override) || is_10s {
+                    let val = numeric_value(rng, p, state, is_nav, t);
+                    samples.push(Sample {
+                        context: context.to_string(),
+                        path: p.to_string(),
+                        ts_secs: t,
+                        value: Some(val),
+                        value_str: None,
+                        source_label: src.clone(),
+                        source_type: stype.clone(),
+                    });
+                }
+            }
+
+            // position object (navigation.position is HR)
+            if is_hr_path(model::POSITION_PATH) || (!config.per_path_override) || is_10s {
+                if state == VesselState::Passage {
+                    lat += rng.range(-0.001, 0.001);
+                    lon += rng.range(-0.001, 0.001);
+                }
+                positions.push(Position {
+                    context: context.to_string(),
+                    ts_secs: t,
+                    latitude: lat,
+                    longitude: lon,
+                    source_label: src.clone(),
+                    source_type: stype.clone(),
+                });
+            }
+
+            // attitude object (navigation.attitude is HR)
+            if is_hr_path(model::ATTITUDE_PATH) || (!config.per_path_override) || is_10s {
+                let roll = if is_nav {
+                    rng.range(-0.1, 0.1)
+                } else {
+                    rng.range(-0.35, 0.35)
+                };
+                let pitch = if is_nav { rng.range(-0.05, 0.05) } else { 0.0 };
+                attitudes.push(Attitude {
+                    context: context.to_string(),
+                    ts_secs: t,
+                    roll,
+                    pitch,
+                    source_label: src.clone(),
+                    source_type: stype.clone(),
+                });
+            }
+
+            // set fields
+            let (main_st, port_st, stbd_st, nav_st) = state_strings(state, rng, vessel_idx);
+            for (p, v) in [
+                ("propulsion.main.state", main_st),
+                ("propulsion.port.state", port_st),
+                ("propulsion.starboard.state", stbd_st),
+                ("navigation.state", nav_st),
+            ] {
+                let is_hr = is_hr_path(p);
+                if is_hr || (!config.per_path_override) || is_10s {
+                    samples.push(Sample {
+                        context: context.to_string(),
+                        path: p.to_string(),
+                        ts_secs: t,
+                        value: None,
+                        value_str: Some(v.to_string()),
+                        source_label: src.clone(),
+                        source_type: stype.clone(),
+                    });
+                }
+            }
+
+            // bilge pump cycles, correlated with heel (non-HR)
+            if (!config.per_path_override) || is_10s {
+                let heel = if is_nav { 0.1 } else { 0.35 };
+                let bilge_prob = if rng.next_f64() < heel * 0.2 {
+                    0.9
+                } else {
+                    0.01
+                };
+                if rng.next_f64() < bilge_prob {
+                    let cycles = 1 + rng.below(4) as i64;
+                    for _ in 0..cycles {
+                        samples.push(Sample {
+                            context: context.to_string(),
+                            path: "electrical.bilge.pumpCycles".to_string(),
+                            ts_secs: t,
+                            value: Some(1.0),
+                            value_str: None,
+                            source_label: src.clone(),
+                            source_type: stype.clone(),
+                        });
+                    }
+                }
+            }
+
+            t += step_secs;
+        }
     }
     on_day(context, cur_day, &samples, &positions, &attitudes);
 
