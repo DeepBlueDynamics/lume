@@ -9,12 +9,14 @@ Items marked *(unconfirmed)* are conventions the docs keeper has not verified. A
 
 Lume is a Rust crate (`lume` 0.12.0, edition 2021): `src/lib.rs` plus a CLI in `src/main.rs`.
 By default it has four direct dependencies (`tantivy-fst`, `ureq`, `serde`, `serde_json`) and a committed `Cargo.lock`.
-The repo is now a Cargo workspace. The root `lume` package stays at `.`, and Lume TI (the telemetry index) lives in members under `crates/ti-*` (merged so far: `crates/ti-contracts`, `crates/ti-core` and `crates/ti-store`). TI is compiled only behind the `ti` cargo feature, which is off by default.
+The repo is now a Cargo workspace. The root `lume` package stays at `.`, and Lume TI (the telemetry index) lives in members under `crates/ti-*` (merged so far: `crates/ti-contracts`, `crates/ti-core`, `crates/ti-store` and `crates/ti-sql`). TI is compiled only behind the `ti` cargo feature, which is off by default.
 
 **`ti-contracts` is frozen** (`96ac45d`). It holds the shared types and traits, the catalog, the Arrow schemas, the WAL/shard envelopes, the `TiEngine` facade and the `ti.toml` schema (`config.rs`). [spec/10](spec/10-contracts.md) mirrors its source, and [spec/14](spec/14-semantics.md) freezes the behavioral rules. **Any change to a boundary in it needs a contracts PR approved by the lead (integrator).** Build your lane against the crate as it is, and mock other lanes behind its traits. If you think a contract is wrong, mail the lead. Don't patch it in your lane.
 
 **`ti-core`** (W1, `f7faf5f`) holds the in-memory bitmap rows (presence, set, BSI, count), the BSI algorithms, and the three-valued predicate evaluator with the `MemoryShard`/`MemorySource` fixtures. Its [README](../crates/ti-core/README.md) is the reference for the row and evaluator API, and for what is deliberately left to other lanes (Arrow `read` goes to W4, durable WAL/flush/seal to W2, the geo refinement under `NOT` to W6).
 The golden SQL corpus is in `tests/golden/` (see its `README.md`).
+
+**Shared data dir: `.lanes/data/`.** Generated correctness data and expected outputs go here. They never go in a lane clone's tracked files or in git. The dir is under `.lanes/`, so it is gitignored. All containers and the host can see it: in a container it is `/workspace/lume/.lanes/data/`, and on the host it is `C:\Users\kordl\Code\DeepBlueDynamics\lume\.lanes\data\`. The correctness set (~1.9 GB) goes in `.lanes/data/correctness/`. Treat data another lane wrote as read-only unless you own it *(unconfirmed convention)*.
 The work happens on branch `plan/lume-ti`, not `main`.
 
 ## 2. Build and test the existing crate
@@ -46,11 +48,12 @@ cargo build --locked --features ti         # lume binary with TI compiled in
 cargo test  --locked -p ti-contracts       # TI crates are not default members; name them with -p (or use --workspace)
 cargo test  --locked -p ti-core            # includes 10,000-case property suites (~40 s on the host)
 cargo test  --locked -p ti-store           # includes the 1,000-run kill -9 crash test (~75 s)
+cargo test  --locked -p ti-sql             # DataFusion SQL layer
 ```
 
 A plain `cargo test` only tests the root crate, because `default-members = ["."]`.
 
-**Strict checks, scoped to each TI crate.** Run both for every `crates/ti-*` crate you touch (currently `ti-contracts`, `ti-core` and `ti-store`; `ti-bench`, `ti-sql` and `ti-ingest` are in progress):
+**Strict checks, scoped to each TI crate.** Run both for every `crates/ti-*` crate you touch (currently `ti-contracts`, `ti-core`, `ti-store` and `ti-sql`; `ti-bench` and `ti-ingest` are in progress):
 
 ```sh
 cargo clippy -p <ti crate> -- -D warnings
@@ -117,6 +120,7 @@ Codex rejects unannotated MCP tools when its approval policy is `never`.
 
 - Use it when your container has no cargo, or when you need a Windows build.
 - Each agent may **split it once**. Run your builds in your split, not in the original pane.
+- **A cold `--features ti` build takes about 10 minutes on the host** (DataFusion). Don't start cold builds in parallel with other agents. Check the other splits first, and reuse your clone's warm `target/` when you can.
 - Build inside your own clone, e.g. `cd C:\Users\kordl\Code\DeepBlueDynamics\lume\.lanes\<name>`. Each clone has its own `target/`, so lanes don't overwrite each other's builds.
 - Use PowerShell syntax there (`$env:VAR = 'x'`, not `VAR=x`).
 - Some containers also have cargo locally. Either is fine; say which one you used in your report.
@@ -135,7 +139,7 @@ Codex rejects unannotated MCP tools when its approval policy is `never`.
   | DuckDB | Used as an oracle through the **CLI**, not as a bundled Rust crate |
   | Release builds | `cargo-zigbuild` for musl targets |
 
-  The log also records pure-Rust Parquet codecs only, with no zstd (D11), `blake3` with `pure` (D12), and an early aarch64-musl smoke test for pgwire SCRAM, which pulls in `ring` (D13). **D27 amends D11:** `zstd-sys` (C) is accepted because DataFusion's `arrow-ipc` forces it in. That deviates from the spec's croaring-only C rule and is awaiting spec-owner confirmation. D18 (`serde`) and D19 (`toml`) cover the dependencies of `ti-contracts`. D23 is `proptest` (a `ti-core` dev-dependency). D24 (`bincode`) and D25 (`crc32fast`) are in `ti-store`. D22 (`ti-bench`) and D26 (W4 DataFusion) are reserved for their lanes. The next free number is **D28**. Ask the lead before taking it.
+  The log also records pure-Rust Parquet codecs only, with no zstd (D11), `blake3` with `pure` (D12), and an early aarch64-musl smoke test for pgwire SCRAM, which pulls in `ring` (D13). **D27 amends D11:** `zstd-sys` (C) is accepted because DataFusion's `arrow-ipc` forces it in. That deviates from the spec's croaring-only C rule and is awaiting spec-owner confirmation. D18 (`serde`) and D19 (`toml`) cover the dependencies of `ti-contracts`. D23 is `proptest` (a `ti-core` dev-dependency). D24 (`bincode`) and D25 (`crc32fast`) are in `ti-store`. D22 (`ti-bench`) is reserved for the corpus lane. D26 (DataFusion) and D27 (`zstd-sys`) are logged. D28 (`tungstenite`) and D29 (`parquet`) are reserved for W3. The next free number is **D30**. Ask the lead before taking it.
 - The contracts crate itself depends on `arrow-array`, `arrow-schema`, `roaring`, `serde` and `toml` only, not DataFusion.
 
 ## 10. How the lead merges
