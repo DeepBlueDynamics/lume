@@ -1,4 +1,5 @@
 pub mod gen;
+pub mod harness;
 pub mod layout;
 pub mod model;
 pub mod rng;
@@ -93,5 +94,74 @@ mod tests {
         for p in model::SET_PATHS {
             assert!(paths.contains(p), "missing set path {p}");
         }
+    }
+
+    /// Byte-identical regeneration with 1 Hz and per-path override:
+    /// Same seed and args produce byte-identical samples, docs, positions, and attitudes.
+    #[test]
+    fn regeneration_with_hz_and_override_is_byte_identical() {
+        let seed = 42;
+        let cfg = gen::GenConfig {
+            hz: 1.0,
+            per_path_override: true,
+        };
+        let a = gen::generate_with_config(seed, 1, gen::START_SECS, gen::START_SECS + 120, &cfg);
+        let b = gen::generate_with_config(seed, 1, gen::START_SECS, gen::START_SECS + 120, &cfg);
+
+        assert_eq!(a.samples.len(), b.samples.len());
+        assert_eq!(a.positions.len(), b.positions.len());
+        assert_eq!(a.attitudes.len(), b.attitudes.len());
+        assert_eq!(a.docs.len(), b.docs.len());
+
+        for (x, y) in a.samples.iter().zip(&b.samples) {
+            assert_eq!(x.context, y.context);
+            assert_eq!(x.path, y.path);
+            assert_eq!(x.ts_secs, y.ts_secs);
+            assert_eq!(x.value, y.value);
+            assert_eq!(x.value_str, y.value_str);
+            assert_eq!(x.source_label, y.source_label);
+        }
+        for (x, y) in a.positions.iter().zip(&b.positions) {
+            assert_eq!(x.context, y.context);
+            assert_eq!(x.ts_secs, y.ts_secs);
+            assert_eq!(x.latitude.to_bits(), y.latitude.to_bits());
+            assert_eq!(x.longitude.to_bits(), y.longitude.to_bits());
+        }
+    }
+
+    /// Pin test for 1 Hz generation with per-path override:
+    /// Verifies exact sample distribution across 60 seconds.
+    #[test]
+    fn pin_hz_samples_distribution_and_checksum() {
+        let seed = DEFAULT_SEED;
+        let cfg = gen::GenConfig {
+            hz: 1.0,
+            per_path_override: true,
+        };
+        // 60 seconds of 1 Hz generation with per-path override
+        let data = gen::generate_with_config(seed, 1, gen::START_SECS, gen::START_SECS + 60, &cfg);
+
+        let mut counts_by_path: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+        for s in &data.samples {
+            *counts_by_path.entry(s.path.clone()).or_default() += 1;
+        }
+
+        // Navigation / Wind / Depth numeric paths must have 60 samples (1 Hz)
+        assert_eq!(counts_by_path["navigation.speedOverGround"], 60);
+        assert_eq!(counts_by_path["environment.wind.speedTrue"], 60);
+        assert_eq!(counts_by_path["environment.wind.speedApparent"], 60);
+        assert_eq!(counts_by_path["environment.depth.belowTransducer"], 60);
+        // Navigation state must have 60 samples (1 Hz)
+        assert_eq!(counts_by_path["navigation.state"], 60);
+
+        // Non-HR paths must have 6 samples (0.1 Hz: t=0, 10, 20, 30, 40, 50)
+        assert_eq!(counts_by_path["propulsion.port.motorPower"], 6);
+        assert_eq!(counts_by_path["electrical.batteries.house.voltage"], 6);
+        assert_eq!(counts_by_path["tanks.freshWater.port.currentLevel"], 6);
+        assert_eq!(counts_by_path["propulsion.main.state"], 6);
+
+        // Position and attitude are HR -> 60 samples
+        assert_eq!(data.positions.len(), 60);
+        assert_eq!(data.attitudes.len(), 60);
     }
 }

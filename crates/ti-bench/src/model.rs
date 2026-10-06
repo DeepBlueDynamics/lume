@@ -82,6 +82,13 @@ pub const VESSEL_NAMES: &[&str] = &["PV-1", "Fleet-2", "Fleet-3", "Fleet-4", "Fl
 /// deterministic (per the lead's set-field ruling).
 pub const SOURCE_LABEL: &str = "can0.115";
 
+/// Returns true if `path` belongs to high-res paths: navigation.*, environment.wind.*, environment.depth.*.
+pub fn is_hr_path(path: &str) -> bool {
+    path.starts_with("navigation.")
+        || path.starts_with("environment.wind.")
+        || path.starts_with("environment.depth.")
+}
+
 /// Document kinds.
 pub const DOC_KINDS: &[&str] = &["notes", "logbook", "alerts"];
 
