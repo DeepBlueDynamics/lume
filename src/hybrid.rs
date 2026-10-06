@@ -194,6 +194,7 @@ fn cache_path_with_dir(name: &str, cache_dir: Option<&Path>) -> PathBuf {
     }
 }
 
+#[allow(dead_code)]
 fn cache_path(name: &str) -> PathBuf {
     cache_path_with_dir(name, None)
 }
@@ -205,6 +206,7 @@ fn read_cache_file_with_dir(name: &str, cache_dir: Option<&Path>) -> Option<Stri
     fs::read_to_string(name).ok()
 }
 
+#[allow(dead_code)]
 fn read_cache_file(name: &str) -> Option<String> {
     read_cache_file_with_dir(name, None)
 }
@@ -220,6 +222,7 @@ fn write_cache_file_with_dir(name: &str, content: &str, cache_dir: Option<&Path>
     }
 }
 
+#[allow(dead_code)]
 fn write_cache_file(name: &str, content: &str) {
     write_cache_file_with_dir(name, content, None);
 }
@@ -229,6 +232,7 @@ fn delete_cache_file_with_dir(name: &str, cache_dir: Option<&Path>) {
     let _ = fs::remove_file(name);
 }
 
+#[allow(dead_code)]
 fn delete_cache_file(name: &str) {
     delete_cache_file_with_dir(name, None);
 }
@@ -809,6 +813,7 @@ pub fn blend_hybrid_scores_with_mode(
     let normalize = blend_mode == crate::search::BlendMode::Normalized || std::env::var("LUME_BLEND_NORM")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
+    let bm25_max = candidate_indices
         .values()
         .map(|v| v.0)
         .fold(0.0_f64, f64::max)
@@ -1028,7 +1033,7 @@ pub fn execute_hybrid_search(
             r.source.as_ref()
                 .filter(|s| !hash_to_idx.contains_key(s.as_str()))
                 .and_then(|s| s.parse::<usize>().ok())
-                .map_or(false, |idx| idx >= sections_len)
+                .is_some_and(|idx| idx >= sections_len)
         })
     };
     if is_stale(&semantic_results) {
@@ -1191,7 +1196,7 @@ impl HybridSearchResult {
             out.push_str(&format!("* **Metrics:** BM25: {:.4} | {}\n", hit.bm25_score, boost_indicator));
 
             let snippet_body = if hit.body.len() > 300 {
-                format!("{} ...", &hit.body[..300].trim())
+                format!("{} ...", hit.body[..300].trim())
             } else {
                 hit.body.trim().to_string()
             };

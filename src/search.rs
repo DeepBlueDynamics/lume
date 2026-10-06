@@ -24,7 +24,7 @@ pub enum BlendMode {
     Normalized,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct SearchOptions {
     pub limit: usize,
     pub spell_check: bool,

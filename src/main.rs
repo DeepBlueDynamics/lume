@@ -1,18 +1,15 @@
 use std::collections::HashMap;
 use std::env;
-use std::fs::{self, File};
+use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, Instant};
 
-use serde::{Deserialize, Serialize};
-
-use lume::bm25::{Bm25Index, Section, SearchHit, Bm25Params, SearchVariant};
+use lume::bm25::{Bm25Index, Section, Bm25Params, SearchVariant};
 use lume::spelling::SpellIndex;
 use lume::semantic_mesh::EntityGraph;
 use lume::Tagger;
-use lume::Entry;
 use lume::search::{
     search, format_cli_output, correct_query, load_json, save_json, load_tagger_csv,
     BlendMode, IndexState, LoadedIndex, SearchMode, SearchOptions,
