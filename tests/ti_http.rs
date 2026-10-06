@@ -149,7 +149,9 @@ impl Server {
 }
 #[test]
 fn explicit_bind_is_honored_and_ti_errors_have_no_cors() {
-    let server = Server::start_on(Some("0.0.0.0"));
+    // A non-default loopback address exercises --bind without exposing a test server
+    // on every interface (which also raised Windows Firewall prompts on each build).
+    let server = Server::start_on(Some("127.0.0.2"));
     assert_eq!(server.get("/ti/status")["width_seconds"], 10);
     for path in [
         "/ti/resolve",

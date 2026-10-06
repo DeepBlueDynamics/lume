@@ -279,14 +279,23 @@ impl IngestService {
         }
     }
 
-    fn apply_resource_snapshots(&mut self, polling: &mut Option<(DocumentPoller, ResourceDocuments)>) {
+    fn apply_resource_snapshots(
+        &mut self,
+        polling: &mut Option<(DocumentPoller, ResourceDocuments)>,
+    ) {
         if let Some((poller, documents)) = polling {
             for snapshot in poller.receiver.try_iter() {
                 let previous_rejected = documents.rejected_pre_epoch;
-                if let Err(error) = documents.apply(snapshot, &self.self_urn, self.now_timestamp()) {
+                if let Err(error) = documents.apply(snapshot, &self.self_urn, self.now_timestamp())
+                {
                     eprintln!("Signal K document reconciliation: {error}");
                 }
-                self.documents_rejected_pre_epoch = self.documents_rejected_pre_epoch.saturating_add(documents.rejected_pre_epoch.saturating_sub(previous_rejected));
+                self.documents_rejected_pre_epoch =
+                    self.documents_rejected_pre_epoch.saturating_add(
+                        documents
+                            .rejected_pre_epoch
+                            .saturating_sub(previous_rejected),
+                    );
             }
         }
     }
@@ -321,11 +330,10 @@ impl IngestService {
 
         // Fetch remotely on a worker, but apply on this thread alongside
         // notifications/rules so document read-modify-write operations cannot race.
-        let mut resource_setup = match ResourceClient::new(&url, token.clone())
-            .and_then(|client| {
-                let docs = ResourceDocuments::open(Path::new(&default_root))?;
-                Ok((client, docs))
-            }) {
+        let mut resource_setup = match ResourceClient::new(&url, token.clone()).and_then(|client| {
+            let docs = ResourceDocuments::open(Path::new(&default_root))?;
+            Ok((client, docs))
+        }) {
             Ok(polling) => Some(polling),
             Err(error) => {
                 eprintln!("Signal K document polling unavailable: {error}");
@@ -349,7 +357,9 @@ impl IngestService {
         SHUTDOWN_REQUESTED.store(false, Ordering::Relaxed);
         register_shutdown_signals();
         while self.is_active() {
-            if resource_vessel_ready { self.apply_resource_snapshots(&mut resource_polling); }
+            if resource_vessel_ready {
+                self.apply_resource_snapshots(&mut resource_polling);
+            }
             let connection = connect_signalk(&url, token.as_deref());
             // Start HTTP after the initial websocket handshake attempt. This
             // keeps the initial self-vessel connection ahead of resource reads.
@@ -462,7 +472,9 @@ impl IngestService {
                             }
                         }
 
-                        if resource_vessel_ready { self.apply_resource_snapshots(&mut resource_polling); }
+                        if resource_vessel_ready {
+                            self.apply_resource_snapshots(&mut resource_polling);
+                        }
 
                         // Periodic timer maintenance
                         let now_sec = self.now_timestamp();

@@ -1,7 +1,8 @@
 use super::*;
 #[test]
 fn postgres_simple_query_caps_read_only_and_shared_snapshot() {
-    for bind in [None, Some("0.0.0.0")] {
+    // 127.0.0.2: an explicit non-default bind that stays on loopback (no firewall prompt).
+    for bind in [None, Some("127.0.0.2")] {
         let server = Server::start_with(bind, true);
         let runtime = ti_sql::surface_runtime().unwrap();
         runtime.block_on(async {
