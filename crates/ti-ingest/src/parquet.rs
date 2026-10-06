@@ -164,8 +164,13 @@ pub fn read_parquet_points(path: &Path, self_urn: &str) -> Result<Vec<RawDataPoi
 
     let mut reader = reader;
     loop {
-        let batch_res = { let _scope = crate::profile::Scope::new(1); reader.next() };
-        let Some(batch_res) = batch_res else { break; };
+        let batch_res = {
+            let _scope = crate::profile::Scope::new(1);
+            reader.next()
+        };
+        let Some(batch_res) = batch_res else {
+            break;
+        };
         let _extract_scope = crate::profile::Scope::new(2);
         let batch: RecordBatch =
             batch_res.map_err(|e| Error::Corrupt(format!("parquet batch error: {e}")))?;
@@ -359,7 +364,10 @@ fn backfill_file_with_documents(
     bucketer: &mut MultiStoreBucketer,
     documents: &mut Option<crate::notifications::NotificationDocuments>,
 ) -> Result<BackfillStatus> {
-    let hash = { let _scope = crate::profile::Scope::new(0); compute_file_hash(path)? };
+    let hash = {
+        let _scope = crate::profile::Scope::new(0);
+        compute_file_hash(path)?
+    };
 
     if let Some(known) = manifest_hashes {
         if known.contains(&hash) {
@@ -626,7 +634,6 @@ pub fn profile_backfill_files_stores(
     catalogs: &BTreeMap<String, &dyn Catalog>,
     sinks: &mut BTreeMap<String, &mut dyn ShardSink>,
 ) -> Result<Vec<BackfillStatus>> {
-
     let mut bucketer = MultiStoreBucketer::new(config)?;
     let mut documents = None;
     let mut results = Vec::with_capacity(files.len());
@@ -660,7 +667,13 @@ pub fn profile_backfill_files_stores(
 }
 
 #[cfg(feature = "backfill-profile")]
-pub fn profile_backfill_files(files: &[std::path::PathBuf], self_urn: &str, config: &TiConfig, catalog: &dyn Catalog, sink: &mut dyn ShardSink) -> Result<Vec<BackfillStatus>> {
+pub fn profile_backfill_files(
+    files: &[std::path::PathBuf],
+    self_urn: &str,
+    config: &TiConfig,
+    catalog: &dyn Catalog,
+    sink: &mut dyn ShardSink,
+) -> Result<Vec<BackfillStatus>> {
     let catalogs = BTreeMap::from([("default".to_string(), catalog)]);
     let mut sinks = BTreeMap::from([("default".to_string(), sink)]);
     profile_backfill_files_stores(files, self_urn, None, config, &catalogs, &mut sinks)

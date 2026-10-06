@@ -623,7 +623,12 @@ impl MultiStoreBucketer {
                         })?;
                         let bucket_ix = bucket_of(p.timestamp, width_seconds)?;
 
-                        let classified = { let _scope = crate::profile::Scope::new(4); bucketer.classifier_mut().classify(&p.context, &p.path, &p.value) };
+                        let classified = {
+                            let _scope = crate::profile::Scope::new(4);
+                            bucketer
+                                .classifier_mut()
+                                .classify(&p.context, &p.path, &p.value)
+                        };
                         let (eff_path, kind) = match classified {
                             Some(res) => res,
                             None => continue,
