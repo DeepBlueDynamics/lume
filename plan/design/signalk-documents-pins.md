@@ -22,4 +22,13 @@ Intervals require start/end columns. Notes carry title, description, range/query
 
 Resources use client-generated UUIDs and PUT to explicit note/region IDs. Validate the whole result before any write; reject truncated/over-500-row results. Partial failures report written count and do not auto-retry. Unpin lists both collections, verifies group and ownership metadata locally (providers may ignore filters), and deletes owned notes before regions. Browser confirmation precedes Unpin all lume-ti. No query is executed merely to pin, and no endpoint can change vessel/data paths.
 
-Verification coverage: mock Resources create/update/delete/restart/failure tests in ti-ingest; root integration checks the actual lexical match(notes,...) backend and cache invalidation; Node tests exercise resource HTTP methods, bbox geometry, ownership, failure and explicit-click behavior. Host strict clippy/formatting applies only to TI crates/specific files.
+## Verification (2026-10-06)
+
+Builds ran sequentially with CARGO_INCREMENTAL=0, two build jobs, debug=0, CARGO_TARGET_TMPDIR and TMPDIR under the lane clone. The target stayed below 8 GB.
+
+- cargo test -p ti-store --lib: 12 passed, including atomic/idempotent owned-subset reconciliation.
+- cargo test -p ti-ingest: 47 passed, 3 existing fixture-dependent tests ignored. Four resource tests cover create/update/delete/restart, anonymous/token reads, failures preserving prior documents, first-seen times, modern/legacy logbook, pin properties and pre-epoch status counts.
+- cargo test --features ti: 74 passed, 2 existing golden-store tests ignored. The new mock HTTP integration runs literal SQL match(notes,...) against one shared TiEngine and checks create/update/delete invalidation plus status.
+- Plugin npm test: 9 passed. Pin/unpin tests enforce v2 UUID/href payloads, bbox geometry, ownership, whole-result validation, partial failures and explicit-click behavior. Supervision fixtures invoke Node explicitly; an explicit-path launcher avoids shell glob differences. Production Supervisor/resolver behavior is unchanged.
+- Default cargo build (without ti): passed. It retains an existing unused-assignment warning in src/main.rs:1851, outside this slice.
+- Host strict clippy/formatting remains assigned to Pike, only TI crates or specific files; not run in the container.

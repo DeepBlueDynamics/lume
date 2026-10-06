@@ -14,7 +14,7 @@
   "author": "Lume Authors",
   "license": "BSD-3-Clause",
   "scripts": {
-    "test": "node --test 'test/**/*.test.js'"
+    "test": "node test/run-tests.cjs"
   },
   "files": [
     "index.js",

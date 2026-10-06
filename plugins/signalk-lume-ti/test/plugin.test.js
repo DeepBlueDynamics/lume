@@ -7,8 +7,9 @@ const path = require('path');
 const os = require('os');
 const http = require('http');
 
-const pluginFactory = require('../index');
-const mockLumeBin = path.join(__dirname, 'stubs', 'mock-lume.js');
+const {withNodeStub, waitFor} = require('./stubs/node-stub');
+const pluginFactory = withNodeStub(() => require('../index'));
+const mockLumeBin = process.execPath;
 
 test('Plugin lifecycle, supervision, status, and router proxying', async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lume-plugin-test-'));
@@ -49,7 +50,10 @@ test('Plugin lifecycle, supervision, status, and router proxying', async () => {
   });
 
   // Give child time to boot and start HTTP mock
-  await new Promise((r) => setTimeout(r, 600));
+  await waitFor(async () => {
+    try { return (await httpFetch(`http://127.0.0.1:${servePort}/ti/schema`, 'GET')).statusCode === 200; }
+    catch (_error) { return false; }
+  });
 
   // 1. Verify status updates
   assert.ok(statusUpdates.length > 0, 'Status updates were sent to Signal K');
@@ -137,7 +141,7 @@ test('Plugin lifecycle, supervision, status, and router proxying', async () => {
 
   // 4. Stop plugin
   plugin.stop();
-  await new Promise((r) => setTimeout(r, 400));
+  await waitFor(() => statusUpdates[statusUpdates.length - 1].includes('Stopped'));
 
   const stoppedStatus = statusUpdates[statusUpdates.length - 1];
   assert.ok(stoppedStatus.includes('Stopped'), `Status should contain 'Stopped', got: ${stoppedStatus}`);

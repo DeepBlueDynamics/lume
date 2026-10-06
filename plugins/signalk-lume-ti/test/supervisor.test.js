@@ -6,9 +6,10 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const { Supervisor } = require('../lib/supervisor');
+const {withNodeStub, waitFor} = require('./stubs/node-stub');
+const { Supervisor } = withNodeStub(() => require('../lib/supervisor'));
 
-const mockLumeBin = path.join(__dirname, 'stubs', 'mock-lume.js');
+const mockLumeBin = process.execPath;
 
 test('Supervisor launches process with correct arguments', async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lume-sup-test-'));
@@ -36,7 +37,7 @@ test('Supervisor launches process with correct arguments', async () => {
   assert.ok(supervisor.child.pid > 0, 'Child PID should be positive');
 
   // Allow child to write args log
-  await new Promise((r) => setTimeout(r, 400));
+  await waitFor(() => fs.existsSync(argsLog));
 
   assert.ok(fs.existsSync(argsLog), 'Child wrote args.json');
   const receivedArgs = JSON.parse(fs.readFileSync(argsLog, 'utf8'));
@@ -90,7 +91,7 @@ test('Supervisor restarts on crash with backoff', async () => {
   supervisor.start();
 
   // Wait for child to exit with 42 and supervisor to schedule restart
-  await new Promise((r) => setTimeout(r, 200));
+  await waitFor(() => restartDetected);
 
   assert.strictEqual(restartDetected, true, 'Supervisor scheduled restart #1');
   assert.ok(supervisor.restarts >= 1, 'Restarts count incremented');
