@@ -30,20 +30,32 @@ fn gen(args: &[String]) {
         .unwrap_or(ti_bench::DEFAULT_SEED);
     let perf = args.iter().any(|a| a == "--perf");
 
-    let (n_vessels, start, end) = if perf {
-        // Performance set: 50 vessels x 365 days.
-        (
-            ti_bench::PERFORMANCE_VESSELS,
-            1_743_724_800i64,
-            1_775_260_800i64,
-        )
-    } else {
-        (
-            ti_bench::CORRECTNESS_VESSELS,
-            ti_bench::gen::START_SECS,
-            ti_bench::gen::END_SECS,
-        )
-    };
+    let start = arg(args, "--start")
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(if perf {
+            1_743_724_800i64
+        } else {
+            ti_bench::gen::START_SECS
+        });
+    let end = arg(args, "--end")
+        .and_then(|s| s.parse::<i64>().ok())
+        .or_else(|| {
+            arg(args, "--days")
+                .and_then(|s| s.parse::<i64>().ok())
+                .map(|d| start + d * 86_400)
+        })
+        .unwrap_or(if perf {
+            1_775_260_800i64
+        } else {
+            ti_bench::gen::END_SECS
+        });
+    let n_vessels = arg(args, "--vessels")
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(if perf {
+            ti_bench::PERFORMANCE_VESSELS
+        } else {
+            ti_bench::CORRECTNESS_VESSELS
+        });
 
     let (raw, docs, cats) = ti_bench::write::write_all_stream(&root, seed, n_vessels, start, end);
     eprintln!(
