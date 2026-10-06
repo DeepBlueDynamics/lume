@@ -15,7 +15,7 @@ Supply these existing environment variables:
 
 The assumed writer layout is measurement = Signal K path, scalar field
 `value`, tags `context`/`source`; navigation.position has `lat` and `lon`
-fields. Measurements/fields/context are explicitly filtered. Scalar sources
+fields (the Pi writer also tags self and s2_cell_id). Measurements/fields/context are explicitly filtered. Scalar sources
 are merged after selecting one context. Lume uses its retained preferred-source
 values; it does not retain independently queryable raw values for every source.
 
@@ -23,7 +23,7 @@ Run from the repository root, with the environment already configured:
 
 ```bash
 python3 bench/influx_vs_lume.py --window 24h --runs 20
-python3 bench/influx_vs_lume.py --context vessels.urn:mrn:signalk:uuid:YOUR-UUID --window 6h
+python3 bench/influx_vs_lume.py --context vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee --window 6h
 python3 bench/influx_vs_lume.py --from 2026-10-01T00:00:00Z --to 2026-10-02T00:00:00Z --runs 20
 python3 bench/influx_vs_lume.py --dry-run --from 2026-10-01T00:00:00Z --to 2026-10-02T00:00:00Z
 ```
@@ -38,14 +38,22 @@ vessels require `--context`. If the writer's context tag omits/adds a prefix,
 use `--influx-context` with its exact value; it must identify the same vessel.
 The script does not silently pool boats or guess context aliases.
 
-By default, discovery queries find the first/latest depth or SOG timestamps in
-each database. The frozen half-open window ends at the earlier latest timestamp
-and starts at the later first timestamp or 24 hours before the end, whichever
-is later. Excluding the latest timestamp avoids racing the newest sample.
-Discovery is outside the timed runs. JSON records the actual bounds; short
-coverage can yield less than 24 hours. Supplying both `--from` and `--to`
-skips discovery and uses your exact bounds. Supplying just one retains the
-other bound's discovery/window behavior. All timestamps require a timezone.
+Discovery finds common first/latest depth or SOG coverage. With default
+24h and no explicit bounds, select the latest available complete common
+UTC hours, up to 24h, so Q2 has whole hours. If no full common hour exists,
+use the short common interval and label it common_data_coverage_partial_hour.
+Smaller --window durations also retain partial-hour coverage.
+
+All requested/discovered bounds, including explicit --from/--to, snap
+**outward** to the Lume bucket width: floor start, ceil stop (10s by default,
+1s for telemetry_hr). Both databases use those same half-open bounds.
+JSON preserves requested bounds and effective snapped bounds. Snapping can
+expand a short/discovered interval to the edge of the newest bucket; pause
+ingest or use completed historical bounds when requiring a stable snapshot.
+Supplying both bounds skips discovery; one bound retains the other's
+discovery/window behavior. Discovery is outside timing. Timestamps require
+a timezone. The Pi vessel UUID above is supplied by the lead; multi-vessel/AIS
+stores still require explicit --context and never silently select that boat.
 
 ## Query meanings
 
@@ -55,8 +63,8 @@ other bound's discovery/window behavior. All timestamps require a timezone.
 | 2: hourly max depth | Maximum raw values per UTC hour | max(depth@max) per UTC hour |
 | 3: minute mean SOG | Mean raw values per UTC minute | avg(SOG@mean) per UTC minute |
 | 4: multi-condition | Minutes with mean SOG > X and minimum depth < Y | Same predicate over avg(@mean) and min(@min) |
-| 5: minimum depth + position | Earliest raw minimum, exact-timestamp lat/lon join | Earliest minimum bucket, retained lat/lon from that bucket |
-| 6: points per path | Raw points for the catalog's retained path set | Populated buckets for that same path set |
+| 5: minimum depth + position | Earliest raw minimum, nearest paired lat/lon sample within its bucket | Earliest minimum bucket, retained lat/lon from that bucket |
+| 6: points per path | All raw scalar/position paths, plus distinct bucket counts | Populated buckets for all retained populated paths |
 
 X defaults to 2 m/s, Y to 5 m; change `--sog-gt`/`--depth-lt`.
 Depth defaults to `environment.depth.belowTransducer`; change `--depth-path`
@@ -65,23 +73,51 @@ No unit conversions are performed: both writers must contain the same native
 Signal K units. `--table telemetry_hr` selects the configured 1-second store.
 
 Aggregate timestamps use UTC bin starts in both languages: Flux
-`aggregateWindow(timeSrc: "_start", createEmpty: false)` and SQL `date_bin`
-anchored at the Unix epoch. Missing min/max/mean fields produce an ERROR;
+`aggregateWindow(timeSrc: "_start", createEmpty: false)` followed by
+`date.truncate(_time, unit: 1h/1m)`, and SQL `date_bin` anchored at the
+Unix epoch. This fixes Flux's clipped first-window start on partial hours/minutes. Missing min/max/mean fields produce an ERROR;
 a different retained aggregate is not substituted to make a result pass.
 Position uses @last when available, otherwise the catalog's available
-aggregate; missing position at the exact raw minimum remains null.
-Counts include only scalar paths present in Lume's catalog; position is counted
-once via latitude/lat, not once for each coordinate.
+aggregate. Flux filters position lat/lon, removes context/source/self/s2_cell_id
+from the pivot key, pivots paired coordinates at each sample time, joins
+positions to the minimum's bucket, and sorts by distance from the raw minimum
+(ties use earliest position time). Missing positions in the bucket remain null;
+the raw minimum is retained through a separate depth result even without a
+position match. Q6 fetches all Influx paths and compares the union of observed
+path sets. JSON lists influx_only, lume_only and symmetric_difference on every
+run. Position is counted once via latitude/lat; repeated sources/samples in a
+bucket collapse for the explicit distinct-bucket count.
 
 **These native queries can disagree on the same feed.** Lume buckets discard
 raw timestamps, repeated samples and some sources. Raw counts and range values
 can therefore differ; a mean of bucket means differs from a sample-weighted
 mean when buckets have unequal populations. The raw minimum's actual position
-may differ from the position retained in its bucket. Partial boundary buckets
-can include Lume aggregates derived from samples just outside the requested
-range. Such discrepancies are MISMATCH results with details, not excluded
-queries or benchmark successes. Matching aggregate/timestamp/count tolerances
-is not proof of raw-sample equivalence.
+may differ from the position retained in its bucket. Outward snapping removes
+partial-bucket boundary inclusion differences. Source/coordinate discrepancies
+and unexplained errors still produce MISMATCH; they are not automatically excused.
+
+FIDELITY is separate from PASS and MISMATCH, and requires bounded evidence:
+
+- Q1: grouping raw samples into the store-width buckets and applying the
+  retained last/mean/min/max must match Lume's bucket values and bucket count
+  strictly. Then raw row-count differences and sample offsets < bucket width
+  are classified FIDELITY.
+- Q3, and matched Q4 rows' speed: mean differences exceeding normal tolerance
+  but within --fidelity-rel (default 0.01, 1% of the larger magnitude) qualify.
+  Predicate membership/timestamp sets and Q4 minimum depth remain strict.
+- Q5: min-sample offset must be nonnegative, strictly less than bucket width,
+  and in the exact same bucket. Minimum depth and both coordinates remain
+  strict. --time-tol cannot excuse a minimum in a different bucket.
+- Q6: each shared path's Influx distinct bucket count must equal Lume exactly,
+  with raw count >= bucket count. Only then may the raw-vs-bucket count
+  difference qualify. Missing paths/unmatched bucket counts remain MISMATCH.
+
+Q2 maximum and Q5/Q4 minimum values never use the mean-fidelity allowance.
+PASS still requires ordinary numeric tolerance (fixed-point quantization);
+bucket counts are exact. Fidelity is not proof of raw-sample equivalence.
+JSON reports max_observed_difference per run and the maxima across all runs
+per query: numeric absolute/relative, time seconds and count differences,
+plus Q1 sample offset/population and strict bucket-count difference.
 
 ## Output and timing
 
@@ -116,7 +152,7 @@ both engines is EMPTY, not a claimed correctness pass. At most 20 individual
 difference examples are recorded per run; row-count differences are always
 reported. No result rows are capped for comparison.
 
-Exit codes: 0 = all six pairs PASS; 1 = at least one MISMATCH/EMPTY/ERROR;
+Exit codes: 0 = all six pairs PASS or bounded FIDELITY; 1 = at least one MISMATCH/EMPTY/ERROR;
 2 = setup/discovery failure. Dry run is offline, needs no credentials, prints
 all six query pairs and returns 0. It uses an assumed schema and now-relative
 bounds unless you supply from/to, and labels those assumptions explicitly.
@@ -132,9 +168,11 @@ ports. They cover all six pairs and headers, common-window discovery, explicit
 windows, every warm-run check, Markdown/JSON output, mismatch/error/token
 redaction, repeated annotated CSV tables, numeric/null/count/time checks
 including nanoseconds, safe quoting and full-bin truncation splitting.
-They verify client transport and generated query mappings; they do not execute
-Flux in a real Influx server. Pi timings and live-feed agreement still need the
-real endpoints and read token on the Pi.
+The 15-test suite includes the five reported Pi regressions and latest-full-hour
+selection. It verifies client transport and generated query mappings; they do not execute
+Flux in a real Influx server. The lead reported a real Influx 2.9.1/Pi run of the previous revision and its
+alignment/position failures. This corrected revision still needs that real
+Flux/Pi replay; local mocks do not prove server execution or performance.
 
 Primary references checked for the query/API mapping:
 [Influx query API](https://docs.influxdata.com/influxdb/v2/api/query/),
