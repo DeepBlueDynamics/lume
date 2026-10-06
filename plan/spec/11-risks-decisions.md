@@ -89,7 +89,9 @@ Reserved, and written by the owning lane at merge (agreed among the lanes on 202
 
 | D37 | Optional root `pgwire =0.41.0`, default features disabled, `server-api` only, behind `ti`; optional direct tokio 1, futures 0.3 and async-trait 0.1 reuse existing versions. tokio-postgres 0.7 is a smoke-test dev-dependency | Lead approved 2026-10-06. Spec-named Postgres wire adapter for read-only simple queries. MIT/Apache-2.0; MSRV 1.89. Defaults are disabled to avoid aws-lc and SCRAM/TLS dependencies in this slice. D13 SCRAM-on-aarch64-musl smoke test remains required before shore authentication ships |
 
-The next free number is **D38**. Ask the lead before taking one. Every new runtime dependency needs a line here
+| D38 | Generic Parquet uses explicit opaque `<kind>.urn:<nonempty>` entity IDs (kind starts with an ASCII letter, followed by letters, digits, `_` or `-`), shared validation across catalog/docs/envelopes/sync. Existing `vessels.urn:` strings, ordinals, serialization and seal hashes remain unchanged; SQL retains `vessel` and adds `entity` as an alias. Default-empty `[[sources.parquet]]` and `[units]` mappings specify entity column or constant, time/unit/timezone, long or wide metrics and exclusions. UTC/fixed-offset timezone only; naive local text requires explicit timezone. Sorted file globs and stable row order retain source priorities and D21 single-valued sets | Lead approved 2026-10-06, user-requested generic time series and robot fleets. Cost: wider identity acceptance and additive configuration, requiring boat seal-hash/corpus regression and mixed-store tests; no persisted format change or inferred entity kind |
+
+The next free number is **D39**. Ask the lead before taking one. Every new runtime dependency needs a line here
 (PR rule, [10-contracts](10-contracts.md)).
 
 ## Sources (from spec)

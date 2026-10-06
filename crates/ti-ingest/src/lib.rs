@@ -17,6 +17,7 @@ pub mod influx;
 pub mod normalize;
 pub mod notifications;
 pub mod parquet;
+pub mod mapped_parquet;
 pub mod recorder;
 pub mod service;
 pub mod watermark;

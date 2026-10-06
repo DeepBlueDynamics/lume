@@ -16,6 +16,7 @@ use crate::normalize::NormalizedValue;
 pub struct Classifier {
     unit_scales: BTreeMap<String, u8>,
     path_scales: BTreeMap<String, u8>,
+    metric_units: ti_contracts::MetricUnits,
     meta_units: BTreeMap<String, String>,
     assigned: BTreeMap<(String, String), (String, FieldKind)>,
     versioned_paths: BTreeMap<(String, String), u32>,
@@ -26,6 +27,7 @@ impl Classifier {
         Self {
             unit_scales: config.unit_scales.clone(),
             path_scales: config.path_scales.clone(),
+            metric_units: config.units.clone(),
             meta_units: BTreeMap::new(),
             assigned: BTreeMap::new(),
             versioned_paths: BTreeMap::new(),
@@ -41,6 +43,9 @@ impl Classifier {
     pub fn resolve_scale(&self, path: &str) -> u8 {
         if let Some(&s) = self.path_scales.get(path) {
             return s;
+        }
+        if let Some(unit) = ti_contracts::metric_unit(&self.metric_units, path) {
+            return unit.scale;
         }
         // Flattened positions are degrees even when no meta.units is available (backfill):
         // use the spec/05 registry's lat/lon scale.

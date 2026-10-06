@@ -203,7 +203,7 @@ impl BucketWindow {
                             path: path.clone(),
                             agg: Some(Agg::Mean),
                             kind: FieldKind::Bsi { scale: acc.scale },
-                            units: None,
+                            units: ti_contracts::metric_unit(&config.units, path).map(|u| u.unit.clone()),
                         })?;
                         records.push(BucketRecord {
                             vessel,
@@ -220,7 +220,7 @@ impl BucketWindow {
                             path: path.clone(),
                             agg: Some(Agg::Min),
                             kind: FieldKind::Bsi { scale: acc.scale },
-                            units: None,
+                            units: ti_contracts::metric_unit(&config.units, path).map(|u| u.unit.clone()),
                         })?;
                         records.push(BucketRecord {
                             vessel,
@@ -237,7 +237,7 @@ impl BucketWindow {
                             path: path.clone(),
                             agg: Some(Agg::Max),
                             kind: FieldKind::Bsi { scale: acc.scale },
-                            units: None,
+                            units: ti_contracts::metric_unit(&config.units, path).map(|u| u.unit.clone()),
                         })?;
                         records.push(BucketRecord {
                             vessel,
@@ -254,7 +254,7 @@ impl BucketWindow {
                             path: path.clone(),
                             agg: Some(Agg::Last),
                             kind: FieldKind::Bsi { scale: acc.scale },
-                            units: None,
+                            units: ti_contracts::metric_unit(&config.units, path).map(|u| u.unit.clone()),
                         })?;
                         records.push(BucketRecord {
                             vessel,

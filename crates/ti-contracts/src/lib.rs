@@ -16,6 +16,8 @@ mod config;
 mod engine;
 mod envelopes;
 mod schemas;
+mod parquet;
+pub use parquet::*;
 pub use catalog::*;
 pub use config::*;
 pub use engine::*;

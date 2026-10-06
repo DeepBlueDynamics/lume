@@ -33,6 +33,10 @@ pub struct TiConfig {
     pub derived: Vec<DerivedRule>,
     /// SQL alert rules evaluated once per newly closed default-store bucket (W10).
     pub rules: Vec<AlertRule>,
+    /// Explicit generic Parquet inputs (D38), empty for Signal K installations.
+    pub sources: crate::SourcesConfig,
+    /// Metric glob to physical units and fixed-point scale (D38).
+    pub units: crate::MetricUnits,
     /// Listener configuration.
     pub bind: BindConfig,
     /// Optional bearer/NUTS/SCRAM configuration.
@@ -390,6 +394,8 @@ impl Default for TiConfig {
             source_priorities: BTreeMap::new(),
             derived: vec![],
             rules: vec![],
+            sources: crate::SourcesConfig::default(),
+            units: BTreeMap::new(),
             bind: BindConfig::default(),
             auth: AuthConfig::default(),
             query: QueryLimits::default(),
@@ -528,6 +534,12 @@ impl TiConfig {
                     &format!("derived[{i}].state"),
                     "only transitions require a nonempty state",
                 ));
+            }
+        }
+        for mapping in &self.sources.parquet { mapping.validate()?; }
+        for (pattern, entry) in &self.units {
+            if pattern.is_empty() || entry.unit.is_empty() || entry.scale > 18 {
+                return Err(invalid("units", "requires nonempty patterns/units and scale <= 18"));
             }
         }
         let mut rule_names = BTreeSet::new();
