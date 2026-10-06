@@ -30,6 +30,7 @@ pub type ClockFn = Arc<dyn Fn() -> i64 + Send + Sync>;
 
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 
+#[cfg(unix)]
 extern "C" fn handle_shutdown_signal(_: std::os::raw::c_int) {
     SHUTDOWN_REQUESTED.store(true, Ordering::Relaxed);
 }
