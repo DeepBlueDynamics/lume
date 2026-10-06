@@ -194,14 +194,32 @@ The plugin supervises `lume ti ingest --signalk ws://127.0.0.1:3000 --store <dat
 
 - **History API** (`e09bb87`): the plugin is a Signal K v2.31 History API provider, answering from Lume's loopback HTTP. `first`/`last` need the `@last` aggregate retained in the store. Rust side: `cargo test --features ti --test ti_http` (8/8).
 - **Webapp 401:** the webapp shows a login hint. Log in to Signal K's own admin at `/admin/#/login`; a HaLOS SSO session is not enough (`2bbcc4b`).
-- **Native Pi 5 build:** fat LTO OOMs on the Pi (rustc about 6 GB RSS, even with 10 GB temporary swap). Use thin LTO:
+- **Native Pi 5 build:** fat LTO OOMs on the Pi (rustc about 6 GB RSS, even with 10 GB temporary swap). Use thin LTO. The resulting binary runs in the plugin container (glibc 2.39 OK):
 
   ```sh
   CARGO_PROFILE_RELEASE_LTO=thin CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 CARGO_BUILD_JOBS=2 \
     cargo build --release --locked --features ti --bin lume
   ```
 
-- **Influx-vs-Lume benchmark (Pi):** `signalk-to-influxdb2` 2.3.0 writes InfluxDB bucket `marine` at 1 s (self vessel only). The paired query harness `bench/influx_vs_lume.py` (stdlib-only) is in progress on `ti/bench-influx`.
+- **Influx-vs-Lume benchmark (Pi):** `signalk-to-influxdb2` 2.3.0 writes InfluxDB bucket `marine` at 1 s (self vessel only). The harness `bench/influx_vs_lume.py` (`e9d95fc`, `9e823ea`, `0c4cdf6`) is read-only and Python stdlib only. Connection settings and sampling semantics are in [bench/influx_vs_lume.md](../bench/influx_vs_lume.md).
+
+  ```sh
+  python3 bench/influx_vs_lume.py --window 24h --runs 20          # first run cold, the rest warm
+  python3 bench/influx_vs_lume.py --dry-run --from <rfc3339Z> --to <rfc3339Z>   # print query texts offline
+  PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s bench -p test_influx_vs_lume.py -v   # 19 tests
+  ```
+
+  - Statuses: **PASS** (exact within `--abs-tol`/`--rel-tol`), **FIDELITY** (mean deviation within `--fidelity-rel`, default 1 %), **MISMATCH**, **EMPTY**. Windows are bucket-aligned. Results also flag threshold-edge cases and path-type differences.
+  - The Influx writer's 1 s resolution drops samples, so raw bucket means can differ by up to about 2 %. Expect FIDELITY, not PASS, on mean-type queries.
+  - First results (about 17 min, preliminary) are in [STATUS.md](STATUS.md). The full-hour run is pending.
+- **Absent document sources:** the notes/logbook poller treats 404, or 401 for an anonymous request, on an optional source as absent. It logs once, then hourly (`0c4cdf6`).
+- **Grafana on HaLOS** shares the `influxdb` container's network namespace, so it reaches the host as `halos.local` = docker0 `172.17.0.1`, not loopback. Plugin-side pgwire for Grafana is in progress on `ti/plugin-pg` (Long Horse):
+  - new `--pg-bind` and `--pg-auth-config` flags;
+  - a webapp-only admin form that stores only the SCRAM verifier. Signal K 2.31 persists plugin config before start and has no validate hook, so a password can't go through Plugin Config;
+  - a Grafana datasource YAML and a 20-query pg smoke set.
+
+  Not merged yet; check the branch before relying on the flag names.
+- **Access request:** on first start the plugin files a Signal K access request. Ingest has no token until an admin approves it under Security → Access Requests.
 
 **Host oracles for W9 and W10** (Python DuckDB, testing only; run from the repo root on the host):
 
