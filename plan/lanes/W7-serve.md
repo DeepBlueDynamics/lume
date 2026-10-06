@@ -109,7 +109,7 @@ This HTTP checkpoint predates the resolve/bind slice below. Configurable binding
 ### Next items
 
 - [ ] NUTS authentication for shore, plus explicit boat bearer-token policy.
-- [ ] Extended pgwire protocol, SCRAM authentication, catalog compatibility, then the remaining ingest/sync/plugin/packaging and M5 gates.
+- [ ] Pi psql/Grafana validation of extended pgwire and SCRAM, then remaining ingest/sync/plugin/packaging and M5 gates.
 
 ## Rust surfaces — simple-query Postgres and question fixtures (2026-10-06)
 
@@ -123,3 +123,57 @@ This HTTP checkpoint predates the resolve/bind slice below. Configurable binding
 - The golden replay exposed source columns outranking ordinary value columns when `$source` prevented Signal K metadata matching. Source metadata now matches its base path and adds reporting-source/provenance context. The regression includes source-column distractors and checks explicit source requests still resolve to `$source`.
 
 Signal K schema data attribution, commit pin and upstream CC-BY-SA 2.0 license are in src/ti_resolve/. No runtime dependencies or frozen contracts changed. Container bind-mount status timings are not a code optimization target; Pike's host timings supersede that diagnostic direction. Host Rust 1.96 fmt/strict clippy remain assigned to Pike for this slice.
+
+## Rust surfaces — Grafana/Postgres compatibility (2026-10-06)
+
+The listener now implements Parse/Bind/Describe/Execute/Sync with typed
+timestamptz, float8, int8, text and bool results, including binary rows and typed
+bound parameters. Parameters use DataFusion ScalarValues; values are never
+interpolated into SQL. The existing shared engine/admission gate, read-only
+statement guard and 500-row / 64 KiB caps remain. Transactions, COPY and writes
+remain unsupported. Grafana's expanded timeFilter/timeGroup SQL and date_bin
+are covered by the source-pinned replay fixture in tests/golden/grafana-pg.json.
+
+Catalogs describe the actual public table columns, including bare mean aliases.
+Minimal pg_catalog and information_schema views, quote_ident, version,
+current_schema/current_database/current_setting and psql type/visibility helpers
+support Grafana 13 metadata and psql 16 table descriptions. The search path is
+fixed to public. Exact psql policy/statistics/publication probes return typed
+empty results: these concepts do not exist in TI, and DataFusion cannot plan
+their PostgreSQL correlated array constructors. General catalog emulation,
+DBeaver and arbitrary session settings are not claimed.
+
+SCRAM-SHA-256 uses PostgreSQL verifier strings from the store's ti.toml:
+
+```toml
+[[auth.scram_users]]
+username = 'grafana'
+verifier = 'SCRAM-SHA-256$4096:<base64-salt>$<base64-StoredKey>:<base64-ServerKey>'
+```
+
+With no users, authentication is disabled only on loopback. Any non-loopback
+Postgres bind requires at least one valid verifier; configured users require
+SCRAM on loopback too. Verifiers and authentication state are captured at startup.
+Restart to change users. D42 records the pure-Rust primitives, constant-time
+StoredKey comparison, randomized unknown-user challenges and message/iteration
+bounds. This listener does not provide TLS or advertise channel binding.
+Shore NUTS/bearer policy and encrypted transport remain separate follow-ups.
+
+Verified locally on base 0c169c2: root cargo test --features ti passed (79 tests,
+2 existing golden-store tests ignored); combined cargo test -p lume -p ti-sql
+--features lume/ti passed (114 tests, 4 existing fixture/benchmark tests ignored).
+This includes typed extended rows and timestamp/integer/text parameters, 23
+source-pinned client probes (22 non-empty), SCRAM accept/reject/unknown-user,
+explicit 127.0.0.2 binding and non-loopback verifier policy unit tests. The
+combined test binaries briefly grew target to 8.4 GiB; old standalone output
+and build intermediates were removed, then cargo clean removed the TI cache.
+The default runtime feature tree retains serde, serde_json, tantivy-fst and ureq;
+pgwire enables only server-api + pg-type-chrono. bash -n tests/pg_smoke.sh passed.
+Clean default cargo build passed (34.88 s); its existing src/main.rs cands
+unused-assignment warning remains. Host fmt/strict clippy are assigned to Pike. psql is
+absent in this container and on the Windows host. Pike owns the actual Debian 13
+aarch64 Pi smoke: set PGPASSWORD or PGPASSFILE for a configured user, then run
+`bash tests/pg_smoke.sh <Pi-address>:<port> grafana ti`. It runs `\d telemetry`,
+typed queries, the source-pinned client probes (Python 3 stdlib), and SCRAM accept/reject. Actual psql
+and D13 aarch64 results remain pending that run; the fixture replay alone does
+not mark M5 item 3 or D13 complete.

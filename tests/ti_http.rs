@@ -11,6 +11,8 @@ use ti_contracts::{
 };
 #[path = "support/pg.rs"]
 mod pg_tests;
+#[path = "support/pg_extended.rs"]
+mod pg_extended_tests;
 static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 struct Server {
     child: Child,
@@ -33,6 +35,9 @@ impl Server {
         Self::start_with(bind, false)
     }
     fn start_with(bind: Option<&str>, pg: bool) -> Self {
+        Self::start_with_auth(bind, pg, None)
+    }
+    fn start_with_auth(bind: Option<&str>, pg: bool, verifier: Option<&str>) -> Self {
         let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!(
             "http-{}-{}",
             std::process::id(),
@@ -82,6 +87,9 @@ impl Server {
             .unwrap();
         store.shutdown().unwrap();
         drop(store);
+        if let Some(verifier) = verifier {
+            std::fs::write(store_root.join("ti.toml"), format!("[[auth.scram_users]]\nusername='lume'\nverifier='{verifier}'\n")).unwrap();
+        }
         let mut command = Command::new(env!("CARGO_BIN_EXE_lume"));
         command
             .args(["serve", "--port", "0", "--ti-store"])
