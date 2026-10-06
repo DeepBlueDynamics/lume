@@ -16,6 +16,7 @@ mod provider;
 mod raw;
 mod rewrite;
 pub mod rules;
+pub mod postgres;
 mod session;
 mod store;
 mod timestamp;

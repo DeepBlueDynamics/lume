@@ -221,10 +221,14 @@ impl TiEngine {
         }
     }
     async fn query_batches(&self, sql: &str, max_rows: usize) -> Result<QueryBatches> {
+        self.query_with_parameters(sql, max_rows, vec![]).await
+    }
+    pub async fn query_with_parameters(&self, sql: &str, max_rows: usize, parameters: Vec<datafusion::common::ScalarValue>) -> Result<QueryBatches> {
         let started = Instant::now();
         let limit = max_rows.clamp(1, MAX_ROWS);
         let first = self.session.reports()?.len();
         let frame = self.session.prepare(sql).await?;
+        let frame = if parameters.is_empty() { frame } else { frame.with_param_values(parameters)? };
         let field_lookup = |col_name: &str| -> Option<ti_contracts::FieldSpec> {
             if let Some(f) = self.session.catalog.field(col_name) {
                 return Some(f.clone());
@@ -350,7 +354,10 @@ impl TiEngine {
                 let slice = batch.slice(0, kept);
                 batches.push(datafusion::arrow::record_batch::RecordBatch::try_new(
                     schema.clone(),
-                    slice.columns().to_vec(),
+                    slice.columns().iter().zip(schema.fields()).map(|(array,field)|{
+                        if array.data_type()==field.data_type(){Ok(array.clone())}
+                        else {datafusion::arrow::compute::cast(array,field.data_type())}
+                    }).collect::<std::result::Result<Vec<_>,_>>()?,
                 )?);
             }
             if stop {

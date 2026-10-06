@@ -2160,11 +2160,15 @@ name = "lume"
 version = "0.12.0"
 dependencies = [
  "async-trait",
+ "base64 0.23.1",
  "chrono",
  "futures",
+ "hmac",
  "pgwire",
+ "rand 0.10.3",
  "serde",
  "serde_json",
+ "sha2",
  "tantivy-fst",
  "ti-contracts",
  "ti-core",
@@ -2431,6 +2435,7 @@ checksum = "c667f8f4046889d52ed11e17aae954b1816d3df48dd23bdebcf199cef332df93"
 dependencies = [
  "async-trait",
  "bytes",
+ "chrono",
  "derive-new",
  "futures",
  "hex",
@@ -2542,6 +2547,7 @@ checksum = "851ca9db4932932d69f3ea811b1abe63087a0f740a47692619dd40d4899b68be"
 dependencies = [
  "array-init",
  "bytes",
+ "chrono",
  "fallible-iterator",
  "postgres-protocol",
 ]

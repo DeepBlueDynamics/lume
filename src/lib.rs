@@ -50,6 +50,8 @@ pub mod ti_http;
 #[cfg(feature = "ti")]
 mod ti_pg;
 #[cfg(feature = "ti")]
+mod ti_pg_auth;
+#[cfg(feature = "ti")]
 pub mod ti_resolve;
 pub use search::{search, LoadedIndex, SearchOptions, SearchResults, SearchResultHit, SearchMode, BlendMode};
 // pub mod cli;

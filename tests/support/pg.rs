@@ -57,7 +57,7 @@ fn postgres_simple_query_caps_read_only_and_shared_snapshot() {
                 .unwrap_or_else(|| panic!("{rows:?}"));
             assert_eq!(row.get(0), None);
             assert_eq!(row.get(1), Some("é"));
-            assert_eq!(row.get(2), Some("true"));
+            assert_eq!(row.get(2), Some("t"));
             for sql in [
                 "DELETE FROM telemetry",
                 "CREATE TABLE x (v INT)",

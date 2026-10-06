@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use ti_contracts::{Predicate, RoaringBitmap, ShardKey, ShardSource};
 
 pub struct SqlSession {
-    context: SessionContext,
+    pub(crate) context: SessionContext,
     pub catalog: Arc<SqlCatalog>,
     pub source: Arc<dyn ShardSource>,
     reports: Arc<Mutex<Vec<ScanReport>>>,

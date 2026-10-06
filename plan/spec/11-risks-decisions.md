@@ -98,7 +98,9 @@ Reserved, and written by the owning lane at merge (agreed among the lanes on 202
 
 | D41 | `ti-ingest` reuses root `ureq` 2.12 (same lockfile version, no new package or C crate) for read-only Signal K Resources and optional logbook polling | Lead approved 2026-10-06 for spec/06 §4. Background worker, 5 s HTTP timeout, 8 MiB / 20,000 entry caps; HTTP failures never stop telemetry. Only the ingest thread reconciles complete snapshots into DocStore |
 
-The next free number is **D42**. Ask the lead before taking one. Every new runtime dependency needs a line here
+| D42 | TI-optional sha2 0.11, hmac 0.13, base64 0.23 and rand 0.10 (existing lockfile versions), plus chrono 0.4 and pgwire's `pg-type-chrono`; retain `server-api` without ring/aws-lc features | Lead approved 2026-10-06. Verifier-only SCRAM-SHA-256 uses pure Rust, constant-time StoredKey comparison, bounded messages/iterations and randomized unknown-user challenges. No plaintext password storage or TLS/channel-binding advertisement. Default runtime graph unchanged; D13 actual aarch64 smoke is run by the lead on the Pi using tests/pg_smoke.sh |
+
+The next free number is **D43**. Ask the lead before taking one. Every new runtime dependency needs a line here
 (PR rule, [10-contracts](10-contracts.md)).
 
 ## Sources (from spec)
