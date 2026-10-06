@@ -1,14 +1,16 @@
 # Lume TI — Status board
 
-Last updated: **2026-10-06 04:15 UTC** (docs keeper, after `48d0db1`: contracts freeze + D20/D21)
+Last updated: **2026-10-06 04:17 UTC** (docs keeper, after `1297968`: search library merged)
 
-Integration branch `plan/lume-ti` is at `48d0db1`. **`ti-contracts` is frozen** (`96ac45d`).
+Integration branch `plan/lume-ti` is at `1297968`. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46.
 Setup and workflow: [SETUP.md](SETUP.md).
 
 ## Recent merges into `plan/lume-ti`
 
 | Commit | What |
 |---|---|
+| `1297968` | Merge `ti/search-api`: the in-process `lume::search` library. It adds `src/search.rs`, `main.rs` `handle_search` is now a thin adapter, and `agent.rs` `lume_search` runs in-process instead of shelling out. All 10 golden outputs in `tests/search_golden/` are byte-identical (verified in-container). Root tests are now 46. **Unblocks** W5 `match()`, W7 `ti_resolve` and `lume sql` |
+| `a1ff6ab` | Docs refresh (STATUS/SETUP) for the contracts freeze and the W1 start |
 | `48d0db1` | Decisions D20 (`raw` is a normalizing view over the real signalk-parquet layout) and D21 (ordinary set fields are single-valued per bucket). D18/D19 (`serde`, `toml` in `ti-contracts`) came with the freeze. New decisions continue at **D22+** |
 | `96ac45d` | Merge `ti/w0-contracts` part 2, the **contracts freeze**. Adds `catalog.rs`, `config.rs` (`ti.toml` schema), `engine.rs` (`TiEngine` facade), `envelopes.rs` and `schemas.rs`, plus 27 contract tests. spec/10 now mirrors the crate source and spec/14 is fully filled in. The lead re-verified it on the host: 42 root and 27 contract tests, strict clippy, fmt, and the default build's 4 deps |
 | `b09ac71` | Docs refresh (STATUS) for signalk-formats and the raw view |
@@ -20,10 +22,10 @@ Setup and workflow: [SETUP.md](SETUP.md).
 
 | Agent (pane name) | Pane | Lane/scope | Branch | Clone | Last known state |
 |---|---|---|---|---|---|
-| Industrial Pike | `ee764a09` | Lead and integrator. Fetches lane branches and merges them into `plan/lume-ti` | `plan/lume-ti` | shared tree | `48d0db1` |
-| Rigid Roadrunner | `d58ca1b1` | **W1 `ti-core`** ([lanes/W1](lanes/W1-core.md)): row types, BSI algorithms, three-valued predicate evaluator, naive model, proptests | `ti/w1-core` | `.lanes/w1` | Just cut from `48d0db1`. No commits yet, clean tree. Its old `.lanes/w0` clone is retired |
-| Zygomorphic Prawn | `eccaf836` | **W0 corpus part 2**: exact geo/intervals oracles, 5 oracle-bug fixes from Roadrunner's peer review, `tests/golden/raw_view.sql`, new `crates/ti-bench` generator that writes the real signalk-parquet layout, determinism test, all 61 oracles executed against generated data. Expected outputs come in part 3, after the signalk-parquet layout is verified | `ti/w0-corpus` | `.lanes/corpus` | 1 commit ahead of `b0ea0e1`: `bedb057`, exact oracles + review fixes + `raw_view.sql`. Clean tree. No `ti-bench` yet. Behind `plan/lume-ti` (doesn't have the freeze) |
-| Romantic Pike | `90fc608c` | Search library extraction ([design/search-api.md](design/search-api.md)). Unchanged | `ti/search-api` | `.lanes/search` | 3 lane commits (`46153fa` baselines, `a96ae8c` extract the in-process search API, `7cff93f` CLI parity + warning cleanup), plus `638c483`, a merge of `plan/lume-ti` at `b09ac71`. Clean tree. Behind `plan/lume-ti` (doesn't have the freeze) |
+| Industrial Pike | `ee764a09` | Lead and integrator. Fetches lane branches and merges them into `plan/lume-ti` | `plan/lume-ti` | shared tree | `1297968` |
+| Rigid Roadrunner | `d58ca1b1` | **W1 `ti-core`** ([lanes/W1](lanes/W1-core.md)): row types, BSI algorithms, three-valued predicate evaluator, naive model, proptests | `ti/w1-core` | `.lanes/w1` | Cut from `48d0db1`. No commits yet. Uncommitted work in progress: new `crates/ti-core/`, plus changes to `Cargo.toml` and `plan/spec/11-risks-decisions.md`. Its old `.lanes/w0` clone is retired |
+| Zygomorphic Prawn | `eccaf836` | **W0 corpus part 2**: exact geo/intervals oracles, 5 oracle-bug fixes from Roadrunner's peer review, `tests/golden/raw_view.sql`, new `crates/ti-bench` generator that writes the real signalk-parquet layout, determinism test, all 61 oracles executed against generated data. Expected outputs come in part 3, after the signalk-parquet layout is verified | `ti/w0-corpus` | `.lanes/corpus` | 2 commits ahead of `48d0db1`: `bedb057` (exact oracles + review fixes + `raw_view.sql`) and `b146deb` (merge of `plan/lume-ti` at `48d0db1`, so it has the freeze). Clean tree. No `ti-bench` yet. Doesn't have `1297968` |
+| Romantic Pike | `90fc608c` | **W2 `ti-store`** ([lanes/W2](lanes/W2-store.md)) | `ti/w2-store` | `.lanes/w2` | Cut from `1297968`. No commits yet, clean tree. Search extraction merged (`1297968`). Its old `.lanes/search` clone is retired |
 | Regular Pheasant | `364a3fc7` | Host build pane (PowerShell 7, Windows Rust toolchain). Not an agent | — | — | Agents may split it once each |
 
 How to refresh the last column: `git -C .lanes/<x> log --oneline -5` and `git -C .lanes/<x> status --short`.
@@ -35,7 +37,7 @@ Week numbers count from kickoff. A milestone closes only when every gate test pa
 | Milestone | Lanes | Weeks | Gate status |
 |---|---|---|---|
 | M0 Contracts | W0 | 1 | **In progress.** 2/4 gate items done (see below) |
-| M1 Core and store | W1, W2 | 2–4 | **W1 started** (Rigid Roadrunner). W2 not assigned |
+| M1 Core and store | W1, W2 | 2–4 | **In progress** on two lanes: W1 core (Rigid Roadrunner) and W2 store (Romantic Pike) |
 | M2 Ingest | W3 | 2–5 | Not started |
 | M3 SQL and pushdown | W4 | 2–6 | Not started |
 | M4 Text, geo, intervals | W4, W5, W6 | 6–8 | Not started |
@@ -51,7 +53,7 @@ Week numbers count from kickoff. A milestone closes only when every gate test pa
 | 3 | `ti-bench gen` reproduces the correctness set byte-identically from a seed | In progress (Zygomorphic Prawn, corpus part 2) |
 | 4 | ≥ 60 golden queries with oracle twins and expected output | In progress. 61 queries merged. Oracle fixes are committed in the lane (`bedb057`) but not merged yet. Expected outputs come in part 3 |
 
-Pre-work outside the milestones: search library extraction is committed in its lane and not merged yet. `lume sql` over plain indexes waits until after M3.
+Pre-work outside the milestones: search library extraction is **done** (`1297968`). `lume sql` over plain indexes now waits only on the W4 DataFusion pin (after M3).
 
 ## Open decisions waiting on the user
 

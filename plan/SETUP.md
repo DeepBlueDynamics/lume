@@ -25,6 +25,7 @@ cargo test --locked --verbose
 cargo clippy --all-targets || true   # informational only; the existing crate has warnings
 ```
 
+- At `1297968` the root crate has **46 tests**. The 10 search golden outputs in `tests/search_golden/` must stay byte-identical. Check them with `tests/search_golden/capture.sh [lume-binary]`, which defaults to `./target/debug/lume` and verify mode, so build first.
 - Always pass `--locked`. CI fails if `Cargo.lock` would change.
 - There is no `rust-toolchain` file, so use current stable.
 - CI runs only on pushes and PRs to `main`. Lane branches and `plan/lume-ti` get **no CI**, so run the commands above yourself before you report a commit.

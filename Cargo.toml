@@ -1,11 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["crates/ti-contracts", "crates/ti-store"]
+members = ["crates/ti-contracts", "crates/ti-core", "crates/ti-store"]
 default-members = ["."]
 
 [features]
 default = []
-ti = ["dep:ti-contracts", "dep:ti-store"]
+ti = ["dep:ti-contracts", "dep:ti-core", "dep:ti-store"]
 
 [package]
 name = "lume"
@@ -20,6 +20,7 @@ ureq = { version = "2.9", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 ti-contracts = { path = "crates/ti-contracts", optional = true }
+ti-core = { path = "crates/ti-core", optional = true }
 ti-store = { path = "crates/ti-store", optional = true }
 
 [[bin]]
