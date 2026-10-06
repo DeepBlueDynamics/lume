@@ -222,30 +222,58 @@ fn interval_args(args: &[FunctionArg]) -> Result<Vec<FunctionArg>> {
     for arg in args {
         let (index, value) = match arg {
             FunctionArg::Unnamed(FunctionArgExpr::Expr(value)) if !named => {
-                let index = positional; positional += 1; (index, value)
+                let index = positional;
+                positional += 1;
+                (index, value)
             }
-            FunctionArg::Named { name, arg: FunctionArgExpr::Expr(value), .. } => {
+            FunctionArg::Named {
+                name,
+                arg: FunctionArgExpr::Expr(value),
+                ..
+            } => {
                 named = true;
                 let index = match name.value.to_ascii_lowercase().as_str() {
-                    "predicate_sql" => 0, "min_len" => 1, "max_gap" => 2, "vessel" => 3,
-                    _ => return Err(DataFusionError::Plan(format!("unknown intervals argument {name}"))),
+                    "predicate_sql" => 0,
+                    "min_len" => 1,
+                    "max_gap" => 2,
+                    "vessel" => 3,
+                    _ => {
+                        return Err(DataFusionError::Plan(format!(
+                            "unknown intervals argument {name}"
+                        )))
+                    }
                 };
                 (index, value)
             }
-            _ => return Err(DataFusionError::Plan("invalid intervals argument or positional argument after named argument".into())),
+            _ => {
+                return Err(DataFusionError::Plan(
+                    "invalid intervals argument or positional argument after named argument".into(),
+                ))
+            }
         };
         if index >= 4 || values[index].is_some() {
-            return Err(DataFusionError::Plan("duplicate or excess intervals argument".into()));
+            return Err(DataFusionError::Plan(
+                "duplicate or excess intervals argument".into(),
+            ));
         }
         values[index] = Some(value.clone());
     }
-    if values[0].is_none() { return Err(DataFusionError::Plan("intervals requires predicate_sql".into())); }
+    if values[0].is_none() {
+        return Err(DataFusionError::Plan(
+            "intervals requires predicate_sql".into(),
+        ));
+    }
     let defaults = ["NULL", "'0s'", "'0s'", "NULL"];
-    values.into_iter().enumerate().map(|(index, value)| {
-        Ok(FunctionArg::Unnamed(FunctionArgExpr::Expr(match value {
-            Some(value) => value, None => parsed_expr(defaults[index])?,
-        })))
-    }).collect()
+    values
+        .into_iter()
+        .enumerate()
+        .map(|(index, value)| {
+            Ok(FunctionArg::Unnamed(FunctionArgExpr::Expr(match value {
+                Some(value) => value,
+                None => parsed_expr(defaults[index])?,
+            })))
+        })
+        .collect()
 }
 impl VisitorMut for IntervalArgs {
     type Break = DataFusionError;
@@ -254,25 +282,36 @@ impl VisitorMut for IntervalArgs {
             if f.name.to_string().eq_ignore_ascii_case("intervals") {
                 if let FunctionArguments::List(list) = &mut f.args {
                     match interval_args(&list.args) {
-                        Ok(args) => list.args = args, Err(e) => return ControlFlow::Break(e),
+                        Ok(args) => list.args = args,
+                        Err(e) => return ControlFlow::Break(e),
                     }
                 }
             }
         }
         ControlFlow::Continue(())
     }
-    fn post_visit_table_factor(&mut self, factor: &mut datafusion::sql::sqlparser::ast::TableFactor) -> ControlFlow<Self::Break> {
-        if let datafusion::sql::sqlparser::ast::TableFactor::Table { name, args: Some(args), .. } = factor {
+    fn post_visit_table_factor(
+        &mut self,
+        factor: &mut datafusion::sql::sqlparser::ast::TableFactor,
+    ) -> ControlFlow<Self::Break> {
+        if let datafusion::sql::sqlparser::ast::TableFactor::Table {
+            name,
+            args: Some(args),
+            ..
+        } = factor
+        {
             if name.to_string().eq_ignore_ascii_case("intervals") {
                 match interval_args(&args.args) {
-                    Ok(normalized) => args.args = normalized, Err(e) => return ControlFlow::Break(e),
+                    Ok(normalized) => args.args = normalized,
+                    Err(e) => return ControlFlow::Break(e),
                 }
             }
         }
         if let datafusion::sql::sqlparser::ast::TableFactor::Function { name, args, .. } = factor {
             if name.to_string().eq_ignore_ascii_case("intervals") {
                 match interval_args(args) {
-                    Ok(normalized) => *args = normalized, Err(e) => return ControlFlow::Break(e),
+                    Ok(normalized) => *args = normalized,
+                    Err(e) => return ControlFlow::Break(e),
                 }
             }
         }
@@ -317,7 +356,9 @@ pub fn rewrite_sql(sql: &str, catalog: &SqlCatalog) -> Result<String> {
             "table {names} is derived and read-only; DML/DDL is rejected"
         )));
     }
-    if let ControlFlow::Break(e) = statement.visit(&mut IntervalArgs) { return Err(e); }
+    if let ControlFlow::Break(e) = statement.visit(&mut IntervalArgs) {
+        return Err(e);
+    }
     let mut tables = Tables::default();
     let _ = statement.visit(&mut tables);
     // Queries without an indexed/raw source retain ordinary DataFusion types.

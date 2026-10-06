@@ -1,7 +1,7 @@
 //! Read-only DataFusion SQL over Lume TI shards.
 #![forbid(unsafe_code)]
-mod analyzer;
 mod aggregate;
+mod analyzer;
 mod catalog;
 mod classifier;
 mod fixture;

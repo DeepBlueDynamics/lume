@@ -167,12 +167,18 @@ impl TelemetryExec {
         let mut cols = self.source.eval(key, &Predicate::All).map_err(core_error)?;
         let mut counts = vec![cols.len()];
         for p in &self.predicates {
-            cols &= self.source.eval(key, &p.for_shard(key)).map_err(core_error)?;
+            cols &= self
+                .source
+                .eval(key, &p.for_shard(key))
+                .map_err(core_error)?;
             counts.push(cols.len());
         }
-        self.reports.lock().map_err(|_| {
-            DataFusionError::Execution("scan report lock poisoned".into())
-        })?[self.report_id].steps.push((key, counts));
+        self.reports
+            .lock()
+            .map_err(|_| DataFusionError::Execution("scan report lock poisoned".into()))?
+            [self.report_id]
+            .steps
+            .push((key, counts));
         Ok(cols)
     }
 }
