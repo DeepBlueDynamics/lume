@@ -130,6 +130,56 @@ impl Store {
         &self.manifest
     }
 
+    pub fn wal(&self, vessel: VesselOrd) -> Option<&Wal> {
+        self.wals.get(&vessel)
+    }
+
+    /// Periodic tick called by ingest loop or timer to enforce group commit (D16).
+    /// Fsyncs any WAL whose interval since last sync exceeds 1 s.
+    pub fn tick(&mut self) -> Result<()> {
+        for wal in self.wals.values_mut() {
+            if wal.needs_sync() {
+                wal.sync()?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Explicit shutdown: syncs all WALs durably to disk.
+    pub fn shutdown(&mut self) -> Result<()> {
+        for wal in self.wals.values_mut() {
+            wal.sync()?;
+        }
+        Ok(())
+    }
+
+    pub fn open_shard(&self, key: &ShardKey) -> Option<&OpenShard> {
+        self.open_shards.get(key)
+    }
+
+    pub fn sealed_shard(&self, key: &ShardKey) -> Option<&SealedShard> {
+        self.sealed_shards.get(key)
+    }
+
+    /// Flush dirty open shards to disk.
+    pub fn flush_shards(&mut self) -> Result<()> {
+        for (key, shard) in &mut self.open_shards {
+            if shard.dirty {
+                let urn = self.catalog.vessel_urn(key.vessel)?;
+                shard.flush_to(&self.root, &urn, self.width_seconds)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Truncate all WALs after a flush.
+    pub fn truncate_wals(&mut self) -> Result<()> {
+        for wal in self.wals.values_mut() {
+            wal.truncate_after_flush()?;
+        }
+        Ok(())
+    }
+
     fn ensure_wal(&mut self, vessel: VesselOrd) -> Result<&mut Wal> {
         if !self.wals.contains_key(&vessel) {
             let urn = self.catalog.vessel_urn(vessel)?;
@@ -137,6 +187,14 @@ impl Store {
             self.wals.insert(vessel, wal);
         }
         Ok(self.wals.get_mut(&vessel).unwrap())
+    }
+}
+
+impl Drop for Store {
+    fn drop(&mut self) {
+        for wal in self.wals.values_mut() {
+            let _ = wal.sync();
+        }
     }
 }
 
@@ -195,19 +253,8 @@ impl ShardSink for Store {
     }
 
     fn flush(&mut self) -> Result<()> {
-        // Durably flush all dirty open shards
-        for (key, shard) in &mut self.open_shards {
-            if shard.dirty {
-                let urn = self.catalog.vessel_urn(key.vessel)?;
-                shard.flush_to(&self.root, &urn, self.width_seconds)?;
-            }
-        }
-
-        // Fsync all WALs and truncate to flush point
-        for wal in self.wals.values_mut() {
-            wal.truncate_after_flush()?;
-        }
-
+        self.flush_shards()?;
+        self.truncate_wals()?;
         Ok(())
     }
 
@@ -470,5 +517,74 @@ mod tests {
 
         let matching2 = store2.eval(shard_key, &pred).unwrap();
         assert_eq!(matching2.iter().collect::<Vec<_>>(), vec![20]);
+    }
+
+    #[test]
+    fn test_timer_group_commit_idle_sync() {
+        let dir = tempdir().unwrap();
+        let mut store = Store::open_or_create(dir.path(), 10).unwrap();
+
+        let v0 = store
+            .catalog()
+            .register_vessel(&VesselSpec {
+                urn: "vessels.urn:mrn:signalk:uuid:boat-timer".into(),
+                name: Some("Boat Timer".into()),
+                mmsi: None,
+            })
+            .unwrap();
+
+        let f_speed = store
+            .catalog()
+            .register_field(&FieldSpec {
+                id: 0,
+                path: "navigation.speedOverGround".into(),
+                agg: Some(Agg::Mean),
+                kind: FieldKind::Bsi { scale: 3 },
+                units: Some("m/s".into()),
+            })
+            .unwrap();
+
+        let rec = vec![BucketRecord {
+            vessel: v0,
+            bucket: 1,
+            field: f_speed,
+            value: FieldValue::Int(5000),
+            rewrite: false,
+        }];
+
+        store.apply(&rec).unwrap();
+
+        let wal = store.wal(v0).expect("wal exists for v0");
+        assert!(wal.has_unsynced());
+        assert!(!wal.needs_sync());
+
+        // Immediate tick should not sync since < 1s
+        store.tick().unwrap();
+        assert!(store.wal(v0).unwrap().has_unsynced());
+
+        // Wait over 1s for group commit timer to elapse
+        std::thread::sleep(std::time::Duration::from_millis(1050));
+        assert!(store.wal(v0).unwrap().needs_sync());
+
+        // Tick should now sync WAL
+        store.tick().unwrap();
+        let wal = store.wal(v0).unwrap();
+        assert!(!wal.has_unsynced());
+        assert!(wal.is_synced());
+        assert!(!wal.needs_sync());
+
+        // Second write followed by explicit shutdown
+        let rec2 = vec![BucketRecord {
+            vessel: v0,
+            bucket: 2,
+            field: f_speed,
+            value: FieldValue::Int(7000),
+            rewrite: false,
+        }];
+        store.apply(&rec2).unwrap();
+        assert!(store.wal(v0).unwrap().has_unsynced());
+
+        store.shutdown().unwrap();
+        assert!(store.wal(v0).unwrap().is_synced());
     }
 }

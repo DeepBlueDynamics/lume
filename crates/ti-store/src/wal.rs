@@ -31,6 +31,7 @@ pub struct Wal {
     vessel_urn: String,
     next_sequence: u64,
     last_sync: Instant,
+    has_unsynced: bool,
     header_len: u64,
 }
 
@@ -69,6 +70,7 @@ impl Wal {
                 vessel_urn: vessel_urn.to_string(),
                 next_sequence,
                 last_sync: Instant::now(),
+                has_unsynced: false,
                 header_len,
             };
 
@@ -96,6 +98,7 @@ impl Wal {
                 vessel_urn: vessel_urn.to_string(),
                 next_sequence: 1,
                 last_sync: Instant::now(),
+                has_unsynced: false,
                 header_len,
             };
 
@@ -131,22 +134,42 @@ impl Wal {
 
         self.file.write_all(&frame_bytes)?;
         self.file.write_all(&payload)?;
+        self.file.flush()?;
 
+        self.has_unsynced = true;
         self.next_sequence += 1;
         Ok(seq)
     }
 
     /// Fsync the WAL to disk (group commit).
     pub fn sync(&mut self) -> Result<()> {
-        self.file.flush()?;
-        self.file.sync_data()?;
+        if self.has_unsynced {
+            self.file.flush()?;
+            self.file.sync_data()?;
+            self.has_unsynced = false;
+        }
         self.last_sync = Instant::now();
         Ok(())
     }
 
     /// Check if group commit interval (>= 1s) has elapsed.
     pub fn needs_sync(&self) -> bool {
-        self.last_sync.elapsed().as_secs() >= 1
+        self.has_unsynced && self.last_sync.elapsed().as_millis() >= 1000
+    }
+
+    /// Returns true if there are un-synced appends.
+    pub fn has_unsynced(&self) -> bool {
+        self.has_unsynced
+    }
+
+    /// Returns true if all appended records have been fsynced.
+    pub fn is_synced(&self) -> bool {
+        !self.has_unsynced
+    }
+
+    /// Instant of last sync.
+    pub fn last_sync(&self) -> Instant {
+        self.last_sync
     }
 
     /// Truncate the WAL to the header point after a successful flush.
@@ -156,6 +179,7 @@ impl Wal {
         self.file.seek(SeekFrom::Start(self.header_len))?;
         self.file.sync_all()?;
         self.next_sequence = 1;
+        self.has_unsynced = false;
         self.last_sync = Instant::now();
         Ok(())
     }

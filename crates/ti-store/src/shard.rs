@@ -607,6 +607,12 @@ impl OpenShard {
                 f.sync_all()?;
             }
             fs::rename(&tmp, &target)?;
+            #[cfg(unix)]
+            {
+                if let Ok(dir_file) = File::open(&open_dir) {
+                    let _ = dir_file.sync_all();
+                }
+            }
         }
 
         self.dirty = false;
@@ -777,6 +783,12 @@ impl OpenShard {
                 f.sync_all()?;
             }
             fs::rename(&tmp, &file_path)?;
+            #[cfg(unix)]
+            {
+                if let Ok(dir_file) = File::open(&version_dir) {
+                    let _ = dir_file.sync_all();
+                }
+            }
 
             total_bytes += bytes.len() as u64;
             file_pairs.push((*field_id, bytes));

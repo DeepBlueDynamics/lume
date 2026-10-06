@@ -38,6 +38,14 @@ fn atomic_write_json<T: serde::Serialize>(path: &Path, data: &T) -> Result<()> {
         file.sync_all()?;
     }
     fs::rename(&tmp_path, path)?;
+    #[cfg(unix)]
+    {
+        if let Some(parent) = path.parent() {
+            if let Ok(dir_file) = File::open(parent) {
+                let _ = dir_file.sync_all();
+            }
+        }
+    }
     Ok(())
 }
 
