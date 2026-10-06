@@ -9,14 +9,14 @@ Items marked *(unconfirmed)* are conventions the docs keeper has not verified. A
 
 Lume is a Rust crate (`lume` 0.12.0, edition 2021): `src/lib.rs` plus a CLI in `src/main.rs`.
 By default it has four direct dependencies (`tantivy-fst`, `ureq`, `serde`, `serde_json`) and a committed `Cargo.lock`.
-The repo is now a Cargo workspace. The root `lume` package stays at `.`, and Lume TI (the telemetry index) lives in members under `crates/ti-*` (merged so far: `crates/ti-contracts`, `crates/ti-core`, `crates/ti-store` and `crates/ti-sql`). TI is compiled only behind the `ti` cargo feature, which is off by default.
+The repo is now a Cargo workspace. The root `lume` package stays at `.`, and Lume TI (the telemetry index) lives in members under `crates/ti-*` (merged so far: `crates/ti-contracts`, `crates/ti-core`, `crates/ti-store`, `crates/ti-sql` and `crates/ti-ingest`). TI is compiled only behind the `ti` cargo feature, which is off by default.
 
 **`ti-contracts` is frozen** (`96ac45d`). It holds the shared types and traits, the catalog, the Arrow schemas, the WAL/shard envelopes, the `TiEngine` facade and the `ti.toml` schema (`config.rs`). [spec/10](spec/10-contracts.md) mirrors its source, and [spec/14](spec/14-semantics.md) freezes the behavioral rules. **Any change to a boundary in it needs a contracts PR approved by the lead (integrator).** Build your lane against the crate as it is, and mock other lanes behind its traits. If you think a contract is wrong, mail the lead. Don't patch it in your lane.
 
 **`ti-core`** (W1, `f7faf5f`) holds the in-memory bitmap rows (presence, set, BSI, count), the BSI algorithms, and the three-valued predicate evaluator with the `MemoryShard`/`MemorySource` fixtures. Its [README](../crates/ti-core/README.md) is the reference for the row and evaluator API, and for what is deliberately left to other lanes (Arrow `read` goes to W4, durable WAL/flush/seal to W2, the geo refinement under `NOT` to W6).
 The golden SQL corpus is in `tests/golden/` (see its `README.md`).
 
-**Shared data dir: `.lanes/data/`.** Generated correctness data and expected outputs go here. They never go in a lane clone's tracked files or in git. The dir is under `.lanes/`, so it is gitignored. All containers and the host can see it: in a container it is `/workspace/lume/.lanes/data/`, and on the host it is `C:\Users\kordl\Code\DeepBlueDynamics\lume\.lanes\data\`. The correctness set (~1.9 GB) goes in `.lanes/data/correctness/`. Treat data another lane wrote as read-only unless you own it *(unconfirmed convention)*.
+**Shared data dir: `.lanes/data/`.** Generated correctness data and expected outputs go here. They never go in a lane clone's tracked files or in git. The dir is under `.lanes/`, so it is gitignored. All containers and the host can see it: in a container it is `/workspace/lume/.lanes/data/`, and on the host it is `C:\Users\kordl\Code\DeepBlueDynamics\lume\.lanes\data\`. The correctness set (~1.9 GB) goes in `.lanes/data/correctness/`. **As of 07:19 UTC that copy is incomplete (1.5 GB), so do not use it** until it is regenerated (see STATUS). W3 keeps its own smoke set in `.lanes/data/w3-smoke/`. Treat data another lane wrote as read-only unless you own it *(unconfirmed convention)*.
 The work happens on branch `plan/lume-ti`, not `main`.
 
 ## 2. Build and test the existing crate
@@ -49,11 +49,12 @@ cargo test  --locked -p ti-contracts       # TI crates are not default members; 
 cargo test  --locked -p ti-core            # includes 10,000-case property suites (~40 s on the host)
 cargo test  --locked -p ti-store           # includes the 1,000-run kill -9 crash test (~75 s)
 cargo test  --locked -p ti-sql             # DataFusion SQL layer
+cargo test  --locked -p ti-ingest          # decode, bucketer, sources, recorder/replay
 ```
 
 A plain `cargo test` only tests the root crate, because `default-members = ["."]`.
 
-**Strict checks, scoped to each TI crate.** Run both for every `crates/ti-*` crate you touch (currently `ti-contracts`, `ti-core`, `ti-store` and `ti-sql`; `ti-bench` and `ti-ingest` are in progress):
+**Strict checks, scoped to each TI crate.** Run both for every `crates/ti-*` crate you touch (currently `ti-contracts`, `ti-core`, `ti-store`, `ti-sql` and `ti-ingest`; `ti-bench` is committed in a lane but not merged):
 
 ```sh
 cargo clippy -p <ti crate> -- -D warnings
@@ -61,7 +62,7 @@ cargo fmt -p <ti crate> --check
 ```
 
 A root-wide `cargo fmt --check` is **not** required. The baseline `src/` isn't rustfmt-clean ([repo-fit §7](repo-fit.md)), so don't reformat `src/` as a side effect of TI work.
-**Strict clippy must pass on the host's rustc 1.96** (Regular Pheasant), not only in a container on 1.99. The two versions report different lints. For example, `8e87a11` fixed a `nonminimal_bool` lint the host reported. These checks are not in `ci.yml` yet, so run them yourself.
+**Strict clippy must pass on the host's rustc 1.96** (Compact Echidna, formerly Regular Pheasant), not only in a container on 1.99. The two versions report different lints. For example, `8e87a11` fixed a `nonminimal_bool` lint the host reported. These checks are not in `ci.yml` yet, so run them yourself.
 
 ## 4. Joining as a new agent: the lane-clone workflow
 
@@ -111,14 +112,16 @@ Codex rejects unannotated MCP tools when its approval policy is `never`.
 
 - Inside a container, Hyperia is at **`host.docker.internal:9800`**, not `localhost`.
 - **Identity check, first thing:** run `hyperia whoami` and compare the pane ID with the one the lead gave you. There is a known nemesis8 bug: all containers share one `~/.codex/config.toml`, so you may be reporting as another agent's pane. If the IDs don't match, tell the lead before you send anything else.
+- **Identities change when a container is restored.** The `n8-*` names and pane names are not stable. On 2026-10-06 around 06:00 UTC, every agent pane closed and its session came back in a new pane under a new identity. For example, the W4 owner went from Rigid Roadrunner `d58ca1b1` / n8-sly-viper to Long Horse `888bff45` / n8-hazy-badger. **Address agents by pane id, and re-check the current panes (Hyperia `terminal_status`) before you mail anyone.** [STATUS.md](STATUS.md) keeps the current pane list and "formerly" names.
 - For subcommands (mail, pane access), run `hyperia --help`. The exact CLI syntax is not documented here *(unconfirmed)*.
 - Agents running as Claude Code on the host (such as the lead) use the Hyperia MCP tools instead.
 
 ## 8. The host build pane
 
-**Regular Pheasant** (pane `364a3fc7`) is a PowerShell 7 pane on the Windows host with the Windows Rust toolchain.
+**Compact Echidna** (pane `6914c38e`; it replaced Regular Pheasant `364a3fc7`, which is gone) is a PowerShell 7 pane on the Windows host with the Windows Rust toolchain.
 
 - Use it when your container has no cargo, or when you need a Windows build.
+- A restored container can be missing `rustfmt` and `clippy`, as Long Horse's is. In that case run fmt and strict clippy here, or say in your report that you couldn't. The lead then runs them at merge.
 - Each agent may **split it once**. Run your builds in your split, not in the original pane.
 - **A cold `--features ti` build takes about 10 minutes on the host** (DataFusion). Don't start cold builds in parallel with other agents. Check the other splits first, and reuse your clone's warm `target/` when you can.
 - Build inside your own clone, e.g. `cd C:\Users\kordl\Code\DeepBlueDynamics\lume\.lanes\<name>`. Each clone has its own `target/`, so lanes don't overwrite each other's builds.
