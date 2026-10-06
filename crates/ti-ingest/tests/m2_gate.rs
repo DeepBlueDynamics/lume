@@ -222,10 +222,20 @@ fn test_m2_parquet_backfill_idempotence() {
         store1.seal(shard_key).unwrap();
     }
     let manifest1_re_entries = store1.manifest().entries();
-    assert_eq!(
-        manifest1_re_entries, manifest1_entries,
-        "In-place clear-and-rewrite backfill must produce identical sealed shard entries"
-    );
+    // Re-ingesting into already-sealed shards goes through repair (spec/06), which publishes a
+    // new version. Idempotence means the CONTENT is unchanged: same key, range, bytes and hash.
+    assert_eq!(manifest1_re_entries.len(), manifest1_entries.len());
+    for (re, orig) in manifest1_re_entries.iter().zip(manifest1_entries.iter()) {
+        assert_eq!(
+            (re.key, re.from, re.to, re.bytes, re.hash),
+            (orig.key, orig.from, orig.to, orig.bytes, orig.hash),
+            "In-place clear-and-rewrite backfill must reproduce identical sealed shard content"
+        );
+        assert!(
+            re.version >= orig.version,
+            "repair must not move a shard version backwards"
+        );
+    }
 
     println!(
         "M2 Backfill Idempotence PASSED: manifest entries count = {}, first shard hash = {}",
