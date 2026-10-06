@@ -76,6 +76,14 @@ Place the native `aarch64` `lume` binary in either:
 
 ---
 
+## Documents and chart pins
+
+`lume ti ingest` polls Signal K Resources notes every 60 seconds with the ingest token, or anonymously. The optional signalk-logbook plugin is detected through its v2 logentries API; legacy date-based logbook routes are supported as a fallback. Successful complete snapshots create/update/delete owned documents; failures preserve the last successful documents and never stop telemetry. A note without a timestamp/creation time uses a stable first-seen timestamp. Documents before the existing 2020 epoch are rejected rather than silently shifted; rejected attempts are counted in ingest status and the diagnostics panel.
+
+In the SQL console, run an `intervals()` query with `start`/`end` columns, then click **Pin to chart**. Notes carry the interval range and query text in `properties`, tagged with ownership group `lume-ti`. This tag is used for cleanup; it does not create a Freeboard display-selection group resource. Include `latitude`/`longitude` columns or fill the optional coordinate fields to place an interval note on the chart; unlocated notes remain in the Resources list. A query with a single literal `in_bbox(lat_min, lon_min, lat_max, lon_max)` also creates a GeoJSON region and links its notes to it; boxes crossing the dateline are split.
+
+Pin/unpin uses the logged-in browser's same-origin Signal K session. Sign in to Signal K if its security settings require write access. The ingest token remains read-only. Neither startup nor running a query writes chart resources. **Unpin all lume-ti** asks for confirmation and removes only notes/regions marked as created by this feature. Truncated results must be narrowed before pinning. A failed partial write reports how many resources were written; unpin can clean them up. Resource changes do not write any vessel/data path.
+
 ## Verification & Testing
 
 Run unit tests via Node's native test runner:

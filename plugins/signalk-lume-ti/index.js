@@ -213,6 +213,8 @@ module.exports = function (app) {
         });
       });
 
+      router.get('/pin.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'pin.js')));
+
       // 4. Static webapp files
       const publicDir = path.join(__dirname, 'public');
       if (fs.existsSync(publicDir)) {

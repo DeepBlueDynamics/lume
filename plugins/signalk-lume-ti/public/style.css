@@ -199,7 +199,17 @@ body {
   border-color: var(--primary);
 }
 
+.editor-actions input {
+  width: 8rem;
+  padding: 0.4rem;
+  color: var(--text-main);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
 .editor-actions {
+  flex-wrap: wrap;
   display: flex;
   align-items: center;
   gap: 1rem;
