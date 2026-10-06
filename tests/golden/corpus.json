@@ -118,7 +118,7 @@
    "class": "Q2",
    "description": "Motivating query (spec 01): wind>4m/s, bilge>=3, port started, match notes, 90d",
    "ti_sql": "SELECT vessel, date_bin(INTERVAL '10 minutes', ts) AS win,\n       max(\"environment.wind.speedTrue@max\") AS wind_max\nFROM telemetry\nWHERE \"propulsion.port.state\" = 'started'\n  AND \"electrical.bilge.pumpCycles\" >= 3\n  AND \"environment.wind.speedTrue@max\" > 4.0\n   AND match(notes, 'leak OR water')\n   AND ts > TIMESTAMP '2026-03-01'\nGROUP BY vessel, win",
-   "oracle_sql": "WITH w AS (\n  SELECT context AS vessel,\n         time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt,\n         round(max(value), 3) AS wmax\n  FROM raw WHERE path = 'environment.wind.speedTrue'\n  GROUP BY 1, 2),\nb AS (\n  SELECT context AS vessel,\n         time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt,\n         count(*) AS cyc\n  FROM raw WHERE path = 'electrical.bilge.pumpCycles'\n  GROUP BY 1, 2),\ns AS (\n  SELECT context AS vessel,\n         time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt\n  FROM raw WHERE path = 'propulsion.port.state'\n  GROUP BY 1, 2 HAVING arg_max(value_str, ts) = 'started'),\nn AS (\n  SELECT DISTINCT context AS vessel,\n         time_bucket(INTERVAL '10 seconds', ts_start, TIMESTAMP '2020-01-01') AS bkt\n  FROM docs\n  WHERE kind = 'notes' AND (lower(body) LIKE '%leak%' OR lower(body) LIKE '%water%')\n    AND context = 'vessels.urn:mrn:imo:mmsi:367000000')\nSELECT w.vessel, time_bucket(INTERVAL '10 minutes', w.bkt, TIMESTAMP '2020-01-01') AS win,\n       round(max(w.wmax), 3) AS wind_max\nFROM w JOIN b ON w.vessel=b.vessel AND w.bkt=b.bkt\n       JOIN s ON w.vessel=s.vessel AND w.bkt=s.bkt\n       JOIN n ON w.vessel=n.vessel AND w.bkt=n.bkt\nWHERE w.wmax > 4.0 AND b.cyc >= 3 AND w.bkt > TIMESTAMP '2026-03-01'\nGROUP BY w.vessel, win",
+   "oracle_sql": "WITH w AS (\n  SELECT context AS vessel,\n         time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt,\n         round(max(value), 3) AS wmax\n  FROM raw WHERE path = 'environment.wind.speedTrue'\n  GROUP BY 1, 2),\nb AS (\n  SELECT context AS vessel,\n         time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt,\n         count(*) AS cyc\n  FROM raw WHERE path = 'electrical.bilge.pumpCycles'\n  GROUP BY 1, 2),\ns AS (\n  SELECT context AS vessel,\n         time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt\n  FROM raw WHERE path = 'propulsion.port.state'\n  GROUP BY 1, 2 HAVING arg_max(value_str, ts) = 'started'),\nn AS (\n  SELECT DISTINCT context AS vessel,\n         unnest(generate_series(time_bucket(INTERVAL '10 seconds', ts_start, TIMESTAMP '2020-01-01'), COALESCE(ts_end - INTERVAL '1 second', ts_start), INTERVAL '10 seconds')) AS bkt\n  FROM docs\n  WHERE kind = 'notes' AND (lower(body) LIKE '%leak%' OR lower(body) LIKE '%water%')\n    AND context = 'vessels.urn:mrn:imo:mmsi:367000000')\nSELECT w.vessel, time_bucket(INTERVAL '10 minutes', w.bkt, TIMESTAMP '2020-01-01') AS win,\n       round(max(w.wmax), 3) AS wind_max\nFROM w JOIN b ON w.vessel=b.vessel AND w.bkt=b.bkt\n       JOIN s ON w.vessel=s.vessel AND w.bkt=s.bkt\n       JOIN n ON w.vessel=n.vessel AND w.bkt=n.bkt\nWHERE w.wmax > 4.0 AND b.cyc >= 3 AND w.bkt > TIMESTAMP '2026-03-01'\nGROUP BY w.vessel, win",
    "tolerance": {
     "sort": [
      "vessel",
@@ -132,7 +132,8 @@
      "wind_max": 3
     }
    },
-   "expected_path": "expected/q2-001.json"
+   "expected_path": "expected/q2-001.json",
+   "exclude": "count-path semantics: oracle counts raw samples per bucket, TI stores the sample value; needs a count_paths contract (spec/05) (filters electrical.bilge.pumpCycles >= 3)"
   },
   {
    "id": "q2-002",
@@ -520,7 +521,7 @@
    "class": "Q6",
    "description": "match(notes,'leak') AND heel/roll > 0.05 rad",
    "ti_sql": "SELECT vessel, ts, \"navigation.attitude.roll@max\" AS roll_max\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND match(notes, 'leak')\n  AND \"navigation.attitude.roll@max\" > 0.05\n  AND ts >= TIMESTAMP '2026-05-01'\nORDER BY ts",
-   "oracle_sql": "WITH roll AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 4) AS v\n  FROM raw WHERE path='navigation.attitude.roll' GROUP BY 1,2),\nn AS (\n  SELECT DISTINCT context AS vessel, time_bucket(INTERVAL '10 seconds', ts_start, TIMESTAMP '2020-01-01') AS bkt\n  FROM docs WHERE kind='notes' AND lower(body) LIKE '%leak%' AND context='vessels.urn:mrn:imo:mmsi:367000000')\nSELECT roll.vessel, roll.bkt AS ts, round(roll.v, 4) AS roll_max\nFROM roll JOIN n ON roll.vessel=n.vessel AND roll.bkt=n.bkt\nWHERE roll.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND roll.v > 0.05 AND roll.bkt >= TIMESTAMP '2026-05-01'\nORDER BY ts",
+   "oracle_sql": "WITH roll AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 4) AS v\n  FROM raw WHERE path='navigation.attitude.roll' GROUP BY 1,2),\nn AS (\n  SELECT DISTINCT context AS vessel, unnest(generate_series(time_bucket(INTERVAL '10 seconds', ts_start, TIMESTAMP '2020-01-01'), COALESCE(ts_end - INTERVAL '1 second', ts_start), INTERVAL '10 seconds')) AS bkt\n  FROM docs WHERE kind='notes' AND lower(body) LIKE '%leak%' AND context='vessels.urn:mrn:imo:mmsi:367000000')\nSELECT roll.vessel, roll.bkt AS ts, round(roll.v, 4) AS roll_max\nFROM roll JOIN n ON roll.vessel=n.vessel AND roll.bkt=n.bkt\nWHERE roll.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND roll.v > 0.05 AND roll.bkt >= TIMESTAMP '2026-05-01'\nORDER BY ts",
    "tolerance": {
     "sort": [
      "vessel",
@@ -541,7 +542,7 @@
    "class": "Q6",
    "description": "match(notes,'leak OR water') AND depth < 3",
    "ti_sql": "SELECT vessel, ts, \"environment.depth.belowTransducer@min\" AS depth_min\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND match(notes, 'leak OR water')\n  AND \"environment.depth.belowTransducer@min\" < 3.0\n  AND ts >= TIMESTAMP '2026-05-01'\nORDER BY ts",
-   "oracle_sql": "WITH d AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(min(value), 2) AS v\n  FROM raw WHERE path='environment.depth.belowTransducer' GROUP BY 1,2),\nn AS (\n  SELECT DISTINCT context AS vessel, time_bucket(INTERVAL '10 seconds', ts_start, TIMESTAMP '2020-01-01') AS bkt\n  FROM docs WHERE kind='notes' AND (lower(body) LIKE '%leak%' OR lower(body) LIKE '%water%') AND context='vessels.urn:mrn:imo:mmsi:367000000')\nSELECT d.vessel, d.bkt AS ts, round(d.v, 2) AS depth_min\nFROM d JOIN n ON d.vessel=n.vessel AND d.bkt=n.bkt\nWHERE d.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND d.v < 3.0 AND d.bkt >= TIMESTAMP '2026-05-01'\nORDER BY ts",
+   "oracle_sql": "WITH d AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(min(value), 2) AS v\n  FROM raw WHERE path='environment.depth.belowTransducer' GROUP BY 1,2),\nn AS (\n  SELECT DISTINCT context AS vessel, unnest(generate_series(time_bucket(INTERVAL '10 seconds', ts_start, TIMESTAMP '2020-01-01'), COALESCE(ts_end - INTERVAL '1 second', ts_start), INTERVAL '10 seconds')) AS bkt\n  FROM docs WHERE kind='notes' AND (lower(body) LIKE '%leak%' OR lower(body) LIKE '%water%') AND context='vessels.urn:mrn:imo:mmsi:367000000')\nSELECT d.vessel, d.bkt AS ts, round(d.v, 2) AS depth_min\nFROM d JOIN n ON d.vessel=n.vessel AND d.bkt=n.bkt\nWHERE d.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND d.v < 3.0 AND d.bkt >= TIMESTAMP '2026-05-01'\nORDER BY ts",
    "tolerance": {
     "sort": [
      "vessel",
@@ -562,7 +563,7 @@
    "class": "Q6",
    "description": "match(logbook,'anchorage') AND wind > 15 kn",
    "ti_sql": "SELECT vessel, ts, \"environment.wind.speedTrue@max\" AS wind_max\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND match(logbook, 'anchorage')\n  AND \"environment.wind.speedTrue@max\" > 8.0\n  AND ts >= TIMESTAMP '2026-05-01'\nORDER BY ts",
-   "oracle_sql": "WITH w AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='environment.wind.speedTrue' GROUP BY 1,2),\nn AS (\n  SELECT DISTINCT context AS vessel, time_bucket(INTERVAL '10 seconds', ts_start, TIMESTAMP '2020-01-01') AS bkt\n  FROM docs WHERE kind='logbook' AND lower(body) LIKE '%anchorage%' AND context='vessels.urn:mrn:imo:mmsi:367000000')\nSELECT w.vessel, w.bkt AS ts, round(w.v, 3) AS wind_max\nFROM w JOIN n ON w.vessel=n.vessel AND w.bkt=n.bkt\nWHERE w.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND w.v > 8.0 AND w.bkt >= TIMESTAMP '2026-05-01'\nORDER BY ts",
+   "oracle_sql": "WITH w AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='environment.wind.speedTrue' GROUP BY 1,2),\nn AS (\n  SELECT DISTINCT context AS vessel, unnest(generate_series(time_bucket(INTERVAL '10 seconds', ts_start, TIMESTAMP '2020-01-01'), COALESCE(ts_end - INTERVAL '1 second', ts_start), INTERVAL '10 seconds')) AS bkt\n  FROM docs WHERE kind='logbook' AND lower(body) LIKE '%anchorage%' AND context='vessels.urn:mrn:imo:mmsi:367000000')\nSELECT w.vessel, w.bkt AS ts, round(w.v, 3) AS wind_max\nFROM w JOIN n ON w.vessel=n.vessel AND w.bkt=n.bkt\nWHERE w.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND w.v > 8.0 AND w.bkt >= TIMESTAMP '2026-05-01'\nORDER BY ts",
    "tolerance": {
     "sort": [
      "vessel",
@@ -587,7 +588,8 @@
    "tolerance": {
     "sort": [
      "vessel",
-     "title"
+     "title",
+     "sog"
     ],
     "exact": [
      "vessel",
@@ -604,7 +606,7 @@
    "class": "Q6",
    "description": "match(notes,'weather') AND pressure < 101000 Pa",
    "ti_sql": "SELECT vessel, ts, \"environment.outside.pressure@min\" AS p_min\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND match(notes, 'weather')\n  AND \"environment.outside.pressure@min\" < 101000.0\n  AND ts >= TIMESTAMP '2026-05-01'\nORDER BY ts",
-   "oracle_sql": "WITH p AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(min(value), 0) AS v\n  FROM raw WHERE path='environment.outside.pressure' GROUP BY 1,2),\nn AS (\n  SELECT DISTINCT context AS vessel, time_bucket(INTERVAL '10 seconds', ts_start, TIMESTAMP '2020-01-01') AS bkt\n  FROM docs WHERE kind='notes' AND lower(body) LIKE '%weather%' AND context='vessels.urn:mrn:imo:mmsi:367000000')\nSELECT p.vessel, p.bkt AS ts, round(p.v, 0) AS p_min\nFROM p JOIN n ON p.vessel=n.vessel AND p.bkt=n.bkt\nWHERE p.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND p.v < 101000.0 AND p.bkt >= TIMESTAMP '2026-05-01'\nORDER BY ts",
+   "oracle_sql": "WITH p AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(min(value), 0) AS v\n  FROM raw WHERE path='environment.outside.pressure' GROUP BY 1,2),\nn AS (\n  SELECT DISTINCT context AS vessel, unnest(generate_series(time_bucket(INTERVAL '10 seconds', ts_start, TIMESTAMP '2020-01-01'), COALESCE(ts_end - INTERVAL '1 second', ts_start), INTERVAL '10 seconds')) AS bkt\n  FROM docs WHERE kind='notes' AND lower(body) LIKE '%weather%' AND context='vessels.urn:mrn:imo:mmsi:367000000')\nSELECT p.vessel, p.bkt AS ts, round(p.v, 0) AS p_min\nFROM p JOIN n ON p.vessel=n.vessel AND p.bkt=n.bkt\nWHERE p.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND p.v < 101000.0 AND p.bkt >= TIMESTAMP '2026-05-01'\nORDER BY ts",
    "tolerance": {
     "sort": [
      "vessel",
@@ -709,7 +711,7 @@
    "class": "Q7",
    "description": "within_nm AND match(notes) (geo + text + telemetry)",
    "ti_sql": "SELECT vessel, ts, \"environment.depth.belowTransducer@min\" AS depth_min\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND within_nm(36.619, -122.389, 3.0)\n  AND match(notes, 'mooring')\n  AND \"environment.depth.belowTransducer@min\" < 10.0\n  AND ts >= TIMESTAMP '2026-05-01'\nORDER BY ts",
-   "oracle_sql": "WITH pos AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt,\n         arg_max(value, ts) FILTER (WHERE path='navigation.position.latitude') AS lat,\n         arg_max(value, ts) FILTER (WHERE path='navigation.position.longitude') AS lon\n  FROM raw WHERE path IN ('navigation.position.latitude','navigation.position.longitude') GROUP BY 1,2),\nd AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, min(value) AS v\n  FROM raw WHERE path='environment.depth.belowTransducer' GROUP BY 1,2),\nn AS (\n  SELECT DISTINCT context AS vessel, time_bucket(INTERVAL '10 seconds', ts_start, TIMESTAMP '2020-01-01') AS bkt\n  FROM docs WHERE kind='notes' AND lower(body) LIKE '%mooring%' AND context='vessels.urn:mrn:imo:mmsi:367000000')\nSELECT pos.vessel, pos.bkt AS ts, round(d.v, 2) AS depth_min\nFROM pos JOIN d ON pos.vessel=d.vessel AND pos.bkt=d.bkt\n         JOIN n ON pos.vessel=n.vessel AND pos.bkt=n.bkt\nWHERE pos.vessel='vessels.urn:mrn:imo:mmsi:367000000'\n  AND 2.0 * 3440.065 * asin(sqrt(pow(sin(radians(pos.lat - 36.619) / 2.0), 2.0) + cos(radians(36.619)) * cos(radians(pos.lat)) * pow(sin(radians(pos.lon - (-122.389)) / 2.0), 2.0))) < 3.0\n  AND d.v < 10.0 AND pos.bkt >= TIMESTAMP '2026-05-01'\nORDER BY ts",
+   "oracle_sql": "WITH pos AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt,\n         arg_max(value, ts) FILTER (WHERE path='navigation.position.latitude') AS lat,\n         arg_max(value, ts) FILTER (WHERE path='navigation.position.longitude') AS lon\n  FROM raw WHERE path IN ('navigation.position.latitude','navigation.position.longitude') GROUP BY 1,2),\nd AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, min(value) AS v\n  FROM raw WHERE path='environment.depth.belowTransducer' GROUP BY 1,2),\nn AS (\n  SELECT DISTINCT context AS vessel, unnest(generate_series(time_bucket(INTERVAL '10 seconds', ts_start, TIMESTAMP '2020-01-01'), COALESCE(ts_end - INTERVAL '1 second', ts_start), INTERVAL '10 seconds')) AS bkt\n  FROM docs WHERE kind='notes' AND lower(body) LIKE '%mooring%' AND context='vessels.urn:mrn:imo:mmsi:367000000')\nSELECT pos.vessel, pos.bkt AS ts, round(d.v, 2) AS depth_min\nFROM pos JOIN d ON pos.vessel=d.vessel AND pos.bkt=d.bkt\n         JOIN n ON pos.vessel=n.vessel AND pos.bkt=n.bkt\nWHERE pos.vessel='vessels.urn:mrn:imo:mmsi:367000000'\n  AND 2.0 * 3440.065 * asin(sqrt(pow(sin(radians(pos.lat - 36.619) / 2.0), 2.0) + cos(radians(36.619)) * cos(radians(pos.lat)) * pow(sin(radians(pos.lon - (-122.389)) / 2.0), 2.0))) < 3.0\n  AND d.v < 10.0 AND pos.bkt >= TIMESTAMP '2026-05-01'\nORDER BY ts",
    "tolerance": {
     "sort": [
      "vessel",
@@ -1088,7 +1090,7 @@
    "class": "Q6",
    "description": "match(notes,'bilge') AND bilge pump cycles > 0 (text + count)",
    "ti_sql": "SELECT vessel, ts, \"electrical.bilge.pumpCycles\" AS cycles\nFROM telemetry\nWHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND match(notes,'bilge')\n  AND \"electrical.bilge.pumpCycles\" > 0\n  AND ts >= TIMESTAMP '2026-05-01'\nORDER BY ts",
-   "oracle_sql": "WITH b AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, count(*) AS v\n  FROM raw WHERE path='electrical.bilge.pumpCycles' GROUP BY 1,2),\nn AS (\n  SELECT DISTINCT context AS vessel, time_bucket(INTERVAL '10 seconds', ts_start, TIMESTAMP '2020-01-01') AS bkt\n  FROM docs WHERE kind='notes' AND lower(body) LIKE '%bilge%' AND context='vessels.urn:mrn:imo:mmsi:367000000')\nSELECT b.vessel, b.bkt AS ts, b.v AS cycles\nFROM b JOIN n ON b.vessel=n.vessel AND b.bkt=n.bkt\nWHERE b.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND b.v > 0 AND b.bkt >= TIMESTAMP '2026-05-01'\nORDER BY ts",
+   "oracle_sql": "WITH b AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, count(*) AS v\n  FROM raw WHERE path='electrical.bilge.pumpCycles' GROUP BY 1,2),\nn AS (\n  SELECT DISTINCT context AS vessel, unnest(generate_series(time_bucket(INTERVAL '10 seconds', ts_start, TIMESTAMP '2020-01-01'), COALESCE(ts_end - INTERVAL '1 second', ts_start), INTERVAL '10 seconds')) AS bkt\n  FROM docs WHERE kind='notes' AND lower(body) LIKE '%bilge%' AND context='vessels.urn:mrn:imo:mmsi:367000000')\nSELECT b.vessel, b.bkt AS ts, b.v AS cycles\nFROM b JOIN n ON b.vessel=n.vessel AND b.bkt=n.bkt\nWHERE b.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND b.v > 0 AND b.bkt >= TIMESTAMP '2026-05-01'\nORDER BY ts",
    "tolerance": {
     "sort": [
      "vessel",
@@ -1101,7 +1103,8 @@
     ],
     "bsi": {}
    },
-   "expected_path": "expected/q6-006.json"
+   "expected_path": "expected/q6-006.json",
+   "exclude": "count-path semantics: oracle counts raw samples per bucket, TI stores the sample value; needs a count_paths contract (spec/05)"
   },
   {
    "id": "qx-008",

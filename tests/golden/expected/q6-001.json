@@ -6,8 +6,43 @@
   },
   {
     "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-02 12:00:10",
+    "roll_max": 0.3304
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-02 12:00:40",
+    "roll_max": 0.3308
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-02 12:00:50",
+    "roll_max": 0.2704
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
     "ts": "2026-05-05 00:00:00",
     "roll_max": 0.3381
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-05 00:00:30",
+    "roll_max": 0.1755
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-05 00:00:50",
+    "roll_max": 0.1318
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 12:00:20",
+    "roll_max": 0.0838
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 12:00:50",
+    "roll_max": 0.0956
   },
   {
     "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
@@ -16,8 +51,23 @@
   },
   {
     "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-10 00:00:30",
+    "roll_max": 0.1819
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-10 00:00:50",
+    "roll_max": 0.2801
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
     "ts": "2026-05-12 12:00:00",
     "roll_max": 0.0736
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-12 12:00:20",
+    "roll_max": 0.3472
   },
   {
     "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
@@ -26,7 +76,92 @@
   },
   {
     "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-15 00:00:10",
+    "roll_max": 0.1142
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-15 00:00:20",
+    "roll_max": 0.2329
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-15 00:00:30",
+    "roll_max": 0.0775
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-15 00:00:40",
+    "roll_max": 0.0932
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-17 12:00:10",
+    "roll_max": 0.2754
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-17 12:00:20",
+    "roll_max": 0.32
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-17 12:00:30",
+    "roll_max": 0.3291
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-17 12:00:40",
+    "roll_max": 0.2033
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-17 12:00:50",
+    "roll_max": 0.1805
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-22 12:00:50",
+    "roll_max": 0.3434
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-25 00:00:50",
+    "roll_max": 0.2496
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-27 12:00:10",
+    "roll_max": 0.3317
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-27 12:00:20",
+    "roll_max": 0.1373
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-27 12:00:30",
+    "roll_max": 0.2365
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-27 12:00:40",
+    "roll_max": 0.259
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
     "ts": "2026-05-30 00:00:00",
     "roll_max": 0.1354
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-30 00:00:10",
+    "roll_max": 0.0509
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-30 00:00:40",
+    "roll_max": 0.0837
   }
 ]
