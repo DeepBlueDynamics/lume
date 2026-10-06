@@ -43,6 +43,10 @@ impl SqlSession {
             &mut state,
             Arc::new(crate::analyzer::TimestampRewrite::default()),
         )?;
+        datafusion::logical_expr::registry::FunctionRegistry::register_function_rewrite(
+            &mut state,
+            Arc::new(crate::geo::GeoRewrite),
+        )?;
         let aggregate_diagnostics = Arc::new(Mutex::new(vec![]));
         if enabled {
             let mut rules = state.physical_optimizers().to_vec();
@@ -403,16 +407,6 @@ fn register_functions(
         }),
     ));
     for (name, arity) in [("in_bbox", 4), ("within_nm", 3)] {
-        context.register_udf(create_udf(
-            name,
-            vec![DataType::Float64; arity],
-            DataType::Boolean,
-            Volatility::Immutable,
-            Arc::new(|_| {
-                Err(DataFusionError::NotImplemented(
-                    "exact geo refinement requires the W6 adapter".into(),
-                ))
-            }),
-        ));
+        context.register_udf(crate::geo::marker(name, arity));
     }
 }

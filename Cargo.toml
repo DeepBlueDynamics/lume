@@ -1,11 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["crates/ti-contracts", "crates/ti-core", "crates/ti-store", "crates/ti-sql", "crates/ti-ingest", "crates/ti-bench"]
+members = ["crates/ti-contracts", "crates/ti-core", "crates/ti-store", "crates/ti-sql", "crates/ti-ingest", "crates/ti-bench", "crates/ti-geo"]
 default-members = ["."]
 
 [features]
 default = []
-ti = ["dep:ti-contracts", "dep:ti-core", "dep:ti-store", "dep:ti-sql", "dep:ti-ingest"]
+ti = ["dep:ti-contracts", "dep:ti-core", "dep:ti-store", "dep:ti-sql", "dep:ti-ingest", "dep:ti-geo"]
 
 [package]
 name = "lume"
@@ -24,6 +24,7 @@ ti-core = { path = "crates/ti-core", optional = true }
 ti-sql = { path = "crates/ti-sql", optional = true }
 ti-store = { path = "crates/ti-store", optional = true }
 ti-ingest = { path = "crates/ti-ingest", optional = true }
+ti-geo = { path = "crates/ti-geo", optional = true }
 
 [[bin]]
 name = "lume"

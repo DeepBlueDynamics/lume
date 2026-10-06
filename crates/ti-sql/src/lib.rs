@@ -5,6 +5,7 @@ mod analyzer;
 mod catalog;
 mod classifier;
 mod fixture;
+mod geo;
 mod intervals;
 mod materialize;
 mod provider;

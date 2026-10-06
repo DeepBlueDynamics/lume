@@ -45,3 +45,20 @@ Verified in the replacement container on 2026-10-06:
 The aggregate comparisons use 3 vessels × 65,700 candidate buckets with a deterministic sparse universe and NULLs, 5 thresholds × 4 grouping shapes, and an all-NULL selection. They compare all count/count(column)/sum/min/max result rows against a session with the optimizer disabled. No runtime dependencies or frozen contracts changed.
 
 Formatting and strict rustc 1.96 clippy remain assigned to the lead's host because this container has neither component. The release profile is absent; an optional W=10s release measurement was not run. Full M3 generated expected-output acceptance and full M4 text/geo/reference-machine acceptance remain separate.
+
+## W6 geo checkpoint
+
+Verified on ti/w6-geo based on 8afa646, 2026-10-06:
+
+- Combined `cargo test -p ti-sql -p ti-ingest -p ti-geo`: SQL 21 passed / 2 ignored; ingest 23 passed / 2 ignored; geo 6 passed. Geo coverage includes 600 random bbox/radius cases, poles, antimeridian and degenerate boundaries; SQL covers missing coordinates, NOT, OR, legacy absent H3 rows and exact zero radius. Ingest seals and reads real res5/7/9 cell rows; no placeholder cell 0 is stored.
+- `cargo check -p lume --features ti`: passed; only the existing root `cands` assignment warning.
+- Real-data M2 oracle replay: `cargo test -p ti-ingest --test m2_gate test_m2_oracle_replay_24h -- --ignored --nocapture` passed with workspace TMPDIR and TI_DATA_DIR. Read 208,937 raw points from 25 Parquet files; all 460,112 emitted BucketRecords matched, zero unmatched.
+- Res9 local uniform grid: 22,650 exact matches, 27,085 candidates, 4,435 false-positive buckets =16.3744% of candidates. No universal false-positive rate is claimed.
+- `cargo tree -p ti-geo -d`: no duplicate geo/geo-types; normal/build dependencies contain no native geometry/C compiler package.
+- `git diff --check`: passed.
+
+Geo SQL binds implicit @last coordinates in typed analysis. OR(H3 cover, BSI envelope) is Inexact and retains exact bbox/haversine residuals; NOT of geo remains Unsupported. The envelope preserves independently reported/preferred-source coordinates, rounding and old shards; no frozen contracts changed. The lead approved D31 and this safety design.
+
+The ignored Q7 stored-output gate requires `TI_DATA_DIR`, `TI_EXPECTED_DIR` and `TMPDIR` under the workspace. It builds one vessel's relevant raw partitions into a scratch Store. q7-005 remains pending W5 because it also invokes match(). q7-006's missing TI GROUP BY is reported to the corpus owner. Shared expected.log reports empty output for all six Q7 entries; those comparisons alone cannot establish corpus recall. Nonempty local geo fixtures provide separate correctness evidence.
+
+The container has no rustfmt/clippy; Rust 1.96 formatting and strict clippy remain assigned to Pike's host at merge.
