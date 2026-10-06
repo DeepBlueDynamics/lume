@@ -83,7 +83,9 @@ Reserved, and written by the owning lane at merge (agreed among the lanes on 202
 
 | D33 | Until per-path, sticky median-interval detection exists, every numeric path uses the **default** aggregate profile (`@mean/@min/@max`) for every bucket; the `slow` profile is not auto-applied | Lead decision 2026-10-06: ingest decided "slow" per bucket (any single-sample bucket), so 0.1 Hz paths at W = 10 s got only `@last` and `@mean/@min/@max` vanished (first M3 corpus run: 38/61 failed on missing columns). Cost: index 614 MB for 5 vessels × 90 d (0.32× raw, ≈ 500 MB/vessel-year), inside the spec/05 budget |
 
-The next free number is **D34**. Ask the lead before taking one. Every new runtime dependency needs a line here
+| D34 | **Amends spec/13's oracle tolerance.** BSI columns compare within **±1 × 10^−scale** (one unit in the last place), not ±0.5 | Lead decision 2026-10-06: TI stores fixed-point values at `scale` and the DuckDB oracle rounds its output to `scale`. Each sits up to half a unit from the true value, so a correct pair can differ by a full unit (e.g. an hourly mean of bucket means 25.47649 vs the oracle's round(avg raw, 3) = 25.477). Sums over many buckets can still exceed this; those entries narrow their scale or window |
+
+The next free number is **D35**. Ask the lead before taking one. Every new runtime dependency needs a line here
 (PR rule, [10-contracts](10-contracts.md)).
 
 ## Sources (from spec)

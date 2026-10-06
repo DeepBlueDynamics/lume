@@ -7,11 +7,17 @@
 //!
 //! `<raw_dir>` may be the whole `tier=raw` directory or a single `context=...` subdirectory
 //! (one vessel), which keeps disk use small. The store root must not already exist.
+//!
+//! If `<raw_dir>/../catalog/paths/paths.parquet` exists (written by `ti-bench gen`), its
+//! per-path `scale` column seeds `TiConfig::path_scales`, standing in for the Signal K
+//! `meta.units` that a raw-tier backfill does not have.
 
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
+use arrow_array::{Array, StringArray, UInt8Array};
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use ti_contracts::{ShardKey, ShardSink, TiConfig};
 use ti_ingest::parquet::{backfill_directory, BackfillStatus};
 use ti_store::Store;
@@ -51,6 +57,38 @@ fn shard_keys(root: &Path) -> Vec<ShardKey> {
     keys
 }
 
+/// Read `path -> scale` from a ti-bench `catalog/paths/paths.parquet`, if present.
+fn catalog_scales(raw: &Path) -> Vec<(String, u8)> {
+    let mut out = Vec::new();
+    let Some(root) = raw.ancestors().find(|a| a.join("catalog").is_dir()) else {
+        return out;
+    };
+    let Ok(file) = std::fs::File::open(root.join("catalog/paths/paths.parquet")) else {
+        return out;
+    };
+    let Ok(reader) = ParquetRecordBatchReaderBuilder::try_new(file).and_then(|b| b.build()) else {
+        return out;
+    };
+    for batch in reader.flatten() {
+        let (Some(paths), Some(scales)) = (
+            batch
+                .column_by_name("path")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>()),
+            batch
+                .column_by_name("scale")
+                .and_then(|c| c.as_any().downcast_ref::<UInt8Array>()),
+        ) else {
+            continue;
+        };
+        for i in 0..batch.num_rows() {
+            if !scales.is_null(i) {
+                out.push((paths.value(i).to_string(), scales.value(i)));
+            }
+        }
+    }
+    out
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.len() < 2 {
@@ -65,7 +103,12 @@ fn main() {
         .unwrap_or("vessels.urn:mrn:imo:mmsi:367000000");
     assert!(!root.exists(), "store root {root:?} already exists");
 
-    let config = TiConfig::default();
+    let mut config = TiConfig::default();
+    let scales = catalog_scales(raw);
+    println!("path scales    : {} from catalog/paths", scales.len());
+    for (path, scale) in scales {
+        config.path_scales.insert(path, scale);
+    }
     let mut store = Store::open_or_create(root, config.width_seconds).expect("open store");
     let catalog = Arc::clone(store.catalog());
 

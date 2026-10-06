@@ -143,7 +143,10 @@ pub fn diff_rows(
                 if scale > 18 {
                     return Err(error("oracle scale exceeds 18"));
                 }
-                (a - b).abs() <= 0.5 * 10f64.powi(-(scale as i32))
+                // D34: both sides are quantized (TI stores fixed-point at `scale`; the oracle
+                // rounds its output to `scale`), so each may sit half a unit from the true value
+                // and they can differ by up to one unit in the last place.
+                (a - b).abs() <= 10f64.powi(-(scale as i32)) * (1.0 + 1e-9)
             } else {
                 false
             };
