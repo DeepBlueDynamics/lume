@@ -1,0 +1,54 @@
+# W10: alerts as documents (Signal K notifications, and rules that write their own)
+
+Depends on: W3 ingest (live stream, derived notification fields), W5 docs (`DocStore`, `match()`), W4 SQL.
+Spec: [05-data-model](../spec/05-data-model.md) (notifications), [06-ingest](../spec/06-ingest.md) §4 (notification messages become documents), [14-semantics](../spec/14-semantics.md) (document ranges).
+
+The aim is to close the loop: every alarm, whether Signal K raised it or Lume TI did, becomes a searchable `alerts` document that covers its time range. `match(alerts, 'battery')`, "every alert this month and what the boat was doing", and rules that reference earlier alerts all then work through the existing SQL.
+
+## Step 1: Signal K notification messages become `alerts` documents
+
+Today a `notifications.*` path becomes a state column (`normal`/`alert`/`warn`/`alarm`/`emergency`) plus a raise count, but its message text is dropped.
+
+- [ ] On every transition out of `normal`, open an `alerts` document:
+  - `id = notifications/<path>/<raise ts>`;
+  - `title` = the notification path, with the state;
+  - `body` = the Signal K `message` text plus `method` and `state`;
+  - `ts_start` = the raise time.
+- [ ] On the return to `normal`, close it by setting `ts_end`. While the alert is still active, it stays a point document at its start bucket (spec/14). If the state changes while raised, update the same id.
+- [ ] Wire it into the live stream (`run_stream_loop` and `run_stream_loop_multi`) and the parquet backfill of `notifications.*` rows. Documents are upserted through `DocStore`, so a re-run is idempotent.
+
+Acceptance: a recorded delta stream with a raise, an escalation and a clear produces exactly one `alerts` document with the right range and text. Then `match(alerts, '<word from the message>')` returns the covering buckets, and a replay leaves the document set unchanged.
+
+## Step 2: rules that write their own alerts
+
+- [ ] **Rules in `ti.toml`** (`[[rules]]`), each with:
+  - `name`, `severity`;
+  - `when`: a SQL boolean over telemetry columns, the same expression language as `WHERE`;
+  - optional `for = "10m"`, the hold duration, using the `intervals()` semantics;
+  - optional `vessel` filter;
+  - `message`: a template that can reference columns, such as `"house battery {electrical.batteries.house.voltage@min} V"`.
+- [ ] **Evaluation:** an incremental evaluator per closed bucket, running the predicate as bitmap pushdown over just the newly closed range. A rule opens an alert document after the condition has held for `for`, and closes it when the condition clears. Backfill evaluates rules over history, so turning a rule on gives you its past alerts too.
+- [ ] **Generated alerts are documents:**
+  - `kind = 'alerts'`, `id = rules/<name>/<start>`;
+  - the body carries the rule name, the message with values filled in, and the predicate text.
+  - They are searchable and joinable like imported alerts.
+- [ ] **Loop safety:**
+  - a rule may reference `match(alerts, ...)`, so "a second bilge alert within an hour" is expressible;
+  - evaluation is one pass per closed bucket in rule order;
+  - a rule never re-triggers on its own output within the same bucket;
+  - each rule has a per-hour cap on alerts.
+- [ ] **Surfaces:**
+  - `lume ti rules list|test <name> --store` (`test` dry-runs over history and prints what would fire);
+  - alerts appear in `lume ti status`;
+  - the MCP `ti_status` tool lists active alerts.
+
+Acceptance:
+- Over the golden store, a rule like `"electrical.batteries.house.voltage@min" < 24.6 for 5m` produces alert documents whose ranges equal the `intervals()` result for the same predicate. A DuckDB oracle cross-checks them.
+- The generated alerts come back from `match(alerts, 'battery')` and the docs-to-telemetry join.
+- Re-running the backfill is idempotent (same ids, no duplicates).
+- A rule that references earlier alerts fires exactly where expected, and the per-hour cap holds.
+
+## Next (not in this lane)
+
+- **Rules extracted from documents** ("specs that watch themselves"): read an indexed manual or datasheet, propose rules with a citation to the passage, and have a human approve them before they go live.
+- **Delivery** of alerts (push notifications, email, Signal K `notifications.lume.*` writes back to the server).
