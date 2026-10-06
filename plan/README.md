@@ -13,7 +13,9 @@ in [spec/11-risks-decisions.md](spec/11-risks-decisions.md) says otherwise.
 | `spec/` | The build spec, one file per section |
 | `lanes/` | One work package per agent lane (W0–W8): scope, deliverables, gate |
 | `repo-fit.md` | Where the spec meets (or collides with) the current Lume codebase |
-| `design/` | Design proposals that come out of reviews (e.g. [search-api.md](design/search-api.md)) |
+| `design/` | Design proposals and reference notes that come out of reviews: [search-api.md](design/search-api.md), [lume-sql.md](design/lume-sql.md), [signalk-formats.md](design/signalk-formats.md) (verified Signal K, signalk-parquet, InfluxDB and History API formats) |
+| [`STATUS.md`](STATUS.md) | Status board: agents, lanes, branches, milestone gates, open decisions |
+| [`SETUP.md`](SETUP.md) | Developer and agent setup: build, lane-clone workflow, reporting, dependency policy |
 
 ## One-line summary
 
@@ -66,5 +68,7 @@ Additions beyond the spec:
 - [x] Spec split into sections and lanes
 - [ ] Owner assumptions confirmed (see [spec/02-pilot-vessel.md](spec/02-pilot-vessel.md))
 - [ ] Open questions resolved (see [spec/11-risks-decisions.md](spec/11-risks-decisions.md))
+- [x] Plan committed on `plan/lume-ti`
 - [ ] Repo-fit issues decided (see [repo-fit.md](repo-fit.md))
-- [ ] M0 kickoff
+- [x] M0 kickoff. Code work has started on the W0 contracts, W0 corpus and search extraction lanes (see [STATUS.md](STATUS.md))
+- [ ] M0 gate passed

@@ -40,8 +40,18 @@ and cheaply.
 | D5 | Sealed, content-hashed shard is the unit of replication | Idempotent sync over flaky links; shore needs no merge logic |
 | D6 | DuckDB oracle defines correctness | Deterministic acceptance for agent lanes |
 | D7 | `Predicate` IR is the only interface between SQL and bitmaps | Lets W1 and W4 build in parallel from day one |
+| D8 | DataFusion =55.1.0 (future ti-sql); arrow 59 major via lockfile, arrow-array/arrow-schema requirements 59.2 | Source: Zygomorphic Prawn dependency survey and Industrial Pike correction; local W0 lockfile resolves 59.3.0. No DataFusion dependency in contracts; future use disables default features and selects features explicitly |
+| D9 | roaring 0.11.5 for TI | Source: Zygomorphic Prawn survey reports portable format, run containers and RoaringTreemap; existing MiniRoaring remains unchanged |
+| D10 | Root ti-contracts dependency optional behind ti; root stays default workspace member | Source: W0 review and Industrial Pike assignment; normal root build retains its four direct dependencies |
+| D11 | Future Parquet uses pure-Rust codecs only, no zstd | Source: Zygomorphic Prawn survey relayed by Industrial Pike; honor the C-binding restriction |
+| D12 | Future blake3 enables pure | Source: Zygomorphic Prawn survey relayed by Industrial Pike; avoid cc for musl builds |
+| D13 | Smoke-test pgwire SCRAM on aarch64-musl early | Source: Zygomorphic Prawn survey relayed by Industrial Pike reports ring dependency; validate portability before shipping |
+| D14 | DuckDB CLI oracle rather than bundled Rust crate | Source: Zygomorphic Prawn survey relayed by Industrial Pike; avoid embedding the C++ engine |
+| D15 | cargo-zigbuild for musl release builds | Source: Zygomorphic Prawn survey relayed by Industrial Pike; tooling choice, not a contracts runtime dependency |
+| D16 | `ShardSink::apply` acknowledges after a buffered WAL append; WAL is fsynced at least every 1 s (group commit), and always before `flush` advances or truncates it and on shutdown | Lead decision on spec/14's stricter per-apply fsync proposal. Bounds power-loss to ≈1 s, well inside spec/03's 60 s allowance, without paying an fsync per apply on the Pi. W2 may benchmark per-apply fsync and propose a change |
+| D17 | Contract types derive `Debug, Clone, PartialEq` (plus `Eq` where all fields allow); `Predicate`/`FieldValue` also need them for proptest | Lead decision: spec/10 showed derives only on `ShardKey`, but W1's proptests and every lane's fixtures need to construct, print and compare these values. Applied in W0 part 2 |
 
-New decisions go below as D8+. Every new runtime dependency needs a line here
+New decisions go below as D18+. Every new runtime dependency needs a line here
 (PR rule, [10-contracts](10-contracts.md)).
 
 ## Sources (from spec)

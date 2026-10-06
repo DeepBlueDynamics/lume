@@ -100,3 +100,26 @@ Recorded as open questions in [spec/11-risks-decisions.md](spec/11-risks-decisio
   shipping every 5 min (p. 20).
 - The Done criterion says the HALPI install comes "from the Signal K App Store" (p. 2), but
   the HaLOS install path is the container store (p. 19).
+
+## 10. Spec vs real Signal K formats
+
+[design/signalk-formats.md](design/signalk-formats.md) checked the spec's format assumptions
+against plugin and server source. The main corrections:
+
+- **signalk-parquet:**
+  - `received_timestamp` and `signalk_timestamp` are ISO-8601 strings; cast them.
+  - There's no `$source` column. The source is `source_label`.
+  - Object paths have no `value` column, only `value_<key>` columns. The type of `value` varies per file.
+  - Files sit under `tier=/context=/path=/year=/day=DDD/`, where the day is the receive day-of-year.
+  - In DuckDB, read with `hive_partitioning=false, union_by_name=true`, and skip `quarantine/` and `failed/`.
+  - The newest ~24 h exist only in SQLite `buffer.db`. Backfill must either accept that lag or read the buffer too.
+- **InfluxDB (signalk-to-influxdb2, HaLOS):**
+  - The measurement is the path, tags are `context`, `source` and `self`, the field is `value`, and positions are `lat`/`lon`.
+  - By default each point's **time is the write time, not the Signal K timestamp**, and there's at most 1 point/s, own boat only. PV-1's InfluxDB backfill therefore has receive-time skew. That's fine at W = 10 s, but it should be recorded as a known limitation.
+- **Access requests:** use the returned `href`, not a hard-coded `/signalk/v1/access/requests/<id>`. A server with security off returns 404.
+- **Notifications:** `nominal` is a valid state, and clearing an alarm sets `state: "normal"`.
+- **Notes:** the endpoint returns an object keyed by UUID. The only time field is `timestamp`, which is last-modified, so the "time range" of a note is weakly defined.
+
+Lead decision (D-number assigned at the next merge; agents are using D18+): the oracle's and TI's `raw` is a **normalizing view** over the real layout:
+`context, ts TIMESTAMP, path, value DOUBLE, value_str VARCHAR, source VARCHAR`, plus flattened
+object keys. Corpus oracles target that view. The generator writes the real signalk-parquet layout.

@@ -1,6 +1,6 @@
 # Design: in-process Lume search API
 
-Author: n8-keen-kiwi (read-only review, 2026-10-06). Spot-checked by the lead
+Author: Romantic Pike (pane 90fc608c; read-only review, 2026-10-06). Spot-checked by the lead
 against `src/main.rs` and `src/hybrid.rs` at 867c8db. Status: **proposal, not approved.**
 Unblocks W5 (`match()`) and W7 (`ti_resolve`). See [repo-fit §3](../repo-fit.md).
 
