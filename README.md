@@ -27,7 +27,7 @@ The default build has **four runtime dependencies** (`tantivy-fst`, `ureq`, `ser
 - **Agentic tools:** a planning and retrieval agent with structured failure recovery, a graph-guided document summarizer, and cited answers.
 - **MCP server:** exposes indexing and search to any MCP-capable agent over HTTP.
 - **Measured quality:** `lume eval` reports Hit@k, MRR and nDCG@k against Q&A files, without hand labels.
-- **Lume TI (in development):** read-only SQL over boat telemetry with bitmap-indexed pushdown. [See below.](#lume-ti-telemetry-index)
+- **Lume TI (in development):** ask questions of a boat's Signal K telemetry, logbook and position in one SQL query, from an agent or over HTTP. [See below.](#lume-ti-telemetry-index)
 
 ## Quick start
 
@@ -95,7 +95,7 @@ lume serve                 # default port 5863 ("LUME" on a phone keypad)
 lume serve --port 8080
 ```
 
-This exposes `lume_index`, `lume_search`, `lume_generate` and `lume_not_found` as MCP tools over HTTP. Search runs in-process through the `lume::search` library API.
+This exposes `lume_index`, `lume_search`, `lume_generate` and `lume_not_found` as MCP tools over HTTP. Search runs in-process through the `lume::search` library API. Built with `--features ti`, `lume serve --ti-store <store>` adds the [Lume TI](#lume-ti-telemetry-index) tools.
 
 ### Text generation
 
@@ -156,7 +156,8 @@ graph LR
 | `lume answer <question>` | Cited answer, streamed | `--model` |
 | `lume generate <seed>` | Style-faithful generation | `--steer` |
 | `lume crawl <url>` | Save a page as Markdown | `GRUB_BASE_URL`, `NUTS_SERVICES_TOKEN` |
-| `lume serve` | MCP server over HTTP | `-p`/`--port` (5863) |
+| `lume serve` | MCP server over HTTP | `-p`/`--port` (5863), `--ti-store` (with `--features ti`) |
+| `lume ti <cmd>` | Telemetry SQL: `query`, `explain`, `status`, `import-docs`, `verify` | `--store`, `--json`, `--width` (needs `--features ti`) |
 | `lume stream <query>` | NDJSON search dynamics for `viz/` | |
 
 Run `lume <command> --help` for the full option list.
@@ -165,23 +166,29 @@ Run `lume <command> --help` for the full option list.
 
 > **Status: in development** on the [`plan/lume-ti`](plan/README.md) branch, behind `--features ti`. The design, spec and progress are in [`plan/`](plan/README.md).
 
-Lume TI is a **read-only SQL engine over boat telemetry** from [Signal K](https://signalk.org/). It's designed to run on the boat's Raspberry Pi beside Signal K and OpenCPN, and to sync sealed shards to a shore node that queries the whole fleet:
+Lume TI turns a boat's [Signal K](https://signalk.org/) data stream into something you can **ask questions of**: in SQL, from an AI agent, or over HTTP. It runs on the boat's Raspberry Pi beside Signal K and OpenCPN, keeps working with no internet, and syncs sealed shards to a shore node that queries the whole fleet.
 
-1. Telemetry is bucketed into 10-second columns. A 1-second store for navigation, wind and depth is planned, with configurable retention.
-2. Each field is stored as **roaring bitmaps**: bit-sliced numbers, states, presence, H3 geo cells, and full text mapped onto buckets.
-3. **Apache DataFusion** runs full SQL. Filters are pushed down into bitmap AND/OR/ANDNOT before any row is read.
+Where it's going:
 
-### Why it's different
+- **One question across everything the boat knows.** Telemetry, the logbook, notes, alerts and position live in one column space, so "bilge pump cycling while motoring in more than 25 kn of wind near a leak note" is a single query, not five systems.
+- **Agents that can read the boat.** MCP tools let a local agent find the right column from plain words (`ti_resolve`), run SQL (`ti_query`) and explain its answer, with no cloud round-trip.
+- **Specs that watch themselves.** Index the engine manual or the battery datasheet next to the telemetry, extract the limits it states, and flag every stretch where the boat ran outside them.
+- **A fleet view on shore.** Sealed, content-hashed shards sync from each vessel, so the shore node answers fleet-wide questions without re-ingesting raw data.
+- **Full fidelity where it matters.** A second 1-second store keeps navigation, wind and depth at full rate for a configurable window (default 90 days), alongside the 10-second store kept for years.
 
-Most stores are good at analytics *or* search. TI puts **numeric thresholds, states, events, geography and full text in one column space**, so one query can combine all of them:
+### How it works
+
+1. Live Signal K deltas and historical Parquet both feed one bucketer: 10-second columns per vessel, closed on a watermark, written through a crash-safe WAL, sealed into immutable shards with a BLAKE3 hash.
+2. Every field is stored as **roaring bitmaps**: bit-sliced fixed-point numbers, single-valued states, presence, H3 geo cells, and document hits mapped onto the buckets they cover.
+3. **Apache DataFusion** runs full SQL. Filters are pushed down into bitmap AND/OR/ANDNOT before a row is read, and aggregates are computed from the bitmaps where possible.
 
 ```sql
 SELECT vessel, date_bin(INTERVAL '10 minutes', ts) AS win,
        max("environment.wind.speedTrue@max")
 FROM telemetry
 WHERE "propulsion.port.state" = 'started'
-  AND "electrical.bilge.pumpCycles" > 3
   AND "environment.wind.speedTrue@max" > 12.9          -- 25 kn
+  AND within_nm(36.62, -122.39, 3.0)
   AND match(notes, 'leak OR water')
   AND ts > now() - INTERVAL '90 days'
 GROUP BY vessel, win;
@@ -189,36 +196,63 @@ GROUP BY vessel, win;
 
 | | Lume TI | Columnar SQL (DuckDB, ClickHouse) | Time-series DB (InfluxDB) | Search engine (Lucene, Tantivy) |
 |---|---|---|---|---|
-| Multi-condition filters across many paths | bitmap ANDs, microseconds per shard | column scans | weak across measurements | n/a |
+| Multi-condition filters across many paths | bitmap ANDs per shard | column scans | weak across measurements | n/a |
 | Full text joined with telemetry | `match()` is another bitmap | no index | no | text only |
 | Geography | H3 cell bitmaps (`in_bbox`, `within_nm`) | functions over scans | limited | limited |
 | "Runs where X held for N minutes" | `intervals()` straight from bitmap runs | window-function SQL | difficult | no |
-| Full SQL, psql and Grafana | DataFusion + Postgres wire | yes | partial | no |
-| Runs beside the chartplotter on a Pi | designed for it (memory-capped, low priority) | DuckDB yes | yes | yes |
+| Full SQL for tools and agents | DataFusion, MCP, HTTP; Postgres wire planned | yes | partial | no |
+| Runs beside the chartplotter on a Pi | designed for it | DuckDB yes | yes | yes |
 
-*This table compares designs; it isn't a measurement. The project's acceptance bar is ≥ 5× faster than DuckDB on selective multi-filter queries over the same Parquet, and parity on broad scans. Broad queries can always fall back to an exact `raw` table over Parquet.*
+*The table compares designs, not measurements. Broad queries can always fall back to an exact `raw` table over the same Parquet.*
 
-### Benchmarks so far
+### Try it
 
-Measured on an x86 development host and its Linux containers. **No Pi measurements yet**; those come with the fleet benchmark milestone.
+```bash
+cargo build --release --features ti
 
-**Writes**
+# Backfill signalk-parquet history into a store (see plan/SETUP.md for test data)
+cargo run --release -p ti-ingest --example backfill_store -- <data>/tier=raw <store>
 
-| Benchmark | Result | Target |
+lume ti query "SELECT vessel, count(*) FROM telemetry GROUP BY vessel" --store <store>
+lume ti explain "<sql>" --store <store>       # shows which filters ran as bitmaps
+lume ti status --store <store>
+lume ti import-docs <docs_dir> --store <store>
+lume ti verify --store <store> --corpus tests/golden
+```
+
+`lume serve --ti-store <store>` adds the `ti_query`, `ti_schema`, `ti_explain` and `ti_status` MCP tools and `/ti/*` HTTP endpoints (Arrow IPC or JSON) to the MCP server. **Don't run it on an untrusted network yet:** the server still listens on all interfaces, and loopback-by-default binding is being added now.
+
+### Where it stands
+
+| Area | State |
+|---|---|
+| Ingest: live WebSocket client, watermark bucketing, WAL, sealing, Parquet backfill | built |
+| SQL: pushdown, bitmap aggregates, `intervals()`, `in_bbox` / `within_nm`, `match()` over notes, logbook and alerts | built |
+| Correctness: 62-query golden corpus vs an independent DuckDB oracle over the raw Parquet | **58 pass, 0 fail**; 4 wait on open contract questions |
+| CLI, MCP tools, HTTP `/ti` | built; `ti_resolve`, LAN-only binding and shore auth in progress |
+| 1-second high-resolution store | ingest fan-out and retention built; SQL table in progress |
+| Always-on service (`lume ti serve`), fleet sync, Postgres wire, Pi benchmarks | next |
+
+### Benchmarks
+
+Measured on an x86 Windows development host (release builds) and its Linux containers, over a generated fleet of 5 vessels × 90 days (95.9 M raw values, 11,500 Parquet files). **No Pi measurements yet.**
+
+| Writes | Result | Target |
 |---|---|---|
-| Live ingest (decode → normalize → bucket → store), release | **181,783 values/s** on the host; **72 MB** peak RSS in a container | Pi 5: ≥ 20,000 values/s, ≤ 400 MB |
-| Ingest correctness: 24 h replay vs an independent oracle | **153,374 / 153,374** bucket records match | exact |
+| Live ingest (decode → normalize → bucket → store) | **181,783 values/s**; 72 MB peak RSS in a container | Pi 5: ≥ 20,000 values/s, ≤ 400 MB |
+| Parquet backfill, 95.9 M values | **389 s, 246,730 values/s** | |
+| Index size | **554 MB, 0.29× the raw Parquet** (≈ 450 MB per vessel-year) | |
 | Crash safety: 1,000 seeded `kill -9` runs | **0 lost, 0 duplicated** acknowledged records | 0 / 0 |
-| Backfill idempotence and seal determinism | identical manifest hash, byte-identical shards | identical |
+| Re-ingesting the full set into the same store | all 65 sealed shards byte-identical | identical |
 
-**Queries**
-
-| Benchmark | Result | Notes |
+| Queries | Result | Notes |
 |---|---|---|
-| Bit-sliced range compare over a full 65,536-bucket shard | **41 µs** | release, depth 16 |
-| Year-long "max wind per day": bitmap aggregate vs materialize-then-aggregate | **3.01 s vs 47.87 s (15.9×)** | 50 vessel-years, identical results; debug build |
+| Year-long "max wind per vessel per day" (5 vessel-years, 15.8 M buckets) | **40.3 ms vs 2.92 s (72×)** | bitmap aggregate vs DataFusion materializing the same rows; identical results |
+| Bit-sliced range compare over a full 65,536-bucket shard | **41 µs** | |
+| Open the full store and build the SQL catalog | 0.07 s + 1.8 s | |
+| `count(*)` over the whole fleet store | 3.0 s | |
 
-Not yet measured: index size per vessel-year, Q1–Q8 p95 latency against DuckDB, release-build query latency, and on-device performance.
+Not yet measured: Q1–Q8 p95 latency against DuckDB on the reference machine, on-device performance, and cold-cache behaviour.
 
 ## Performance
 
@@ -234,7 +268,8 @@ The core search engine, measured on real corpora:
 cargo build                    # default build: 4 runtime dependencies
 cargo test                     # 46 tests
 cargo build --features ti      # include the Lume TI crates (DataFusion; slow cold build)
-cargo test -p ti-core          # any TI crate: ti-contracts, ti-core, ti-store, ti-ingest, ti-sql, ti-bench
+cargo test --features ti       # root tests including the TI CLI, MCP and HTTP surfaces
+cargo test -p ti-sql           # any TI crate: ti-contracts, ti-core, ti-store, ti-ingest, ti-sql, ti-geo, ti-bench
 ```
 
 TI crates are held to `cargo clippy -p <crate> --all-targets -- -D warnings` and `cargo fmt -p <crate> --check`. Contributor workflow, test data and conventions are in [`plan/SETUP.md`](plan/SETUP.md).
@@ -244,7 +279,7 @@ TI crates are held to `cargo clippy -p <crate> --all-targets -- -D warnings` and
 | Path | Contents |
 |---|---|
 | `src/` | The `lume` library and CLI: BM25, FST tagger, knowledge graph, hybrid search, agents, MCP |
-| `crates/ti-*` | Lume TI: contracts, bitmap core, store, ingest, SQL, data generator |
+| `crates/ti-*` | Lume TI: contracts, bitmap core, store, ingest, SQL, geo, data generator |
 | `lib/lume_extractor.py` | PDF text extraction and Q&A dataset generation |
 | `viz/` | Live 3D visualizer for search dynamics |
 | `tests/` | Golden search outputs and the TI SQL golden corpus |
@@ -260,7 +295,8 @@ python lib/lume_extractor.py qna my_doc.txt output_qna.json --model gemma4:31b-c
 
 ## Roadmap
 
-- Lume TI milestones M2–M6: ingest gates, the SQL golden corpus, text and geo, the agent and Postgres surface, fleet sync and Pi benchmarks.
+- Lume TI: the always-on boat service, `ti_resolve` and a local agent that answers questions about the boat, Postgres wire for Grafana and psql, fleet sync to shore, and Pi 5 benchmarks.
+- Specs from documents: extract operating limits from manuals and datasheets in the document index and monitor telemetry against them.
 - `lume sql`: the same DataFusion engine over any ordinary Lume index (`sections`, `entities`, `entity_edges`).
 - On-the-fly fine-tuning of open embedding models, so the semantic space adapts to your corpus.
 
