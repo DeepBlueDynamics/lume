@@ -13,6 +13,7 @@ in [spec/11-risks-decisions.md](spec/11-risks-decisions.md) says otherwise.
 | `spec/` | The build spec, one file per section |
 | `lanes/` | One work package per agent lane (W0–W8): scope, deliverables, gate |
 | `repo-fit.md` | Where the spec meets (or collides with) the current Lume codebase |
+| `design/` | Design proposals that come out of reviews (e.g. [search-api.md](design/search-api.md)) |
 
 ## One-line summary
 

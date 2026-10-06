@@ -25,6 +25,8 @@ and cheaply.
 - [ ] AIS contacts as a second table (`contacts`, columns = observer × bucket, rows = MMSI), or out of scope?
 - [ ] Shore storage: local NVMe only, or sealed shards in object storage with a read cache?
 - [ ] Should `ti_resolve` also index Signal K spec descriptions for paths a vessel has never reported?
+- [ ] *(added in review)* Does anything besides sealed shards move to shore? p. 7 says only sealed shards; p. 20 ships open-shard WAL tails every 5 min. Reword p. 7 or drop WAL-tail sync.
+- [ ] *(added in review)* PV-1 Done criterion: should the HALPI install be "from the Signal K App Store" (p. 2) or from the HaLOS Marine container store (p. 19)?
 - [ ] Licensing check: borrow algorithm ideas only from FeatureBase (Apache-2.0), copy no code, keep Lume BSD-3-clean.
 
 ## Decisions log
