@@ -336,6 +336,13 @@ impl SqlSession {
             "{plan}\nLume TI execution details:\n{measured}\nConjunct classes: {classes:?}\n{aggregate_details}"
         ))
     }
+    /// Clear retained diagnostics between requests on an exclusively admitted surface.
+    /// Callers must ensure no query is executing while resetting these buffers.
+    pub fn reset_diagnostics(&self) -> Result<()> {
+        self.reports.lock().map_err(|_| DataFusionError::Execution("scan report lock poisoned".into()))?.clear();
+        self.aggregate_diagnostics.lock().map_err(|_| DataFusionError::Execution("aggregate diagnostics lock poisoned".into()))?.clear();
+        Ok(())
+    }
     pub fn reports(&self) -> Result<Vec<ScanReport>> {
         Ok(self
             .reports

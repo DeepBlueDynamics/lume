@@ -81,3 +81,16 @@ Implemented on `ti/w7-surfaces`, scoped to the lead's CLI/MCP assignment:
 - [ ] Host fmt/strict clippy: assigned to Pike at merge.
 
 `import-docs` uses W5's existing six-column Parquet reader and stores the document set under `<store>/docs/`. Query replies provide columns, rows, row_count, truncated, elapsed_ms, pushdown, units and hint; rendered formats also provide data. Status provides WAL bytes and open/sealed shard counts; ingest lag and last sync are explicitly null/unavailable until the later ingest-supervisor/sync integration. Sessions are planning snapshots opened for each CLI/MCP operation. This slice does not complete the broader W7 engine supervisor, HTTP, pgwire, resolve, intervals, packaging or M5 gates.
+
+## Rust surfaces — HTTP slice (2026-10-06)
+
+The lead's approved slice uses `POST /ti/query` and `ti_query` naming (rather than the earlier spec's /ti/sql and ti_sql).
+
+- [x] `lume serve --ti-store <root> [--port <port>]` opens one LumeText-backed TiEngine and runtime at startup, shared by Arc across HTTP and the four MCP tools. Without --ti-store, existing serve behavior remains available and /ti returns a disabled response.
+- [x] `POST /ti/query {sql, max_rows}` returns Arrow IPC stream format by default; `Accept: application/json` returns the ti_query JSON envelope. Arrow preserves types, canonical @agg names and units metadata. Results are admitted up to 500 rows / 64 KiB; Arrow headers report row count, truncation and the aggregate hint.
+- [x] `GET /ti/schema`, `POST /ti/explain {sql}`, `GET /ti/status`; read-only SQL violations return HTTP 400 with a JSON error.
+- [x] Queries are serialized through the shared handle; diagnostic buffers are reset between admitted requests. Explicit MCP store/width overrides must match the configured server store.
+- [x] Ephemeral-port real-server integration covers each endpoint, Arrow decoding and JSON equivalence, truncation, empty timestamp results, oversized UTF-8 rows, read-only rejection and catalog hiding after startup to verify HTTP/MCP snapshot reuse.
+- [x] Width discovery reads one representative RBM header per shard field directory; configuration and requested-width mismatch checks remain. Fresh-process store-full status elapsed time: 85.546 s before, 70.199 s after (17.94% decrease). OS caches were not purged; these runs do not isolate the remaining snapshot/catalog startup cost.
+
+The default bind remains 0.0.0.0. LAN-only binding and NUTS/bearer authentication are explicitly outside this approved slice. HTTP ingest/sync/CSV, pgwire, resolve, intervals tools, packaging and full M5 gates remain pending. The engine captures a startup planning snapshot; restart to refresh externally changed catalogs/shards until ingest-supervisor integration. Arrow IPC bodies are bounded before writing their Content-Length; no unbounded result collection is added. Request bodies are capped at 64 KiB; chunked request encoding is unsupported.

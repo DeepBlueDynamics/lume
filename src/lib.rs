@@ -39,6 +39,8 @@ pub mod search;
 pub mod ti_text;
 #[cfg(feature = "ti")]
 mod ti_mcp;
+#[cfg(feature = "ti")]
+mod ti_http;
 pub use search::{search, LoadedIndex, SearchOptions, SearchResults, SearchResultHit, SearchMode, BlendMode};
 // pub mod cli;
 

@@ -171,3 +171,15 @@ fn import_docs_reads_parquet_and_persists_idempotently() {
     assert_eq!(doc.kind, "notes");
     assert!(doc.ts_end.is_none());
 }
+
+#[test]
+fn width_discovery_reads_one_representative_per_field_directory(){
+    let dir=Scratch::new();
+    let fields=dir.0.join("shards/0/1/v1");
+    header(&fields.join("0.rbm"),60);
+    std::fs::write(fields.join("1.rbm"),b"not another header to probe").unwrap();
+    assert_eq!(store_width(&dir.0,None).unwrap(),60);
+    assert!(store_width(&dir.0,Some(10)).is_err());
+    header(&dir.0.join("shards/0/2/v1/0.rbm"),10);
+    assert!(store_width(&dir.0,None).is_err());
+}
