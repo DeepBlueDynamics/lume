@@ -162,6 +162,21 @@ lume ti ingest --signalk ws://<host>:3000 --store <root> [--config <path>] [--to
   WantedBy=multi-user.target
   ```
 
+- **Signal K Plugin Deployment (`signalk-lume-ti`):**
+  When running Signal K in a container (e.g. `signalk-server-docker` on HaLOS):
+  * **Target Environment:** Container is Ubuntu 24.04.4 LTS (`glibc 2.39`), Linux `aarch64`. The host is Debian 13 (`glibc 2.41`). No musl build required; native dynamically linked `aarch64` build (`GLIBC <= 2.39`) runs directly in the container.
+  * **Installation into `/home/node/.signalk`:**
+    ```bash
+    cd /home/node/.signalk
+    npm install /path/to/plugins/signalk-lume-ti
+    ```
+    or copy the plugin folder into `/home/node/.signalk/node_modules/signalk-lume-ti`.
+  * **Binary Placement:**
+    Place the compiled `lume` aarch64 binary in `/home/node/.signalk/node_modules/signalk-lume-ti/bin/linux-arm64/lume` (executable `chmod +x`), or install to `/usr/local/bin/lume`.
+  * **Activation:**
+    Enable "Lume TI" in Signal K Admin UI (`Plugin Config`). The plugin automatically supervises `lume ti ingest --serve` as a managed child process with auto-restart, stores the database in `<dataDir>/lume-ti`, handles device token authentication, and serves the SQL console webapp.
+
+
 A plain `cargo test` only tests the root crate, because `default-members = ["."]`.
 
 **Strict checks, scoped to each TI crate.** Run both for every `crates/ti-*` crate you touch (currently `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench` and `ti-geo`):
