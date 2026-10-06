@@ -3248,6 +3248,7 @@ dependencies = [
  "ti-geo",
  "ti-store",
  "tungstenite",
+ "ureq",
 ]
 
 [[package]]

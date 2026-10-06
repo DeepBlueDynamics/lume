@@ -145,6 +145,42 @@ impl DocStore {
         Ok(())
     }
 
+    /// Replace only a caller-owned subset in one durable write. Other documents
+    /// survive; validate the entire incoming snapshot before changing memory.
+    pub fn reconcile(
+        &mut self,
+        vessel: &str,
+        owned: &std::collections::BTreeSet<String>,
+        documents: Vec<Document>,
+    ) -> Result<()> {
+        let mut incoming = BTreeMap::new();
+        for document in documents {
+            document.validate()?;
+            if document.vessel != vessel {
+                return Err(Error::InvalidInput("reconcile document vessel mismatch".into()));
+            }
+            if incoming.insert(document.id.clone(), document).is_some() {
+                return Err(Error::InvalidInput("duplicate reconcile document id".into()));
+            }
+        }
+        self.refresh()?;
+        let mut changed = false;
+        self.docs.retain(|(v, id), _| {
+            let keep = v != vessel || !owned.contains(id) || incoming.contains_key(id);
+            changed |= !keep;
+            keep
+        });
+        for document in incoming.into_values() {
+            let key = (vessel.into(), document.id.clone());
+            if self.docs.get(&key) != Some(&document) {
+                self.docs.insert(key, document);
+                changed = true;
+            }
+        }
+        if changed { self.commit()?; }
+        Ok(())
+    }
+
     /// Remove the vessel's document; a missing id is idempotent.
     pub fn delete(&mut self, vessel: &str, id: &str) -> Result<()> {
         self.refresh()?;
@@ -232,6 +268,25 @@ mod tests {
             title: "Note".into(),
             body: body.into(),
         }
+    }
+
+    #[test]
+    fn reconcile_is_atomic_idempotent_and_preserves_unowned_documents() {
+        let mut store = DocStore::in_memory();
+        store.upsert_all([doc("a", "old"), doc("manual", "keep")]).unwrap();
+        let owned = std::collections::BTreeSet::from(["a".to_string()]);
+        let vessel = "vessels.urn:mrn:imo:mmsi:367000000";
+        store.reconcile(vessel, &owned, vec![doc("b", "new")]).unwrap();
+        assert_eq!(store.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(), ["b", "manual"]);
+        let version = store.version();
+        store.reconcile(vessel, &owned, vec![doc("b", "new")]).unwrap();
+        assert_eq!(store.version(), version);
+        let mut invalid = doc("bad", "bad");
+        invalid.ts_end = Some(invalid.ts_start);
+        assert!(store.reconcile(vessel, &std::collections::BTreeSet::from(["b".to_string()]),
+            vec![doc("valid", "valid"), invalid]).is_err());
+        assert_eq!(store.version(), version);
+        assert_eq!(store.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(), ["b", "manual"]);
     }
 
     #[test]

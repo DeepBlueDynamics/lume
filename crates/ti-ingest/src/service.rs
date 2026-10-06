@@ -23,6 +23,7 @@ use tungstenite::Message;
 
 use crate::notifications::NotificationDocuments;
 use crate::recorder::DeltaRecorder;
+use crate::resources::{DocumentPoller, ResourceClient, ResourceDocuments};
 use crate::watermark::{ClosedBucketObserver, MultiStoreBucketer};
 use crate::websocket::{connect_signalk, process_message_multi, subscribe_signalk};
 
@@ -98,6 +99,7 @@ pub struct IngestService {
     pub recorder: Option<DeltaRecorder>,
     pub reconnects: u64,
     pub records_ingested: u64,
+    pub documents_rejected_pre_epoch: u64,
     pub last_delta_ts: Option<i64>,
     pub last_delta_received: Option<SystemTime>,
     pub last_flush_ts: i64,
@@ -122,6 +124,7 @@ impl IngestService {
             recorder: None,
             reconnects: 0,
             records_ingested: 0,
+            documents_rejected_pre_epoch: 0,
             last_delta_ts: None,
             last_delta_received: None,
             last_flush_ts: now,
@@ -262,6 +265,7 @@ impl IngestService {
             "pid": std::process::id(),
             "reconnects": self.reconnects,
             "records_ingested": self.records_ingested,
+            "documents_rejected_pre_epoch": self.documents_rejected_pre_epoch,
             "ingest_lag_seconds": lag_seconds,
             "last_delta": last_delta_rfc,
             "updated_at": chrono::Utc::now().to_rfc3339(),
@@ -271,6 +275,18 @@ impl IngestService {
         if let Ok(s) = serde_json::to_string_pretty(&status) {
             if std::fs::write(&tmp_file, s).is_ok() {
                 let _ = std::fs::rename(&tmp_file, &status_file);
+            }
+        }
+    }
+
+    fn apply_resource_snapshots(&mut self, polling: &mut Option<(DocumentPoller, ResourceDocuments)>) {
+        if let Some((poller, documents)) = polling {
+            for snapshot in poller.receiver.try_iter() {
+                let previous_rejected = documents.rejected_pre_epoch;
+                if let Err(error) = documents.apply(snapshot, &self.self_urn, self.now_timestamp()) {
+                    eprintln!("Signal K document reconciliation: {error}");
+                }
+                self.documents_rejected_pre_epoch = self.documents_rejected_pre_epoch.saturating_add(documents.rejected_pre_epoch.saturating_sub(previous_rejected));
             }
         }
     }
@@ -303,6 +319,24 @@ impl IngestService {
         let url = self.config.signal_k.url.clone();
         let token = self.config.signal_k.token.clone();
 
+        // Fetch remotely on a worker, but apply on this thread alongside
+        // notifications/rules so document read-modify-write operations cannot race.
+        let mut resource_setup = match ResourceClient::new(&url, token.clone())
+            .and_then(|client| {
+                let docs = ResourceDocuments::open(Path::new(&default_root))?;
+                Ok((client, docs))
+            }) {
+            Ok(polling) => Some(polling),
+            Err(error) => {
+                eprintln!("Signal K document polling unavailable: {error}");
+                None
+            }
+        };
+
+        let mut resource_polling = None;
+        // Resources belong to this server's self vessel. Wait for its hello
+        // rather than persisting them against the placeholder before connecting.
+        let mut resource_vessel_ready = self.self_urn != "vessels.urn:mrn:imo:mmsi:000000000";
         let mut backoff = Duration::from_secs(2);
         let max_backoff = Duration::from_secs(30);
 
@@ -315,7 +349,17 @@ impl IngestService {
         SHUTDOWN_REQUESTED.store(false, Ordering::Relaxed);
         register_shutdown_signals();
         while self.is_active() {
-            match connect_signalk(&url, token.as_deref()) {
+            if resource_vessel_ready { self.apply_resource_snapshots(&mut resource_polling); }
+            let connection = connect_signalk(&url, token.as_deref());
+            // Start HTTP after the initial websocket handshake attempt. This
+            // keeps the initial self-vessel connection ahead of resource reads.
+            if let Some((client, documents)) = resource_setup.take() {
+                match DocumentPoller::start(client) {
+                    Ok(poller) => resource_polling = Some((poller, documents)),
+                    Err(error) => eprintln!("Signal K document polling unavailable: {error}"),
+                }
+            }
+            match connection {
                 Ok(mut socket) => {
                     backoff = Duration::from_secs(2);
                     if let Err(e) = subscribe_signalk(&mut socket) {
@@ -342,6 +386,7 @@ impl IngestService {
                                             format!("vessels.urn:mrn:signalk:{s}")
                                         };
                                         self.self_urn = canonical;
+                                        resource_vessel_ready = true;
                                     }
                                 }
                                 let receive_time = self.current_system_time();
@@ -416,6 +461,8 @@ impl IngestService {
                                 break;
                             }
                         }
+
+                        if resource_vessel_ready { self.apply_resource_snapshots(&mut resource_polling); }
 
                         // Periodic timer maintenance
                         let now_sec = self.now_timestamp();

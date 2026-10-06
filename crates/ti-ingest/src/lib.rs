@@ -21,6 +21,7 @@ pub mod normalize;
 pub mod notifications;
 pub mod parquet;
 pub mod recorder;
+pub mod resources;
 pub mod service;
 pub mod watermark;
 pub mod websocket;

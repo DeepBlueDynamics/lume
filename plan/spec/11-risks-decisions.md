@@ -96,7 +96,9 @@ Reserved, and written by the owning lane at merge (agreed among the lanes on 202
 | D39 | Benchmark-only standalone `croaring =2.8.0` and `roaring =0.11.5` in `bench/croaring-eval`; lockfile pins the C `croaring-sys` build. No dependency of Lume or any ti crate | Lead approved 2026-10-06 for the requested same-process M4 evaluation. Isolated workspace, sequential build and 8 GB target cap; production graph unchanged |
 | D40 | **Reject CRoaring adoption for M4; retain roaring 0.11.5 and existing Portable seals.** Native Frozen persistence is rejected; a validated Portable-view prototype remains a follow-up requiring its own production C-dependency approval | [Evaluation](../design/croaring-eval.md): same-process sparse BSI ~2.32×, run-optimized range/chain ~10–12×, but existing Portable interval enumeration 0.66×. Native format/lifetime/unsafe validation and Pi/RSS/end-to-end integration are untested. No runtime or seal-format change; fulfils M4 item 3's adopt-or-reject evaluation |
 
-The next free number is **D41**. Ask the lead before taking one. Every new runtime dependency needs a line here
+| D41 | `ti-ingest` reuses root `ureq` 2.12 (same lockfile version, no new package or C crate) for read-only Signal K Resources and optional logbook polling | Lead approved 2026-10-06 for spec/06 §4. Background worker, 5 s HTTP timeout, 8 MiB / 20,000 entry caps; HTTP failures never stop telemetry. Only the ingest thread reconciles complete snapshots into DocStore |
+
+The next free number is **D42**. Ask the lead before taking one. Every new runtime dependency needs a line here
 (PR rule, [10-contracts](10-contracts.md)).
 
 ## Sources (from spec)
