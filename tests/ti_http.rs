@@ -41,6 +41,10 @@ impl Server {
         Self::start_config(bind, pg, verifier, false)
     }
     fn start_config(bind: Option<&str>, pg: bool, verifier: Option<&str>, history: bool) -> Self {
+        Self::start_config_pg(bind, pg, verifier, history, None, false)
+    }
+    fn start_config_pg(bind: Option<&str>, pg: bool, verifier: Option<&str>, history: bool,
+        pg_bind: Option<&str>, external_auth: bool) -> Self {
         let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!(
             "http-{}-{}",
             std::process::id(),
@@ -108,8 +112,21 @@ impl Server {
             .unwrap();
         store.shutdown().unwrap();
         drop(store);
+        let auth_path = root.join("pg-auth.toml");
         if let Some(verifier) = verifier {
-            std::fs::write(store_root.join("ti.toml"), format!("[[auth.scram_users]]\nusername='lume'\nverifier='{verifier}'\n")).unwrap();
+            let text = format!("width_seconds=0\n[[auth.scram_users]]\nusername='lume'\nverifier='{verifier}'\n");
+            if external_auth {
+                std::fs::write(&auth_path, text).unwrap();
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    std::fs::set_permissions(&auth_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+                }
+                // Existing settings and store user must neither be overwritten nor merged.
+                std::fs::write(store_root.join("ti.toml"), format!("width_seconds=10\n[signal_k]\nurl='ws://127.0.0.1:29999'\n[[auth.scram_users]]\nusername='store-user'\nverifier='{verifier}'\n")).unwrap();
+            } else {
+                std::fs::write(store_root.join("ti.toml"), text.replace("width_seconds=0", "width_seconds=10")).unwrap();
+            }
         }
         let mut command = Command::new(env!("CARGO_BIN_EXE_lume"));
         command
@@ -121,6 +138,8 @@ impl Server {
         if pg {
             command.args(["--pg", "0"]);
         }
+        if let Some(pg_bind) = pg_bind { command.args(["--pg-bind", pg_bind]); }
+        if external_auth { command.arg("--pg-auth-config").arg(&auth_path); }
         let child = command
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -138,7 +157,7 @@ impl Server {
         if pg {
             let address = line.split_whitespace().last().unwrap();
             assert!(
-                address.starts_with(&format!("{}:", bind.unwrap_or("127.0.0.1"))),
+                address.starts_with(&format!("{}:", pg_bind.or(bind).unwrap_or("127.0.0.1"))),
                 "{line}"
             );
             server.pg = address.replace("0.0.0.0", "127.0.0.1");

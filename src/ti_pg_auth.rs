@@ -20,6 +20,27 @@ use pgwire::{
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
 use tokio::sync::Mutex;
+/// Open first, then check that exact file's mode before reading verifier data.
+pub(crate) fn load_users(path: &std::path::Path) -> Result<Vec<ti_contracts::ScramUser>, String> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).map_err(|_| "Cannot open pg auth config")?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if file.metadata().map_err(|_| "Cannot stat pg auth config")?.permissions().mode() & 0o077 != 0 {
+            return Err("pg auth config must not be group- or world-accessible (use chmod 600)".into());
+        }
+    }
+    let mut text = String::new();
+    file.by_ref().take(65537).read_to_string(&mut text).map_err(|_| "Cannot read pg auth config")?;
+    if text.len() > 65536 { return Err("pg auth config exceeds 64 KiB".into()); }
+    // Do not reflect parse errors: TOML diagnostics can include verifier contents.
+    let auth = ti_contracts::AuthConfig::from_toml(&text).map_err(|_| "Invalid pg auth config")?;
+    for user in &auth.scram_users {
+        Verifier::parse(&user.verifier).map_err(|_| "Invalid SCRAM verifier in pg auth config")?;
+    }
+    Ok(auth.scram_users)
+}
 fn denied() -> PgWireError {
     super::ti_pg::error("28P01", "SCRAM authentication failed")
 }

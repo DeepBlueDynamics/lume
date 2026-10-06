@@ -432,6 +432,25 @@ fn invalid(key: &str, message: &str) -> Error {
     Error::InvalidInput(format!("{key}: {message}"))
 }
 
+impl AuthConfig {
+    /// Parse only [auth]; other sections are intentionally ignored, never merged.
+    pub fn from_toml(input: &str) -> Result<Self> {
+        #[derive(Deserialize)]
+        struct AuthOnly {
+            #[serde(default)]
+            auth: AuthConfig,
+        }
+        let auth: AuthOnly =
+            toml::from_str(input).map_err(|e| invalid("pg auth config", &e.to_string()))?;
+        let config = TiConfig {
+            auth: auth.auth,
+            ..TiConfig::default()
+        };
+        config.validate()?;
+        Ok(config.auth)
+    }
+}
+
 impl TiConfig {
     /// Parse TOML, then validate with key-qualified diagnostics.
     pub fn from_toml(input: &str) -> Result<Self> {

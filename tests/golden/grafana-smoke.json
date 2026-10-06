@@ -1,0 +1,111 @@
+{
+  "sources": {
+    "metadata": "https://github.com/grafana/grafana/blob/v13.0.0/public/app/plugins/datasource/grafana-postgresql-datasource/postgresMetaQuery.ts",
+    "health": "https://github.com/grafana/grafana/blob/v13.0.0/pkg/tsdb/grafana-postgresql-datasource/sqleng/sql_engine.go",
+    "ping": "https://github.com/jackc/pgx/blob/v5.7.4/pgxpool/pool.go",
+    "macros": "https://github.com/grafana/grafana/blob/v13.0.0/pkg/tsdb/grafana-postgresql-datasource/macros.go",
+    "psql": "https://github.com/postgres/postgres/blob/REL_16_STABLE/src/bin/psql/describe.c"
+  },
+  "queries": [
+    {
+      "id": "getVersion",
+      "sql": "SELECT current_setting('server_version_num')::int/100 as version",
+      "rows": 1
+    },
+    {
+      "id": "getTimescaleDBVersion",
+      "sql": "SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'",
+      "rows": 0
+    },
+    {
+      "id": "showTables",
+      "sql": "SELECT CASE WHEN quote_ident(table_schema) IN (\nSELECT CASE WHEN trim(s[i]) = '\"$user\"' THEN user ELSE trim(s[i]) END\nFROM generate_series(array_lower(string_to_array(current_setting('search_path'),','),1),array_upper(string_to_array(current_setting('search_path'),','),1)) as i,\nstring_to_array(current_setting('search_path'),',') s\n) THEN quote_ident(table_name) ELSE quote_ident(table_schema) || '.' || quote_ident(table_name) END AS \"table\"\nFROM information_schema.tables\nWHERE quote_ident(table_schema) NOT IN ('information_schema','pg_catalog','_timescaledb_cache','_timescaledb_catalog','_timescaledb_internal','_timescaledb_config','timescaledb_information','timescaledb_experimental')\nORDER BY CASE WHEN quote_ident(table_schema) IN (\nSELECT CASE WHEN trim(s[i]) = '\"$user\"' THEN user ELSE trim(s[i]) END\nFROM generate_series(array_lower(string_to_array(current_setting('search_path'),','),1),array_upper(string_to_array(current_setting('search_path'),','),1)) as i,\nstring_to_array(current_setting('search_path'),',') s\n) THEN 0 ELSE 1 END, 1",
+      "rows": 5
+    },
+    {
+      "id": "getSchema-0",
+      "sql": "SELECT quote_ident(column_name) AS \"column\", data_type AS \"type\"\nFROM information_schema.columns WHERE\nCASE WHEN array_length(parse_ident('telemetry'),1) = 2\nTHEN quote_ident(table_schema) = (parse_ident('telemetry'))[1]\nAND quote_ident(table_name) = (parse_ident('telemetry'))[2]\nELSE quote_ident(table_name) = 'telemetry' AND quote_ident(table_schema) IN (\nSELECT CASE WHEN trim(s[i]) = '\"$user\"' THEN user ELSE trim(s[i]) END FROM\ngenerate_series(array_lower(string_to_array(current_setting('search_path'),','),1),array_upper(string_to_array(current_setting('search_path'),','),1)) as i,\nstring_to_array(current_setting('search_path'),',') s)\nEND",
+      "rows": 8
+    },
+    {
+      "id": "version-current_schema",
+      "sql": "SELECT version(), current_schema()",
+      "rows": 1
+    },
+    {
+      "id": "pg-type",
+      "sql": "SELECT typname FROM pg_catalog.pg_type WHERE oid IN (16,20,25,701,1184) ORDER BY oid",
+      "rows": 5
+    },
+    {
+      "id": "pg-namespace",
+      "sql": "SELECT nspname FROM pg_catalog.pg_namespace WHERE oid = 2200",
+      "rows": 1
+    },
+    {
+      "id": "pg-attribute",
+      "sql": "SELECT attname FROM pg_catalog.pg_attribute WHERE attrelid=16384 ORDER BY attnum",
+      "rows": 8
+    },
+    {
+      "id": "psql-relation",
+      "sql": "SELECT c.oid, n.nspname, c.relname FROM pg_catalog.pg_class c LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.relname OPERATOR(pg_catalog.~) '^(telemetry)$' COLLATE pg_catalog.default AND pg_catalog.pg_table_is_visible(c.oid) ORDER BY 2,3",
+      "rows": 1
+    },
+    {
+      "id": "psql-details",
+      "sql": "SELECT c.relchecks, c.relkind, c.relhasindex, c.relhasrules, c.relhastriggers, c.relrowsecurity, c.relforcerowsecurity, false AS relhasoids, c.relispartition, '', c.reltablespace, CASE WHEN c.reloftype=0 THEN '' ELSE c.reloftype::pg_catalog.regtype::pg_catalog.text END, c.relpersistence, c.relreplident, am.amname FROM pg_catalog.pg_class c LEFT JOIN pg_catalog.pg_class tc ON c.reltoastrelid=tc.oid LEFT JOIN pg_catalog.pg_am am ON c.relam=am.oid WHERE c.oid='16384'",
+      "rows": 1
+    },
+    {
+      "id": "psql-columns",
+      "sql": "SELECT a.attname, pg_catalog.format_type(a.atttypid,a.atttypmod), (SELECT pg_catalog.pg_get_expr(d.adbin,d.adrelid,true) FROM pg_catalog.pg_attrdef d WHERE d.adrelid=a.attrelid AND d.adnum=a.attnum AND a.atthasdef), a.attnotnull, (SELECT c.collname FROM pg_catalog.pg_collation c,pg_catalog.pg_type t WHERE c.oid=a.attcollation AND t.oid=a.atttypid AND a.attcollation<>t.typcollation) AS attcollation, a.attidentity, a.attgenerated FROM pg_catalog.pg_attribute a WHERE a.attrelid='16384' AND a.attnum>0 AND NOT a.attisdropped ORDER BY a.attnum",
+      "rows": 8
+    },
+    {
+      "id": "psql-inherits",
+      "sql": "SELECT c.oid::pg_catalog.regclass FROM pg_catalog.pg_class c, pg_catalog.pg_inherits i WHERE c.oid=i.inhparent AND i.inhrelid='16384' AND c.relkind!='p' AND c.relkind!='I' ORDER BY inhseqno",
+      "rows": 0
+    },
+    {
+      "id": "psql-children",
+      "sql": "SELECT c.oid::pg_catalog.regclass,c.relkind,inhdetachpending,pg_catalog.pg_get_expr(c.relpartbound,c.oid) FROM pg_catalog.pg_class c,pg_catalog.pg_inherits i WHERE c.oid=i.inhrelid AND i.inhparent='16384' ORDER BY pg_catalog.pg_get_expr(c.relpartbound,c.oid)='DEFAULT',c.oid::pg_catalog.regclass::pg_catalog.text",
+      "rows": 0
+    },
+    {
+      "id": "psql-policies",
+      "sql": "SELECT pol.polname, pol.polpermissive, CASE WHEN pol.polroles = '{0}' THEN NULL ELSE pg_catalog.array_to_string(array(select rolname from pg_catalog.pg_roles where oid = any (pol.polroles) order by 1),',') END, pg_catalog.pg_get_expr(pol.polqual, pol.polrelid), pg_catalog.pg_get_expr(pol.polwithcheck, pol.polrelid), CASE pol.polcmd WHEN 'r' THEN 'SELECT' WHEN 'a' THEN 'INSERT' WHEN 'w' THEN 'UPDATE' WHEN 'd' THEN 'DELETE' END AS cmd FROM pg_catalog.pg_policy pol WHERE pol.polrelid = '16384' ORDER BY 1",
+      "rows": 0
+    },
+    {
+      "id": "psql-statistics",
+      "sql": "SELECT oid, stxrelid::pg_catalog.regclass, stxnamespace::pg_catalog.regnamespace::pg_catalog.text AS nsp, stxname, pg_catalog.pg_get_statisticsobjdef_columns(oid) AS columns, 'd' = any(stxkind) AS ndist_enabled, 'f' = any(stxkind) AS deps_enabled, 'm' = any(stxkind) AS mcv_enabled, stxstattarget FROM pg_catalog.pg_statistic_ext WHERE stxrelid='16384' ORDER BY nsp, stxname",
+      "rows": 0
+    },
+    {
+      "id": "psql-publications",
+      "sql": "SELECT pubname, NULL, NULL FROM pg_catalog.pg_publication p JOIN pg_catalog.pg_publication_namespace pn ON p.oid=pn.pnpubid JOIN pg_catalog.pg_class pc ON pc.relnamespace=pn.pnnspid WHERE pc.oid='16384' AND pg_catalog.pg_relation_is_publishable('16384') UNION SELECT pubname, pg_get_expr(pr.prqual,c.oid), (CASE WHEN pr.prattrs IS NOT NULL THEN (SELECT string_agg(attname, ', ') FROM pg_catalog.generate_series(0, pg_catalog.array_upper(pr.prattrs::pg_catalog.int2[],1)) s, pg_catalog.pg_attribute WHERE attrelid=pr.prrelid AND attnum=prattrs[s]) ELSE NULL END) FROM pg_catalog.pg_publication p JOIN pg_catalog.pg_publication_rel pr ON p.oid=pr.prpubid JOIN pg_catalog.pg_class c ON c.oid=pr.prrelid WHERE pr.prrelid='16384' UNION SELECT pubname,NULL,NULL FROM pg_catalog.pg_publication p WHERE p.puballtables AND pg_catalog.pg_relation_is_publishable('16384') ORDER BY 1",
+      "rows": 0
+    },
+    {
+      "id": "timeFilter-expanded",
+      "sql": "SELECT ts AS \"time\", \"navigation.speedOverGround\" AS value FROM telemetry WHERE ts BETWEEN '2020-01-01T00:00:10Z' AND '2020-01-01T00:00:20Z' ORDER BY ts",
+      "rows": 2
+    },
+    {
+      "id": "timeGroup-expanded",
+      "sql": "SELECT floor(extract(epoch from ts)/60)*60 AS \"time\", avg(\"navigation.speedOverGround\") AS value FROM telemetry WHERE ts BETWEEN '2020-01-01T00:00:10Z' AND '2020-01-01T00:00:20Z' GROUP BY 1 ORDER BY 1",
+      "rows": 1
+    },
+    {
+      "id": "date-bin",
+      "sql": "SELECT date_bin(INTERVAL '1 minute',ts,TIMESTAMP '2020-01-01T00:00:00Z') AS \"time\",avg(\"navigation.speedOverGround\") AS value FROM telemetry WHERE ts BETWEEN '2020-01-01T00:00:10Z' AND '2020-01-01T00:00:20Z' GROUP BY 1 ORDER BY 1",
+      "rows": 1
+    },
+    {
+      "id": "typed-null",
+      "sql": "SELECT CAST(NULL AS BIGINT) AS absent,true AS flag",
+      "rows": 1
+    }
+  ]
+}

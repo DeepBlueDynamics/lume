@@ -26,9 +26,25 @@
       <button class="tab-btn active" data-tab="tab-console">SQL Console</button>
       <button class="tab-btn" data-tab="tab-schema">Schema Browser</button>
       <button class="tab-btn" data-tab="tab-status">Status & Diagnostics</button>
+      <button class="tab-btn" data-tab="tab-pg">PostgreSQL / Grafana</button>
     </nav>
 
     <main class="app-content">
+      <section id="tab-pg" class="tab-panel">
+        <h2>PostgreSQL / Grafana</h2>
+        <p>Administrator login required. Save restarts Lume. Blank password keeps the existing credential.</p>
+        <form id="pg-config">
+          <p><label><input type="checkbox" name="enablePg"> Enable PostgreSQL</label></p>
+          <p><label>Port <input type="number" name="pgPort" min="1" max="65535" value="5864" required></label></p>
+          <p><label>User <input name="pgUser" value="grafana" required></label></p>
+          <p><label>Bind IP <input name="pgBind" value="127.0.0.1" required></label></p>
+          <p>For HaLOS Grafana use 172.17.0.1 (docker0). HTTP stays on 127.0.0.1.</p>
+          <p><label>Password <input type="password" name="pgPassword" autocomplete="new-password" maxlength="1024"></label></p>
+          <p>Use printable ASCII characters. Only a SCRAM verifier is saved.</p>
+          <button type="submit">Save PostgreSQL settings</button>
+          <p id="pg-message" role="status"></p>
+        </form>
+      </section>
       <!-- 1. SQL Console Tab -->
       <section id="tab-console" class="tab-panel active">
         <div class="query-toolbar">
@@ -129,5 +145,6 @@
 
   <script src="pin.js"></script>
   <script src="app.js"></script>
+  <script src="pg.js"></script>
 </body>
 </html>

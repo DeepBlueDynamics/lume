@@ -173,15 +173,28 @@ fn lume_main() {
                     eprintln!("--bind requires an IP address");std::process::exit(2);
                 })
             });
+            let pg_bind = args.iter().position(|a| a == "--pg-bind").map(|pos| {
+                args.get(pos + 1).filter(|s| !s.starts_with("--")).map(String::as_str).unwrap_or_else(|| {
+                    eprintln!("--pg-bind requires an IP address"); std::process::exit(2);
+                })
+            });
+            let pg_auth_config = args.iter().position(|a| a == "--pg-auth-config").map(|pos| {
+                args.get(pos + 1).filter(|s| !s.starts_with("--")).map(std::path::Path::new).unwrap_or_else(|| {
+                    eprintln!("--pg-auth-config requires a path"); std::process::exit(2);
+                })
+            });
             let pg=args.iter().position(|a|a=="--pg").map(|pos|{
                 args.get(pos+1).and_then(|s|s.parse::<u16>().ok()).unwrap_or_else(||{
                     eprintln!("--pg requires a port from 0 to 65535");std::process::exit(2);
                 })
             });
+            if pg.is_none() && (pg_bind.is_some() || pg_auth_config.is_some()) {
+                eprintln!("--pg-bind and --pg-auth-config require --pg"); std::process::exit(2);
+            }
             if pg.is_some() && ti_store.is_none(){eprintln!("--pg requires --ti-store");std::process::exit(2);}
             #[cfg(feature = "ti")]
             let result=match ti_store{
-                Some(root)=>lume::agent::serve_with_ti_pg_on(port,std::path::Path::new(root),bind.unwrap_or("127.0.0.1"),pg),
+                Some(root)=>lume::agent::serve_with_ti_pg_config(port,std::path::Path::new(root),bind.unwrap_or("127.0.0.1"),pg,pg_bind,pg_auth_config),
                 None=>lume::agent::serve_on(port,bind.unwrap_or("0.0.0.0")),
             };
             #[cfg(not(feature = "ti"))]
@@ -251,7 +264,8 @@ fn lume_main() {
 #[cfg(feature = "ti")]
 fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
     if args.iter().any(|a| a == "-h" || a == "--help") {
-        println!("Usage: lume ti ingest --signalk <url> --store <root> [--config <path>] [--token <file|token>] [--serve] [--bind <IP>] [--port <port>] [--pg <port>] [--self-urn <urn>]");
+        println!("Usage: lume ti ingest --signalk <url> --store <root> [--config <path>] [--token <file|token>] [--serve] [--bind <IP>] [--port <port>] [--pg <port>] [--pg-bind <IP>] [--pg-auth-config <path>] [--self-urn <urn>]");
+        println!("--pg-bind defaults to --bind; HTTP bind is independent. --pg-auth-config replaces store auth without merging; other sections are ignored. Unix file must be private (chmod 600).");
         return Ok(());
     }
     let mut signalk_url = None;
@@ -262,6 +276,8 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
     let mut bind = None;
     let mut port = 5863u16;
     let mut pg = None;
+    let mut pg_bind = None;
+    let mut pg_auth_config = None;
     let mut self_urn = None;
 
     let mut i = 0;
@@ -311,10 +327,25 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
                 pg = Some(val.parse::<u16>().map_err(|_| "invalid --pg port")?);
                 i += 2;
             }
+            "--pg-bind" => {
+                pg_bind = Some(args.get(i + 1).ok_or("--pg-bind requires an IP address")?.clone());
+                i += 2;
+            }
+            "--pg-auth-config" => {
+                pg_auth_config = Some(args.get(i + 1).ok_or("--pg-auth-config requires a path")?.clone());
+                i += 2;
+            }
             other => return Err(format!("Unknown option: {other}")),
         }
     }
 
+    if pg.is_some() && !serve { return Err("--pg requires --serve".into()); }
+    if pg.is_none() && (pg_bind.is_some() || pg_auth_config.is_some()) {
+        return Err("--pg-bind and --pg-auth-config require --pg".into());
+    }
+    if let Some(address) = &pg_bind {
+        address.parse::<std::net::IpAddr>().map_err(|_| "Invalid --pg-bind IP address")?;
+    }
     let store_root_str = store_root.ok_or("--store is required")?;
     let store_path = PathBuf::from(&store_root_str);
 
@@ -358,6 +389,13 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
         let width = service.config.width_seconds;
         match lume::ti_http::TiServer::open_with_width(&store_path, Some(width)) {
             Ok(server) => {
+                let server = if let Some(path) = &pg_auth_config {
+                    server.with_pg_auth_config(Path::new(path))?
+                } else { server };
+                // Validate credentials and auth-file policy before telemetry starts.
+                if pg.is_some() {
+                    server.validate_pg_auth(pg_bind.as_deref().unwrap_or(&serve_bind))?;
+                }
                 let ti_server = std::sync::Arc::new(server);
                 let ti_server_clone = ti_server.clone();
                 service.set_flush_hook(std::sync::Arc::new(move || {
@@ -365,12 +403,13 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
                 }));
                 std::thread::spawn(move || {
                     println!("Starting integrated query server on {serve_bind}:{port}...");
-                    if let Err(e) = lume::agent::serve_with_ti_server(port, ti_server, &serve_bind, pg) {
+                    if let Err(e) = lume::agent::serve_with_ti_server_pg_bind(port, ti_server, &serve_bind, pg, pg_bind.as_deref()) {
                         eprintln!("Error in query server: {e}");
                     }
                 });
             }
             Err(e) => {
+                if pg.is_some() { return Err(format!("Failed to initialize integrated query server: {e}")); }
                 eprintln!("Failed to initialize integrated query server: {e}");
             }
         }
@@ -2295,7 +2334,10 @@ USAGE:
 OPTIONS:
   -p, --port <PORT>      Port to bind the HTTP server to [default: 5863 — "LUME" on a phone keypad]
   --ti-store <ROOT>     Open one shared TI engine for /ti and MCP (requires feature ti)
-  --pg <PORT>          Enable read-only simple-query Postgres; requires --ti-store [off by default]
+  --pg <PORT>          Enable read-only Postgres; requires --ti-store [off by default]
+  --pg-bind <IP>       Postgres bind only [defaults to --bind]
+  --pg-auth-config <PATH>  Private ti.toml: auth replaces store auth, no merging;
+                          other sections ignored; Unix chmod 600 required
   --bind <IP>           Bind address [with TI: 127.0.0.1; otherwise: 0.0.0.0]
   -h, --help             Prints help information
 "#);
