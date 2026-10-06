@@ -142,8 +142,13 @@ impl BucketWindow {
             // >= W), so a path's column set must not vary per bucket. Deciding "slow" per bucket
             // (one sample => slow) gave 0.1 Hz paths only @last and made @mean/@min/@max vanish.
             // Until per-path, sticky median-interval detection exists, every numeric path uses
-            // the default profile (D33).
-            let aggs_to_emit = &config.profiles.default;
+            // the default profile (D33), plus the operator's opt-in aggregates (spec/05).
+            let mut aggs_to_emit: Vec<&String> = config.profiles.default.iter().collect();
+            for agg in &config.profiles.opt_in {
+                if !aggs_to_emit.contains(&agg) {
+                    aggs_to_emit.push(agg);
+                }
+            }
 
             for agg_name in aggs_to_emit {
                 match agg_name.as_str() {

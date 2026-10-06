@@ -10,7 +10,9 @@
 //!
 //! If `<raw_dir>/../catalog/paths/paths.parquet` exists (written by `ti-bench gen`), its
 //! per-path `scale` column seeds `TiConfig::path_scales`, standing in for the Signal K
-//! `meta.units` that a raw-tier backfill does not have.
+//! `meta.units` that a raw-tier backfill does not have. Likewise `catalog/vessels` pre-registers
+//! vessel names and MMSIs, standing in for the Signal K `name` delta. `TI_OPT_IN=last` adds
+//! opt-in aggregates (the golden corpus queries `@last`).
 
 use std::path::Path;
 use std::sync::Arc;
@@ -18,7 +20,7 @@ use std::time::Instant;
 
 use arrow_array::{Array, StringArray, UInt8Array};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-use ti_contracts::{ShardKey, ShardSink, TiConfig};
+use ti_contracts::{Catalog, ShardKey, ShardSink, TiConfig, VesselSpec};
 use ti_ingest::parquet::{backfill_directory, BackfillStatus};
 use ti_store::Store;
 
@@ -58,6 +60,39 @@ fn shard_keys(root: &Path) -> Vec<ShardKey> {
 }
 
 /// Read `path -> scale` from a ti-bench `catalog/paths/paths.parquet`, if present.
+/// Vessels from `<ancestor>/catalog/vessels/vessels.parquet`, in `ord` order.
+fn catalog_vessels(raw: &Path) -> Vec<VesselSpec> {
+    let mut out = Vec::new();
+    let Some(root) = raw.ancestors().find(|a| a.join("catalog").is_dir()) else {
+        return out;
+    };
+    let Ok(file) = std::fs::File::open(root.join("catalog/vessels/vessels.parquet")) else {
+        return out;
+    };
+    let Ok(reader) = ParquetRecordBatchReaderBuilder::try_new(file).and_then(|b| b.build()) else {
+        return out;
+    };
+    let text = |batch: &arrow_array::RecordBatch, name: &str, i: usize| {
+        batch
+            .column_by_name(name)
+            .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+            .filter(|c| !c.is_null(i))
+            .map(|c| c.value(i).to_string())
+    };
+    for batch in reader.flatten() {
+        for i in 0..batch.num_rows() {
+            if let Some(urn) = text(&batch, "urn", i) {
+                out.push(VesselSpec {
+                    urn,
+                    name: text(&batch, "name", i),
+                    mmsi: text(&batch, "mmsi", i),
+                });
+            }
+        }
+    }
+    out
+}
+
 fn catalog_scales(raw: &Path) -> Vec<(String, u8)> {
     let mut out = Vec::new();
     let Some(root) = raw.ancestors().find(|a| a.join("catalog").is_dir()) else {
@@ -109,8 +144,23 @@ fn main() {
     for (path, scale) in scales {
         config.path_scales.insert(path, scale);
     }
+    // Opt-in aggregates (spec/05), e.g. TI_OPT_IN=last for the golden corpus's @last queries.
+    if let Ok(list) = std::env::var("TI_OPT_IN") {
+        config.profiles.opt_in = list
+            .split(',')
+            .map(str::trim)
+            .filter(|a| !a.is_empty())
+            .map(String::from)
+            .collect();
+    }
+    println!("opt-in aggs    : {:?}", config.profiles.opt_in);
     let mut store = Store::open_or_create(root, config.width_seconds).expect("open store");
     let catalog = Arc::clone(store.catalog());
+    let vessels = catalog_vessels(raw);
+    println!("vessels        : {} from catalog/vessels", vessels.len());
+    for vessel in &vessels {
+        catalog.register_vessel(vessel).expect("register vessel");
+    }
 
     let t0 = Instant::now();
     let results = backfill_directory(raw, self_urn, None, &config, catalog.as_ref(), &mut store)
