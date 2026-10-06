@@ -27,7 +27,18 @@ fn resource_notes_updates_and_deletes_invalidate_match_notes() {
         let factory=move |_:&std::path::Path,_:&ti_store::Store,_:u64|->ti_contracts::Result<Arc<dyn DocumentIndex>>{Ok(factory_index.clone())};
         let runtime=ti_sql::surface_runtime().unwrap();
         let engine=runtime.block_on(ti_sql::TiEngine::open(&root,Some(10),Some(&factory))).unwrap();
-        let matches=|word:&str|runtime.block_on(engine.query(&format!("SELECT ts FROM telemetry WHERE match(notes, '{word}')"),500)).unwrap()["row_count"].as_u64().unwrap();
+        let live_server=lume::ti_http::TiServer::open_with_width(&root,Some(10)).unwrap();
+        live_server.reload_engine().unwrap();
+        let matches=|word:&str| {
+            let sql=format!("SELECT ts FROM telemetry WHERE match(notes, '{word}')");
+            let direct=runtime.block_on(engine.query(&sql,500)).unwrap()["row_count"].as_u64().unwrap();
+            // Exercises the shared RwLock engine, including debounced reloads.
+            live_server.reload_engine().unwrap();
+            let reply:serde_json::Value=serde_json::from_str(&live_server.mcp("ti_query",&json!({"sql":sql})).unwrap()).unwrap();
+            assert_eq!(reply["row_count"].as_u64().unwrap(),direct);
+            direct
+        };
+        assert_eq!(matches("reef"),0);
         let client=ResourceClient::new(&server.url,None).unwrap();
         let mut docs=ResourceDocuments::open(&root).unwrap();
         *server.notes.lock().unwrap()=(200,json!({"id":{"title":"Reef","timestamp":"2026-10-06T12:00:00Z","description":"reef mainsail"}}));
