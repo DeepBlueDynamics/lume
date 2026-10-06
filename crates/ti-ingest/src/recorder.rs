@@ -67,7 +67,7 @@ impl DeltaReplay {
                 let delta: SignalKDelta = serde_json::from_str(trimmed)
                     .map_err(|e| Error::Corrupt(format!("invalid delta JSON: {e}")))?;
 
-                let (raw_points, meta) = decode_delta(&delta, self_urn, bucketer.max_event_time());
+                let (raw_points, meta) = decode_delta(&delta, self_urn, 0);
                 for (p, v) in meta {
                     if let Some(units) = v.get("units").and_then(|u| u.as_str()) {
                         bucketer.classifier_mut().register_meta_units(&p, units);

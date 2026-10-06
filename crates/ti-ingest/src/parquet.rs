@@ -7,7 +7,7 @@
 //! - Content hash calculation via pure BLAKE3 and manifest skip checking
 //! - Clear-and-rewrite idempotence for historical buckets
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -277,7 +277,7 @@ pub fn backfill_parquet_file(
     let rows_read = raw_points.len();
 
     let mut classifier = Classifier::new(config);
-    let mut windows: HashMap<(VesselOrd, u32), BucketWindow> = HashMap::new();
+    let mut windows: BTreeMap<(VesselOrd, u32), BucketWindow> = BTreeMap::new();
 
     for raw in raw_points {
         let norm_points = normalize_point(raw, &config.allow_paths, &config.deny_paths);
@@ -353,6 +353,45 @@ pub fn backfill_parquet_file(
         rows_read,
         buckets_emitted,
     })
+}
+
+/// Recursively backfill all `.parquet` files found under `dir`.
+/// Files are sorted by path for deterministic processing order.
+pub fn backfill_directory(
+    dir: &Path,
+    self_urn: &str,
+    manifest_hashes: Option<&HashSet<[u8; 32]>>,
+    config: &TiConfig,
+    catalog: &dyn Catalog,
+    sink: &mut dyn ShardSink,
+) -> Result<Vec<BackfillStatus>> {
+    let mut files = Vec::new();
+    find_parquet_files_recursive(dir, &mut files)?;
+    files.sort();
+
+    let mut results = Vec::with_capacity(files.len());
+    for file in files {
+        let status =
+            backfill_parquet_file(&file, self_urn, manifest_hashes, config, catalog, sink)?;
+        results.push(status);
+    }
+    Ok(results)
+}
+
+fn find_parquet_files_recursive(dir: &Path, out: &mut Vec<std::path::PathBuf>) -> Result<()> {
+    if !dir.exists() {
+        return Ok(());
+    }
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            find_parquet_files_recursive(&path, out)?;
+        } else if path.extension().and_then(|e| e.to_str()) == Some("parquet") {
+            out.push(path);
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
