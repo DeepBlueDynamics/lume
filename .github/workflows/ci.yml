@@ -37,3 +37,52 @@ jobs:
 
       - name: Clippy (no warnings as errors; informational)
         run: cargo clippy --all-targets || true
+
+  ti:
+    name: TI strict checks
+    runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_TARGET_TMPDIR: ${{ github.workspace }}/.test-tmp
+      TMPDIR: ${{ github.workspace }}/.test-tmp
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create test scratch directory
+        run: mkdir -p "$CARGO_TARGET_TMPDIR"
+
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@1.96.0
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry and build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ti-strict
+
+      - name: Check TI crate formatting
+        run: cargo fmt --check -p ti-contracts -p ti-core -p ti-store -p ti-ingest -p ti-sql -p ti-sync -p ti-bench -p ti-geo
+
+      - name: Check root TI formatting
+        run: rustfmt --check --edition 2021 src/ti_*.rs src/sql.rs tests/ti_*.rs tests/support/*.rs
+
+      - name: Strict TI crate clippy
+        run: cargo clippy --locked -p ti-contracts -p ti-core -p ti-store -p ti-ingest -p ti-sql -p ti-sync -p ti-bench -p ti-geo --all-targets -- -D warnings
+
+      - name: Test TI feature
+        run: cargo test --locked --features ti
+
+      - name: Install Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Test Signal K plugin
+        working-directory: plugins/signalk-lume-ti
+        run: npm test
+
+      - name: Test benchmark scripts
+        run: |
+          python3 -m unittest discover -s bench -p 'test_*.py'
+          python3 -m unittest discover -s bench/grafana -p 'test_*.py'
