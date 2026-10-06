@@ -1,8 +1,8 @@
 # Lume TI — Status board
 
-Last updated: **2026-10-06** (docs keeper, after `26e535a`: **full corpus 58/0/4**, **M2 item 2 closed**, W7 surfaces and D30 fan-out merged)
+Last updated: **2026-10-06** (docs keeper, after `39c0096`: **HTTP `/ti` and `ti_resolve` merged**, **M5 item 1 met** at 93/100; full corpus 58/0/4)
 
-Integration branch `plan/lume-ti` is at `26e535a`. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46 at `8e87a11` (not recounted since).
+Integration branch `plan/lume-ti` is at `39c0096`. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46 at `8e87a11`. Host checks on `39c0096`: `cargo test --features ti` **55 passed**, strict clippy clean, default build green.
 Workspace members: `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench`, `ti-geo`. Next free decision: **D37** (ask the lead before taking it).
 Setup and workflow: [SETUP.md](SETUP.md).
 
@@ -10,14 +10,16 @@ Setup and workflow: [SETUP.md](SETUP.md).
 
 - **✅ FULL GOLDEN CORPUS: 58 passed, 0 failed, 4 excluded** (`cb39a4d`). `lume ti verify` now always runs geo and `intervals()`; text is skipped only when no document index is registered. The q7 oracles are D35-rounded (lat/lon at scale 7). The 4 exclusions are contract questions, with reasons in `tests/golden/corpus.json`: `q1-007`, `q6-006` and `q2-001` (count-path semantics; need a `count_paths` contract) and `qx-003` (DataFusion 55 cannot decorrelate an expression-keyed correlated scalar subquery; `qx-013` verifies the same result in join form).
 - **M4 is still open on item 3**: the `croaring` frozen-view evaluation has not started. Item 1 is met except the 4 contract exclusions, and item 2 (Q4 72.4×) is met.
+- **✅ M5 item 1 MET** (`39c0096`): `ti_resolve` returns the right column in the top 3 for **93/100** phrases in `tests/golden/resolve.json`, over 488 columns (fixture accuracy). The MCP tools are live in `lume serve`, and HTTP `/ti` is merged (`bce7779`).
 - **✅ M2 item 2 CLOSED** (`11c0edc`, Artificial Shark): full-set backfill idempotence on one store. M2 stays open on item 3 (Pi 5 throughput/RSS).
-- **Known issue: cold store open on `store-full` takes ~70 s** (85.5 s before Long Horse's width-header fix). The lead is profiling `session_from_store` / `Store` open.
+- **Cold open is fast on the host.** The earlier ~70 s was the container's bind mount. On the Windows host (`4626591` `open_timing` example): `Store::open` 0.07 s, `session_from_store` 1.78 s, `lume ti status` 2.17 s wall, `count(*)` over `telemetry` 2.99 s.
+- **🟡 Licence decision needed (user, before publishing):** `src/ti_resolve/signalk_paths.json` (150 KB) is extracted from SignalK/specification 1.8.4 @ `fb628fb4` under **CC-BY-SA 2.0**. It ships with its own `LICENSE` and `README.md` in `src/ti_resolve/`. See user item 16.
 - **In flight:**
-  - Long Horse: W7 HTTP `/ti` on `lume serve --ti-store` (integration green, rebasing).
-  - Artificial Shark: D30 end to end (wire the fan-out into backfill and live ingest, the `telemetry_hr` SQL table, a retention-vs-WAL edge case).
-- **Next:** the `croaring` evaluation (M4 item 3), the `count_paths` contract, the rest of W7 / M5, `lume sql`, W8.
+  - Long Horse: read-only **pgwire** (`--pg-port`, off by default, loopback), then **M5 item 2** (20 scripted questions).
+  - Artificial Shark: rebasing D30 end to end (`5ac2971`) onto `39c0096` (conflict in `engine.rs`). Content: multi-store backfill and stream, the `telemetry_hr` SQL table, retention that drops only sealed shards.
+- **Next:** the `croaring` evaluation (M4 item 3), the `count_paths` contract, pgwire and the rest of M5, `lume sql`, W8.
 - **Agents are working again** (both lanes merged code in this round). Docker Desktop's earlier outage ("unable to start") froze them from about 08:51 UTC; the lead carried M3 and W5 in the meantime.
-- **Disk: 48.9 GB free** on the host. Root `target/` is 7.6 GB. The dev profile uses `debug = "line-tables-only"` (none for dependencies) since `3354bd0`, and agents cap their `target/` at 15 GB. See [SETUP §8](SETUP.md).
+- **Disk: 42.9 GB free** on the host. Root `target/` is 8.7 GB. The dev profile uses `debug = "line-tables-only"` (none for dependencies) since `3354bd0`, and agents cap their `target/` at 15 GB. See [SETUP §8](SETUP.md).
 
 ## Pane changes (about 06:00 UTC)
 
@@ -34,6 +36,12 @@ Commit messages, the decisions log and older docs use the former names. Pane ids
 
 | Commit | What |
 |---|---|
+| `39c0096` | Merge `ti/w7-surfaces` (`8caac42`, Long Horse). **`ti_resolve`** via MCP and `GET /ti/resolve?q=`: 93/100 top-3 on `tests/golden/resolve.json` over 488 columns. `lume serve --bind <IP>`: loopback `127.0.0.1` by default when `--ti-store` is set, plain `lume serve` keeps `0.0.0.0`. No wildcard CORS on `/ti` or the TI server's `/mcp`. Adds `src/ti_resolve/signalk_paths.json` (CC-BY-SA 2.0, see user item 16) |
+| `0b3a17a` | Host rustfmt after the W7 HTTP merge |
+| `400557c` | Root README: forward-looking Lume TI section with the current state and benchmarks |
+| `bce7779` | Merge `ti/w7-surfaces` (`635fbd1`, Long Horse). **HTTP `/ti` on `lume serve --ti-store`**: `POST /ti/query` (Arrow IPC or JSON, chosen by `Accept`), `GET /ti/schema`, `POST /ti/explain`, `GET /ti/status`. One shared engine; one width header read per shard |
+| `4626591` | `ti-sql` `open_timing` example (per-stage store/session/query timing) |
+| `b95f890` | Docs refresh after the full corpus, M2 item 2, W7 CLI/MCP and D30 merges |
 | `26e535a` | Host fmt of the W7 CLI/engine/MCP code (container lacks rustfmt), 2 strict-clippy fixes (`field_reassign_with_default` in `retention.rs` and `multi_store_fanout.rs`), and `surfaces.rs` scratch under `CARGO_TARGET_TMPDIR` so the tests run on the host |
 | `20117c4` | Merge `ti/w3-ingest` (`11c0edc`, `7d4a081`, Artificial Shark). **M2 full-set idempotence** on one store, with throughput and index size. **D30** `MultiStoreBucketer` fan-out, per-store aggregates, `Store::enforce_retention`, `StoreSet` |
 | `31fd76a` | Merge `ti/w7-surfaces` (`6afb2ab`, Long Horse). `lume ti query|explain|status|import-docs` on a shared `TiEngine`. In-process MCP tools `ti_query`, `ti_schema`, `ti_explain`, `ti_status` (`src/ti_mcp.rs`), capped at 500 rows and 64 KiB. Bucket width is read from the store |
@@ -52,9 +60,9 @@ Earlier: `6dc19c5` docs, `f6c47b4` ingest `profiles.opt_in` + `TI_OPT_IN`, `b07e
 
 | Agent (pane name) | Pane | Lane/scope | Branch | Clone | Last known state |
 |---|---|---|---|---|---|
-| Industrial Pike | `ee764a09` | Lead and integrator. Owns the host runs (data generation, `gen_expected.py`, store backfill, `lume ti verify`, Q4 bench) and disk cleanup. Carried M3 and W5 text during the Docker outage. Now **profiling the ~70 s cold store open**. Runs fmt and 1.96 clippy on the host when a container lacks them | `plan/lume-ti` | shared tree | `26e535a` |
-| Long Horse (formerly Rigid Roadrunner) | `a05c4a5e` | **W7 surfaces.** CLI and MCP tools merged (`31fd76a`). Now: HTTP `/ti` on `lume serve --ti-store` | `ti/w7-surfaces` | `.lanes/w4` | Integration green, **rebasing**. Clone at `20117c4` with uncommitted changes (`engine.rs`, `session.rs`, `surfaces.rs`, `W7-serve.md`, `src/agent.rs`) |
-| Artificial Shark (formerly Romantic Pike) | `9be462c8` | **D30 end to end**: fan-out into backfill and live ingest, the `telemetry_hr` SQL table, the retention-vs-WAL edge case. M2 idempotence and the D30 fan-out merged (`20117c4`) | `ti/w3-ingest` | `.lanes/w3` | Clone at `20117c4`, clean |
+| Industrial Pike | `ee764a09` | Lead and integrator. Owns the host runs (data generation, `gen_expected.py`, store backfill, `lume ti verify`, Q4 bench) and disk cleanup. Carried M3 and W5 text during the Docker outage. Measured host cold-open timings (`4626591`; the ~70 s was the container bind mount). Merged W7 HTTP and `ti_resolve`. Runs fmt and 1.96 clippy on the host when a container lacks them | `plan/lume-ti` | shared tree | `39c0096` |
+| Long Horse (formerly Rigid Roadrunner) | `a05c4a5e` | **W7 surfaces.** CLI and MCP tools (`31fd76a`), HTTP `/ti` (`bce7779`) and `ti_resolve` (`39c0096`) merged. Now: read-only pgwire, then M5 item 2 | `ti/w7-surfaces` | `.lanes/w4` | Last merged `8caac42` |
+| Artificial Shark (formerly Romantic Pike) | `9be462c8` | **D30 end to end** (`5ac2971`): multi-store backfill and stream, the `telemetry_hr` SQL table, retention that drops only sealed shards. M2 idempotence and the D30 fan-out merged (`20117c4`) | `ti/w3-ingest` | `.lanes/w3` | **Rebasing** `5ac2971` onto `39c0096` (`engine.rs` conflict) |
 | Zygomorphic Prawn | `eccaf836` | — | — | `.lanes/corpus` (retired) | **Retired.** Its `target/` has been deleted |
 | Compact Echidna (formerly Regular Pheasant) | `6914c38e` | Host build pane (PowerShell 7, rustc 1.96.1). Not an agent | — | — | Bulk data and DuckDB jobs run here. **Check free disk before big builds** |
 
@@ -71,7 +79,7 @@ Week numbers count from kickoff. A milestone closes only when every gate test pa
 | M2 Ingest | W3 | 2–5 | **In progress.** Items 1 (replay) and 2 (full-set idempotence, `11c0edc`) passed. Item 3 (Pi 5 throughput/RSS) is open |
 | M3 SQL and pushdown | W4 | 2–6 | **✅ Closed 2026-10-06** (`711d2c4`). Full-store verify 42/0/20 at close |
 | M4 Text, geo, intervals | W4, W5, W6 | 6–8 | **In progress.** Item 1 met except 4 contract exclusions (full corpus **58/0/4**, `cb39a4d`). Item 2 met (72.4×). **Item 3 (`croaring` evaluation) not started** |
-| M5 Agent surface | W7 | 7–9 | **In progress.** `lume ti` CLI and in-process MCP `ti_*` tools merged (`31fd76a`); HTTP `/ti` on `lume serve` in flight. No gate item met yet (`ti_resolve` top-3 test, 20 scripted questions, plugin/pgwire) (unconfirmed) |
+| M5 Agent surface | W7 | 7–9 | **In progress.** **Item 1 met** (`39c0096`): MCP tools live in `lume serve`, `ti_resolve` 93/100 top-3. Item 2 (20 scripted questions) next, after pgwire. Item 3 (Signal K plugin, psql/Grafana) open |
 | M6 Fleet and benchmarks | W8, integrator | 9–12 | Not started |
 
 Remaining after M4: the D30 high-resolution store ([design/hi-res-store.md](design/hi-res-store.md); fan-out merged in `20117c4`, end-to-end wiring in flight), `lume sql` over plain indexes, the rest of W7, then W8.
@@ -115,9 +123,9 @@ Remaining after M4: the D30 high-resolution store ([design/hi-res-store.md](desi
 
 | # | Gate item | State |
 |---|---|---|
-| 1 | MCP tools live in `lume serve`; `ti_resolve` top-3 for ≥ 90 % of a 100-phrase test set | Open. In-process MCP `ti_query`/`ti_schema`/`ti_explain`/`ti_status` merged (`31fd76a`); HTTP `/ti` on `lume serve --ti-store` in flight. `ti_resolve` and its test set not reported (unconfirmed) |
-| 2 | A nemesis8 agent with only Lume MCP answers 20 scripted fleet questions | Open |
-| 3 | Signal K plugin installs on HALPI2 / OpenPlotter; psql and Grafana pass a 20-query smoke set | Open |
+| 1 | MCP tools live in `lume serve`, and `ti_resolve` returns the right column in the top 3 for ≥ 90 % of a 100-phrase test set | **✅ Met** (`39c0096`). `ti_query`/`ti_schema`/`ti_explain`/`ti_status`/`ti_resolve` are live in `lume serve --ti-store` (MCP and HTTP `/ti`). `ti_resolve`: **93/100** top-3 on `tests/golden/resolve.json` over 488 columns. This is fixture accuracy |
+| 2 | A nemesis8 agent with only Lume MCP answers 20 scripted fleet questions; integrator grades against oracle results | Open. Long Horse takes it after pgwire |
+| 3 | Signal K plugin installs on HALPI2 / OpenPlotter; psql and Grafana pass a 20-query smoke set | Open. Read-only pgwire (`--pg-port`, off by default, loopback) is in progress (Long Horse) |
 
 ## Open decisions waiting on the user
 
@@ -144,15 +152,17 @@ Spec deviations and proposals needing the user:
 
 14. **D27: accept `zstd-sys` (C)**, forced in by DataFusion 55.1.0's `arrow-ipc`. Amends D11 and deviates from spec/10 (C bindings only for `croaring`). Awaiting spec-owner confirmation.
 15. **Pinned `rust-toolchain.toml`**, proposed because the host (rustc 1.96.1) and the containers (1.99) report different clippy lints.
+16. **Licence of `src/ti_resolve/signalk_paths.json`** (150 KB, merged in `39c0096`). It is extracted from SignalK/specification 1.8.4 @ `fb628fb4` under **CC-BY-SA 2.0**, with its own `LICENSE` and `README.md` in `src/ti_resolve/`. Lume is BSD-3. Is shipping it acceptable? Decide before publishing.
 
 ## Open items (team, not user)
 
-- [ ] **Cold store open on `store-full` takes ~70 s** (85.5 s before the width-header fix). Lead profiling `session_from_store` / `Store` open.
 - [ ] **`croaring` frozen-view evaluation** (M4 item 3), written up in the decisions log.
 - [ ] **`count_paths` contract** for count-path semantics (`q1-007`, `q6-006`, `q2-001`; spec/05).
 - [ ] **`qx-003`**: DataFusion 55 cannot decorrelate it. Keep the join-form `qx-013`, or revisit on a DataFusion upgrade.
-- [ ] W7 HTTP `/ti` on `lume serve --ti-store` (Long Horse, rebasing).
-- [ ] D30 end to end: fan-out into backfill and live ingest, `telemetry_hr` SQL table, retention vs WAL (Artificial Shark).
+- [ ] **User licence decision** on `src/ti_resolve/signalk_paths.json` (CC-BY-SA 2.0) before publishing (user item 16).
+- [ ] Read-only pgwire (`--pg-port`, off by default, loopback), then M5 item 2 (Long Horse).
+- [x] W7 HTTP `/ti` on `lume serve --ti-store` (`bce7779`) and `ti_resolve` 93/100 (`39c0096`).
+- [ ] D30 end to end (`5ac2971`, rebasing onto `39c0096`): multi-store backfill and stream, `telemetry_hr` SQL table, retention drops only sealed shards (Artificial Shark).
 - [ ] Meridian VHF transcripts and live notes polling (`GET /signalk/v2/api/resources/notes` every 60 s). Not done; they go with W7 and the ingest service.
 - [ ] Pi 5 throughput/RSS run for M2 item 3.
 - [x] Full golden corpus: 58/0/4 (`cb39a4d`); q7 oracles D35-rounded.
@@ -160,7 +170,7 @@ Spec deviations and proposals needing the user:
 - [x] W7 CLI and in-process MCP tools (`31fd76a`); D30 multi-store fan-out and retention (`20117c4`).
 - [x] W5 text: `match()` lexical BM25 (D36), docs table, docs import (`c1d4941`…`cd9bb3e`).
 - [x] Docker back up; both agents working again.
-- [x] Disk: 48.9 GB free after `3354bd0` (line-tables-only debug info); agents cap `target/` at 15 GB.
+- [x] Disk: 42.9 GB free, root `target/` 8.7 GB (line-tables-only debug info since `3354bd0`); agents cap `target/` at 15 GB.
 - [x] Index size: 729.3 MB vs 1,892.7 MB raw (0.39×) via `backfill_store` with `TI_OPT_IN=last`; 554 MB (0.29×) without. The M2 gate's store measured 585.6 MB (`11c0edc`; its aggregate settings were not reported here).
 - [ ] Verify [signalk-formats §1.3](design/signalk-formats.md) against a **real** signalk-parquet `.parquet` file with DuckDB `DESCRIBE`.
 - [ ] Strict TI checks are not in `ci.yml` yet. Containers lacking rustfmt or clippy rely on the lead's host run (as in `26e535a`).

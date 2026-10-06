@@ -82,7 +82,7 @@ target/release/lume.exe ti verify --store .lanes/data/store-full --corpus tests/
 - In PowerShell, set `$env:TI_OPT_IN = 'last'` first. `TI_OPT_IN=last` adds the `@last` opt-in aggregate the corpus needs. `backfill_store` also pre-registers vessels from `catalog/vessels` and path scales from `catalog/paths`, then reports raw vs index bytes. On the host: 436.5 s backfill (219,779 rows/s), 65 shards sealed in 11.6 s, index 729.3 MB vs 1,892.7 MB raw (0.39×). The store needs about 0.7 GB of disk.
 - **The `ti` feature is required.** Without `--features ti`, `lume` reports `Unknown subcommand: ti`.
 - Verify tolerance is ±1 × 10^−scale (D34). A corpus entry with an `exclude` reason in `tests/golden/corpus.json` is skipped and counted as excluded. Geo and `intervals()` always run. Text entries are skipped only when the store has no document index.
-- **Cold store open on `store-full` takes about 70 s** (known issue, being profiled), so expect a pause before the first query.
+- On the host, opening `store-full` is fast: `Store::open` 0.07 s, `session_from_store` 1.78 s, `lume ti status` 2.17 s wall. Through a container bind mount it can take about 70 s. The `ti-sql` example `open_timing` prints per-stage timings.
 - **Text (`match()`, `docs`):** `backfill_store` now imports the docs automatically from `<ancestor>/docs`. To load the 1,610 golden documents into an existing store, run `cargo run --release -p ti-ingest --example import_docs -- .lanes/data/correctness/docs .lanes/data/store-full`. They are stored in `<store>/docs/documents.json`. `lume ti import-docs` (below) does the same thing.
 - Regenerate the golden expected outputs (DuckDB, testing only) with `py -3 -E tests/golden/gen_expected.py --data-dir .lanes/data/correctness`. See §8 for its other flags. The oracles round per-bucket aggregates to the path scale before filtering (D35), and text oracles cover `[ts_start, ts_end)` (D36).
 
@@ -96,7 +96,26 @@ lume ti import-docs <docs_dir> --store <root> [--width <seconds>]
 ```
 
 - `--store` is required. By default the bucket width is read from the store. `--width` overrides it.
-- The same engine backs the in-process MCP tools `ti_query`, `ti_schema`, `ti_explain` and `ti_status` (`src/ti_mcp.rs`). `ti_query` is read-only and capped at 500 rows and 64 KiB. HTTP `/ti` on `lume serve --ti-store` is in flight and not merged yet.
+- The same engine backs the MCP tools `ti_query`, `ti_schema`, `ti_explain`, `ti_status` and `ti_resolve` (`src/ti_mcp.rs`). `ti_query` is read-only and capped at 500 rows and 64 KiB.
+
+**`lume serve` with TI** (`bce7779`, `39c0096`; needs `--features ti`):
+
+```sh
+lume serve --ti-store <store> [--bind <IP>] [--port <PORT>]
+```
+
+- With `--ti-store`, the server binds to **loopback `127.0.0.1` by default**. Pass `--bind <IP>` to expose it. Plain `lume serve` (no TI) still binds `0.0.0.0`. `/ti` and the TI server's `/mcp` send no wildcard CORS.
+- One shared engine serves both MCP and HTTP:
+
+  | Endpoint | Does |
+  |---|---|
+  | `POST /ti/query` | Read-only SQL. Returns Arrow IPC (`application/vnd.apache.arrow.stream`) or JSON, chosen by the `Accept` header |
+  | `GET /ti/schema` | Tables and columns |
+  | `POST /ti/explain` | Query plan and pushdown |
+  | `GET /ti/status` | Store status |
+  | `GET /ti/resolve?q=<phrase>` | `ti_resolve`: phrase to column (93/100 top-3 on `tests/golden/resolve.json`) |
+
+- Read-only pgwire (`--pg-port`, off by default, loopback) is in progress and not merged.
 
 A plain `cargo test` only tests the root crate, because `default-members = ["."]`.
 
@@ -194,7 +213,7 @@ The host's C: drive is shared by every clone, every `target/` and `.lanes/data/`
 
 - **Check free space before big builds and full-set tests**, for example `Get-PSDrive C` in PowerShell or `df -h /c` in Git Bash. If space is tight, tell the lead before you start.
 - **Build with `CARGO_INCREMENTAL=0`** (`$env:CARGO_INCREMENTAL = '0'` in PowerShell). Incremental caches are the largest part of `target/`.
-- Since `3354bd0` the dev profile uses `debug = "line-tables-only"` and no debug info for dependencies. Full DataFusion debug info had grown the caches to about 81 GB across `target/` and the clones. **Keep each agent's `target/` under 15 GB.** At the last check (2026-10-06), the host had 48.9 GB free and root `target/` was 7.6 GB.
+- Since `3354bd0` the dev profile uses `debug = "line-tables-only"` and no debug info for dependencies. Full DataFusion debug info had grown the caches to about 81 GB across `target/` and the clones. **Keep each agent's `target/` under 15 GB.** At the last check (2026-10-06), the host had 42.9 GB free and root `target/` was 8.7 GB.
 - **Delete retired clones' `target/` directories.** Ask the lead first, unless the clone is your own.
 - **Shrink your own `target/`** when you finish a lane or switch branches, with `cargo clean` or by deleting `target/debug/incremental`.
 - **Never build two full Stores at once.** Test code included: build, measure and drop one store before the next.
