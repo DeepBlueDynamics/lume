@@ -13,33 +13,10 @@ use lume::spelling::SpellIndex;
 use lume::semantic_mesh::EntityGraph;
 use lume::Tagger;
 use lume::Entry;
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct IndexState {
-    target_dir: String,
-    db_dir: String,
-    semantic_enabled: bool,
-    ollama_entities: bool,
-    ollama_model: String,
-    ollama_url: String,
-    tag_dict_path: Option<String>,
-    semantic_session_id: Option<String>,
-    cached_files: HashMap<String, (u64, Vec<Section>)>,
-}
-
-fn save_json<T: Serialize>(path: &Path, val: &T) -> Result<(), String> {
-    let file = File::create(path).map_err(|e| format!("Failed to create file {}: {}", path.display(), e))?;
-    let writer = io::BufWriter::new(file);
-    serde_json::to_writer_pretty(writer, val).map_err(|e| format!("Failed to write JSON to {}: {}", path.display(), e))?;
-    Ok(())
-}
-
-fn load_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, String> {
-    let file = File::open(path).map_err(|e| format!("Failed to open file {}: {}", path.display(), e))?;
-    let reader = io::BufReader::new(file);
-    let val = serde_json::from_reader(reader).map_err(|e| format!("Failed to parse JSON from {}: {}", path.display(), e))?;
-    Ok(val)
-}
+use lume::search::{
+    search, format_cli_output, correct_query, load_json, save_json, load_tagger_csv,
+    BlendMode, IndexState, LoadedIndex, SearchMode, SearchOptions,
+};
 
 fn main() {
     let mut args: Vec<String> = env::args().collect();
@@ -700,49 +677,6 @@ fn chunk_text_file(path: &Path, content: &str) -> Vec<Section> {
     }
 }
 
-fn load_tagger_csv(path: &Path) -> io::Result<Tagger> {
-    let kind = path.file_stem().and_then(|s| s.to_str()).unwrap_or("entity").to_string();
-    let text = std::fs::read_to_string(path)?;
-    let mut lines = text.lines();
-    let header_line = match lines.next() {
-        Some(h) => h,
-        None => return Err(io::Error::new(io::ErrorKind::InvalidData, "Empty CSV file")),
-    };
-    let headers = lume::parse_csv_line(header_line);
-    let action_col = headers
-        .iter()
-        .position(|h| h.trim().eq_ignore_ascii_case("action"));
-    let is_regex_col = headers
-        .iter()
-        .position(|h| h.trim().eq_ignore_ascii_case("is_regex"));
-
-    let mut entries = Vec::new();
-    for (i, raw) in lines.enumerate() {
-        let cells = lume::parse_csv_line(raw);
-        let phrase = cells.first().map(|s| s.trim()).unwrap_or("");
-        if phrase.is_empty() {
-            continue;
-        }
-        let output_override = action_col
-            .and_then(|idx| cells.get(idx))
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string());
-        let is_regex_val = is_regex_col
-            .and_then(|idx| cells.get(idx))
-            .map(|s| s.trim().eq_ignore_ascii_case("true"))
-            .unwrap_or(false);
-
-        let mut entry = Entry::new(phrase, kind.clone(), format!("csv-{}", i))
-            .with_regex(is_regex_val);
-        if let Some(out) = output_override {
-            entry = entry.with_output(out);
-        }
-        entries.push(entry);
-    }
-    Tagger::build(entries)
-}
-
 /// Reads a file as text, tolerating non-UTF-8 content. UTF-16 files (BOM) are
 /// decoded properly; other encodings are decoded lossily; content that still
 /// looks binary (>5% undecodable) yields Ok(None) so the caller can skip the
@@ -1270,28 +1204,6 @@ fn run_indexing(
     Ok(())
 }
 
-fn correct_query(spelling: &SpellIndex, query: &str) -> String {
-    let mut words = Vec::new();
-    for word in query.split_whitespace() {
-        let clean: String = word.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase();
-        if clean.is_empty() {
-            words.push(word.to_string());
-            continue;
-        }
-        if spelling.vocab_set.contains(&clean) {
-            words.push(word.to_string());
-        } else {
-            let suggestions = spelling.correct_word(&clean, 1);
-            if let Some((best, _)) = suggestions.first() {
-                words.push(best.clone());
-            } else {
-                words.push(word.to_string());
-            }
-        }
-    }
-    words.join(" ")
-}
-
 fn handle_search(args: &[String]) -> Result<(), String> {
     if args.iter().any(|a| a == "-h" || a == "--help") {
         print_search_help();
@@ -1348,97 +1260,55 @@ fn handle_search(args: &[String]) -> Result<(), String> {
 
     let query = query_opt.ok_or_else(|| String::from("Missing search query"))?;
 
-    let db_path = Path::new(&db_dir);
-    let state_file_path = db_path.join("state.json");
-    if !state_file_path.exists() {
-        return Err(format!("Index state file not found at {}. Index the directory first.", state_file_path.display()));
-    }
-    // Session/semantic caches live with the index, not in the process cwd.
-    lume::hybrid::set_cache_dir(db_path);
+    let index = LoadedIndex::open(&db_dir)?;
 
-    let state: IndexState = load_json(&state_file_path)?;
-    let bm25: Bm25Index = load_json(&db_path.join("bm25.json"))?;
-    let spelling: SpellIndex = load_json(&db_path.join("spelling.json"))?;
-
-    println!(
-        "Searching corpus: {} ({} sections, db: {})",
-        state.target_dir, bm25.sections.len(), db_dir
-    );
-
-    let mut corrected_query = query.clone();
-    if spell_check {
-        corrected_query = correct_query(&spelling, &query);
-        if corrected_query != query {
-            println!("Corrected query to: {}", corrected_query);
-        }
-    }
-
-    // SKG graph boost (Primitive 6 → 7): resolve the query's entities, walk the
-    // co-occurrence graph to their neighbors, and produce a per-section boost
-    // shared by both the lexical and hybrid paths. `beta = 0` disables it and
-    // reproduces the original ranking. Runs locally — no token needed.
-    let beta: f64 = match graph_beta {
+    let beta = match graph_beta {
         Some(v) => v,
         None => std::env::var("GRAPH_ALPHA").ok().and_then(|s| s.parse().ok()).unwrap_or(0.4),
     };
-    let skg_scores = compute_skg_for_search(&bm25, db_path, &corrected_query, beta, use_relatedness);
 
-    let token_opt = lume::hybrid::load_nuts_token();
-    // Tell the caller explicitly when the semantic leg can't engage — an MCP
-    // client asking for alpha > 0 must be able to see it got lexical-only.
-    if alpha > 0.0 && state.semantic_session_id.is_none() {
-        println!("[⚠️] Semantic search unavailable for this index (no semantic session — index with -s); falling back to lexical BM25.");
-    } else if alpha > 0.0 && token_opt.is_none() {
-        println!("[⚠️] Semantic search unavailable (no NUTS_SERVICES_TOKEN and shivvr endpoint is not local); falling back to lexical BM25.");
-    }
-    if let (Some(_sess_id), Some(_token)) = (&state.semantic_session_id, token_opt) {
-        if alpha > 0.0 {
-            println!("Executing hybrid search (alpha={}, graph={})...", alpha, beta);
-            let mut tagger = None;
-            if let Some(ref tag_dict) = state.tag_dict_path {
-                let tag_dict_p = Path::new(tag_dict);
-                if tag_dict_p.exists() {
-                    tagger = load_tagger_csv(tag_dict_p).ok();
-                }
-            }
+    let mode = if alpha > 0.0 {
+        SearchMode::HybridOrFallback
+    } else {
+        SearchMode::LexicalOnly
+    };
 
-            // Set environment variables for the execute_hybrid_search config lookup
-            std::env::set_var("ALPHA", alpha.to_string());
+    let (bm25_params, bm25_variant) = if alpha > 0.0 {
+        (Bm25Params::from_env(), SearchVariant::from_env())
+    } else {
+        (Bm25Params::default(), SearchVariant::Classic)
+    };
 
-            match lume::hybrid::execute_hybrid_search(
-                &bm25,
-                tagger.as_ref(),
-                &state.target_dir,
-                &corrected_query,
-                &skg_scores,
-                beta,
-            ) {
-                Ok(mut results) => {
-                    results.hits.truncate(limit);
-                    print_hybrid_results(&results, &corrected_query);
-                    return Ok(());
-                }
-                Err(err) => {
-                    eprintln!("Warning: Semantic hybrid search failed ({}), falling back to lexical BM25.", err);
-                }
-            }
-        }
-    }
+    let blend_mode = if std::env::var("LUME_BLEND_NORM").map(|v| v == "1" || v == "true").unwrap_or(false) {
+        BlendMode::Normalized
+    } else {
+        BlendMode::Multiplicative
+    };
 
-    println!("Executing lexical BM25 search (graph={})...", beta);
-    let params = Bm25Params::default();
-    let variant = SearchVariant::Classic;
-    let mut tagger = None;
-    if let Some(ref tag_dict) = state.tag_dict_path {
-        let tag_dict_p = Path::new(tag_dict);
-        if tag_dict_p.exists() {
-            tagger = load_tagger_csv(tag_dict_p).ok();
-        }
-    }
-    let mut hits = bm25.search(&corrected_query, variant, &params, tagger.as_ref());
-    lume::graph_search::apply_skg_boost(&mut hits, &skg_scores, beta);
-    hits.truncate(limit);
-    print_lexical_hits(&hits, &bm25, &corrected_query, &skg_scores);
+    let query_inversion = std::env::var("LUME_QUERY_INVERSION")
+        .map(|v| v == "1" || v == "true")
+        .unwrap_or(false);
+
+    let opts = SearchOptions {
+        limit,
+        spell_check,
+        mode,
+        alpha,
+        graph_beta: beta,
+        use_relatedness,
+        bm25_params,
+        bm25_variant,
+        blend_mode,
+        shivvr_url: std::env::var("SHIVVR_BASE_URL").ok(),
+        auth_token: None,
+        query_inversion,
+        max_snippet_chars: 6000,
+    };
+
+    let results = search(&index, &query, &opts)?;
+    let (stdout, stderr) = format_cli_output(&results, &index, &db_dir);
+    print!("{}", stdout);
+    eprint!("{}", stderr);
 
     Ok(())
 }
@@ -1917,178 +1787,6 @@ Each frame is a JSON object: {{type:"frame", step, r_global, nodes:[{{id, pos[3]
 vel[3], acc[3], phase, cos_q, approach_vel, approach_acc, cluster, is_query}}]}}.
 A leading {{type:"meta"}} frame carries node labels; a trailing {{type:"done"}}.
 "#);
-}
-
-/// Loads the SKG graph and walks it for `query`, returning per-section boost
-/// scores. Returns an empty map (no boost) when `beta <= 0`, the graph file is
-/// missing, or no query entities resolve. Emits a stderr "SKG walk" trace.
-fn compute_skg_for_search(
-    bm25: &Bm25Index,
-    db_path: &Path,
-    query: &str,
-    beta: f64,
-    use_relatedness: bool,
-) -> std::collections::HashMap<usize, f64> {
-    use std::collections::HashMap;
-    if beta <= 0.0 {
-        return HashMap::new();
-    }
-    let graph_path = db_path.join("entity_graph.json");
-    if !graph_path.exists() {
-        eprintln!("\x1B[35m[SKG] No entity_graph.json found; graph boost disabled (re-run `lume index`).\x1B[0m");
-        return HashMap::new();
-    }
-    let graph: EntityGraph = match load_json(&graph_path) {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("\x1B[35m[SKG] Failed to load entity_graph.json ({}); graph boost disabled.\x1B[0m", e);
-            return HashMap::new();
-        }
-    };
-    let params = lume::graph_search::SkgBoostParams { beta, use_relatedness, ..Default::default() };
-    let walk = lume::graph_search::compute_skg_scores(bm25, &graph, query, &params);
-    print_skg_walk(&walk, bm25);
-    walk.scores
-}
-
-/// Prints the SKG traversal (resolved seed entities → their strongest
-/// neighbors) to stderr, using display labels. This is the "walk the graph from
-/// Mercédès" trace made visible.
-fn print_skg_walk(walk: &lume::graph_search::SkgWalk, bm25: &Bm25Index) {
-    let label = |k: &str| bm25.entity_labels.get(k).cloned().unwrap_or_else(|| k.to_string());
-    if walk.seeds.is_empty() {
-        println!("[SKG walk] no query entities resolved — no graph boost");
-        return;
-    }
-    let seeds: Vec<String> = walk.seeds.iter().map(|s| label(s)).collect();
-    let neighbors: Vec<String> = walk
-        .expanded
-        .iter()
-        .take(8)
-        .map(|(k, w)| format!("{} ({:.2})", label(k), w))
-        .collect();
-    println!(
-        "[SKG walk] seeds: {} → neighbors: {}",
-        seeds.join(", "),
-        if neighbors.is_empty() { "(none)".to_string() } else { neighbors.join(", ") }
-    );
-}
-
-/// Builds a short snippet centered on the line containing the most distinct
-/// query terms, with one line of surrounding context. Falls back to the first
-/// non-blank lines when no query term is found in the body. This replaces the
-/// old "first three lines" snippet, which never showed *why* a section matched.
-fn best_snippet(body: &str, query: &str) -> String {
-    if body.chars().count() <= 6000 {
-        return body.trim().to_string();
-    }
-
-    use std::collections::HashSet;
-    let q_tokens = lume::bm25::filter_query_stopwords(lume::tokenize(query));
-    let qset: HashSet<Vec<u8>> = q_tokens.into_iter().map(|t| t.bytes).collect();
-
-    let lines: Vec<&str> = body.lines().collect();
-    if lines.is_empty() {
-        return String::new();
-    }
-
-    let mut best_idx = 0usize;
-    let mut best_score = 0usize;
-    for (i, line) in lines.iter().enumerate() {
-        let mut seen: HashSet<&Vec<u8>> = HashSet::new();
-        for t in lume::tokenize(line) {
-            if let Some(k) = qset.get(&t.bytes) {
-                seen.insert(k);
-            }
-        }
-        if seen.len() > best_score {
-            best_score = seen.len();
-            best_idx = i;
-        }
-    }
-
-    if best_score == 0 {
-        return lines
-            .iter()
-            .filter(|l| !l.trim().is_empty())
-            .take(15)
-            .copied()
-            .collect::<Vec<_>>()
-            .join("\n");
-    }
-
-    let start = best_idx.saturating_sub(35);
-    let end = (best_idx + 45).min(lines.len());
-    let snippet = lines[start..end].join("\n");
-    let trimmed = snippet.trim();
-    if trimmed.chars().count() > 6000 {
-        let capped: String = trimmed.chars().take(6000).collect();
-        format!("{}…", capped)
-    } else {
-        trimmed.to_string()
-    }
-}
-
-fn print_lexical_hits(
-    hits: &[SearchHit],
-    bm25: &Bm25Index,
-    query: &str,
-    skg_scores: &std::collections::HashMap<usize, f64>,
-) {
-    if hits.is_empty() {
-        println!("No hits found.");
-        return;
-    }
-    for (i, hit) in hits.iter().enumerate() {
-        if let Some(sec) = bm25.sections.get(hit.section_index) {
-            let filename = sec.filename.as_deref().unwrap_or("unknown");
-            let skg_tag = match skg_scores.get(&hit.section_index) {
-                Some(s) if *s > 0.0 => format!(" [SKG: {:.2}]", s),
-                _ => String::new(),
-            };
-            println!(
-                "[{}] Score: {:.4}{} | {} (File: {}, Line: {})",
-                i + 1,
-                hit.score,
-                skg_tag,
-                sec.title,
-                filename,
-                sec.line_number
-            );
-            let filtered_entities: Vec<&str> = sec.entities.iter()
-                .map(|e| e.as_str())
-                .filter(|&e| e != "__LUME_PROCESSED__")
-                .collect();
-            if !filtered_entities.is_empty() {
-                println!("  Entities: {:?}", filtered_entities);
-            }
-            let snippet = best_snippet(&sec.body, query);
-            println!("{}\n", snippet);
-        }
-    }
-}
-
-fn print_hybrid_results(results: &lume::hybrid::HybridSearchResult, query: &str) {
-    if results.hits.is_empty() {
-        println!("No hybrid hits found.");
-        return;
-    }
-    for hit in &results.hits {
-        let filename = hit.filename.as_deref().unwrap_or("unknown");
-        println!(
-            "[{}] Hybrid Score: {:.4} (BM25: {:.4}, Semantic: {:.4}, SKG: {:.2}) | {} (File: {}, Line: {})",
-            hit.rank,
-            hit.hybrid_score,
-            hit.bm25_score,
-            hit.semantic_score,
-            hit.skg_score,
-            hit.title,
-            filename,
-            hit.line_number
-        );
-        let snippet = best_snippet(&hit.body, query);
-        println!("{}\n", snippet);
-    }
 }
 
 fn print_generate_help() {
