@@ -1,17 +1,19 @@
 # Lume TI — Status board
 
-Last updated: **2026-10-06 13:30 UTC** (docs keeper, after `711d2c4`: **M3 closed**; Docker still down)
+Last updated: **2026-10-06** (docs keeper, after `cd9bb3e`: **W5 text landed**, verify 47/0/15; Docker still down)
 
-Integration branch `plan/lume-ti` is at `711d2c4`. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46.
-Workspace members: `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench`, `ti-geo`. Next free decision: **D36** (ask the lead before taking it).
+Integration branch `plan/lume-ti` is at `cd9bb3e`. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46.
+Workspace members: `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench`, `ti-geo`. Next free decision: **D37** (ask the lead before taking it).
 Setup and workflow: [SETUP.md](SETUP.md).
 
 ## Critical path right now
 
-- **🛑 BLOCKER: Docker Desktop is down** ("Docker Desktop is unable to start"). **Both agent containers are down**: Long Horse (`888bff45`, W5 text) and Artificial Shark (`fd91f4b1`, M2 single-store rework and D30 ingest fan-out) have been frozen since about **08:51 UTC**. Their work is safe on disk in `.lanes/w4` and `.lanes/w3`. **The lead (Industrial Pike) is carrying the work on the host** until Docker comes back.
+- **🛑 BLOCKER: Docker Desktop is down** ("Docker Desktop is unable to start"). **Both agent containers are down**: Long Horse (`888bff45`) and Artificial Shark (`fd91f4b1`, M2 single-store rework and D30 ingest fan-out) have been frozen since about **08:51 UTC**. Their work is safe on disk in `.lanes/w4` and `.lanes/w3`. **The lead (Industrial Pike) is carrying the work on the host** until Docker comes back.
 - **✅ M3 CLOSED 2026-10-06** (`711d2c4`). `lume ti verify` over the full store (5 vessels × 90 d, 95.9M raw rows): **42 passed, 0 failed, 20 excluded**. 18 exclusions are M4 (text, geo, intervals). 2 are open contract questions, with reasons in the `exclude` fields of `tests/golden/corpus.json`: `q1-007` (count-path semantics; needs a `count_paths` contract) and `qx-003` (DataFusion 55 cannot decorrelate an expression-keyed correlated scalar subquery; the same result is verified by the new `qx-013` in join form).
+- **✅ W5 text LANDED** (`c1d4941`, `ad05f94`, `11d961a`, `cd9bb3e`), done by the lead because Long Horse is frozen. `match()` is lexical Lume BM25 (**D36**). Verify over the full store with text enabled: **47 passed, 0 failed, 15 excluded**: 11 geo/intervals, 3 count-path (`q1-007`, `q6-006`, `q2-001`), and `qx-003` (DataFusion limit). Not done yet: Meridian VHF transcripts and live notes polling, which go with W7 and the ingest service.
+- **In progress (lead):** running the geo (q7) and intervals (q5) entries against the store to close M4 item 1.
 - **Index size measured** (`TI_OPT_IN=last`): **729.3 MB** vs 1,892.7 MB raw Parquet (**0.39×**). Backfill 436.5 s (219,779 rows/s), 65 shards sealed in 11.6 s. Without the `@last` opt-in it was 554 MB (0.29×). To reproduce, see [SETUP §3](SETUP.md).
-- **Next:** M4 (W5 text, `croaring` evaluation), W7 surfaces, the D30 1 s store, `lume sql`, W8.
+- **Next:** finish M4 (geo/intervals verify, `croaring` evaluation), W7 surfaces, the D30 1 s store, `lume sql`, W8.
 - **M0 closed** (`312f6a0`). The correctness set is ready (1.8 GB, 11,508 files, manifest `edfef2d8…` in `.lanes/data/correctness.sha256`).
 - **Disk:** still tight. See the Disk budget section in [SETUP §8](SETUP.md). Last measured big users (09:07): `.lanes/w4/target` 48.6 GB, `.lanes/w3/target` 12.9 GB, root `target/debug` 32 GB.
 
@@ -30,6 +32,11 @@ Commit messages, the decisions log and older docs use the former names.
 
 | Commit | What |
 |---|---|
+| `cd9bb3e` | Text oracles cover `[ts_start, ts_end)` (spec/14, D36). `q2-001` and `q6-006` join the count-path exclusion. `q6-004` sort adds `sog`. Verify **47/0/15** |
+| `11d961a` | **W5:** `ti-sql` `DocsProvider` (`docs` table): `match(body, q)` with Exact pushdown and the BM25 score. `open_store_with_documents`, `run_cli_with`. `lume ti` uses `LumeText` |
+| `ad05f94` | **W5:** root `src/ti_text.rs` `LumeText` (`TextIndex` + `DocumentIndex` on Lume's `Bm25Index`, `--features ti`) for `match()` over notes/logbook/alerts. Adds `Bm25Index::search_quiet` |
+| `c1d4941` | **W5:** `ti-store` `DocStore` at `<store>/docs/documents.json`. `ti-ingest` imports docs Parquet with content-addressed ids. `backfill_store` imports `<ancestor>/docs`. New example `import_docs` |
+| `6dc19c5` | Docs refresh after M3 close |
 | `711d2c4` | **Closes M3.** D35: golden oracles round per-bucket aggregates (`min`/`max`/`avg`/`arg_max`) to the path's catalog scale before any filter, join or roll-up, which matches TI's fixed-point predicates. `q3-002/003/004/007` and `qx-009` now equal TI exactly. Corpus entries take an optional `exclude` reason (`q1-007`, `qx-003`), and `qx-013` verifies `qx-003` in join form. Full store: **42/0/20** |
 | `f6c47b4` | Ingest emits `profiles.opt_in` aggregates (spec/05), so `@last` exists. `backfill_store` pre-registers vessel names/MMSIs from `catalog/vessels` and takes `TI_OPT_IN=last` |
 | `b07ec05` | `ti-sql`: re-associate `IS [NOT] DISTINCT FROM` over an AND/OR chain that sqlparser 0.62 swallows (precedence fix) |
@@ -47,8 +54,8 @@ Earlier: `443a4f2` docs, `19ab9fb` W6 rustfmt, `8931877` **W6 geo**, `47b2515` D
 
 | Agent (pane name) | Pane | Lane/scope | Branch | Clone | Last known state |
 |---|---|---|---|---|---|
-| Industrial Pike | `ee764a09` | Lead and integrator. Owns the host runs (data generation, `gen_expected.py`, store backfill, `lume ti verify`, Q4 bench) and disk cleanup. **Carrying the agents' work while Docker is down** (closed M3 with changes in the W2, W3 and W4 crates). Runs fmt and 1.96 clippy on the host when a container lacks them | `plan/lume-ti` | shared tree | `711d2c4` |
-| Long Horse (formerly Rigid Roadrunner) | `888bff45` | **W5 text** next, on a new branch. Approved design: `ti-text` with an object-safe `LexicalBackend`, and root `src/ti_text.rs` wiring `lume::search` `LexicalOnly`. It reuses `serde`/`serde_json` 1 and `arrow-array` 59.2, so **no new D-number** is needed | W5 branch (not created yet) | `.lanes/w4` | **Container DOWN since ~08:51 UTC (Docker Desktop unable to start); frozen.** W6 merged (`8931877`). Clone is on `ti/w6-geo` at `e73ea12`, clean. Its `target/` is **48.6 GB**, and it has been asked to shrink it |
+| Industrial Pike | `ee764a09` | Lead and integrator. Owns the host runs (data generation, `gen_expected.py`, store backfill, `lume ti verify`, Q4 bench) and disk cleanup. **Carrying the agents' work while Docker is down** (closed M3 with changes in the W2, W3 and W4 crates, and landed W5 text). Now on M4 item 1 (q7 geo, q5 intervals). Runs fmt and 1.96 clippy on the host when a container lacks them | `plan/lume-ti` | shared tree | `cd9bb3e` |
+| Long Horse (formerly Rigid Roadrunner) | `888bff45` | Was W5 text. **W5 was landed by the lead** (`c1d4941`…`cd9bb3e`, D36), so its next assignment is open (unconfirmed) | — | `.lanes/w4` | **Container DOWN since ~08:51 UTC (Docker Desktop unable to start); frozen.** W6 merged (`8931877`). Clone is on `ti/w6-geo` at `e73ea12`, clean. Its `target/` is **48.6 GB**, and it has been asked to shrink it |
 | Artificial Shark (formerly Romantic Pike) | `fd91f4b1` | Next: the **M2 single-store idempotence rework** plus the store size, then the **D30 ingest fan-out**. The expected JSONs were committed by the lead (`312f6a0`) | `ti/corpus-expected` (stale) | `.lanes/w3` | **Container DOWN since ~08:51 UTC (Docker Desktop unable to start); frozen.** Clone on `ti/corpus-expected` at `a64e27c` with an **untracked `tests/golden/expected/`**, which now collides with the committed files (see Open items). `target/` 12.9 GB |
 | Zygomorphic Prawn | `eccaf836` | — | — | `.lanes/corpus` (retired) | **Retired.** Its `target/` has been deleted |
 | Compact Echidna (formerly Regular Pheasant) | `6914c38e` | Host build pane (PowerShell 7, rustc 1.96.1). Not an agent | — | — | Bulk data and DuckDB jobs run here. **Check free disk before big builds** |
@@ -65,7 +72,7 @@ Week numbers count from kickoff. A milestone closes only when every gate test pa
 | M1 Core and store | W1, W2 | 2–4 | **Complete** (`cf98c61`) |
 | M2 Ingest | W3 | 2–5 | **In progress.** Replay done on real data (460,112/460,112 with real H3 cells). Full-set idempotence has not been re-run since the rework fixes (`5632aad`) (unconfirmed) |
 | M3 SQL and pushdown | W4 | 2–6 | **✅ Closed 2026-10-06** (`711d2c4`). Full-store verify: 42 passed, 0 failed, 20 excluded (18 M4, 2 contract questions) |
-| M4 Text, geo, intervals | W4, W5, W6 | 6–8 | **In progress (next).** Geo and `intervals()` done; their corpus entries are among the 18 M4 exclusions and verify under M4. `BitmapAggregateExec` **72.4×** in release (`b4a1879`). **W5 text** (Long Horse, frozen). `croaring` evaluation not started |
+| M4 Text, geo, intervals | W4, W5, W6 | 6–8 | **In progress.** **W5 text landed** (`cd9bb3e`, D36); verify 47/0/15. Geo and `intervals()` are implemented, and their 11 entries are being run against the store (lead). `BitmapAggregateExec` **72.4×** in release (`b4a1879`). `croaring` evaluation not started |
 | M5 Agent surface | W7 | 7–9 | Not started |
 | M6 Fleet and benchmarks | W8, integrator | 9–12 | Not started |
 
@@ -102,7 +109,7 @@ With M3 closed, next come W7 surfaces, the D30 high-resolution store ([design/hi
 
 | # | Gate item | State |
 |---|---|---|
-| 1 | Full golden corpus green, including `match()`, `in_bbox`, `within_nm` and `intervals()` | Open. **Geo done** (`8931877`) and **`intervals()` done** (`8b89e48`), but their entries are among the 18 M4 exclusions and still need to verify. The q7 geo oracles (`arg_max … FILTER`) are not D35-rounded yet. `match()` (W5) is next, and `q7-005` waits on it. `q1-007` and `qx-003` also need resolving for a fully green corpus |
+| 1 | Full golden corpus green, including `match()`, `in_bbox`, `within_nm` and `intervals()` | Open. **`match()` done** (W5, `cd9bb3e`): full-store verify **47 passed, 0 failed, 15 excluded**. The 11 geo (q7) and intervals (q5) entries are being run against the store now (lead). Geo is implemented in `8931877` and `intervals()` in `8b89e48`. The q7 geo oracles (`arg_max … FILTER`) are not D35-rounded yet. Also open for a fully green corpus: the 3 count-path entries (`q1-007`, `q6-006`, `q2-001`) and `qx-003` |
 | 2 | `BitmapAggregateExec` ≥ 10× faster than the materializing path on Q4 at shore scale | **Met in release**: 40.3 ms vs 2.92 s = **72.4×** (W = 10 s, 5 vessel-years, `b4a1879`). The earlier debug run gave 15.9× |
 | 3 | `croaring` frozen-view evaluation written up in the decisions log, adopt or reject | Not started |
 
@@ -139,7 +146,10 @@ Spec deviations and proposals needing the user:
 - [ ] **M2 idempotence full-set re-run** (Artificial Shark, or the lead while it is down), one store at a time.
 - [x] Measure the index size: 729.3 MB vs 1,892.7 MB raw (0.39×) with `TI_OPT_IN=last`; 554 MB (0.29×) without.
 - [x] M3 corpus run on the full store: 42/0/20 (`711d2c4`).
-- [ ] **`count_paths` contract** for count-path semantics (`q1-007`; spec/05).
+- [x] W5 text: `match()` lexical BM25 (D36), docs table, docs import (`c1d4941`…`cd9bb3e`). Verify 47/0/15.
+- [ ] Meridian VHF transcripts and live notes polling (`GET /signalk/v2/api/resources/notes` every 60 s). Not done; they go with W7 and the ingest service.
+- [ ] Geo (q7) and intervals (q5) entries against the store, to close M4 item 1 (lead, **in progress**).
+- [ ] **`count_paths` contract** for count-path semantics (`q1-007`, `q6-006`, `q2-001`; spec/05).
 - [ ] **`qx-003`**: DataFusion 55 cannot decorrelate it. Keep the join-form `qx-013`, or revisit on a DataFusion upgrade.
 - [ ] D35-round the q7 geo oracles before the M4 corpus run.
 - [x] Commit the 61 expected JSONs. Done by the lead in `312f6a0` (M0 closed).
