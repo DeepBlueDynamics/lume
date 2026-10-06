@@ -19,7 +19,9 @@ use arrow_array::{
 };
 use arrow_schema::DataType;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-use ti_contracts::{bucket_of, Catalog, Error, Result, ShardSink, TiConfig, VesselOrd, VesselSpec};
+use ti_contracts::{
+    bucket_of, BucketRecord, Catalog, Error, Result, ShardSink, TiConfig, VesselOrd, VesselSpec,
+};
 
 use crate::bucket::BucketWindow;
 use crate::classify::Classifier;
@@ -355,13 +357,25 @@ fn backfill_parquet_file_unflushed(
     }
 
     let mut buckets_emitted = 0;
-    // Emit all buckets with rewrite: true for clear-and-rewrite backfill idempotence
+    // Emit all buckets with rewrite: true for clear-and-rewrite backfill idempotence.
+    // Records are applied in chunks rather than one apply per bucket window: a file covers
+    // one path for a day (~8,640 windows at W = 10 s), and per-window applies meant one WAL
+    // append per window. Each chunk holds whole (vessel, bucket, field) rewrite groups, so
+    // every apply remains a valid all-rewrite transaction (spec/14).
+    let mut pending: Vec<BucketRecord> = Vec::new();
     for ((vessel, bucket_ix), window) in windows {
         let records = window.emit_records(vessel, bucket_ix, true, config, catalog)?;
         if !records.is_empty() {
-            sink.apply(&records)?;
+            pending.extend(records);
             buckets_emitted += 1;
+            if pending.len() >= BACKFILL_APPLY_CHUNK_RECORDS {
+                sink.apply(&pending)?;
+                pending.clear();
+            }
         }
+    }
+    if !pending.is_empty() {
+        sink.apply(&pending)?;
     }
 
     Ok(BackfillStatus::Ingested {
@@ -373,6 +387,9 @@ fn backfill_parquet_file_unflushed(
 
 /// Recursively backfill all `.parquet` files found under `dir`.
 /// Files are sorted by path for deterministic processing order.
+/// Records per `ShardSink::apply` call during backfill.
+const BACKFILL_APPLY_CHUNK_RECORDS: usize = 50_000;
+
 /// Number of files between store flushes during a directory backfill.
 const BACKFILL_FLUSH_EVERY_FILES: usize = 256;
 
