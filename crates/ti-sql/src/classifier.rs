@@ -427,20 +427,81 @@ impl PushdownClassifier {
                     _ => unsupported("match needs a virtual text column and literal query"),
                 }
             }
-            Expr::ScalarFunction(f) if f.name() == "in_bbox" || f.name() == "within_nm" => {
-                // W6 supplies the H3 cover. All is a safe conservative candidate
-                // until that adapter is installed; exact UDF refinement remains.
-                Classification {
-                    class: TableProviderFilterPushDown::Inexact,
-                    predicate: Some(PlannedPredicate::Bitmap(Predicate::All)),
-                    reason: "geo needs exact residual refinement; conservative All cover".into(),
-                }
+            Expr::ScalarFunction(f) if matches!(f.name(), "ti_in_bbox" | "ti_within_nm") => {
+                self.geo(f.name(), &f.args)
             }
             Expr::Literal(ScalarValue::Boolean(Some(v)), _) => {
                 bitmap(if *v { Predicate::All } else { Predicate::None })
             }
             _ => unsupported("expression is outside the frozen bitmap IR"),
         })
+    }
+    fn geo(&self, name: &str, args: &[Expr]) -> Classification {
+        let arity = if name == "ti_in_bbox" { 6 } else { 5 };
+        if args.len() != arity {
+            return unsupported("geo arity");
+        }
+        let Some(lat) = column(&args[0]).and_then(|n| self.catalog.field(n)) else {
+            return unsupported("geo latitude is not indexed");
+        };
+        let Some(lon) = column(&args[1]).and_then(|n| self.catalog.field(n)) else {
+            return unsupported("geo longitude is not indexed");
+        };
+        if lat.path != "navigation.position.latitude" || lon.path != "navigation.position.longitude" {
+            return unsupported("geo coordinates are not the indexed position");
+        }
+        let values = args[2..].iter().map(|a| literal(a).and_then(|v| numeric(&v))).collect::<Option<Vec<_>>>();
+        let Some(v) = values else {
+            return unsupported("geo bounds must be non-null numeric literals");
+        };
+        let bbox = if name == "ti_in_bbox" {
+            ti_geo::Bbox::new(v[0], v[1], v[2], v[3])
+        } else {
+            ti_geo::radius_bbox(v[0], v[1], v[2])
+        };
+        let Ok(bbox) = bbox else { return unsupported("invalid geo bounds remain residual"); };
+        let bound = |field: &ti_contracts::FieldSpec, op, value| {
+            let FieldKind::Bsi { scale } = field.kind else { return None; };
+            bsi_compare(field.id, scale, op, value)
+        };
+        let Some(lat_low) = bound(lat, CmpOp::Ge, bbox.lat_min) else { return unsupported("geo latitude bound"); };
+        let Some(lat_high) = bound(lat, CmpOp::Le, bbox.lat_max) else { return unsupported("geo latitude bound"); };
+        let mut longitude = Vec::new();
+        for (low, high) in bbox.longitude_spans() {
+            let (Some(low_p), Some(high_p)) = (bound(lon, CmpOp::Ge, low), bound(lon, CmpOp::Le, high)) else {
+                return unsupported("geo longitude bound");
+            };
+            longitude.push(Predicate::And(vec![low_p, high_p]));
+            // +180 and -180 name the same meridian, including on stored rows.
+            if low == -180.0 { longitude.push(bound(lon, CmpOp::Eq, 180.0).expect("valid bound")); }
+            if high == 180.0 { longitude.push(bound(lon, CmpOp::Eq, -180.0).expect("valid bound")); }
+        }
+        let envelope = Predicate::And(vec![lat_low, lat_high, Predicate::Or(longitude)]);
+        let mut candidates = vec![envelope];
+        let mut reason = "geo BSI safety envelope (no H3 field); exact latitude/longitude residual".to_string();
+        if let Some(field) = self.catalog.fields.iter().find(|f| f.path == "navigation.position" && matches!(f.kind, FieldKind::Geo { .. })) {
+            let cells = if name == "ti_in_bbox" {
+                ti_geo::bbox_cover(v[0], v[1], v[2], v[3])
+            } else {
+                ti_geo::radius_cover(v[0], v[1], v[2])
+            };
+            // The BSI envelope independently proves candidate completeness if
+            // cover construction fails or the store contains only legacy cells.
+            match cells {
+                Ok(cells) => {
+                    candidates.push(Predicate::GeoCover { field: field.id, cells });
+                    reason = "geo H3 cover OR BSI safety envelope; exact latitude/longitude residual".into();
+                }
+                Err(error) => {
+                    reason = format!("geo cover unavailable ({error}); BSI safety envelope and exact residual");
+                }
+            }
+        }
+        Classification {
+            class: TableProviderFilterPushDown::Inexact,
+            predicate: Some(PlannedPredicate::Bitmap(Predicate::Or(candidates))),
+            reason,
+        }
     }
     fn comparison(&self, name: &str, op: CmpOp, value: &ScalarValue) -> Classification {
         if value.is_null() {

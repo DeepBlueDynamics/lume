@@ -9,18 +9,18 @@ H3 indexing (`h3o` crate), bbox and radius cover, refine.
 
 ## Tasks
 
-- [ ] Add `h3o` (decisions log entry).
-- [ ] `cells_for(lat, lon) -> [res5, res7, res9]` helper used by W3 normalize → `FieldValue::Cells`.
-- [ ] `geo` field rows: one bitmap per occupied cell per shard.
-- [ ] `bbox_cover(lat_min, lon_min, lat_max, lon_max) -> Vec<u64>` choosing resolution by area.
-- [ ] `radius_cover(lat, lon, radius_nm) -> Vec<u64>`.
-- [ ] Antimeridian and pole handling.
-- [ ] Refine: `in_bbox` against lat/lon BSI; `within_nm` by haversine on materialized rows (Inexact pushdown — DataFusion re-applies).
-- [ ] Proptest: cover never misses a point.
-- [ ] Measure false-positive bucket rate at res 9.
+- [x] Add `h3o` (decisions log entry).
+- [x] `cells_for(lat, lon) -> [res5, res7, res9]` helper used by W3 normalize → `FieldValue::Cells`.
+- [x] `geo` field rows: one bitmap per occupied cell per shard.
+- [x] `bbox_cover(lat_min, lon_min, lat_max, lon_max) -> Vec<u64>` choosing resolution by area.
+- [x] `radius_cover(lat, lon, radius_nm) -> Vec<u64>`.
+- [x] Antimeridian and pole handling.
+- [x] Refine: `in_bbox` against lat/lon BSI; `within_nm` by haversine on materialized rows (Inexact pushdown — DataFusion re-applies).
+- [x] Proptest: cover never misses a point.
+- [x] Measure false-positive bucket rate at res 9.
 
 ## First deliverable
-Cover never misses a point (proptest); ≤ 30 % false-positive buckets at res 9.
+Implemented: 600 random bbox/radius cases, pole/dateline/degenerate boundary fixtures; the res9 local grid measured 4,435 false-positive buckets among 27,085 candidates (16.3744%). See [ti-geo README](../../crates/ti-geo/README.md). This is a local measurement, not a global false-positive bound.
 
 ## Gate (M4)
 - [ ] Full golden corpus green incl. `in_bbox`, `within_nm`

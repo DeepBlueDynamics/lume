@@ -73,7 +73,9 @@ Reserved, and written by the owning lane at merge (agreed among the lanes on 202
 |---|---|---|
 | D30 | A second **1 s high-resolution store** (`telemetry_hr`) beside the 10 s store, holding an allow-list of navigation (position, SOG, COG, heading: `@last`), wind (`@mean`, `@max`) and depth (`@min`). Retention is per store and configurable, defaulting to **90 days** on the Pi and on shore (`shore_retention`)<br><br>**Amendment (2026-10-06, commit `fe5ea3a`):** Contract implemented in `crates/ti-contracts/src/config.rs` (`StoreConfig`, `stores: BTreeMap<String, StoreConfig>`). Enforces: `default` store required when stores non-empty; width divides 3600; distinct per-store roots; typed duration parsing (`s/m/h/d`, `forever`); and full backward compatibility when `[stores]` is omitted | User decision, 2026-10-06. 10 s loses track shape (about 36 m between fixes at 7 kn), while gusts and shallowest depth are already kept by `@max`/`@min`. A 1 s bucket holds about one sample at Signal K's ~1 Hz, so it's full fidelity for those paths at about 0.15–0.5 GB per vessel over 90 days. No frozen-type change; needs a `ti.toml` contracts PR. Design: [design/hi-res-store.md](../design/hi-res-store.md). Scheduled after M3 |
 
-Reserved: D31, Long Horse, W6 `h3o` 0.11 (BSD-3, pure Rust).
+| # | Decision | Why |
+|---|---|---|
+| D31 | `ti-geo` uses exact `h3o` 0.11.0 (BSD-3-Clause, explicit `std`/`geo` features) and `geo` 0.33.1 (MIT OR Apache-2.0, default features disabled), one shared geo/geo-types version | W6: pure-Rust H3 indexing at resolutions 5/7/9 and conservative `ContainmentMode::Covers` tiling. The h3o geometry API accepts geo polygons; the lead approved the direct matching geo dependency. No optional PROJ, triangulation, threading or native geometry bindings are enabled. Reuses D23 proptest for cover completeness checks |
 
 The next free number is **D32**. Ask the lead before taking one. Every new runtime dependency needs a line here
 (PR rule, [10-contracts](10-contracts.md)).
