@@ -139,8 +139,10 @@ fn main() {
         .unwrap_or("vessels.urn:mrn:imo:mmsi:367000000");
     assert!(!root.exists(), "store root {root:?} already exists");
 
-    let mut config = TiConfig::default();
-    config.store_root = root.to_string_lossy().into_owned();
+    let mut config = TiConfig {
+        store_root: root.to_string_lossy().into_owned(),
+        ..Default::default()
+    };
     // Bucket width in seconds (default 10), e.g. TI_WIDTH=1 for a full-rate store.
     if let Ok(width) = std::env::var("TI_WIDTH") {
         config.width_seconds = width.parse().expect("TI_WIDTH must be whole seconds");

@@ -174,7 +174,10 @@ pub fn run_stream_loop(
                     match socket.read() {
                         Ok(Message::Text(text)) => {
                             documents.ingest_message(
-                                &text, self_urn, chrono::Utc::now().timestamp(), config,
+                                &text,
+                                self_urn,
+                                chrono::Utc::now().timestamp(),
+                                config,
                             )?;
                             if let Err(e) = process_message(
                                 &text,
@@ -303,7 +306,10 @@ pub fn run_stream_loop_multi(
                     match socket.read() {
                         Ok(Message::Text(text)) => {
                             documents.ingest_message(
-                                &text, self_urn, chrono::Utc::now().timestamp(), config,
+                                &text,
+                                self_urn,
+                                chrono::Utc::now().timestamp(),
+                                config,
                             )?;
                             if let Err(e) = process_message_multi(
                                 &text,

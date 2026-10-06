@@ -27,7 +27,10 @@ impl NotificationDocuments {
     /// Construct a lifecycle tracker, including open episodes already in the store.
     pub fn from_store(docs: DocStore) -> Self {
         let mut active = BTreeMap::new();
-        for doc in docs.iter().filter(|d| d.kind == "alerts" && d.ts_end.is_none() && !is_closed_point(d)) {
+        for doc in docs
+            .iter()
+            .filter(|d| d.kind == "alerts" && d.ts_end.is_none() && !is_closed_point(d))
+        {
             if let Some(rest) = doc.id.strip_prefix("notifications/") {
                 if let Some((path, _)) = rest.rsplit_once('/') {
                     active.insert((doc.vessel.clone(), path.to_owned()), doc.clone());
@@ -93,7 +96,8 @@ impl NotificationDocuments {
                         // Lead ruling: preserve a sub-second episode as a point document.
                         // The generated trailing marker distinguishes it from an open episode.
                         doc.ts_end = None;
-                        doc.body.push_str(&format!("\nnotification_closed_at: {}", point.timestamp));
+                        doc.body
+                            .push_str(&format!("\nnotification_closed_at: {}", point.timestamp));
                     } else {
                         doc.ts_end = Some(point.timestamp);
                     }
@@ -102,21 +106,26 @@ impl NotificationDocuments {
                 continue;
             }
             let current = self.active.remove(&key).filter(|d| {
-                d.ts_start <= point.timestamp
-                    && d.ts_end.is_none_or(|end| point.timestamp < end)
+                d.ts_start <= point.timestamp && d.ts_end.is_none_or(|end| point.timestamp < end)
             });
             let mut doc = current.unwrap_or_else(|| {
                 let id = format!("notifications/{}/{}", point.path, point.timestamp);
                 let prefix = format!("notifications/{}/", point.path);
                 // Restore an episode during a partial replay, retaining its recorded end.
-                self.docs.iter()
+                self.docs
+                    .iter()
                     .filter(|d| !updates.contains_key(&(d.vessel.clone(), d.id.clone())))
-                    .chain(updates.values()).filter(|d| {
-                    d.vessel == vessel && d.id.starts_with(&prefix)
-                        && d.ts_start <= point.timestamp
-                        && d.ts_end.is_none_or(|end| point.timestamp < end)
-                        && (!is_closed_point(d) || point.timestamp == d.ts_start)
-                }).max_by_key(|d| d.ts_start).cloned().unwrap_or(Document {
+                    .chain(updates.values())
+                    .filter(|d| {
+                        d.vessel == vessel
+                            && d.id.starts_with(&prefix)
+                            && d.ts_start <= point.timestamp
+                            && d.ts_end.is_none_or(|end| point.timestamp < end)
+                            && (!is_closed_point(d) || point.timestamp == d.ts_start)
+                    })
+                    .max_by_key(|d| d.ts_start)
+                    .cloned()
+                    .unwrap_or(Document {
                         id,
                         vessel: vessel.clone(),
                         kind: "alerts".into(),
@@ -131,8 +140,16 @@ impl NotificationDocuments {
                 continue;
             }
             doc.title = format!("{} ({state})", point.path);
-            let message = point.value.get("message").and_then(|v| v.as_str()).unwrap_or("");
-            let method = point.value.get("method").map(ToString::to_string).unwrap_or_default();
+            let message = point
+                .value
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let method = point
+                .value
+                .get("method")
+                .map(ToString::to_string)
+                .unwrap_or_default();
             doc.body = format!("{message}\nmethod: {method}\nstate: {state}");
             updates.insert((doc.vessel.clone(), doc.id.clone()), doc.clone());
             self.active.insert(key, doc);
@@ -144,7 +161,8 @@ impl NotificationDocuments {
 /// A notification cleared within its start second remains a searchable point,
 /// while this generated trailing marker records that it is no longer active.
 pub fn is_closed_point(doc: &Document) -> bool {
-    doc.id.starts_with("notifications/") && doc.ts_end.is_none()
+    doc.id.starts_with("notifications/")
+        && doc.ts_end.is_none()
         && doc.body.lines().last().is_some_and(|line| {
             line.strip_prefix("notification_closed_at: ")
                 .is_some_and(|timestamp| timestamp.parse::<i64>().ok() == Some(doc.ts_start))
@@ -198,7 +216,10 @@ mod tests {
         let config = TiConfig::default();
         let start = 1_780_000_000;
         let mut tracker = NotificationDocuments::open(dir.path()).unwrap();
-        let events = [point(start, "alarm", "battery critical"), point(start, "normal", "")];
+        let events = [
+            point(start, "alarm", "battery critical"),
+            point(start, "normal", ""),
+        ];
         tracker.ingest(&events, &config).unwrap();
         let first = tracker.documents().iter().next().unwrap().clone();
         assert!(is_closed_point(&first));
@@ -206,7 +227,9 @@ mod tests {
         let mut tracker = NotificationDocuments::open(dir.path()).unwrap();
         tracker.ingest(&events, &config).unwrap();
         assert_eq!(tracker.documents().iter().next(), Some(&first));
-        tracker.ingest([&point(start + 10, "warn", "battery low again")], &config).unwrap();
+        tracker
+            .ingest([&point(start + 10, "warn", "battery low again")], &config)
+            .unwrap();
         assert_eq!(tracker.documents().len(), 2);
     }
 
@@ -215,14 +238,21 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let config = TiConfig::default();
         let mut tracker = NotificationDocuments::open(dir.path()).unwrap();
-        tracker.ingest([&point(1_780_000_000, "warn", "battery low")], &config).unwrap();
+        tracker
+            .ingest([&point(1_780_000_000, "warn", "battery low")], &config)
+            .unwrap();
         drop(tracker);
         let mut tracker = NotificationDocuments::open(dir.path()).unwrap();
-        tracker.ingest([
-            &point(1_780_000_010, "alarm", "battery critical"),
-            &point(1_780_000_020, "normal", ""),
-            &point(1_780_000_030, "warn", "battery low again"),
-        ], &config).unwrap();
+        tracker
+            .ingest(
+                [
+                    &point(1_780_000_010, "alarm", "battery critical"),
+                    &point(1_780_000_020, "normal", ""),
+                    &point(1_780_000_030, "warn", "battery low again"),
+                ],
+                &config,
+            )
+            .unwrap();
         assert_eq!(tracker.documents().len(), 2);
         let docs: Vec<_> = tracker.documents().iter().collect();
         assert_eq!(docs[0].ts_end, Some(1_780_000_020));

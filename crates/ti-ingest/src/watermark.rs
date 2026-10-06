@@ -22,7 +22,12 @@ use crate::normalize::NormalizedValue;
 /// close; late rewrites do not retrigger them. Errors propagate to the ingest caller.
 /// Historical rules run after complete backfill, rather than partial per-path files.
 pub trait ClosedBucketObserver: Send {
-    fn on_closed(&mut self, vessel: VesselOrd, from_bucket: BucketIx, to_bucket: BucketIx) -> Result<()>;
+    fn on_closed(
+        &mut self,
+        vessel: VesselOrd,
+        from_bucket: BucketIx,
+        to_bucket: BucketIx,
+    ) -> Result<()>;
 }
 
 pub struct WatermarkBucketer {
@@ -405,8 +410,11 @@ impl MultiStoreBucketer {
         store_name: &str,
         observer: Option<Box<dyn ClosedBucketObserver>>,
     ) -> Result<()> {
-        self.bucketers.get_mut(store_name)
-            .ok_or_else(|| ti_contracts::Error::InvalidInput(format!("unknown store {store_name:?}")))?
+        self.bucketers
+            .get_mut(store_name)
+            .ok_or_else(|| {
+                ti_contracts::Error::InvalidInput(format!("unknown store {store_name:?}"))
+            })?
             .set_closed_bucket_observer(observer);
         Ok(())
     }
