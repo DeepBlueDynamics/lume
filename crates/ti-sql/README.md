@@ -12,6 +12,16 @@ SqlSession::explain and SQL EXPLAIN execute the same read-only plan and report i
 
 register_raw registers real-layout Parquet files under tier=raw as individual ListingTables and builds a normalization view with the D20 columns context, ts, path, value, value_str, source. It selects Signal K timestamps with received-time fallback, flattens value_<key> object columns to path.key, handles per-file scalar type differences, and uses microsecond timestamps to match the DuckDB view. It does not scan sibling quarantine directories.
 
+## Intervals and bitmap aggregates
+
+    SELECT * FROM intervals('wind > 25', min_len => '5m', max_gap => '10s', vessel => NULL)
+
+intervals(predicate_sql, min_len => '0s', max_gap => '0s', vessel => NULL) returns vessel, start, end and buckets. start/end are UTC second timestamps, with half-open intervals. Exact predicates consume Roaring next_range runs without ShardSource::read; residual predicates use DataFusion first. Runs merge per vessel across shard boundaries. max_gap measures missing bucket duration, min_len applies to the merged wall-clock span, and buckets counts matches without bridged gaps. Duration literals support ns/us/ms/s/m/h/d/w with exact fractional nanoseconds. Named arguments can appear in any order after positional arguments. The predicate must parse as exactly one SQL expression.
+
+A physical optimizer replaces whole final/single aggregates over exact telemetry scans for count(*), count(indexed-column), and sum/min/max(BSI). Groups may be vessel and/or one fixed-duration date_bin(ts), including a constant off-grid origin. Window masks select bucket ranges directly; ShardSource::agg contributions merge with checked counts and i128 sums. Counts of nonnullable vessel/ts use CountAll. SQL NULL and empty global/grouped aggregate behavior is preserved. Calendar-month bins, multiple window sizes, residual filters, aggregate FILTER, DISTINCT, computed aggregate arguments, and other aggregate/group shapes retain ordinary DataFusion execution. EXPLAIN records the chosen path or the concrete fallback reason.
+
+SqlSession::new_with_bitmap_aggregates(source, catalog, false) disables the rule for comparisons. The ignored synthetic_year_benchmark test compares Q4 max wind per day over 50 vessel-years at 60-second width against this materializing path, validates identical results, and prints three warm timings and their median ratio. It is a focused in-memory Q4 fixture, not the full raw fleet dataset or reference-machine percentile acceptance.
+
 ## Verification
 
 The pre-store snapshot is FixtureSnapshot JSON containing field definitions, vessel metadata, set dictionaries, and final BucketRecords. Example:
@@ -24,9 +34,9 @@ Stored expected JSON is the default. The comparator sorts by the corpus sort key
 
 For a live oracle, add --oracle duckdb --oracle-setup setup.sql. The DuckDB CLI must be on PATH; setup.sql must define raw/docs/catalog views over the same fixture files. No DuckDB engine is bundled. --raw <generated-root> registers the corresponding Parquet raw view in TI.
 
-Each M3 report explicitly excludes entries invoking intervals, match, in_bbox, or within_nm with an M4 reason. Ordinary SQL aggregates run through DataFusion. The small checked-in fixture expected outputs are independently calculated from four rows; they are not described as DuckDB-generated. The complete generated tests/golden expected outputs remain a separate acceptance gate.
+Each M3 report explicitly excludes entries invoking intervals, match, in_bbox, or within_nm with an M4 reason. Eligible aggregates use BitmapAggregateExec; other aggregates run through DataFusion. The small checked-in fixture expected outputs are independently calculated from four rows; they are not described as DuckDB-generated. The complete generated tests/golden expected outputs remain a separate acceptance gate.
 
-Pending integrations: generated correctness-set loader and full M3 corpus comparison, W5 docs materialization, and W6 exact geo refinement. Geo UDF stubs return a named unsupported error until W6 is integrated; their classifier keeps geo inexact and rejects NOT pushdown. M4 intervals and bitmap aggregate rewrites are separate work.
+Pending integrations: generated correctness-set loader and full M3 corpus comparison, W5 docs materialization, and W6 exact geo refinement. Geo UDF stubs return a named unsupported error until W6 is integrated; their classifier keeps geo inexact and rejects NOT pushdown. Full M4 text/geo/golden acceptance and reference-machine performance remain pending.
 
 ## Native compression exception
 
