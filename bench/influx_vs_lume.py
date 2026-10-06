@@ -1,0 +1,512 @@
+#!/usr/bin/env python3
+"""Read-only InfluxDB 2.x / Lume benchmark; Python 3 stdlib only.
+See influx_vs_lume.md for sampling semantics and execution instructions.
+"""
+import argparse
+import csv
+import datetime as dt
+import io
+import http.client
+import json
+import math
+import os
+import re
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+UTC = dt.timezone.utc
+DEPTH = "environment.depth.belowTransducer"
+SOG = "navigation.speedOverGround"
+POSITION = "navigation.position"
+
+
+class BenchError(Exception):
+    pass
+
+
+def timestamp(value):
+    text = str(value)
+    if not re.search(r"(Z|[+-]\d\d:\d\d)$", text):
+        raise BenchError("Timestamp requires an explicit timezone")
+    try:
+        return dt.datetime.fromisoformat(text.replace("Z", "+00:00")).astimezone(UTC)
+    except ValueError as error:
+        raise BenchError("Invalid timestamp") from error
+
+
+def iso(value):
+    return value.astimezone(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+def nanoseconds(value):
+    # datetime truncates sub-microsecond fractions; value checks must not.
+    match = re.fullmatch(r"(.*T\d\d:\d\d:\d\d)(?:\.(\d{1,9}))?(Z|[+-]\d\d:\d\d)", str(value))
+    if not match:
+        raise BenchError("Invalid RFC3339 result timestamp")
+    base = timestamp(match[1] + match[3])
+    epoch = dt.datetime(1970, 1, 1, tzinfo=UTC)
+    delta = base - epoch
+    return (delta.days * 86400 + delta.seconds) * 1_000_000_000 + int((match[2] or "").ljust(9, "0"))
+
+
+def result_time(value):
+    seconds, fraction = divmod(nanoseconds(value), 1_000_000_000)
+    base = dt.datetime.fromtimestamp(seconds, UTC).strftime("%Y-%m-%dT%H:%M:%S")
+    return base + "." + format(fraction, "09d") + "Z"
+
+
+def quote(value):
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def ident(value):
+    return '"' + str(value).replace('"', '""') + '"'
+
+
+def flux_string(value):
+    # Flux interpolates dollar-brace expressions inside strings.
+    if any(ord(c) < 32 and c not in "\n\r\t" for c in str(value)):
+        raise BenchError("Unsupported control character in a Flux string")
+    return json.dumps(str(value), ensure_ascii=False).replace("${", "\\${")
+
+
+def duration(value):
+    match = re.fullmatch(r"(\d+(?:\.\d+)?)(s|m|h|d)", value)
+    if not match:
+        raise argparse.ArgumentTypeError("Window must be seconds/minutes/hours/days, e.g. 24h")
+    seconds = float(match[1]) * {"s": 1, "m": 60, "h": 3600, "d": 86400}[match[2]]
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise argparse.ArgumentTypeError("Window must be positive and finite")
+    return seconds
+
+
+def csv_rows(payload):
+    """Decode annotated CSV including repeated headers, defaults and error tables."""
+    header = types = defaults = None
+    result = []
+    for cells in csv.reader(io.StringIO(payload.lstrip("\ufeff"))):
+        if not cells or not any(cells):
+            header = None
+            continue
+        if cells[0].startswith("#"):
+            if cells[0] == "#datatype":
+                types = cells
+            elif cells[0] == "#default":
+                defaults = cells
+            continue
+        if header is None or cells[:3] == ["", "result", "table"]:
+            if cells[:3] != ["", "result", "table"] and "error" not in cells:
+                raise BenchError("Invalid Influx annotated CSV header")
+            header = cells
+            continue
+        if len(cells) != len(header):
+            raise BenchError("Malformed Influx CSV row")
+        row = {}
+        for i, name in enumerate(header):
+            if not name:
+                continue
+            value = cells[i] or (defaults[i] if defaults and i < len(defaults) else "")
+            kind = types[i] if types and i < len(types) else "string"
+            if value == "":
+                row[name] = None
+            elif kind in ("long", "unsignedLong"):
+                row[name] = int(value)
+            elif kind == "double":
+                row[name] = float(value)
+            elif kind == "boolean":
+                row[name] = value.lower() == "true"
+            else:
+                row[name] = value
+        if "error" in row:
+            raise BenchError("Influx query failed: " + str(row["error"]))
+        result.append(row)
+    return result
+
+
+def endpoint(url, suffix):
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password:
+        raise BenchError("Use an HTTP(S) URL without embedded credentials")
+    if parsed.query or parsed.fragment:
+        raise BenchError("Endpoint URL must not contain query parameters or a fragment")
+    path = parsed.path.rstrip("/")
+    if path.endswith("/ti/query"):
+        path = path[:-len("/ti/query")]
+    return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, path + suffix, "", ""))
+
+
+class Client:
+    def __init__(self, env, timeout=60):
+        self.env = env
+        self.timeout = timeout
+
+    def redact(self, text):
+        token = self.env.get("INFLUX_TOKEN", "")
+        return str(text).replace(token, "[REDACTED]") if token else str(text)
+
+    def http(self, url, body=None, headers=None):
+        payload = None if body is None else json.dumps(body).encode()
+        request = urllib.request.Request(url, data=payload, headers=headers or {},
+                                         method="GET" if payload is None else "POST")
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                data = response.read(128 * 1024 * 1024 + 1)
+                if len(data) > 128 * 1024 * 1024:
+                    raise BenchError("Response exceeds 128 MiB")
+                return data.decode("utf-8")
+        except urllib.error.HTTPError as error:
+            detail = error.read(8192).decode("utf-8", errors="replace")
+            raise BenchError(self.redact("HTTP " + str(error.code) + ": " + detail)) from None
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as error:
+            raise BenchError(self.redact("HTTP transport failed: " + str(error))) from None
+
+    def influx(self, flux):
+        url = endpoint(self.env["INFLUX_URL"], "/api/v2/query") + "?" + urllib.parse.urlencode({"org": self.env["INFLUX_ORG"]})
+        raw = self.http(url, {"query": flux, "type": "flux",
+                             "dialect": {"annotations": ["datatype", "group", "default"], "header": True}},
+                        {"Authorization": "Token " + self.env["INFLUX_TOKEN"],
+                         "Content-Type": "application/json", "Accept": "text/csv"})
+        return csv_rows(raw)
+
+    def lume(self, sql):
+        result = json.loads(self.http(endpoint(self.env["LUME_URL"], "/ti/query"),
+                                     {"sql": sql, "max_rows": 500},
+                                     {"Content-Type": "application/json", "Accept": "application/json"}))
+        if not isinstance(result.get("rows"), list) or not isinstance(result.get("truncated"), bool):
+            raise BenchError("Invalid Lume query envelope")
+        return result
+
+    def schema(self):
+        return json.loads(self.http(endpoint(self.env["LUME_URL"], "/ti/schema"),
+                                    headers={"Accept": "application/json"}))
+
+
+def fields(catalog, table):
+    selected = next((t for t in catalog["tables"] if t["name"] == table), None)
+    if selected is None:
+        raise BenchError("Requested Lume table is unavailable")
+    names = {c["name"] for c in selected["columns"]}
+    mapping = {}
+    for aggregate in ("mean", "last", "min", "max"):
+        for name in sorted(names):
+            if name.endswith("@" + aggregate) and "$source" not in name:
+                mapping.setdefault(name.rsplit("@", 1)[0], name)
+    return names, mapping
+
+
+def flux_base(bucket, context, start, stop):
+    return ("from(bucket: " + flux_string(bucket) + ")\n"
+            "  |> range(start: time(v: " + flux_string(iso(start)) + "), stop: time(v: " + flux_string(iso(stop)) + "))\n"
+            "  |> filter(fn: (r) => r.context == " + flux_string(context) + ")")
+
+
+def plans(args, start, stop, names, mapping, bucket, context, influx_context):
+    where = ("vessel = " + quote(context) + " AND ts >= TIMESTAMP " + quote(iso(start))
+             + " AND ts < TIMESTAMP " + quote(iso(stop)))
+    table = ident(args.table)
+    base = flux_base(bucket, influx_context, start, stop)
+    def source(path):
+        return base + "\n  |> filter(fn: (r) => r._measurement == " + flux_string(path) + ' and r._field == "value")\n  |> group(columns: [])'
+    def retained(path, aggregate):
+        column = path + "@" + aggregate
+        return ident(column) if column in names else None
+    raw = ident(args.depth_path + "@last" if args.depth_path + "@last" in names else mapping.get(args.depth_path, args.depth_path + "@mean"))
+    mean = retained(args.sog_path, "mean")
+    minimum = retained(args.depth_path, "min")
+    maximum = retained(args.depth_path, "max")
+    lat = mapping.get(POSITION + ".latitude")
+    lon = mapping.get(POSITION + ".longitude")
+    # Positions use paired last buckets where retained, not independent means.
+    lat = POSITION + ".latitude@last" if POSITION + ".latitude@last" in names else lat
+    lon = POSITION + ".longitude@last" if POSITION + ".longitude@last" in names else lon
+    hour = "date_bin(INTERVAL '1 hour', ts, TIMESTAMP '1970-01-01T00:00:00Z')"
+    minute = "date_bin(INTERVAL '1 minute', ts, TIMESTAMP '1970-01-01T00:00:00Z')"
+    q = []
+    def add(number, title, sql, flux, columns, bin_seconds=None, missing=None):
+        q.append({"id": number, "name": title, "sql": sql, "flux": flux,
+                  "columns": columns, "bin_seconds": bin_seconds, "missing": missing})
+    add(1, "raw depth range",
+        "SELECT ts AS time, " + raw + " AS value FROM " + table + " WHERE " + where + " AND " + raw + " IS NOT NULL ORDER BY ts",
+        source(args.depth_path) + '\n  |> sort(columns: ["_time"])\n  |> keep(columns: ["_time", "_value"])',
+        ["time", "value"], args.width, None if args.depth_path in mapping else "No retained depth column")
+    add(2, "hourly maximum depth",
+        "SELECT " + hour + " AS time, max(" + (maximum or '"MISSING_MAX"') + ") AS value FROM " + table + " WHERE " + where + " AND " + (maximum or '"MISSING_MAX"') + " IS NOT NULL GROUP BY 1 ORDER BY 1",
+        source(args.depth_path) + '\n  |> aggregateWindow(every: 1h, fn: max, createEmpty: false, timeSrc: "_start")\n  |> keep(columns: ["_time", "_value"])',
+        ["time", "value"], 3600, None if maximum else "No retained depth@max")
+    add(3, "minute mean SOG",
+        "SELECT " + minute + " AS time, avg(" + (mean or '"MISSING_MEAN"') + ") AS value FROM " + table + " WHERE " + where + " AND " + (mean or '"MISSING_MEAN"') + " IS NOT NULL GROUP BY 1 ORDER BY 1",
+        source(args.sog_path) + '\n  |> aggregateWindow(every: 1m, fn: mean, createEmpty: false, timeSrc: "_start")\n  |> keep(columns: ["_time", "_value"])',
+        ["time", "value"], 60, None if mean else "No retained SOG@mean")
+    multi = ('s = ' + source(args.sog_path) + '\n  |> aggregateWindow(every: 1m, fn: mean, createEmpty: false, timeSrc: "_start")\n'
+             'd = ' + source(args.depth_path) + '\n  |> aggregateWindow(every: 1m, fn: min, createEmpty: false, timeSrc: "_start")\n'
+             'join(tables: {s: s, d: d}, on: ["_time"])\n'
+             '  |> filter(fn: (r) => r._value_s > ' + str(args.sog_gt) + ' and r._value_d < ' + str(args.depth_lt) + ')\n'
+             '  |> map(fn: (r) => ({_time: r._time, speed: r._value_s, depth: r._value_d}))')
+    add(4, "minutes: mean SOG > X, minimum depth < Y",
+        "SELECT " + minute + " AS time, avg(" + (mean or '"MISSING_MEAN"') + ") AS speed, min(" + (minimum or '"MISSING_MIN"') + ") AS depth FROM " + table + " WHERE " + where + " GROUP BY 1 HAVING avg(" + (mean or '"MISSING_MEAN"') + ") > " + str(args.sog_gt) + " AND min(" + (minimum or '"MISSING_MIN"') + ") < " + str(args.depth_lt) + " ORDER BY 1",
+        multi, ["time", "speed", "depth"], 60, None if mean and minimum else "Missing SOG@mean or depth@min")
+    position = (base + '\n  |> filter(fn: (r) => r._measurement == "navigation.position" and (r._field == "lat" or r._field == "lon"))\n'
+                '  |> keep(columns: ["_time", "_field", "_value"])')
+    deepest = ('d = ' + source(args.depth_path) + '\n  |> sort(columns: ["_value", "_time"])\n  |> limit(n: 1)\n'
+               '  |> map(fn: (r) => ({_time: r._time, _field: "depth", _value: r._value}))\n'
+               'p = ' + position + '\n'
+               'union(tables: [d, p]) |> group(columns: [])\n'
+               '  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")\n'
+               '  |> filter(fn: (r) => exists r.depth)\n  |> keep(columns: ["_time", "depth", "lat", "lon"])')
+    add(5, "minimum depth and position at that time",
+        "SELECT ts AS time, " + (minimum or '"MISSING_MIN"') + " AS depth, " + (ident(lat) if lat else "NULL") + " AS latitude, " + (ident(lon) if lon else "NULL") + " AS longitude FROM " + table + " WHERE " + where + " AND " + (minimum or '"MISSING_MIN"') + " IS NOT NULL ORDER BY depth, ts LIMIT 1",
+        deepest, ["time", "depth", "latitude", "longitude"], missing=None if minimum and lat and lon else "Missing depth@min or position coordinates")
+    counts = {p: c for p, c in mapping.items() if not p.startswith(POSITION + ".")}
+    if lat:
+        counts[POSITION] = lat
+    count_sql = ["SELECT " + quote(path) + " AS path, count(" + ident(column) + ") AS count FROM " + table + " WHERE " + where + " HAVING count(" + ident(column) + ") > 0" for path, column in sorted(counts.items())]
+    count_flux = (base + '\n  |> filter(fn: (r) => contains(value: r._measurement, set: [' + ", ".join(flux_string(p) for p in sorted(counts)) + ']) and (r._field == "value" or (r._measurement == "navigation.position" and r._field == "lat")))\n'
+                  '  |> group(columns: ["_measurement"])\n  |> count()\n  |> map(fn: (r) => ({path: r._measurement, count: r._value}))')
+    add(6, "point counts per retained path", " UNION ALL ".join(count_sql),
+        count_flux, ["path", "count"], missing=None if counts else "No retained paths")
+    q[-1]["count_statements"] = count_sql
+    return q
+
+
+def canonical(rows, columns, influx=False):
+    aliases = {"time": "_time", "value": "_value", "latitude": "lat", "longitude": "lon"}
+    output = []
+    for row in rows:
+        for column in columns:
+            name = aliases.get(column, column) if influx else column
+            if name not in row and not (influx and column in ("latitude", "longitude")):
+                raise BenchError("Backend result is missing " + column)
+        normalized = {c: row.get(aliases.get(c, c) if influx else c) for c in columns}
+        if "time" in normalized and normalized["time"] is None:
+            raise BenchError("Backend result is missing a timestamp")
+        if normalized.get("time") is not None:
+            normalized["time"] = result_time(normalized["time"])
+        output.append(normalized)
+    return sorted(output, key=lambda r: json.dumps({k: r[k] for k in ("time", "path") if k in r}, sort_keys=True))
+
+
+def compare(left, right, absolute, relative, time_tolerance=0):
+    differences = []
+    if len(left) != len(right):
+        differences.append("row counts differ: Influx=" + str(len(left)) + ", Lume=" + str(len(right)))
+    for i, (a, b) in enumerate(zip(left, right)):
+        for key in a:
+            x, y = a[key], b.get(key)
+            if key == "time" and x is not None and y is not None:
+                equal = abs(nanoseconds(x) - nanoseconds(y)) <= time_tolerance * 1_000_000_000
+            elif key == "count":
+                equal = x == y  # Counts are exact, regardless of numeric tolerance.
+            elif isinstance(x, (float, int)) and not isinstance(x, bool) and isinstance(y, (float, int)) and not isinstance(y, bool):
+                equal = math.isfinite(x) and math.isfinite(y) and math.isclose(x, y, abs_tol=absolute, rel_tol=relative)
+            else:
+                equal = x == y
+            if not equal and len(differences) < 20:
+                differences.append("row " + str(i) + " " + key + ": Influx=" + repr(x) + ", Lume=" + repr(y))
+    return {"status": "MISMATCH" if differences else ("PASS" if left else "EMPTY"),
+            "differences": differences}
+
+
+def percentile(values, fraction):
+    if not values:
+        return None
+    ordered = sorted(values)
+    index = (len(ordered) - 1) * fraction
+    low = int(index)
+    high = min(low + 1, len(ordered) - 1)
+    return ordered[low] + (ordered[high] - ordered[low]) * (index - low)
+
+
+def execute_lume(client, item, args, start, stop, names, mapping, bucket, context, influx_context):
+    requests = 0
+    def query(sql):
+        nonlocal requests
+        requests += 1
+        return client.lume(sql)
+    if item["missing"]:
+        raise BenchError(item["missing"])
+    if item["id"] == 6:
+        rows = []
+        for i in range(0, len(item["count_statements"]), 100):
+            reply = query(" UNION ALL ".join(item["count_statements"][i:i + 100]))
+            if reply["truncated"]:
+                raise BenchError("Lume path counts truncated; no partial answer accepted")
+            rows.extend(reply["rows"])
+        return rows, requests
+    step = item["bin_seconds"]
+    if not step:
+        reply = query(item["sql"])
+        if reply["truncated"]:
+            raise BenchError("Lume result truncated; no partial answer accepted")
+        return reply["rows"], requests
+    def chunk(lo, hi):
+        current = plans(args, lo, hi, names, mapping, bucket, context, influx_context)[item["id"] - 1]
+        reply = query(current["sql"])
+        if not reply["truncated"]:
+            return reply["rows"]
+        # Only split at complete output-bin boundaries, never across an aggregate.
+        first_boundary = (math.floor(lo.timestamp() / step) + 1) * step
+        last_boundary = math.ceil(hi.timestamp() / step) * step - step
+        if first_boundary > last_boundary:
+            raise BenchError("One Lume output bin is truncated; no partial answer accepted")
+        middle = (math.floor((first_boundary + last_boundary) / (2 * step))) * step
+        mid = dt.datetime.fromtimestamp(middle, UTC)
+        return chunk(lo, mid) + chunk(mid, hi)
+    return chunk(start, stop), requests
+
+
+def discover(client, args, names, mapping, bucket, context, influx_context):
+    condition = " OR ".join(ident(mapping[p]) + " IS NOT NULL" for p in (args.depth_path, args.sog_path) if p in mapping)
+    if not condition:
+        raise BenchError("No retained depth/SOG data")
+    reply = client.lume("SELECT min(ts) AS first, max(ts) AS last FROM " + ident(args.table)
+                        + " WHERE vessel = " + quote(context) + " AND (" + condition + ")")
+    if reply["truncated"] or not reply["rows"] or not reply["rows"][0].get("first"):
+        raise BenchError("No Lume depth/SOG coverage")
+    flux = ('data = from(bucket: ' + flux_string(bucket) + ') |> range(start: 0)\n'
+            '  |> filter(fn: (r) => r.context == ' + flux_string(influx_context) + ' and r._field == "value" and (r._measurement == ' + flux_string(args.depth_path) + ' or r._measurement == ' + flux_string(args.sog_path) + '))\n'
+            '  |> group(columns: [])\n  |> sort(columns: ["_time"])\n'
+            'data |> first() |> map(fn: (r) => ({edge: "first", at: r._time})) |> yield(name: "first")\n'
+            'data |> last() |> map(fn: (r) => ({edge: "last", at: r._time})) |> yield(name: "last")')
+    edges = {r["edge"]: timestamp(r["at"]) for r in client.influx(flux)}
+    if "first" not in edges or "last" not in edges:
+        raise BenchError("No Influx depth/SOG coverage for the selected context")
+    row = reply["rows"][0]
+    first = max(timestamp(row["first"]), edges["first"])
+    last = min(timestamp(row["last"]), edges["last"])
+    return first, last
+
+
+def benchmark(client, args, start, stop, names, mapping, bucket, context, influx_context):
+    results = []
+    for item in plans(args, start, stop, names, mapping, bucket, context, influx_context):
+        runs = {"influx": [], "lume": []}
+        checks = []
+        for iteration in range(args.runs):
+            answers = {}
+            # Alternate order to reduce a systematic first-engine scheduling bias.
+            for engine in (("influx", "lume") if iteration % 2 == 0 else ("lume", "influx")):
+                begin = time.perf_counter()
+                try:
+                    if engine == "influx":
+                        rows, requests = client.influx(item["flux"]), 1
+                    else:
+                        rows, requests = execute_lume(client, item, args, start, stop, names, mapping, bucket, context, influx_context)
+                    rows = canonical(rows, item["columns"], engine == "influx")
+                    answers[engine] = rows
+                    run = {"ms": (time.perf_counter() - begin) * 1000, "rows": len(rows), "http_requests": requests}
+                except (BenchError, ValueError, KeyError, TypeError) as error:
+                    run = {"ms": (time.perf_counter() - begin) * 1000, "rows": None, "error": client.redact(error)}
+                runs[engine].append(run)
+            checks.append(compare(answers["influx"], answers["lume"], args.abs_tol, args.rel_tol, args.time_tol)
+                          if len(answers) == 2 else {"status": "ERROR", "differences": ["Backend error; value check not possible"]})
+        summaries = {}
+        for engine, samples in runs.items():
+            warm = [r["ms"] for r in samples[1:] if "error" not in r]
+            summaries[engine] = {"cold_first_ms": samples[0]["ms"] if "error" not in samples[0] else None,
+                                 "warm_p50_ms": percentile(warm, .5), "warm_p95_ms": percentile(warm, .95),
+                                 "row_counts": [r["rows"] for r in samples], "runs": samples}
+        status = next((s for s in ("ERROR", "MISMATCH", "EMPTY") if any(c["status"] == s for c in checks)), "PASS")
+        results.append({"id": item["id"], "name": item["name"], "sql": item["sql"], "flux": item["flux"],
+                        "status": status, "checks": checks, **summaries})
+    return results
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--window", type=duration, default=duration("24h"))
+    parser.add_argument("--from", dest="start")
+    parser.add_argument("--to", dest="stop")
+    parser.add_argument("--context", help="Lume vessel URN; inferred only for a single-vessel schema")
+    parser.add_argument("--influx-context", help="Override the corresponding Influx context tag")
+    parser.add_argument("--table", choices=["telemetry", "telemetry_hr"], default="telemetry")
+    parser.add_argument("--depth-path", default=DEPTH)
+    parser.add_argument("--sog-path", default=SOG)
+    parser.add_argument("--sog-gt", type=float, default=2.0)
+    parser.add_argument("--depth-lt", type=float, default=5.0)
+    parser.add_argument("--runs", type=int, default=20, help="Total runs: first cold-first, remaining warm")
+    parser.add_argument("--abs-tol", type=float, default=.001)
+    parser.add_argument("--rel-tol", type=float, default=1e-6)
+    parser.add_argument("--time-tol", type=float, default=0, help="Timestamp tolerance in seconds")
+    parser.add_argument("--timeout", type=float, default=60)
+    parser.add_argument("--dry-run", action="store_true", help="Offline query texts; explicit bounds recommended")
+    args = parser.parse_args(argv)
+    if args.runs < 2 or not all(math.isfinite(v) for v in (args.sog_gt, args.depth_lt, args.abs_tol, args.rel_tol, args.time_tol, args.timeout)):
+        parser.error("Runs must be >= 2; numeric options must be finite")
+    if min(args.abs_tol, args.rel_tol, args.time_tol) < 0 or args.timeout <= 0:
+        parser.error("Tolerances must be >= 0 and timeout > 0")
+    return args
+
+
+def main(argv=None, env=None):
+    args = parse_args(argv)
+    env = dict(os.environ if env is None else env)
+    client = Client(env, args.timeout)
+    try:
+        bucket = env.get("INFLUX_BUCKET", "BUCKET")
+        if args.dry_run:
+            context = args.context or "vessels.URN"
+            names = {p + "@" + a for p in (args.depth_path, args.sog_path) for a in ("mean", "min", "max", "last")}
+            names.update({POSITION + ".latitude@last", POSITION + ".longitude@last"})
+            mapping = {args.depth_path: args.depth_path + "@last", args.sog_path: args.sog_path + "@mean",
+                       POSITION + ".latitude": POSITION + ".latitude@last", POSITION + ".longitude": POSITION + ".longitude@last"}
+            args.width = 1 if args.table == "telemetry_hr" else 10
+            stop = timestamp(args.stop) if args.stop else dt.datetime.now(UTC)
+            start = timestamp(args.start) if args.start else stop - dt.timedelta(seconds=args.window)
+            if start >= stop:
+                raise BenchError("Window start must precede end")
+            print(client.redact("# Dry run: assumed schema; bounds use now unless supplied. Live mode discovers common data coverage."))
+            for item in plans(args, start, stop, names, mapping, bucket, context, args.influx_context or context):
+                print(client.redact("\n## " + str(item["id"]) + " " + item["name"] + "\n\n```flux\n" + item["flux"] + "\n```\n\n```sql\n" + item["sql"] + "\n```"))
+            return 0
+        required = ("INFLUX_URL", "INFLUX_ORG", "INFLUX_BUCKET", "INFLUX_TOKEN", "LUME_URL")
+        missing = [k for k in required if not env.get(k)]
+        if missing:
+            raise BenchError("Missing environment variables: " + ", ".join(missing))
+        catalog = client.schema()
+        names, mapping = fields(catalog, args.table)
+        vessels = sorted({r["vessel"] for r in catalog.get("time_coverage", [])})
+        context = args.context or (vessels[0] if len(vessels) == 1 else None)
+        if context is None or context not in vessels:
+            raise BenchError("Select a known vessel with --context (required for multi-vessel stores)")
+        influx_context = args.influx_context or context
+        args.width = 1 if args.table == "telemetry_hr" else int(catalog["width_seconds"])
+        if args.width <= 0:
+            raise BenchError("Invalid store width")
+        if args.start and args.stop:
+            start, stop = timestamp(args.start), timestamp(args.stop)
+            mode = "explicit"
+        else:
+            first, last = discover(client, args, names, mapping, bucket, context, influx_context)
+            stop = timestamp(args.stop) if args.stop else last
+            start = timestamp(args.start) if args.start else max(first, stop - dt.timedelta(seconds=args.window))
+            mode = "common_data_coverage"
+        if start >= stop:
+            raise BenchError("No positive common window; specify matching context/data")
+        report = {"window": {"from": iso(start), "to": iso(stop), "mode": mode},
+                  "context": context, "influx_context": influx_context, "table": args.table,
+                  "bucket_width_seconds": args.width, "runs": args.runs,
+                  "tolerance": {"absolute": args.abs_tol, "relative": args.rel_tol, "time_seconds": args.time_tol},
+                  "semantics": {"raw_depth_column": args.depth_path + "@last" if args.depth_path + "@last" in names else mapping.get(args.depth_path),
+                                "sources": "Influx merges context/source series; Lume retains preferred-source bucket values",
+                                "counts": "native raw points versus retained populated buckets, exact counts",
+                                "position": "Influx exact minimum sample timestamp; Lume retained minimum bucket and bucket position",
+                                "mean": "Influx raw sample mean versus Lume mean of populated bucket means",
+                                "timing": "first request is cold-first, not cache-evicted; timed response decode + Lume pagination; discovery excluded"},
+                  "queries": benchmark(client, args, start, stop, names, mapping, bucket, context, influx_context)}
+        print(client.redact("| Query | Influx cold / p50 / p95 ms | Lume cold / p50 / p95 ms | Rows I / L (first) | Check |\n|---|---:|---:|---:|---|"))
+        def timings(summary):
+            return " / ".join("—" if summary[k] is None else format(summary[k], ".2f") for k in ("cold_first_ms", "warm_p50_ms", "warm_p95_ms"))
+        for item in report["queries"]:
+            print(client.redact("| " + str(item["id"]) + " " + item["name"] + " | " + timings(item["influx"]) + " | " + timings(item["lume"]) + " | " + str(item["influx"]["row_counts"][0]) + " / " + str(item["lume"]["row_counts"][0]) + " | " + item["status"] + " |"))
+        print(client.redact("\nCold means first timed request, not evicted server/OS caches. JSON includes every run, errors and mismatch details.\n\n```json\n" + json.dumps(report, indent=2, allow_nan=False) + "\n```"))
+        return 0 if all(q["status"] == "PASS" for q in report["queries"]) else 1
+    except (BenchError, ValueError, KeyError, TypeError, OverflowError) as error:
+        print(client.redact("Benchmark failed: " + str(error)), file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
