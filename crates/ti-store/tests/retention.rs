@@ -103,8 +103,10 @@ fn test_store_retention_enforcement() {
 #[test]
 fn test_store_set_multi_store_retention() {
     let tmp = tempdir().unwrap();
-    let mut config = TiConfig::default();
-    config.store_root = tmp.path().to_string_lossy().to_string();
+    let mut config = TiConfig {
+        store_root: tmp.path().to_string_lossy().to_string(),
+        ..Default::default()
+    };
 
     let mut stores = std::collections::BTreeMap::new();
     stores.insert(

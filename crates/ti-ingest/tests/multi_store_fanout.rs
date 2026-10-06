@@ -10,8 +10,10 @@ fn test_multi_store_sample_fanout_and_aggregates() {
     let tmp = tempdir().unwrap();
     let root = tmp.path();
 
-    let mut config = TiConfig::default();
-    config.store_root = root.to_string_lossy().to_string();
+    let mut config = TiConfig {
+        store_root: root.to_string_lossy().to_string(),
+        ..Default::default()
+    };
 
     let mut hr_aggs = BTreeMap::new();
     hr_aggs.insert("navigation.*".to_string(), vec!["last".to_string()]);
