@@ -24,7 +24,7 @@ use ti_contracts::{
 
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(1);
 
-fn atomic_write_json<T: Serialize>(path: &Path, data: &T) -> Result<()> {
+pub(crate) fn atomic_write_json<T: Serialize>(path: &Path, data: &T) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }

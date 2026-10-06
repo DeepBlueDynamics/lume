@@ -12,7 +12,8 @@
 //! per-path `scale` column seeds `TiConfig::path_scales`, standing in for the Signal K
 //! `meta.units` that a raw-tier backfill does not have. Likewise `catalog/vessels` pre-registers
 //! vessel names and MMSIs, standing in for the Signal K `name` delta. `TI_OPT_IN=last` adds
-//! opt-in aggregates (the golden corpus queries `@last`).
+//! opt-in aggregates (the golden corpus queries `@last`). `<ancestor>/docs/*.parquet`
+//! (notes, logbook, alerts) is imported into the store's `docs/` for `match()`.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -22,7 +23,7 @@ use arrow_array::{Array, StringArray, UInt8Array};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use ti_contracts::{Catalog, ShardKey, ShardSink, TiConfig, VesselSpec};
 use ti_ingest::parquet::{backfill_directory, BackfillStatus};
-use ti_store::Store;
+use ti_store::{DocStore, Store};
 
 fn dir_bytes(p: &Path) -> u64 {
     let mut total = 0;
@@ -156,6 +157,16 @@ fn main() {
     println!("opt-in aggs    : {:?}", config.profiles.opt_in);
     let mut store = Store::open_or_create(root, config.width_seconds).expect("open store");
     let catalog = Arc::clone(store.catalog());
+    if let Some(dir) = raw.ancestors().map(|a| a.join("docs")).find(|d| d.is_dir()) {
+        let docs = ti_ingest::docs::read_docs_dir(&dir).expect("read docs parquet");
+        let mut store_docs = DocStore::open(root).expect("open doc store");
+        store_docs.upsert_all(docs).expect("store docs");
+        println!(
+            "documents      : {} from {}",
+            store_docs.len(),
+            dir.display()
+        );
+    }
     let vessels = catalog_vessels(raw);
     println!("vessels        : {} from catalog/vessels", vessels.len());
     for vessel in &vessels {

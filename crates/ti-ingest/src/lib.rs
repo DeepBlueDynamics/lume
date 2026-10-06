@@ -12,6 +12,7 @@ pub mod bucket;
 pub mod classify;
 pub mod decode;
 pub mod derived;
+pub mod docs;
 pub mod influx;
 pub mod normalize;
 pub mod parquet;
