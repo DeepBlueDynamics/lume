@@ -98,6 +98,17 @@ impl Manifest {
         self.entries.lock().unwrap().values().cloned().collect()
     }
 
+    /// Remove a shard entry from the manifest and atomically write to disk.
+    pub fn remove(&self, key: ShardKey) -> Result<Option<ShardManifestEntry>> {
+        let mut map = self.entries.lock().unwrap();
+        let removed = map.remove(&key);
+        if removed.is_some() {
+            let list: Vec<ShardManifestEntry> = map.values().cloned().collect();
+            atomic_write_json(&self.path, &list)?;
+        }
+        Ok(removed)
+    }
+
     /// Prune candidate sealed shards by vessel and bucket range [from, to].
     pub fn prune(
         &self,

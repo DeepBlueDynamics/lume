@@ -12,6 +12,35 @@ use ti_contracts::{
     TiConfig, VesselOrd,
 };
 
+/// Resolve aggregate column names for a numeric path.
+/// 1. Exact match in `store_aggs`
+/// 2. Glob match in `store_aggs`
+/// 3. Fallback to `profiles.default` (+ `profiles.opt_in`)
+pub fn resolve_aggs_for_path(
+    path: &str,
+    store_aggs: &BTreeMap<String, Vec<String>>,
+    default_profiles: &ti_contracts::AggregateProfiles,
+) -> Vec<String> {
+    if !store_aggs.is_empty() {
+        if let Some(aggs) = store_aggs.get(path) {
+            return aggs.clone();
+        }
+        for (pattern, aggs) in store_aggs {
+            if crate::normalize::matches_glob(pattern, path) {
+                return aggs.clone();
+            }
+        }
+    }
+
+    let mut aggs_to_emit: Vec<String> = default_profiles.default.clone();
+    for agg in &default_profiles.opt_in {
+        if !aggs_to_emit.contains(agg) {
+            aggs_to_emit.push(agg.clone());
+        }
+    }
+    aggs_to_emit
+}
+
 #[derive(Debug, Clone)]
 pub struct NumericAcc {
     pub count: u64,
@@ -130,6 +159,19 @@ impl BucketWindow {
         config: &TiConfig,
         catalog: &dyn Catalog,
     ) -> Result<Vec<BucketRecord>> {
+        self.emit_records_with_aggs(vessel, bucket, rewrite, None, config, catalog)
+    }
+
+    /// Synthesize all accumulated data in this window into `BucketRecord`s, using custom per-path aggregates if provided.
+    pub fn emit_records_with_aggs(
+        &self,
+        vessel: VesselOrd,
+        bucket: BucketIx,
+        rewrite: bool,
+        store_aggs: Option<&BTreeMap<String, Vec<String>>>,
+        config: &TiConfig,
+        catalog: &dyn Catalog,
+    ) -> Result<Vec<BucketRecord>> {
         let mut records = Vec::new();
 
         // 1. Numeric accumulators
@@ -138,19 +180,20 @@ impl BucketWindow {
                 continue;
             }
 
-            // Aggregate profile is a property of the PATH (spec/05: slow = median sample interval
-            // >= W), so a path's column set must not vary per bucket. Deciding "slow" per bucket
-            // (one sample => slow) gave 0.1 Hz paths only @last and made @mean/@min/@max vanish.
-            // Until per-path, sticky median-interval detection exists, every numeric path uses
-            // the default profile (D33), plus the operator's opt-in aggregates (spec/05).
-            let mut aggs_to_emit: Vec<&String> = config.profiles.default.iter().collect();
-            for agg in &config.profiles.opt_in {
-                if !aggs_to_emit.contains(&agg) {
-                    aggs_to_emit.push(agg);
+            let aggs_to_emit = match store_aggs {
+                Some(aggs) => resolve_aggs_for_path(path, aggs, &config.profiles),
+                None => {
+                    let mut a = config.profiles.default.clone();
+                    for agg in &config.profiles.opt_in {
+                        if !a.contains(agg) {
+                            a.push(agg.clone());
+                        }
+                    }
+                    a
                 }
-            }
+            };
 
-            for agg_name in aggs_to_emit {
+            for agg_name in &aggs_to_emit {
                 match agg_name.as_str() {
                     "mean" => {
                         let mean_val = acc.sum / (acc.count as f64);

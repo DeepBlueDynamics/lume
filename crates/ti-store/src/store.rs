@@ -17,6 +17,7 @@ use arrow_array::RecordBatch;
 use ti_contracts::{
     AggOp, AggPartial, BucketIx, BucketRecord, Catalog, Error, FieldValue, Predicate, Result,
     RoaringBitmap, ShardKey, ShardManifestEntry, ShardSink, ShardSource, TextIndex, VesselOrd,
+    EPOCH,
 };
 
 use crate::catalog::DiskCatalog;
@@ -187,6 +188,67 @@ impl Store {
             self.wals.insert(vessel, wal);
         }
         Ok(self.wals.get_mut(&vessel).unwrap())
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    pub fn width_seconds(&self) -> u64 {
+        self.width_seconds
+    }
+
+    /// Drop a single shard completely from memory, manifest, and disk.
+    pub fn drop_shard(&mut self, key: ShardKey) -> Result<()> {
+        self.open_shards.remove(&key);
+        self.sealed_shards.remove(&key);
+        self.manifest.remove(key)?;
+
+        let shard_dir = self
+            .root
+            .join("shards")
+            .join(key.vessel.to_string())
+            .join(key.shard.to_string());
+        if shard_dir.exists() {
+            fs::remove_dir_all(&shard_dir)?;
+        }
+        Ok(())
+    }
+
+    /// Drop sealed and open shards whose data is strictly older than `retention_seconds`
+    /// relative to `now_timestamp`.
+    /// Returns the number of dropped shards.
+    pub fn enforce_retention(
+        &mut self,
+        now_timestamp: i64,
+        retention_seconds: u64,
+    ) -> Result<usize> {
+        let cutoff_ts = now_timestamp - (retention_seconds as i64);
+        let mut dropped = Vec::new();
+
+        // Check sealed shards in manifest
+        for entry in self.manifest.entries() {
+            let end_ts = EPOCH + ((entry.to as i64 + 1) * (self.width_seconds as i64));
+            if end_ts <= cutoff_ts {
+                dropped.push(entry.key);
+            }
+        }
+
+        // Check open shards
+        for key in self.open_shards.keys() {
+            let base = key.shard << 16;
+            let end = base | 0xffff;
+            let end_ts = EPOCH + ((end as i64 + 1) * (self.width_seconds as i64));
+            if end_ts <= cutoff_ts && !dropped.contains(key) {
+                dropped.push(*key);
+            }
+        }
+
+        let count = dropped.len();
+        for key in dropped {
+            self.drop_shard(key)?;
+        }
+        Ok(count)
     }
 }
 
