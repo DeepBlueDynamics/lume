@@ -32,6 +32,30 @@ pub async fn open_store(root: &Path, width_seconds: u64) -> Result<SqlSession> {
     .await
 }
 
+/// Builds the W5 document index for an opened store: `(store_root, store, width_seconds)`.
+pub type DocumentsFactory =
+    dyn Fn(&Path, &Store, u64) -> ti_contracts::Result<Arc<dyn ti_contracts::DocumentIndex>>;
+
+/// `open_store`, plus a document index injected into the shard source (for
+/// `match(notes|logbook|alerts, q)`) and registered as the `docs` table.
+pub async fn open_store_with_documents(
+    root: &Path,
+    width_seconds: u64,
+    documents: &DocumentsFactory,
+) -> Result<SqlSession> {
+    if !root.join("catalog").is_dir() {
+        return Err(DataFusionError::Plan(
+            "existing store catalog directory required".into(),
+        ));
+    }
+    let store = Store::open_or_create(root, width_seconds).map_err(core_error)?;
+    let index = documents(root, &store, width_seconds).map_err(core_error)?;
+    let text: Arc<dyn ti_contracts::TextIndex> = index.clone();
+    let session = session_from_store(Arc::new(store.with_text_index(text)), width_seconds).await?;
+    session.register_documents(index)?;
+    Ok(session)
+}
+
 /// Create an immutable planning snapshot while retaining the Store as the read source.
 pub async fn session_from_store(store: Arc<Store>, width_seconds: u64) -> Result<SqlSession> {
     let disk = store.catalog();

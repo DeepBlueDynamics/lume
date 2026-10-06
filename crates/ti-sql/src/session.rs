@@ -19,6 +19,7 @@ pub struct SqlSession {
     pub source: Arc<dyn ShardSource>,
     reports: Arc<Mutex<Vec<ScanReport>>>,
     aggregate_diagnostics: Arc<Mutex<Vec<String>>>,
+    text: std::sync::atomic::AtomicBool,
 }
 fn timestamp(v: Vec<i64>) -> ArrayRef {
     Arc::new(TimestampSecondArray::from(v).with_timezone("UTC"))
@@ -228,7 +229,20 @@ impl SqlSession {
             source,
             reports,
             aggregate_diagnostics,
+            text: std::sync::atomic::AtomicBool::new(false),
         })
+    }
+    /// Install the W5 document index: the `docs` table and `match(body, q)` on it.
+    /// `match(notes|logbook|alerts, q)` on telemetry also needs the same index injected
+    /// into the shard source (`Store::with_text_index`).
+    pub fn register_documents(&self, index: Arc<dyn ti_contracts::DocumentIndex>) -> Result<()> {
+        self.register_derived_table("docs", Arc::new(crate::docs::DocsProvider { index }))?;
+        self.text.store(true, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }
+    /// True once a document index is registered, so text queries can run.
+    pub fn has_documents(&self) -> bool {
+        self.text.load(std::sync::atomic::Ordering::Relaxed)
     }
     /// Install authoritative frozen W2 catalog batches or the W5 docs provider.
     /// SQL writes remain rejected by rewrite_sql.
@@ -406,6 +420,7 @@ fn register_functions(
             Ok(ColumnarValue::Array(Arc::new(BooleanArray::from(result))))
         }),
     ));
+    context.register_udf(crate::docs::match_udf());
     for (name, arity) in [("in_bbox", 4), ("within_nm", 3)] {
         context.register_udf(crate::geo::marker(name, arity));
     }

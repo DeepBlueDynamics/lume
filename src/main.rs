@@ -51,7 +51,12 @@ fn main() {
     match subcommand.as_str() {
         #[cfg(feature = "ti")]
         "ti" => {
-            if let Err(e) = ti_sql::run_cli(&args[2..]) {
+            // W5: match() and the docs table use Lume BM25 over the store's docs/.
+            let documents = |root: &std::path::Path, store: &ti_store::Store, width: u64| {
+                let index = lume::ti_text::LumeText::open(root, store.catalog().clone(), width)?;
+                Ok(std::sync::Arc::new(index) as std::sync::Arc<dyn ti_contracts::DocumentIndex>)
+            };
+            if let Err(e) = ti_sql::run_cli_with(&args[2..], Some(&documents)) {
                 eprintln!("Error: {e}");
                 std::process::exit(1);
             }

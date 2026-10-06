@@ -162,7 +162,8 @@ pub fn diff_rows(
     }
     Ok(())
 }
-pub fn m3_exclusion(sql: &str) -> Option<String> {
+/// Why an entry cannot run yet; `text` is false when no document index is registered.
+pub fn m3_exclusion(sql: &str, text: bool) -> Option<String> {
     let sql = sql.to_ascii_lowercase();
     for (function, reason) in [
         ("intervals", "M4 intervals"),
@@ -178,7 +179,10 @@ pub fn m3_exclusion(sql: &str) -> Option<String> {
             let end = start + function.len();
             let boundary = start == 0
                 || !(bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'_');
-            if boundary && sql[end..].trim_start().starts_with('(') {
+            if boundary
+                && sql[end..].trim_start().starts_with('(')
+                && !(text && function == "match")
+            {
                 return Some(reason.into());
             }
             offset = end;
@@ -202,7 +206,7 @@ pub async fn verify(
         if let Some(reason) = entry
             .exclude
             .clone()
-            .or_else(|| m3_exclusion(&entry.ti_sql))
+            .or_else(|| m3_exclusion(&entry.ti_sql, session.has_documents()))
         {
             report.excluded += 1;
             report.entries.push(VerifyEntry {

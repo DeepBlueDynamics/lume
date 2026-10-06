@@ -55,6 +55,10 @@ pub async fn open_fixture(path: &Path) -> Result<SqlSession> {
     .await
 }
 pub fn run_cli(args: &[String]) -> Result<()> {
+    run_cli_with(args, None)
+}
+/// `run_cli` with an optional W5 document index factory for `--store` sessions.
+pub fn run_cli_with(args: &[String], documents: Option<&crate::DocumentsFactory>) -> Result<()> {
     let arg = |flag: &str| {
         args.iter()
             .position(|v| v == flag)
@@ -90,11 +94,14 @@ pub fn run_cli(args: &[String]) -> Result<()> {
             let metadata: crate::Corpus =
                 serde_json::from_slice(&std::fs::read(Path::new(corpus).join("corpus.json"))?)
                     .map_err(|e| DataFusionError::External(Box::new(e)))?;
-            crate::open_store(
-                Path::new(store.expect("validated store option")),
-                metadata.bucket_width_seconds,
-            )
-            .await?
+            let root = Path::new(store.expect("validated store option"));
+            match documents {
+                Some(documents) => {
+                    crate::open_store_with_documents(root, metadata.bucket_width_seconds, documents)
+                        .await?
+                }
+                None => crate::open_store(root, metadata.bucket_width_seconds).await?,
+            }
         };
         if let Some(raw) = arg("--raw") {
             session.register_raw(Path::new(raw)).await?;
