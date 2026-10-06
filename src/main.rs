@@ -49,6 +49,13 @@ fn main() {
 
     let subcommand = args[1].trim().to_lowercase();
     match subcommand.as_str() {
+        #[cfg(feature = "ti")]
+        "ti" => {
+            if let Err(e) = ti_sql::run_cli(&args[2..]) {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        }
         "index" => {
             if args.len() >= 3 && args[2] == "update" {
                 if let Err(e) = handle_index_update(&args[3..]) {
