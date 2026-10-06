@@ -16,8 +16,14 @@ pub fn cells_for(lat: f64, lon: f64) -> Result<[u64; 3]> {
 }
 
 fn validate_point(lat: f64, lon: f64) -> Result<()> {
-    if !lat.is_finite() || !lon.is_finite() || !(-90.0..=90.0).contains(&lat) || !(-180.0..=180.0).contains(&lon) {
-        return Err(Error::InvalidInput("coordinate requires finite latitude [-90,90] and longitude [-180,180]".into()));
+    if !lat.is_finite()
+        || !lon.is_finite()
+        || !(-90.0..=90.0).contains(&lat)
+        || !(-180.0..=180.0).contains(&lon)
+    {
+        return Err(Error::InvalidInput(
+            "coordinate requires finite latitude [-90,90] and longitude [-180,180]".into(),
+        ));
     }
     Ok(())
 }

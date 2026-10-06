@@ -18,18 +18,27 @@ impl Bbox {
         validate_point(lat_min, lon_min)?;
         validate_point(lat_max, lon_max)?;
         if lat_min > lat_max {
-            return Err(Error::InvalidInput("bbox latitude bounds are reversed".into()));
+            return Err(Error::InvalidInput(
+                "bbox latitude bounds are reversed".into(),
+            ));
         }
-        Ok(Self { lat_min, lon_min, lat_max, lon_max })
+        Ok(Self {
+            lat_min,
+            lon_min,
+            lat_max,
+            lon_max,
+        })
     }
     pub fn contains(&self, lat: f64, lon: f64) -> bool {
         if validate_point(lat, lon).is_err() || lat < self.lat_min || lat > self.lat_max {
             return false;
         }
-        let inside = |lon| if self.lon_min <= self.lon_max {
-            lon >= self.lon_min && lon <= self.lon_max
-        } else {
-            lon >= self.lon_min || lon <= self.lon_max
+        let inside = |lon| {
+            if self.lon_min <= self.lon_max {
+                lon >= self.lon_min && lon <= self.lon_max
+            } else {
+                lon >= self.lon_min || lon <= self.lon_max
+            }
         };
         inside(lon) || (lon.abs() == 180.0 && inside(-lon))
     }
@@ -41,8 +50,14 @@ impl Bbox {
         }
     }
     pub fn area_km2(&self) -> f64 {
-        let longitude = self.longitude_spans().iter().map(|(lo, hi)| hi - lo).sum::<f64>().to_radians();
-        (EARTH_RADIUS_NM * 1.852).powi(2) * longitude
+        let longitude = self
+            .longitude_spans()
+            .iter()
+            .map(|(lo, hi)| hi - lo)
+            .sum::<f64>()
+            .to_radians();
+        (EARTH_RADIUS_NM * 1.852).powi(2)
+            * longitude
             * (self.lat_max.to_radians().sin() - self.lat_min.to_radians().sin()).abs()
     }
 }
@@ -58,14 +73,22 @@ pub fn haversine_nm(lat: f64, lon: f64, other_lat: f64, other_lon: f64) -> Resul
     Ok(2.0 * EARTH_RADIUS_NM * a.clamp(0.0, 1.0).sqrt().asin())
 }
 
-pub fn within_nm(lat: f64, lon: f64, center_lat: f64, center_lon: f64, radius_nm: f64) -> Result<bool> {
+pub fn within_nm(
+    lat: f64,
+    lon: f64,
+    center_lat: f64,
+    center_lon: f64,
+    radius_nm: f64,
+) -> Result<bool> {
     validate_radius(radius_nm)?;
     Ok(haversine_nm(lat, lon, center_lat, center_lon)? <= radius_nm)
 }
 
 pub(crate) fn validate_radius(radius: f64) -> Result<()> {
     if !radius.is_finite() || radius < 0.0 {
-        return Err(Error::InvalidInput("radius requires a finite nonnegative nautical-mile value".into()));
+        return Err(Error::InvalidInput(
+            "radius requires a finite nonnegative nautical-mile value".into(),
+        ));
     }
     Ok(())
 }
@@ -83,7 +106,12 @@ pub fn radius_bbox(lat: f64, lon: f64, radius_nm: f64) -> Result<Bbox> {
     if lat_min == -90.0 || lat_max == 90.0 {
         return Bbox::new(lat_min, -180.0, lat_max, 180.0);
     }
-    let span = (angle.sin() / lat.to_radians().cos()).clamp(-1.0, 1.0).asin().abs().to_degrees() + 1e-9;
+    let span = (angle.sin() / lat.to_radians().cos())
+        .clamp(-1.0, 1.0)
+        .asin()
+        .abs()
+        .to_degrees()
+        + 1e-9;
     let wrap = |value: f64| (value + 180.0).rem_euclid(360.0) - 180.0;
     Bbox::new(lat_min, wrap(lon - span), lat_max, wrap(lon + span))
 }
@@ -97,7 +125,9 @@ mod tests {
         assert!(bbox.contains(0.0, 180.0));
         assert!(bbox.contains(0.0, -180.0));
         assert!(!bbox.contains(0.0, 0.0));
-        assert!(Bbox::new(-1.0, -180.0, 1.0, -179.0).unwrap().contains(0.0, 180.0));
+        assert!(Bbox::new(-1.0, -180.0, 1.0, -179.0)
+            .unwrap()
+            .contains(0.0, 180.0));
         assert!(radius_bbox(89.9, 0.0, 20.0).unwrap().contains(89.99, 179.0));
         assert_eq!(haversine_nm(0.0, 0.0, 0.0, 0.0).unwrap(), 0.0);
         assert!((haversine_nm(0.0, 179.9, 0.0, -179.9).unwrap() - 12.008092).abs() < 1e-5);

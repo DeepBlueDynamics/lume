@@ -1,8 +1,13 @@
 use proptest::prelude::*;
-use ti_geo::{bbox_cover, bbox_cover_at_resolution, cells_for, haversine_nm, radius_bbox, radius_cover, Bbox};
+use ti_geo::{
+    bbox_cover, bbox_cover_at_resolution, cells_for, haversine_nm, radius_bbox, radius_cover, Bbox,
+};
 
-fn hit(cells:&[u64],lat:f64,lon:f64) -> bool {
-    cells_for(lat,lon).unwrap().iter().any(|c| cells.binary_search(c).is_ok())
+fn hit(cells: &[u64], lat: f64, lon: f64) -> bool {
+    cells_for(lat, lon)
+        .unwrap()
+        .iter()
+        .any(|c| cells.binary_search(c).is_ok())
 }
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(300))]
@@ -37,43 +42,51 @@ proptest! {
 #[test]
 fn poles_dateline_degenerate_and_boundary() {
     for b in [
-        Bbox::new(89.9,-180.0,90.0,180.0).unwrap(),
-        Bbox::new(-90.0,-180.0,-89.9,180.0).unwrap(),
-        Bbox::new(-1.0,179.9,1.0,-179.9).unwrap(),
-        Bbox::new(36.0,-122.0,36.0,-122.0).unwrap(),
-        Bbox::new(0.0,-180.0,0.0,-180.0).unwrap(),
+        Bbox::new(89.9, -180.0, 90.0, 180.0).unwrap(),
+        Bbox::new(-90.0, -180.0, -89.9, 180.0).unwrap(),
+        Bbox::new(-1.0, 179.9, 1.0, -179.9).unwrap(),
+        Bbox::new(36.0, -122.0, 36.0, -122.0).unwrap(),
+        Bbox::new(0.0, -180.0, 0.0, -180.0).unwrap(),
     ] {
-        let cover = bbox_cover(b.lat_min,b.lon_min,b.lat_max,b.lon_max).unwrap();
-        for (lat,lon) in [(b.lat_min,b.lon_min),(b.lat_max,b.lon_max)] {
-            assert!(hit(&cover,lat,lon),"{b:?}, {lat},{lon}");
+        let cover = bbox_cover(b.lat_min, b.lon_min, b.lat_max, b.lon_max).unwrap();
+        for (lat, lon) in [(b.lat_min, b.lon_min), (b.lat_max, b.lon_max)] {
+            assert!(hit(&cover, lat, lon), "{b:?}, {lat},{lon}");
         }
     }
-    for lat in [-90.0,90.0] {
-        let cover = radius_cover(lat,180.0,1.0).unwrap();
-        for lon in [-180.0,-90.0,0.0,90.0,180.0] {
-            assert!(hit(&cover,lat,lon));
+    for lat in [-90.0, 90.0] {
+        let cover = radius_cover(lat, 180.0, 1.0).unwrap();
+        for lon in [-180.0, -90.0, 0.0, 90.0, 180.0] {
+            assert!(hit(&cover, lat, lon));
         }
     }
 }
 #[test]
 fn res9_false_positive_bucket_rate() {
     // One coordinate per synthetic bucket, a uniform 301x301 local grid.
-    let bbox = Bbox::new(35.99,-122.02,36.03,-121.98).unwrap();
-    let cover = bbox_cover_at_resolution(bbox,9).unwrap();
-    let mut candidates=0;
-    let mut false_positives=0;
-    let mut exact=0;
+    let bbox = Bbox::new(35.99, -122.02, 36.03, -121.98).unwrap();
+    let cover = bbox_cover_at_resolution(bbox, 9).unwrap();
+    let mut candidates = 0;
+    let mut false_positives = 0;
+    let mut exact = 0;
     for i in 0..301 {
         for j in 0..301 {
-            let lat=35.97+0.08*i as f64/300.0;
-            let lon=-122.04+0.08*j as f64/300.0;
-            let inside=bbox.contains(lat,lon);
-            let covered=hit(&cover,lat,lon);
-            if inside { exact+=1; assert!(covered); }
-            if covered { candidates+=1; if !inside { false_positives+=1; } }
+            let lat = 35.97 + 0.08 * i as f64 / 300.0;
+            let lon = -122.04 + 0.08 * j as f64 / 300.0;
+            let inside = bbox.contains(lat, lon);
+            let covered = hit(&cover, lat, lon);
+            if inside {
+                exact += 1;
+                assert!(covered);
+            }
+            if covered {
+                candidates += 1;
+                if !inside {
+                    false_positives += 1;
+                }
+            }
         }
     }
-    let rate=false_positives as f64/candidates as f64;
+    let rate = false_positives as f64 / candidates as f64;
     println!("res9 bbox: {exact} exact buckets, {candidates} candidate buckets, {false_positives} false positives, rate={:.4}%",rate*100.0);
-    assert!(rate<=0.30);
+    assert!(rate <= 0.30);
 }
