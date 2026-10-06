@@ -33,3 +33,11 @@ path = "src/main.rs"
 [profile.release]
 lto = true
 codegen-units = 1
+
+# Debug builds keep only line tables for our code and no debug info for dependencies:
+# full DataFusion debug info made each target/ tens of GB (2026-10-06).
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
