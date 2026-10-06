@@ -416,7 +416,13 @@ SUBCOMMANDS:
   answer     Agentic plan→retrieve→answer loop with citations, streamed for the visualizer
 "#, env!("CARGO_PKG_VERSION"));
     #[cfg(feature = "ti")]
-    println!("  sql        Read-only SQL over a Lume index (sql --help)\n  ti         Time-series SQL; --docs-index joins ordinary indexed documents");
+    println!(r#"  sql        Read-only SQL over a Lume index (sql --help)
+
+TIME SERIES (Lume TI):
+  ti query   SQL over telemetry, documents and alerts in one store (ti --help)
+  ti repl    Interactive SQL shell over a TI store
+  ti ingest  Stream a live Signal K server into a store (--serve adds HTTP, --pg adds pgwire)
+  ti status  Store coverage, shards and ingest lag"#);
 }
 
 fn print_index_help() {
