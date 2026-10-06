@@ -35,7 +35,7 @@ A `sections.ts` column could be added later for corpora that carry dates.
 ## Dependencies
 
 - In-process search API extraction ([search-api.md](search-api.md)). This is a hard prerequisite.
-- DataFusion pin from W4. The feature sits behind `ti` (or a narrower `sql` feature, decided in noble-toad's dependency survey).
+- DataFusion pin from W4. The feature sits behind `ti` (or a narrower `sql` feature, decided in Zygomorphic Prawn's dependency survey).
 
 ## Tasks
 
