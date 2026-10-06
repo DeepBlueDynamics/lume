@@ -16,7 +16,7 @@ The repo is now a Cargo workspace. The root `lume` package stays at `.`, and Lum
 **`ti-core`** (W1, `f7faf5f`) holds the in-memory bitmap rows (presence, set, BSI, count), the BSI algorithms, and the three-valued predicate evaluator with the `MemoryShard`/`MemorySource` fixtures. Its [README](../crates/ti-core/README.md) is the reference for the row and evaluator API, and for what is deliberately left to other lanes (Arrow `read` goes to W4, durable WAL/flush/seal to W2, the geo refinement under `NOT` to W6).
 The golden SQL corpus is in `tests/golden/` (see its `README.md`).
 
-**Shared data dir: `.lanes/data/`.** Generated correctness data and expected outputs go here. They never go in a lane clone's tracked files or in git. The dir is under `.lanes/`, so it is gitignored. All containers and the host can see it: in a container it is `/workspace/lume/.lanes/data/`, and on the host it is `C:\Users\kordl\Code\DeepBlueDynamics\lume\.lanes\data\`. The correctness set (~1.9 GB) goes in `.lanes/data/correctness/`. The old interrupted copy has been replaced, and the full 90-day set is being regenerated on the host. **Use it only once `.lanes/data/correctness.sha256` (the manifest hash) exists**, and check against it (see STATUS). W3 keeps its own smoke set in `.lanes/data/w3-smoke/`. Treat data another lane wrote as read-only unless you own it *(unconfirmed convention)*.
+**Shared data dir: `.lanes/data/`.** Generated correctness data and expected outputs go here. They never go in a lane clone's tracked files or in git. The dir is under `.lanes/`, so it is gitignored. All containers and the host can see it: in a container it is `/workspace/lume/.lanes/data/`, and on the host it is `C:\Users\kordl\Code\DeepBlueDynamics\lume\.lanes\data\`. The correctness set (~1.9 GB) goes in `.lanes/data/correctness/`. It is **ready**: regenerated on the host from `71b7fcd`, 1.8 GB, 11,508 files. Its manifest hash is in `.lanes/data/correctness.sha256` (`edfef2d8…`). Check against that file before you rely on the data. W3 keeps its own smoke set in `.lanes/data/w3-smoke/`. Treat data another lane wrote as read-only unless you own it *(unconfirmed convention)*.
 The work happens on branch `plan/lume-ti`, not `main`.
 
 ## 2. Build and test the existing crate
@@ -50,8 +50,18 @@ cargo test  --locked -p ti-core            # includes 10,000-case property suite
 cargo test  --locked -p ti-store           # includes the 1,000-run kill -9 crash test (~75 s)
 cargo test  --locked -p ti-sql             # DataFusion SQL layer
 cargo test  --locked -p ti-ingest          # decode, bucketer, sources, recorder/replay
-cargo test  --locked -p ti-bench           # generator (3 tests)
+cargo test  --locked -p ti-bench           # generator, including the window pin test
 ```
+
+**Data-dependent tests (M2 gate).** These need a dataset in `.lanes/data/` and run in release:
+
+```sh
+TI_DATA_DIR=<dir> cargo test --release -p ti-ingest --test m2_gate -- --nocapture
+# e.g. TI_DATA_DIR=.lanes/data/w3-smoke (smoke) or .lanes/data/correctness (full set)
+```
+
+On the host in PowerShell, use `$env:TI_DATA_DIR = '<dir>'; cargo test --release -p ti-ingest --test m2_gate -- --nocapture`.
+**Warning:** without data these tests currently **skip silently and report a pass**. A fix (`#[ignore]`) is pending, so check the `--nocapture` output for real match counts. Peak RSS currently reads 0.00 MB on non-Linux hosts.
 
 A plain `cargo test` only tests the root crate, because `default-members = ["."]`.
 
@@ -160,7 +170,7 @@ cargo run --release --locked -p ti-bench -- gen --root <dir> [--days N]
 | `--vessels <n>` | Vessel count. Defaults to the correctness set's count (the performance count with `--perf`) |
 | `--perf` | Performance-set defaults (window and vessel count) |
 
-Set `TI_BENCH_VERIFY_DETERMINISM=1` to regenerate into `<dir>.regen` and fail if any file differs. The lead's M0 check was `gen --days 1` run twice, which gave an identical sha256 over 258 files (about 20 MB/day). Without `--days`, it generates the default correctness window `START_SECS..END_SECS` in `crates/ti-bench/src/gen.rs`. **Known issue (07:38 UTC):** those constants decode to 2026-02-10T16:00Z..2026-05-12T16:00Z (91 days), but the code comments and `tests/golden/corpus.json` say 2026-03-01..2026-06-01. See STATUS.
+Set `TI_BENCH_VERIFY_DETERMINISM=1` to regenerate into `<dir>.regen` and fail if any file differs. The lead's M0 check was `gen --days 1` run twice, which gave an identical sha256 over 258 files (about 20 MB/day). Without `--days`, it generates the default correctness window `START_SECS..END_SECS` in `crates/ti-bench/src/gen.rs`. That is 2026-03-01T00:00Z..2026-06-01T00:00Z (fixed in `71b7fcd`, pinned by `crates/ti-bench/tests/window.rs`). If you change the window, update `tests/golden/corpus.json` and the pin test together.
 
 ## 9. Dependency policy
 
@@ -176,7 +186,7 @@ Set `TI_BENCH_VERIFY_DETERMINISM=1` to regenerate into `<dir>.regen` and fail if
   | DuckDB | Used as an oracle through the **CLI**, not as a bundled Rust crate |
   | Release builds | `cargo-zigbuild` for musl targets |
 
-  The log also records pure-Rust Parquet codecs only, with no zstd (D11), `blake3` with `pure` (D12), and an early aarch64-musl smoke test for pgwire SCRAM, which pulls in `ring` (D13). **D27 amends D11:** `zstd-sys` (C) is accepted because DataFusion's `arrow-ipc` forces it in. That deviates from the spec's croaring-only C rule and is awaiting spec-owner confirmation. D18 (`serde`) and D19 (`toml`) cover the dependencies of `ti-contracts`. D23 is `proptest` (a `ti-core` dev-dependency). D24 (`bincode`) and D25 (`crc32fast`) are in `ti-store`. D22 (`ti-bench`) is reserved. Its row is not in spec/11 yet, although `c65e515` was described as logging it. D26 (DataFusion) and D27 (`zstd-sys`) are logged. D28 (`tungstenite`) and D29 (`parquet`) are reserved for W3. The next free number is **D30**. Ask the lead before taking it.
+  The log also records pure-Rust Parquet codecs only, with no zstd (D11), `blake3` with `pure` (D12), and an early aarch64-musl smoke test for pgwire SCRAM, which pulls in `ring` (D13). **D27 amends D11:** `zstd-sys` (C) is accepted because DataFusion's `arrow-ipc` forces it in. That deviates from the spec's croaring-only C rule and is awaiting spec-owner confirmation. D18 (`serde`) and D19 (`toml`) cover the dependencies of `ti-contracts`. D23 is `proptest` (a `ti-core` dev-dependency). D24 (`bincode`) and D25 (`crc32fast`) are in `ti-store`. D22 (`ti-bench`: arrow/parquet 59.2 with pure-Rust codecs, chrono) is logged (`71b7fcd`). D26 (DataFusion) and D27 (`zstd-sys`) are logged. D28 (`tungstenite`) and D29 (`parquet`) are reserved for W3. D30 is the 1 s high-resolution store ([design/hi-res-store.md](design/hi-res-store.md)). The next free number is **D31**. Ask the lead before taking it.
 - The contracts crate itself depends on `arrow-array`, `arrow-schema`, `roaring`, `serde` and `toml` only, not DataFusion.
 
 ## 10. How the lead merges
