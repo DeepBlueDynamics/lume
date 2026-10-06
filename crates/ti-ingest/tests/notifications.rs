@@ -118,11 +118,14 @@ fn both_live_loops_persist_notification_lifecycles() {
             server_running.store(false, Ordering::Relaxed);
             ws.close(None).unwrap();
         });
-        let mut config = TiConfig {
+        let config = TiConfig {
             store_root: root.to_string_lossy().into_owned(),
+            signal_k: ti_contracts::SignalKConfig {
+                url: format!("ws://{address}/signalk/v1/stream"),
+                ..Default::default()
+            },
             ..Default::default()
         };
-        config.signal_k.url = format!("ws://{address}/signalk/v1/stream");
         let mut store = Store::open_or_create(&root, 10).unwrap();
         let catalog = Arc::clone(store.catalog());
         if multi {
