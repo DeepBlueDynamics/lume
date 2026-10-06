@@ -91,7 +91,12 @@ Reserved, and written by the owning lane at merge (agreed among the lanes on 202
 
 | D38 | Generic Parquet uses explicit opaque `<kind>.urn:<nonempty>` entity IDs (kind starts with an ASCII letter, followed by letters, digits, `_` or `-`), shared validation across catalog/docs/envelopes/sync. Existing `vessels.urn:` strings, ordinals, serialization and seal hashes remain unchanged; SQL retains `vessel` and adds `entity` as an alias. Default-empty `[[sources.parquet]]` and `[units]` mappings specify entity column or constant, time/unit/timezone, long or wide metrics and exclusions. UTC/fixed-offset timezone only; naive local text requires explicit timezone. Sorted file globs and stable row order retain source priorities and D21 single-valued sets | Lead approved 2026-10-06, user-requested generic time series and robot fleets. Cost: wider identity acceptance and additive configuration, requiring boat seal-hash/corpus regression and mixed-store tests; no persisted format change or inferred entity kind |
 
-The next free number is **D39**. Ask the lead before taking one. Every new runtime dependency needs a line here
+| # | Decision | Why |
+|---|---|---|
+| D39 | Benchmark-only standalone `croaring =2.8.0` and `roaring =0.11.5` in `bench/croaring-eval`; lockfile pins the C `croaring-sys` build. No dependency of Lume or any ti crate | Lead approved 2026-10-06 for the requested same-process M4 evaluation. Isolated workspace, sequential build and 8 GB target cap; production graph unchanged |
+| D40 | **Reject CRoaring adoption for M4; retain roaring 0.11.5 and existing Portable seals.** Native Frozen persistence is rejected; a validated Portable-view prototype remains a follow-up requiring its own production C-dependency approval | [Evaluation](../design/croaring-eval.md): same-process sparse BSI ~2.32×, run-optimized range/chain ~10–12×, but existing Portable interval enumeration 0.66×. Native format/lifetime/unsafe validation and Pi/RSS/end-to-end integration are untested. No runtime or seal-format change; fulfils M4 item 3's adopt-or-reject evaluation |
+
+The next free number is **D41**. Ask the lead before taking one. Every new runtime dependency needs a line here
 (PR rule, [10-contracts](10-contracts.md)).
 
 ## Sources (from spec)
