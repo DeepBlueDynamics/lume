@@ -138,15 +138,12 @@ impl BucketWindow {
                 continue;
             }
 
-            // Determine aggregate profile (default vs slow vs opt_in)
-            let is_slow =
-                (acc.last_ts - acc.first_ts) >= (config.width_seconds as i64) || acc.count == 1;
-
-            let aggs_to_emit = if is_slow && config.profiles.slow.contains(&"last".to_string()) {
-                &config.profiles.slow
-            } else {
-                &config.profiles.default
-            };
+            // Aggregate profile is a property of the PATH (spec/05: slow = median sample interval
+            // >= W), so a path's column set must not vary per bucket. Deciding "slow" per bucket
+            // (one sample => slow) gave 0.1 Hz paths only @last and made @mean/@min/@max vanish.
+            // Until per-path, sticky median-interval detection exists, every numeric path uses
+            // the default profile (D33).
+            let aggs_to_emit = &config.profiles.default;
 
             for agg_name in aggs_to_emit {
                 match agg_name.as_str() {

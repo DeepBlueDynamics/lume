@@ -81,7 +81,9 @@ Reserved, and written by the owning lane at merge (agreed among the lanes on 202
 |---|---|---|
 | D32 | Golden expected outputs must stay small, aiming for ≤ 256 KB per entry and a few MB in total. A query whose result set is large is narrowed, identically in `ti_sql` and `oracle_sql`, to a window that still exercises its logic (joins, windows, set operations, geo), not committed as megabytes of raw rows | Lead decision, 2026-10-06: the first full run produced 89 MB of JSON, because 10 queries returned a month of 10 s buckets. Narrowing those ten to 2026-05-07 00:00–06:00 UTC cut the total to 2.1 MB (largest 243 KB) with no loss of coverage |
 
-The next free number is **D33**. Ask the lead before taking one. Every new runtime dependency needs a line here
+| D33 | Until per-path, sticky median-interval detection exists, every numeric path uses the **default** aggregate profile (`@mean/@min/@max`) for every bucket; the `slow` profile is not auto-applied | Lead decision 2026-10-06: ingest decided "slow" per bucket (any single-sample bucket), so 0.1 Hz paths at W = 10 s got only `@last` and `@mean/@min/@max` vanished (first M3 corpus run: 38/61 failed on missing columns). Cost: index 614 MB for 5 vessels × 90 d (0.32× raw, ≈ 500 MB/vessel-year), inside the spec/05 budget |
+
+The next free number is **D34**. Ask the lead before taking one. Every new runtime dependency needs a line here
 (PR rule, [10-contracts](10-contracts.md)).
 
 ## Sources (from spec)

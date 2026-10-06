@@ -42,6 +42,13 @@ impl Classifier {
         if let Some(&s) = self.path_scales.get(path) {
             return s;
         }
+        // Flattened positions are degrees even when no meta.units is available (backfill):
+        // use the spec/05 registry's lat/lon scale.
+        if path == "navigation.position.latitude" || path == "navigation.position.longitude" {
+            if let Some(&s) = self.unit_scales.get("lat/lon") {
+                return s;
+            }
+        }
         if let Some(u) = self.meta_units.get(path) {
             if let Some(&s) = self.unit_scales.get(u) {
                 return s;
