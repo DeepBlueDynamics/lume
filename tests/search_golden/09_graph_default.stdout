@@ -1,0 +1,323 @@
+Searching corpus: docs/monte_cristo (1926 sections, db: /workspace/lume/.lanes/search/tests/search_golden/.scratch_db)
+[SKG walk] seeds: Danglars, Fernand → neighbors: Mercédès (0.38), Eugénie (0.36), Caderousse (0.35), Edmond Dantès (0.35), Monte Cristo (0.19)
+[⚠️] Semantic search unavailable for this index (no semantic session — index with -s); falling back to lexical BM25.
+Executing lexical BM25 search (graph=0.4)...
+[1] Score: 11.6615 [SKG: 0.88] | Chapter 4. Conspiracy (Part 6/11) (File: docs/monte_cristo/book.md, Line: 1628)
+“Yes, yes, Dantès’ good health!” said Caderousse, emptying his glass,
+“here’s to his health! his health—hurrah!”
+
+“But the means—the means?” said Fernand.
+
+“Have you not hit upon any?” asked Danglars.
+
+“No!—you undertook to do so.”
+
+“True,” replied Danglars; “the French have the superiority over the
+Spaniards, that the Spaniards ruminate, while the French invent.”
+
+“Do you invent, then,” said Fernand impatiently.
+
+“Waiter,” said Danglars, “pen, ink, and paper.”
+
+“Pen, ink, and paper,” muttered Fernand.
+
+“Yes; I am a supercargo; pen, ink, and paper are my tools, and without
+my tools I am fit for nothing.”
+
+“Pen, ink, and paper, then,” called Fernand loudly.
+
+“There’s what you want on that table,” said the waiter.
+
+“Bring them here.” The waiter did as he was desired.
+
+0059m
+
+[2] Score: 11.5542 [SKG: 1.00] | Chapter 3. The Catalans (Part 9/15) (File: docs/monte_cristo/book.md, Line: 1277)
+“My health is well enough,” said Fernand, clenching his hands without
+raising his head.
+
+“Ah, you see, Danglars,” said Caderousse, winking at his friend, “this
+is how it is; Fernand, whom you see here, is a good and brave Catalan,
+one of the best fishermen in Marseilles, and he is in love with a very
+fine girl, named Mercédès; but it appears, unfortunately, that the fine
+girl is in love with the mate of the _Pharaon_; and as the _Pharaon_
+arrived today—why, you understand!”
+
+“No; I do not understand,” said Danglars.
+
+“Poor Fernand has been dismissed,” continued Caderousse.
+
+“Well, and what then?” said Fernand, lifting up his head, and looking
+at Caderousse like a man who looks for someone on whom to vent his
+anger; “Mercédès is not accountable to any person, is she? Is she not
+free to love whomsoever she will?”
+
+“Oh, if you take it in that sense,” said Caderousse, “it is another
+thing. But I thought you were a Catalan, and they told me the Catalans
+were not men to allow themselves to be supplanted by a rival. It was
+even told me that Fernand, especially, was terrible in his vengeance.”
+
+Fernand smiled piteously. “A lover is never terrible,” he said.
+
+“Poor fellow!” remarked Danglars, affecting to pity the young man from
+the bottom of his heart. “Why, you see, he did not expect to see Dantès
+return so suddenly—he thought he was dead, perhaps; or perchance
+faithless! These things always come on us more severely when they come
+suddenly.”
+
+[3] Score: 11.4516 [SKG: 1.00] | Chapter 3. The Catalans (Part 11/15) (File: docs/monte_cristo/book.md, Line: 1339)
+Caderousse raised his glass to his mouth with unsteady hand, and
+swallowed the contents at a gulp. Fernand dashed his on the ground.
+
+“Eh, eh, eh!” stammered Caderousse. “What do I see down there by the
+wall, in the direction of the Catalans? Look, Fernand, your eyes are
+better than mine. I believe I see double. You know wine is a deceiver;
+but I should say it was two lovers walking side by side, and hand in
+hand. Heaven forgive me, they do not know that we can see them, and
+they are actually embracing!”
+
+Danglars did not lose one pang that Fernand endured.
+
+“Do you know them, Fernand?” he said.
+
+“Yes,” was the reply, in a low voice. “It is Edmond and Mercédès!”
+
+“Ah, see there, now!” said Caderousse; “and I did not recognize them!
+Hallo, Dantès! hello, lovely damsel! Come this way, and let us know
+when the wedding is to be, for Fernand here is so obstinate he will not
+tell us.”
+
+“Hold your tongue, will you?” said Danglars, pretending to restrain
+Caderousse, who, with the tenacity of drunkards, leaned out of the
+arbor. “Try to stand upright, and let the lovers make love without
+interruption. See, look at Fernand, and follow his example; he is
+well-behaved!”
+
+0051m
+
+[4] Score: 11.4099 [SKG: 1.00] | Chapter 4. Conspiracy (Part 1/11) (File: docs/monte_cristo/book.md, Line: 1469)
+Danglars followed Edmond and Mercédès with his eyes until the two
+lovers disappeared behind one of the angles of Fort Saint Nicolas;
+then, turning round, he perceived Fernand, who had fallen, pale and
+trembling, into his chair, while Caderousse stammered out the words of
+a drinking-song.
+
+“Well, my dear sir,” said Danglars to Fernand, “here is a marriage
+which does not appear to make everybody happy.”
+
+“It drives me to despair,” said Fernand.
+
+“Do you, then, love Mercédès?”
+
+“I adore her!”
+
+“For long?”
+
+“As long as I have known her—always.”
+
+“And you sit there, tearing your hair, instead of seeking to remedy
+your condition; I did not think that was the way of your people.”
+
+“What would you have me do?” said Fernand.
+
+“How do I know? Is it my affair? I am not in love with Mademoiselle
+Mercédès; but for you—in the words of the gospel, seek, and you shall
+find.”
+
+“I have found already.”
+
+[5] Score: 11.0568 [SKG: 1.00] | Chapter 3. The Catalans (Part 7/15) (File: docs/monte_cristo/book.md, Line: 1213)
+Fernand became deadly pale. “But you are deceived, Edmond,” she
+continued. “You have no enemy here—there is no one but Fernand, my
+brother, who will grasp your hand as a devoted friend.”
+
+And at these words the young girl fixed her imperious look on the
+Catalan, who, as if fascinated by it, came slowly towards Edmond, and
+offered him his hand. His hatred, like a powerless though furious wave,
+was broken against the strong ascendancy which Mercédès exercised over
+him. Scarcely, however, had he touched Edmond’s hand when he felt he
+had done all he could do, and rushed hastily out of the house.
+
+“Oh,” he exclaimed, running furiously and tearing his hair—“Oh, who
+will deliver me from this man? Wretched—wretched that I am!”
+
+“Hallo, Catalan! Hallo, Fernand! where are you running to?” exclaimed a
+voice.
+
+The young man stopped suddenly, looked around him, and perceived
+Caderousse sitting at table with Danglars, under an arbor.
+
+“Well”, said Caderousse, “why don’t you come? Are you really in such a
+hurry that you have no time to pass the time of day with your friends?”
+
+“Particularly when they have still a full bottle before them,” added
+Danglars. Fernand looked at them both with a stupefied air, but did not
+say a word.
+
+“He seems besotted,” said Danglars, pushing Caderousse with his knee.
+“Are we mistaken, and is Dantès triumphant in spite of all we have
+believed?”
+
+[6] Score: 10.9723 [SKG: 1.00] | Chapter 4. Conspiracy (Part 4/11) (File: docs/monte_cristo/book.md, Line: 1564)
+Fernand rose impatiently. “Let him run on,” said Danglars, restraining
+the young man; “drunk as he is, he is not much out in what he says.
+Absence severs as well as death, and if the walls of a prison were
+between Edmond and Mercédès they would be as effectually separated as
+if he lay under a tombstone.”
+
+0056m
+
+
+
+“Yes; but one gets out of prison,” said Caderousse, who, with what
+sense was left him, listened eagerly to the conversation, “and when one
+gets out and one’s name is Edmond Dantès, one seeks revenge——”
+
+“What matters that?” muttered Fernand.
+
+“And why, I should like to know,” persisted Caderousse, “should they
+put Dantès in prison? he has neither robbed, nor killed, nor murdered.”
+
+“Hold your tongue!” said Danglars.
+
+“I won’t hold my tongue!” replied Caderousse; “I say I want to know why
+they should put Dantès in prison; I like Dantès; Dantès, your health!”
+and he swallowed another glass of wine.
+
+0057m
+
+
+
+Danglars saw in the muddled look of the tailor the progress of his
+intoxication, and turning towards Fernand, said, “Well, you understand
+there is no need to kill him.”
+
+[7] Score: 10.9088 [SKG: 0.77] | Chapter 4. Conspiracy (Part 10/11) (File: docs/monte_cristo/book.md, Line: 1753)
+“Done!” said Danglars, “I’ll take your bet; but tomorrow—today it is
+time to return. Give me your arm, and let us go.”
+
+“Very well, let us go,” said Caderousse; “but I don’t want your arm at
+all. Come, Fernand, won’t you return to Marseilles with us?”
+
+“No,” said Fernand; “I shall return to the Catalans.”
+
+“You’re wrong. Come with us to Marseilles—come along.”
+
+“I will not.”
+
+“What do you mean? you will not? Well, just as you like, my prince;
+there’s liberty for all the world. Come along, Danglars, and let the
+young gentleman return to the Catalans if he chooses.”
+
+Danglars took advantage of Caderousse’s temper at the moment, to take
+him off towards Marseilles by the Porte Saint-Victor, staggering as he
+went.
+
+When they had advanced about twenty yards, Danglars looked back and saw
+Fernand stoop, pick up the crumpled paper, and putting it into his
+pocket then rush out of the arbor towards Pillon.
+
+“Well,” said Caderousse, “why, what a lie he told! He said he was going
+to the Catalans, and he is going to the city. Hallo, Fernand! You are
+coming, my boy!”
+
+“Oh, you don’t see straight,” said Danglars; “he’s gone right by the
+road to the Vieilles Infirmeries.”
+
+[8] Score: 10.7726 [SKG: 1.00] | Chapter 3. The Catalans (Part 13/15) (File: docs/monte_cristo/book.md, Line: 1399)
+“Ah, very well, that’s an explanation!” said Caderousse. “How do you
+do, Madame Dantès?”
+
+Mercédès courtesied gravely, and said—“That is not my name, and in my
+country it bodes ill fortune, they say, to call a young girl by the
+name of her betrothed before he becomes her husband. So call me
+Mercédès, if you please.”
+
+“We must excuse our worthy neighbor, Caderousse,” said Dantès, “he is
+so easily mistaken.”
+
+“So, then, the wedding is to take place immediately, M. Dantès,” said
+Danglars, bowing to the young couple.
+
+“As soon as possible, M. Danglars; today all preliminaries will be
+arranged at my father’s, and tomorrow, or next day at latest, the
+wedding festival here at La Réserve. My friends will be there, I hope;
+that is to say, you are invited, M. Danglars, and you, Caderousse.”
+
+“And Fernand,” said Caderousse with a chuckle; “Fernand, too, is
+invited!”
+
+“My wife’s brother is my brother,” said Edmond; “and we, Mercédès and
+I, should be very sorry if he were absent at such a time.”
+
+Fernand opened his mouth to reply, but his voice died on his lips, and
+he could not utter a word.
+
+“Today the preliminaries, tomorrow or next day the ceremony! You are in
+a hurry, captain!”
+
+[9] Score: 10.7645 [SKG: 0.88] | Chapter 3. The Catalans (Part 10/15) (File: docs/monte_cristo/book.md, Line: 1309)
+“Ah, _ma foi_, under any circumstances!” said Caderousse, who drank as
+he spoke, and on whom the fumes of the wine began to take
+effect,—“under any circumstances Fernand is not the only person put out
+by the fortunate arrival of Dantès; is he, Danglars?”
+
+“No, you are right—and I should say that would bring him ill-luck.”
+
+“Well, never mind,” answered Caderousse, pouring out a glass of wine
+for Fernand, and filling his own for the eighth or ninth time, while
+Danglars had merely sipped his. “Never mind—in the meantime he marries
+Mercédès—the lovely Mercédès—at least he returns to do that.”
+
+During this time Danglars fixed his piercing glance on the young man,
+on whose heart Caderousse’s words fell like molten lead.
+
+“And when is the wedding to be?” he asked.
+
+“Oh, it is not yet fixed!” murmured Fernand.
+
+“No, but it will be,” said Caderousse, “as surely as Dantès will be
+captain of the _Pharaon_—eh, Danglars?”
+
+Danglars shuddered at this unexpected attack, and turned to Caderousse,
+whose countenance he scrutinized, to try and detect whether the blow
+was premeditated; but he read nothing but envy in a countenance already
+rendered brutal and stupid by drunkenness.
+
+“Well,” said he, filling the glasses, “let us drink to Captain Edmond
+Dantès, husband of the beautiful Catalane!”
+
+[10] Score: 10.7238 [SKG: 1.00] | Chapter 5. The Marriage Feast (Part 14/22) (File: docs/monte_cristo/book.md, Line: 2222)
+Meanwhile Fernand made his appearance, poured out for himself a glass
+of water with a trembling hand; then hastily swallowing it, went to sit
+down at the first vacant place, and this was, by mere chance, placed
+next to the seat on which poor Mercédès had fallen half fainting, when
+released from the warm and affectionate embrace of old Dantès.
+Instinctively Fernand drew back his chair.
+
+“He is the cause of all this misery—I am quite sure of it,” whispered
+Caderousse, who had never taken his eyes off Fernand, to Danglars.
+
+“I don’t think so,” answered the other; “he’s too stupid to imagine
+such a scheme. I only hope the mischief will fall upon the head of
+whoever wrought it.”
+
+“You don’t mention those who aided and abetted the deed,” said
+Caderousse.
+
+“Surely,” answered Danglars, “one cannot be held responsible for every
+chance arrow shot into the air.”
+
+“You can, indeed, when the arrow lights point downward on somebody’s
+head.”
+
+Meantime the subject of the arrest was being canvassed in every
+different form.
+
+“What think you, Danglars,” said one of the party, turning towards him,
+“of this event?”
+
+“Why,” replied he, “I think it just possible Dantès may have been
+detected with some trifling article on board ship considered here as
+contraband.”
+

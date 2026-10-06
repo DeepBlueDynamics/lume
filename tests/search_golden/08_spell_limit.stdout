@@ -1,0 +1,170 @@
+Searching corpus: docs/monte_cristo (1926 sections, db: /workspace/lume/.lanes/search/tests/search_golden/.scratch_db)
+Corrected query to: Morrel pharo
+[SKG walk] seeds: Morrel → neighbors: Maximilian (0.39), Valentine (0.32), Marseilles (0.28), Noirtier (0.27), Villefort (0.17), Monte Cristo (0.14)
+[⚠️] Semantic search unavailable for this index (no semantic session — index with -s); falling back to lexical BM25.
+Executing lexical BM25 search (graph=0.4)...
+[1] Score: 10.1124 [SKG: 0.56] | Chapter 29. The House of Morrel & Son (Part 10/18) (File: docs/monte_cristo/book.md, Line: 13288)
+“Come in, come in,” said Morrel, “for I presume you are all at the
+door.”
+
+Scarcely had he uttered those words when Madame Morrel entered weeping
+bitterly. Emmanuel followed her, and in the antechamber were visible
+the rough faces of seven or eight half-naked sailors. At the sight of
+these men the Englishman started and advanced a step; then restrained
+himself, and retired into the farthest and most obscure corner of the
+apartment. Madame Morrel sat down by her husband and took one of his
+hands in hers, Julie still lay with her head on his shoulder, Emmanuel
+stood in the centre of the chamber and seemed to form the link between
+Morrel’s family and the sailors at the door.
+
+“How did this happen?” said Morrel.
+
+“Draw nearer, Penelon,” said the young man, “and tell us all about it.”
+
+An old seaman, bronzed by the tropical sun, advanced, twirling the
+remains of a hat between his hands.
+
+“Good-day, M. Morrel,” said he, as if he had just quitted Marseilles
+the previous evening, and had just returned from Aix or Toulon.
+
+“Good-day, Penelon,” returned Morrel, who could not refrain from
+smiling through his tears, “where is the captain?”
+
+“The captain, M. Morrel,—he has stayed behind sick at Palma; but please
+God, it won’t be much, and you will see him in a few days all alive and
+hearty.”
+
+[2] Score: 10.0537 [SKG: 0.67] | Chapter 50. The Morrel Family (Part 2/14) (File: docs/monte_cristo/book.md, Line: 27221)
+Cocles opened the gate, and Baptistin, springing from the box, inquired
+whether Monsieur and Madame Herbault and Monsieur Maximilian Morrel
+would see his excellency the Count of Monte Cristo.
+
+“The Count of Monte Cristo?” cried Morrel, throwing away his cigar and
+hastening to the carriage; “I should think we would see him. Ah, a
+thousand thanks, count, for not having forgotten your promise.”
+
+And the young officer shook the count’s hand so warmly, that Monte
+Cristo could not be mistaken as to the sincerity of his joy, and he saw
+that he had been expected with impatience, and was received with
+pleasure.
+
+“Come, come,” said Maximilian, “I will serve as your guide; such a man
+as you are ought not to be introduced by a servant. My sister is in the
+garden plucking the dead roses; my brother is reading his two papers,
+_la Presse_ and _les Débats_, within six steps of her; for wherever you
+see Madame Herbault, you have only to look within a circle of four
+yards and you will find M. Emmanuel, and ‘reciprocally,’ as they say at
+the Polytechnic School.”
+
+At the sound of their steps a young woman of twenty to five-and-twenty,
+dressed in a silk morning gown, and busily engaged in plucking the dead
+leaves off a noisette rose-tree, raised her head. This was Julie, who
+had become, as the clerk of the house of Thomson & French had
+predicted, Madame Emmanuel Herbault. She uttered a cry of surprise at
+the sight of a stranger, and Maximilian began to laugh.
+
+“Don’t disturb yourself, Julie,” said he. “The count has only been two
+or three days in Paris, but he already knows what a fashionable woman
+of the Marais is, and if he does not, you will show him.”
+
+[3] Score: 9.7475 [SKG: 0.79] | Chapter 50. The Morrel Family (Part 4/14) (File: docs/monte_cristo/book.md, Line: 27285)
+“Look there,” said Maximilian, laughing; “there is her husband changing
+his jacket for a coat. I assure you, you are well known in the Rue
+Meslay.”
+
+“Your family appears to be a very happy one,” said the count, as if
+speaking to himself.
+
+“Oh, yes, I assure you, count, they want nothing that can render them
+happy; they are young and cheerful, they are tenderly attached to each
+other, and with twenty-five thousand francs a year they fancy
+themselves as rich as Rothschild.”
+
+“Five-and-twenty thousand francs is not a large sum, however,” replied
+Monte Cristo, with a tone so sweet and gentle, that it went to
+Maximilian’s heart like the voice of a father; “but they will not be
+content with that. Your brother-in-law is a barrister? a doctor?”
+
+“He was a merchant, monsieur, and had succeeded to the business of my
+poor father. M. Morrel, at his death, left 500,000 francs, which were
+divided between my sister and myself, for we were his only children.
+Her husband, who, when he married her, had no other patrimony than his
+noble probity, his first-rate ability, and his spotless reputation,
+wished to possess as much as his wife. He labored and toiled until he
+had amassed 250,000 francs; six years sufficed to achieve this object.
+Oh, I assure you, sir, it was a touching spectacle to see these young
+creatures, destined by their talents for higher stations, toiling
+together, and through their unwillingness to change any of the customs
+of their paternal house, taking six years to accomplish what less
+scrupulous people would have effected in two or three. Marseilles
+resounded with their well-earned praises. At last, one day, Emmanuel
+came to his wife, who had just finished making up the accounts.
+
+[4] Score: 9.6675 [SKG: 0.56] | Chapter 29. The House of Morrel & Son (Part 6/18) (File: docs/monte_cristo/book.md, Line: 13159)
+“No, I have for the end of the month these bills which have been
+assigned to us by the house of Pascal, and the house of Wild & Turner
+of Marseilles, amounting to nearly 55,000 francs; in all, 287,500
+francs.”
+
+It is impossible to describe what Morrel suffered during this
+enumeration. “Two hundred and eighty-seven thousand five hundred
+francs,” repeated he.
+
+“Yes, sir,” replied the Englishman. “I will not,” continued he, after a
+moment’s silence, “conceal from you, that while your probity and
+exactitude up to this moment are universally acknowledged, yet the
+report is current in Marseilles that you are not able to meet your
+liabilities.”
+
+At this almost brutal speech Morrel turned deathly pale.
+
+“Sir,” said he, “up to this time—and it is now more than
+four-and-twenty years since I received the direction of this house from
+my father, who had himself conducted it for five-and-thirty years—never
+has anything bearing the signature of Morrel & Son been dishonored.”
+
+“I know that,” replied the Englishman. “But as a man of honor should
+answer another, tell me fairly, shall you pay these with the same
+punctuality?”
+
+Morrel shuddered, and looked at the man, who spoke with more assurance
+than he had hitherto shown.
+
+“To questions frankly put,” said he, “a straightforward answer should
+be given. Yes, I shall pay, if, as I hope, my vessel arrives safely;
+for its arrival will again procure me the credit which the numerous
+accidents, of which I have been the victim, have deprived me; but if
+the _Pharaon_ should be lost, and this last resource be gone——”
+
+[5] Score: 9.6589 [SKG: 0.44] | Chapter 29. The House of Morrel & Son (Part 9/18) (File: docs/monte_cristo/book.md, Line: 13257)
+“There are only two persons who have the key to that door,” murmured
+Morrel, “Cocles and Julie.”
+
+At this instant the second door opened, and the young girl, her eyes
+bathed with tears, appeared. Morrel rose tremblingly, supporting
+himself by the arm of the chair. He would have spoken, but his voice
+failed him.
+
+“Oh, father!” said she, clasping her hands, “forgive your child for
+being the bearer of evil tidings.”
+
+Morrel again changed color. Julie threw herself into his arms.
+
+“Oh, father, father!” murmured she, “courage!”
+
+“The _Pharaon_ has gone down, then?” said Morrel in a hoarse voice. The
+young girl did not speak; but she made an affirmative sign with her
+head as she lay on her father’s breast.
+
+“And the crew?” asked Morrel.
+
+“Saved,” said the girl; “saved by the crew of the vessel that has just
+entered the harbor.”
+
+Morrel raised his two hands to heaven with an expression of resignation
+and sublime gratitude.
+
+“Thanks, my God,” said he, “at least thou strikest but me alone.”
+
+A tear moistened the eye of the phlegmatic Englishman.
+

@@ -1,0 +1,327 @@
+Searching corpus: docs/monte_cristo (1926 sections, db: /workspace/lume/.lanes/search/tests/search_golden/.scratch_db)
+Corrected query to: captain
+[SKG walk] no query entities resolved — no graph boost
+[⚠️] Semantic search unavailable for this index (no semantic session — index with -s); falling back to lexical BM25.
+Executing lexical BM25 search (graph=0.4)...
+[1] Score: 5.5245 | Chapter 114. Peppino (Part 13/15) (File: docs/monte_cristo/book.md, Line: 59910)
+“Who comes there?” he cried.
+
+“A friend, a friend!” said Peppino; “but where is the captain?”
+
+“There,” said the sentinel, pointing over his shoulder to a spacious
+crypt, hollowed out of the rock, the lights from which shone into the
+passage through the large arched openings.
+
+“Fine spoil, captain, fine spoil!” said Peppino in Italian, and taking
+Danglars by the collar of his coat he dragged him to an opening
+resembling a door, through which they entered the apartment which the
+captain appeared to have made his dwelling-place.
+
+“Is this the man?” asked the captain, who was attentively reading
+Plutarch’s _Life of Alexander_.
+
+“Himself, captain—himself.”
+
+“Very well, show him to me.”
+
+At this rather impertinent order, Peppino raised his torch to the face
+of Danglars, who hastily withdrew that he might not have his eyelashes
+burnt. His agitated features presented the appearance of pale and
+hideous terror.
+
+“The man is tired,” said the captain, “conduct him to his bed.”
+
+“Oh,” murmured Danglars, “that bed is probably one of the coffins
+hollowed in the wall, and the sleep I shall enjoy will be death from
+one of the poniards I see glistening in the darkness.”
+
+[2] Score: 5.5082 | Chapter 29. The House of Morrel & Son (Part 11/18) (File: docs/monte_cristo/book.md, Line: 13318)
+“Well, now tell your story, Penelon.”
+
+20039m
+
+
+
+Penelon rolled his quid in his cheek, placed his hand before his mouth,
+turned his head, and sent a long jet of tobacco-juice into the
+antechamber, advanced his foot, balanced himself, and began.
+
+“You see, M. Morrel,” said he, “we were somewhere between Cape Blanc
+and Cape Boyador, sailing with a fair breeze, south-south-west after a
+week’s calm, when Captain Gaumard comes up to me—I was at the helm I
+should tell you—and says, ‘Penelon, what do you think of those clouds
+coming up over there?’ I was just then looking at them myself. ‘What do
+I think, captain? Why I think that they are rising faster than they
+have any business to do, and that they would not be so black if they
+didn’t mean mischief.’—‘That’s my opinion too,’ said the captain, ‘and
+I’ll take precautions accordingly. We are carrying too much canvas.
+Avast, there, all hands! Take in the studding-sails and stow the flying
+jib.’ It was time; the squall was on us, and the vessel began to heel.
+‘Ah,’ said the captain, ‘we have still too much canvas set; all hands
+lower the mainsail!’ Five minutes after, it was down; and we sailed
+under mizzen-topsails and top-gallant sails. ‘Well, Penelon,’ said the
+captain, ‘what makes you shake your head?’ ‘Why,’ I says, ‘I still
+think you’ve got too much on.’ ‘I think you’re right,’ answered he, ‘we
+shall have a gale.’ ‘A gale? More than that, we shall have a tempest,
+or I don’t know what’s what.’ You could see the wind coming like the
+dust at Montredon; luckily the captain understood his business. ‘Take
+in two reefs in the top-sails,’ cried the captain; ‘let go the
+bowlin’s, haul the brace, lower the top-gallant sails, haul out the
+reef-tackles on the yards.’”
+
+[3] Score: 5.3753 | Chapter 21. The Island of Tiboulen (Part 12/14) (File: docs/monte_cristo/book.md, Line: 9848)
+“Well, you would do much better to find him a jacket and a pair of
+trousers, if you have them.”
+
+“No,” said Jacopo; “but I have a shirt and a pair of trousers.”
+
+“That is all I want,” interrupted Dantès. Jacopo dived into the hold
+and soon returned with what Edmond wanted.
+
+“Now, then, do you wish for anything else?” said the patron.
+
+“A piece of bread and another glass of the capital rum I tasted, for I
+have not eaten or drunk for a long time.” He had not tasted food for
+forty hours. A piece of bread was brought, and Jacopo offered him the
+gourd.
+
+“Larboard your helm,” cried the captain to the steersman. Dantès
+glanced that way as he lifted the gourd to his mouth; then paused with
+hand in mid-air.
+
+“Hollo! what’s the matter at the Château d’If?” said the captain.
+
+A small white cloud, which had attracted Dantès’ attention, crowned the
+summit of the bastion of the Château d’If. At the same moment the faint
+report of a gun was heard. The sailors looked at one another.
+
+“What is this?” asked the captain.
+
+“A prisoner has escaped from the Château d’If, and they are firing the
+alarm gun,” replied Dantès. The captain glanced at him, but he had
+lifted the rum to his lips and was drinking it with so much composure,
+that suspicions, if the captain had any, died away.
+
+[4] Score: 5.2910 | Chapter 7. The Examination (Part 9/14) (File: docs/monte_cristo/book.md, Line: 3263)
+“‘I will do it, captain; but perhaps I shall not be admitted to the
+grand-marshal’s presence as easily as you expect?’
+
+“‘Here is a ring that will obtain audience of him, and remove every
+difficulty,’ said the captain. At these words he gave me a ring. It was
+time—two hours after he was delirious; the next day he died.”
+
+“And what did you do then?”
+
+“What I ought to have done, and what everyone would have done in my
+place. Everywhere the last requests of a dying man are sacred; but with
+a sailor the last requests of his superior are commands. I sailed for
+the Island of Elba, where I arrived the next day; I ordered everybody
+to remain on board, and went on shore alone. As I had expected, I found
+some difficulty in obtaining access to the grand-marshal; but I sent
+the ring I had received from the captain to him, and was instantly
+admitted. He questioned me concerning Captain Leclere’s death; and, as
+the latter had told me, gave me a letter to carry on to a person in
+Paris. I undertook it because it was what my captain had bade me do. I
+landed here, regulated the affairs of the vessel, and hastened to visit
+my affianced bride, whom I found more lovely than ever. Thanks to M.
+Morrel, all the forms were got over; in a word I was, as I told you, at
+my marriage feast; and I should have been married in an hour, and
+tomorrow I intended to start for Paris, had I not been arrested on this
+charge which you as well as I now see to be unjust.”
+
+“Ah,” said Villefort, “this seems to me the truth. If you have been
+culpable, it was imprudence, and this imprudence was in obedience to
+the orders of your captain. Give up this letter you have brought from
+Elba, and pass your word you will appear should you be required, and go
+and rejoin your friends.
+
+[5] Score: 5.1227 | Chapter 1. Marseilles—The Arrival (Part 9/14) (File: docs/monte_cristo/book.md, Line: 427)
+“Talking of Captain Leclere, has not Dantès given you a letter from
+him?”
+
+“To me?—no—was there one?”
+
+“I believe that, besides the packet, Captain Leclere confided a letter
+to his care.”
+
+“Of what packet are you speaking, Danglars?”
+
+“Why, that which Dantès left at Porto-Ferrajo.”
+
+“How do you know he had a packet to leave at Porto-Ferrajo?”
+
+Danglars turned very red.
+
+“I was passing close to the door of the captain’s cabin, which was half
+open, and I saw him give the packet and letter to Dantès.”
+
+“He did not speak to me of it,” replied the shipowner; “but if there be
+any letter he will give it to me.”
+
+Danglars reflected for a moment. “Then, M. Morrel, I beg of you,” said
+he, “not to say a word to Dantès on the subject. I may have been
+mistaken.”
+
+At this moment the young man returned; Danglars withdrew.
+
+“Well, my dear Dantès, are you now free?” inquired the owner.
+
+[6] Score: 5.0363 | Chapter 17. The Abbé’s Chamber (Part 9/33) (File: docs/monte_cristo/book.md, Line: 7478)
+“Yes.”
+
+“And about to become the husband of a young and lovely girl?”
+
+“Yes.”
+
+“Now, could anyone have had any interest in preventing the
+accomplishment of these two things? But let us first settle the
+question as to its being the interest of anyone to hinder you from
+being captain of the _Pharaon_. What say you?”
+
+“I cannot believe such was the case. I was generally liked on board,
+and had the sailors possessed the right of selecting a captain
+themselves, I feel convinced their choice would have fallen on me.
+There was only one person among the crew who had any feeling of
+ill-will towards me. I had quarelled with him some time previously, and
+had even challenged him to fight me; but he refused.”
+
+“Now we are getting on. And what was this man’s name?”
+
+“Danglars.”
+
+“What rank did he hold on board?”
+
+“He was supercargo.”
+
+“And had you been captain, should you have retained him in his
+employment?”
+
+“Not if the choice had remained with me, for I had frequently observed
+inaccuracies in his accounts.”
+
+[7] Score: 5.0175 | Chapter 21. The Island of Tiboulen (Part 11/14) (File: docs/monte_cristo/book.md, Line: 9818)
+They obeyed.
+
+“Belay.” This order was also executed; and the vessel passed, as Dantès
+had predicted, twenty fathoms to windward.
+
+“Bravo!” said the captain.
+
+“Bravo!” repeated the sailors. And they all looked with astonishment at
+this man whose eye now disclosed an intelligence and his body a vigor
+they had not thought him capable of showing.
+
+“You see,” said Dantès, quitting the helm, “I shall be of some use to
+you, at least during the voyage. If you do not want me at Leghorn, you
+can leave me there, and I will pay you out of the first wages I get,
+for my food and the clothes you lend me.”
+
+“Ah,” said the captain, “we can agree very well, if you are
+reasonable.”
+
+“Give me what you give the others, and it will be all right,” returned
+Dantès.
+
+“That’s not fair,” said the seaman who had saved Dantès; “for you know
+more than we do.”
+
+“What is that to you, Jacopo?” returned the Captain. “Everyone is free
+to ask what he pleases.”
+
+“That’s true,” replied Jacopo; “I only make a remark.”
+
+[8] Score: 4.9988 | Chapter 2. Father and Son (Part 9/12) (File: docs/monte_cristo/book.md, Line: 885)
+“Really?” answered Edmond, with a smile which had in it traces of
+slight uneasiness.
+
+0039m
+
+
+
+“Ah, yes,” continued Caderousse, “and capital offers, too; but you
+know, you will be captain, and who could refuse you then?”
+
+“Meaning to say,” replied Dantès, with a smile which but ill-concealed
+his trouble, “that if I were not a captain——”
+
+“Eh—eh!” said Caderousse, shaking his head.
+
+“Come, come,” said the sailor, “I have a better opinion than you of
+women in general, and of Mercédès in particular; and I am certain that,
+captain or not, she will remain ever faithful to me.”
+
+“So much the better—so much the better,” said Caderousse. “When one is
+going to be married, there is nothing like implicit confidence; but
+never mind that, my boy,—go and announce your arrival, and let her know
+all your hopes and prospects.”
+
+“I will go directly,” was Edmond’s reply; and, embracing his father,
+and nodding to Caderousse, he left the apartment.
+
+Caderousse lingered for a moment, then taking leave of old Dantès, he
+went downstairs to rejoin Danglars, who awaited him at the corner of
+the Rue Senac.
+
+[9] Score: 4.9619 | Chapter 1. Marseilles—The Arrival (Part 2/14) (File: docs/monte_cristo/book.md, Line: 209)
+When the young man on board saw this person approach, he left his
+station by the pilot, and, hat in hand, leaned over the ship’s
+bulwarks.
+
+He was a fine, tall, slim young fellow of eighteen or twenty, with
+black eyes, and hair as dark as a raven’s wing; and his whole
+appearance bespoke that calmness and resolution peculiar to men
+accustomed from their cradle to contend with danger.
+
+“Ah, is it you, Dantès?” cried the man in the skiff. “What’s the
+matter? and why have you such an air of sadness aboard?”
+
+“A great misfortune, M. Morrel,” replied the young man, “a great
+misfortune, for me especially! Off Civita Vecchia we lost our brave
+Captain Leclere.”
+
+“And the cargo?” inquired the owner, eagerly.
+
+“Is all safe, M. Morrel; and I think you will be satisfied on that
+head. But poor Captain Leclere——”
+
+“What happened to him?” asked the owner, with an air of considerable
+resignation. “What happened to the worthy captain?”
+
+“He died.”
+
+“Fell into the sea?”
+
+“No, sir, he died of brain-fever in dreadful agony.” Then turning to
+the crew, he said, “Bear a hand there, to take in sail!”
+
+[10] Score: 4.8896 | Chapter 31. Italy: Sinbad the Sailor (Part 4/32) (File: docs/monte_cristo/book.md, Line: 14348)
+“But who will say your excellency has been to Monte Cristo?”
+
+“Oh, I shall not,” cried Franz.
+
+“Nor I, nor I,” chorused the sailors.
+
+“Then steer for Monte Cristo.”
+
+The captain gave his orders, the helm was put up, and the boat was soon
+sailing in the direction of the island. Franz waited until all was in
+order, and when the sail was filled, and the four sailors had taken
+their places—three forward, and one at the helm—he resumed the
+conversation. “Gaetano,” said he to the captain, “you tell me Monte
+Cristo serves as a refuge for pirates, who are, it seems to me, a very
+different kind of game from the goats.”
+
+“Yes, your excellency, and it is true.”
+
+“I knew there were smugglers, but I thought that since the capture of
+Algiers, and the destruction of the regency, pirates existed only in
+the romances of Cooper and Captain Marryat.”
+
+“Your excellency is mistaken; there are pirates, like the bandits who
+were believed to have been exterminated by Pope Leo XII., and who yet,
+every day, rob travellers at the gates of Rome. Has not your excellency
+heard that the French _chargé d’affaires_ was robbed six months ago
+within five hundred paces of Velletri?”
+
+“Oh, yes, I heard that.”
+

@@ -1,0 +1,98 @@
+Searching corpus: docs/monte_cristo (1926 sections, db: /workspace/lume/.lanes/search/tests/search_golden/.scratch_db)
+[SKG walk] no query entities resolved — no graph boost
+[⚠️] Semantic search unavailable for this index (no semantic session — index with -s); falling back to lexical BM25.
+Executing lexical BM25 search (graph=0.4)...
+[1] Score: 16.1439 | Chapter 18. The Treasure (Part 12/17) (File: docs/monte_cristo/book.md, Line: 8640)
+“This 25th day of April, 1498, be...
+
+     Alexander VI., and fearing that not...
+
+     he may desire to become my heir, and re...
+
+     and Bentivoglio, who were poisoned,...
+
+     my sole heir, that I have bu...
+
+     and has visited with me, that is, in...
+
+     Island of Monte Cristo, all I poss...
+
+     jewels, diamonds, gems; that I alone...
+
+     may amount to nearly two mil...
+
+     will find on raising the twentieth ro...
+
+     creek to the east in a right line. Two open...
+
+     in these caves; the treasure is in the furthest a...
+
+     which treasure I bequeath and leave en...
+
+     as my sole heir.
+
+     “25th April, 1498.
+
+[2] Score: 15.9603 | Chapter 18. The Treasure (Part 14/17) (File: docs/monte_cristo/book.md, Line: 8701)
+...tire to him
+
+                                    ...ar † Spada.”
+
+
+Faria followed him with an excited look.
+
+“And now,” he said, when he saw that Dantès had read the last line,
+“put the two fragments together, and judge for yourself.” Dantès
+obeyed, and the conjointed pieces gave the following:
+
+0245m
+
+
+
+“This 25th day of April, 1498, be...ing invited to dine by his Holiness
+Alexander VI., and fearing that not...content with making me pay for my
+hat, he may desire to become my heir, and re...serves for me the fate
+of Cardinals Caprara and Bentivoglio, who were poisoned,...I declare to
+my nephew, Guido Spada, my sole heir, that I have bu...ried in a place
+he knows and has visited with me, that is, in...the caves of the small
+Island of Monte Cristo, all I poss...essed of ingots, gold, money,
+jewels, diamonds, gems; that I alone...know of the existence of this
+treasure, which may amount to nearly two mil...lions of Roman crowns,
+and which he will find on raising the twentieth ro...ck from the small
+creek to the east in a right line. Two open...ings have been made in
+these caves; the treasure is in the furthest a...ngle in the second;
+which treasure I bequeath and leave en...tire to him as my sole heir.
+“25th April, 1498. “Cæs...ar † Spada.”
+
+[3] Score: 15.7649 | Chapter 18. The Treasure (Part 1/17) (File: docs/monte_cristo/book.md, Line: 8253)
+When Dantès returned next morning to the chamber of his companion in
+captivity, he found Faria seated and looking composed. In the ray of
+light which entered by the narrow window of his cell, he held open in
+his left hand, of which alone, it will be recollected, he retained the
+use, a sheet of paper, which, from being constantly rolled into a small
+compass, had the form of a cylinder, and was not easily kept open. He
+did not speak, but showed the paper to Dantès.
+
+“What is that?” he inquired.
+
+“Look at it,” said the abbé with a smile.
+
+“I have looked at it with all possible attention,” said Dantès, “and I
+only see a half-burnt paper, on which are traces of Gothic characters
+inscribed with a peculiar kind of ink.”
+
+“This paper, my friend,” said Faria, “I may now avow to you, since I
+have the proof of your fidelity—this paper is my treasure, of which,
+from this day forth, one-half belongs to you.”
+
+The sweat started forth on Dantès’ brow. Until this day and for how
+long a time!—he had refrained from talking of the treasure, which had
+brought upon the abbé the accusation of madness. With his instinctive
+delicacy Edmond had preferred avoiding any touch on this painful chord,
+and Faria had been equally silent. He had taken the silence of the old
+man for a return to reason; and now these few words uttered by Faria,
+after so painful a crisis, seemed to indicate a serious relapse into
+mental alienation.
+
+“Your treasure?” stammered Dantès. Faria smiled.
+
