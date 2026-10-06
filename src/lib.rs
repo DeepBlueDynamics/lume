@@ -34,6 +34,8 @@ pub mod inversion;
 pub mod hybrid;
 pub mod agent;
 pub mod crawl;
+pub mod search;
+pub use search::{search, LoadedIndex, SearchOptions, SearchResults, SearchResultHit, SearchMode, BlendMode};
 // pub mod cli;
 
 /// Token separator used inside FST keys. Matches Lucene's

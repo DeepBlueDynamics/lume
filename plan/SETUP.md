@@ -9,7 +9,11 @@ Items marked *(unconfirmed)* are conventions the docs keeper has not verified. A
 
 Lume is a Rust crate (`lume` 0.12.0, edition 2021): `src/lib.rs` plus a CLI in `src/main.rs`.
 By default it has four direct dependencies (`tantivy-fst`, `ureq`, `serde`, `serde_json`) and a committed `Cargo.lock`.
-The repo is now a Cargo workspace. The root `lume` package stays at `.`, and Lume TI (the telemetry index) lives in members under `crates/ti-*` (so far only `crates/ti-contracts`). TI is compiled only behind the `ti` cargo feature, which is off by default.
+The repo is now a Cargo workspace. The root `lume` package stays at `.`, and Lume TI (the telemetry index) lives in members under `crates/ti-*` (merged so far: `crates/ti-contracts`, `crates/ti-core` and `crates/ti-store`). TI is compiled only behind the `ti` cargo feature, which is off by default.
+
+**`ti-contracts` is frozen** (`96ac45d`). It holds the shared types and traits, the catalog, the Arrow schemas, the WAL/shard envelopes, the `TiEngine` facade and the `ti.toml` schema (`config.rs`). [spec/10](spec/10-contracts.md) mirrors its source, and [spec/14](spec/14-semantics.md) freezes the behavioral rules. **Any change to a boundary in it needs a contracts PR approved by the lead (integrator).** Build your lane against the crate as it is, and mock other lanes behind its traits. If you think a contract is wrong, mail the lead. Don't patch it in your lane.
+
+**`ti-core`** (W1, `f7faf5f`) holds the in-memory bitmap rows (presence, set, BSI, count), the BSI algorithms, and the three-valued predicate evaluator with the `MemoryShard`/`MemorySource` fixtures. Its [README](../crates/ti-core/README.md) is the reference for the row and evaluator API, and for what is deliberately left to other lanes (Arrow `read` goes to W4, durable WAL/flush/seal to W2, the geo refinement under `NOT` to W6).
 The golden SQL corpus is in `tests/golden/` (see its `README.md`).
 The work happens on branch `plan/lume-ti`, not `main`.
 
@@ -23,8 +27,9 @@ cargo test --locked --verbose
 cargo clippy --all-targets || true   # informational only; the existing crate has warnings
 ```
 
+- At `8e87a11` the root crate has **46 tests**. The 10 search golden outputs in `tests/search_golden/` must stay byte-identical. Check them with `tests/search_golden/capture.sh [lume-binary]`, which defaults to `./target/debug/lume` and verify mode, so build first.
 - Always pass `--locked`. CI fails if `Cargo.lock` would change.
-- There is no `rust-toolchain` file, so use current stable.
+- There is no `rust-toolchain` file yet. The host build pane runs rustc **1.96.1** and the containers run **1.99**, and their clippy lints differ. A pinned `rust-toolchain.toml` has been proposed to the user (unconfirmed until accepted).
 - CI runs only on pushes and PRs to `main`. Lane branches and `plan/lume-ti` get **no CI**, so run the commands above yourself before you report a commit.
 - `release.yml` builds release binaries on `v*` tags for five gnu/darwin/msvc targets. It has no musl targets and no `--features ti` build yet ([repo-fit §4](repo-fit.md)).
 
@@ -39,11 +44,13 @@ Landed with W0 part 1 (`06dd5c5`). The root `Cargo.toml` now has:
 cargo build --locked                       # default build, unchanged, still 4 direct deps
 cargo build --locked --features ti         # lume binary with TI compiled in
 cargo test  --locked -p ti-contracts       # TI crates are not default members; name them with -p (or use --workspace)
+cargo test  --locked -p ti-core            # includes 10,000-case property suites (~40 s on the host)
+cargo test  --locked -p ti-store           # includes the 1,000-run kill -9 crash test (~75 s)
 ```
 
 A plain `cargo test` only tests the root crate, because `default-members = ["."]`.
 
-**Strict checks, scoped to each TI crate.** Run both for every `crates/ti-*` crate you touch (currently `ti-contracts`; `ti-bench` is coming in corpus part 2):
+**Strict checks, scoped to each TI crate.** Run both for every `crates/ti-*` crate you touch (currently `ti-contracts`, `ti-core` and `ti-store`; `ti-bench`, `ti-sql` and `ti-ingest` are in progress):
 
 ```sh
 cargo clippy -p <ti crate> -- -D warnings
@@ -51,7 +58,7 @@ cargo fmt -p <ti crate> --check
 ```
 
 A root-wide `cargo fmt --check` is **not** required. The baseline `src/` isn't rustfmt-clean ([repo-fit §7](repo-fit.md)), so don't reformat `src/` as a side effect of TI work.
-These checks are not in `ci.yml` yet, so run them yourself.
+**Strict clippy must pass on the host's rustc 1.96** (Regular Pheasant), not only in a container on 1.99. The two versions report different lints. For example, `8e87a11` fixed a `nonminimal_bool` lint the host reported. These checks are not in `ci.yml` yet, so run them yourself.
 
 ## 4. Joining as a new agent: the lane-clone workflow
 
@@ -128,15 +135,15 @@ Codex rejects unannotated MCP tools when its approval policy is `never`.
   | DuckDB | Used as an oracle through the **CLI**, not as a bundled Rust crate |
   | Release builds | `cargo-zigbuild` for musl targets |
 
-  The log also records pure-Rust Parquet codecs only, with no zstd (D11), `blake3` with `pure` (D12), and an early aarch64-musl smoke test for pgwire SCRAM, which pulls in `ring` (D13). The next free number is D18.
-- The contracts crate itself depends on `arrow-array`, `arrow-schema` and `roaring` only, not DataFusion.
+  The log also records pure-Rust Parquet codecs only, with no zstd (D11), `blake3` with `pure` (D12), and an early aarch64-musl smoke test for pgwire SCRAM, which pulls in `ring` (D13). **D27 amends D11:** `zstd-sys` (C) is accepted because DataFusion's `arrow-ipc` forces it in. That deviates from the spec's croaring-only C rule and is awaiting spec-owner confirmation. D18 (`serde`) and D19 (`toml`) cover the dependencies of `ti-contracts`. D23 is `proptest` (a `ti-core` dev-dependency). D24 (`bincode`) and D25 (`crc32fast`) are in `ti-store`. D22 (`ti-bench`) and D26 (W4 DataFusion) are reserved for their lanes. The next free number is **D28**. Ask the lead before taking it.
+- The contracts crate itself depends on `arrow-array`, `arrow-schema`, `roaring`, `serde` and `toml` only, not DataFusion.
 
 ## 10. How the lead merges
 
 The lead (Industrial Pike) is the only one who writes to `plan/lume-ti`.
 
 1. An agent reports a ready commit by mail.
-2. The lead fetches the branch straight from the clone, for example `git fetch .lanes/w0 ti/w0-contracts`.
+2. The lead fetches the branch straight from the clone, for example `git fetch .lanes/w1 ti/w1-core`.
 3. The lead reviews it and merges it into `plan/lume-ti` in the shared tree. Merge style (merge commit, squash or fast-forward) is the lead's call *(unconfirmed)*.
 4. The docs keeper refreshes [STATUS.md](STATUS.md) and this file after each merge.
 5. When `plan/lume-ti` is merged to `main` is not yet decided *(unconfirmed)*. The spec wants lanes integrated on `main` daily behind the `ti` flag ([spec/10](spec/10-contracts.md)).

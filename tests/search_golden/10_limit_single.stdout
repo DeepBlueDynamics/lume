@@ -1,0 +1,44 @@
+Searching corpus: docs/monte_cristo (1926 sections, db: /workspace/lume/.lanes/search/tests/search_golden/.scratch_db)
+[SKG walk] seeds: Monte Cristo → neighbors: Albert (0.25), Maximilian (0.22), Danglars (0.19), Morrel (0.14)
+[⚠️] Semantic search unavailable for this index (no semantic session — index with -s); falling back to lexical BM25.
+Executing lexical BM25 search (graph=0.4)...
+[1] Score: 26.3471 [SKG: 0.62] | Chapter 23. The Island of Monte Cristo (Part 2/11) (File: docs/monte_cristo/book.md, Line: 10260)
+The old patron did not interfere, for he too had recognized the
+superiority of Dantès over the crew and himself. He saw in the young
+man his natural successor, and regretted that he had not a daughter,
+that he might have bound Edmond to him by a more secure alliance. At
+seven o’clock in the evening all was ready, and at ten minutes past
+seven they doubled the lighthouse just as the beacon was kindled. The
+sea was calm, and, with a fresh breeze from the south-east, they sailed
+beneath a bright blue sky, in which God also lighted up in turn his
+beacon lights, each of which is a world. Dantès told them that all
+hands might turn in, and he would take the helm. When the Maltese (for
+so they called Dantès) had said this, it was sufficient, and all went
+to their bunks contentedly.
+
+This frequently happened. Dantès, cast from solitude into the world,
+frequently experienced an imperious desire for solitude; and what
+solitude is more complete, or more poetical, than that of a ship
+floating in isolation on the sea during the obscurity of the night, in
+the silence of immensity, and under the eye of Heaven?
+
+Now this solitude was peopled with his thoughts, the night lighted up
+by his illusions, and the silence animated by his anticipations. When
+the patron awoke, the vessel was hurrying on with every sail set, and
+every sail full with the breeze. They were making nearly ten knots an
+hour. The Island of Monte Cristo loomed large in the horizon. Edmond
+resigned the lugger to the master’s care, and went and lay down in his
+hammock; but, in spite of a sleepless night, he could not close his
+eyes for a moment.
+
+Two hours afterwards he came on deck, as the boat was about to double
+the Island of Elba. They were just abreast of Mareciana, and beyond the
+flat but verdant Island of La Pianosa. The peak of Monte Cristo
+reddened by the burning sun, was seen against the azure sky. Dantès
+ordered the helmsman to put down his helm, in order to leave La Pianosa
+to starboard, as he knew that he should shorten his course by two or
+three knots. About five o’clock in the evening the island was distinct,
+and everything on it was plainly perceptible, owing to that clearness
+of the atmosphere peculiar to the light which the rays of the sun cast
+at its setting.
+

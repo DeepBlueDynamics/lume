@@ -142,6 +142,28 @@ impl Default for Bm25Params {
     }
 }
 
+impl SearchVariant {
+    pub fn from_env() -> Self {
+        match std::env::var("VARIANT").as_deref() {
+            Ok("plus") => SearchVariant::Plus,
+            Ok("l") => SearchVariant::L,
+            _ => SearchVariant::Classic,
+        }
+    }
+}
+
+impl Bm25Params {
+    pub fn from_env() -> Self {
+        Self {
+            k1: std::env::var("K1").ok().and_then(|s| s.parse().ok()).unwrap_or(1.2),
+            b: std::env::var("B").ok().and_then(|s| s.parse().ok()).unwrap_or(0.75),
+            delta: std::env::var("DELTA").ok().and_then(|s| s.parse().ok()).unwrap_or(1.0),
+            title_weight: std::env::var("TITLE_WEIGHT").ok().and_then(|s| s.parse().ok()).unwrap_or(2.0),
+            body_weight: std::env::var("BODY_WEIGHT").ok().and_then(|s| s.parse().ok()).unwrap_or(1.0),
+        }
+    }
+}
+
 /// A parsed, in-memory index of Markdown sections.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bm25Index {

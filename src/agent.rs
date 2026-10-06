@@ -299,36 +299,26 @@ fn execute_tool_by_name(name: &str, args: serde_json::Value, default_db: &str) -
             let query = args.get("query").and_then(|v| v.as_str()).ok_or_else(|| "Parameter 'query' is required.".to_string())?;
             let db = args.get("db").and_then(|v| v.as_str()).unwrap_or(default_db);
             let spell_check = args.get("spell_check").and_then(|v| v.as_bool()).unwrap_or(false);
-            let limit = args.get("limit").and_then(|v| v.as_i64());
-            let alpha = args.get("alpha").and_then(|v| v.as_f64());
-            let graph = args.get("graph").and_then(|v| v.as_f64());
-            let shivvr_url = args.get("shivvr_url").and_then(|v| v.as_str());
+            let limit = args.get("limit").and_then(|v| v.as_i64()).map(|v| v.max(0) as usize).unwrap_or(10);
+            let alpha = args.get("alpha").and_then(|v| v.as_f64()).map(|v| v as f32).unwrap_or(0.5);
+            let graph = args.get("graph").and_then(|v| v.as_f64()).unwrap_or(0.4);
+            let shivvr_url = args.get("shivvr_url").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-            let mut cli_args = vec!["search".to_string()];
-            if spell_check {
-                cli_args.push("-c".to_string());
+            let index = crate::search::LoadedIndex::open(db)?;
+            let mut opts = crate::search::SearchOptions {
+                limit,
+                spell_check,
+                alpha,
+                graph_beta: graph,
+                shivvr_url,
+                ..Default::default()
+            };
+            if alpha <= 0.0 {
+                opts.mode = crate::search::SearchMode::LexicalOnly;
             }
-            cli_args.push("--db".to_string());
-            cli_args.push(db.to_string());
-
-            if let Some(lim) = limit {
-                cli_args.push("-l".to_string());
-                cli_args.push(lim.to_string());
-            }
-            if let Some(alp) = alpha {
-                cli_args.push("-a".to_string());
-                cli_args.push(alp.to_string());
-            }
-            if let Some(g) = graph {
-                cli_args.push("-g".to_string());
-                cli_args.push(g.to_string());
-            }
-            if let Some(s) = shivvr_url {
-                cli_args.push("--shivvr-url".to_string());
-                cli_args.push(s.to_string());
-            }
-            cli_args.push(query.to_string());
-            run_lume_cli(cli_args)
+            let results = crate::search::search(&index, query, &opts)?;
+            let (stdout, _stderr) = crate::search::format_cli_output(&results, &index, db);
+            Ok(stdout)
         }
         "lume_generate" => {
             let seed_word = args.get("seed_word").and_then(|v| v.as_str());
