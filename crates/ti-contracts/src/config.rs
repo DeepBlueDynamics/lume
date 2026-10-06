@@ -37,6 +37,9 @@ pub struct TiConfig {
     pub auth: AuthConfig,
     /// Query resource limits.
     pub query: QueryLimits,
+    /// Multi-store configurations (D30). If empty/omitted, single-store mode uses top-level fields.
+    #[serde(default)]
+    pub stores: BTreeMap<String, StoreConfig>,
 }
 
 /// Device token comes from a one-time Signal K access request.
@@ -115,6 +118,116 @@ pub struct QueryLimits {
     pub heavy_queries: usize,
     /// Pause background work above this temperature.
     pub thermal_celsius: u16,
+}
+
+/// Configuration for a named store (D30).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct StoreConfig {
+    /// Bucket width string with suffix (e.g. "10s", "1s").
+    pub width: String,
+    /// Local edge retention duration string (e.g. "730d", "90d", "forever").
+    pub retention: String,
+    /// Optional shore retention duration string (e.g. "90d", "forever").
+    pub shore_retention: Option<String>,
+    /// Optional custom store root directory on disk. Defaults to `<store_root>/stores/<name>`.
+    pub root: Option<String>,
+    /// Path allow-list glob patterns. None/omitted means all paths are allowed.
+    pub paths: Option<Vec<String>>,
+    /// Path pattern -> aggregate names mapping, e.g. "navigation.*" = ["last"].
+    pub aggs: BTreeMap<String, Vec<String>>,
+}
+
+impl Default for StoreConfig {
+    fn default() -> Self {
+        Self {
+            width: "10s".into(),
+            retention: "730d".into(),
+            shore_retention: None,
+            root: None,
+            paths: None,
+            aggs: BTreeMap::new(),
+        }
+    }
+}
+
+impl StoreConfig {
+    /// Parsed width in seconds.
+    pub fn width_seconds(&self) -> Result<u64> {
+        parse_duration_seconds(&self.width, "width")
+    }
+
+    /// Parsed retention in seconds, or None if "forever".
+    pub fn retention_seconds(&self) -> Result<Option<u64>> {
+        parse_retention(&self.retention, "retention")
+    }
+
+    /// Parsed shore retention in seconds, or None if "forever" or unset.
+    pub fn shore_retention_seconds(&self) -> Result<Option<u64>> {
+        match &self.shore_retention {
+            Some(s) => parse_retention(s, "shore_retention"),
+            None => Ok(None),
+        }
+    }
+
+    /// Resolve effective directory for this store.
+    pub fn resolved_root(&self, parent_store_root: &str, store_name: &str) -> String {
+        if let Some(r) = &self.root {
+            r.clone()
+        } else {
+            format!("{parent_store_root}/stores/{store_name}")
+        }
+    }
+}
+
+/// Parse duration string with suffix s, m, h, d into seconds.
+/// Suffix multipliers:
+/// - 's': 1
+/// - 'm': 60
+/// - 'h': 3600
+/// - 'd': 86400
+///
+/// Rejects 0 and unknown suffixes.
+pub fn parse_duration_seconds(s: &str, key: &str) -> Result<u64> {
+    let s = s.trim();
+    if s.is_empty() {
+        return Err(invalid(key, "duration must not be empty"));
+    }
+    let (num_str, unit) = if let Some(stripped) = s.strip_suffix('s') {
+        (stripped, 1u64)
+    } else if let Some(stripped) = s.strip_suffix('m') {
+        (stripped, 60u64)
+    } else if let Some(stripped) = s.strip_suffix('h') {
+        (stripped, 3600u64)
+    } else if let Some(stripped) = s.strip_suffix('d') {
+        (stripped, 86400u64)
+    } else {
+        return Err(invalid(
+            key,
+            "unknown duration suffix (expected 's', 'm', 'h', or 'd')",
+        ));
+    };
+
+    let count: u64 = num_str
+        .trim()
+        .parse()
+        .map_err(|_| invalid(key, "invalid duration integer"))?;
+    if count == 0 {
+        return Err(invalid(key, "duration must be positive"));
+    }
+    count
+        .checked_mul(unit)
+        .ok_or_else(|| invalid(key, "duration overflow"))
+}
+
+/// Retention can be a duration or the literal "forever" (represented as None).
+pub fn parse_retention(s: &str, key: &str) -> Result<Option<u64>> {
+    let s = s.trim();
+    if s == "forever" {
+        Ok(None)
+    } else {
+        parse_duration_seconds(s, key).map(Some)
+    }
 }
 
 /// Derived event rule kind.
@@ -221,6 +334,7 @@ impl Default for TiConfig {
             bind: BindConfig::default(),
             auth: AuthConfig::default(),
             query: QueryLimits::default(),
+            stores: BTreeMap::new(),
         }
     }
 }
@@ -413,7 +527,126 @@ impl TiConfig {
                 "exceeds whole-unit memory cap",
             ));
         }
+
+        // Multi-store validation (D30)
+        if !self.stores.is_empty() {
+            if !self.stores.contains_key("default") {
+                return Err(invalid(
+                    "stores",
+                    "multi-store configuration requires a 'default' store",
+                ));
+            }
+
+            let mut seen_roots = BTreeSet::new();
+            for (name, store) in &self.stores {
+                let prefix = format!("stores.{name}");
+
+                let width_sec = parse_duration_seconds(&store.width, &format!("{prefix}.width"))?;
+                if 3600 % width_sec != 0 {
+                    return Err(invalid(
+                        &format!("{prefix}.width"),
+                        &format!("width ({width_sec}s) must divide 3600 evenly"),
+                    ));
+                }
+
+                parse_retention(&store.retention, &format!("{prefix}.retention"))?;
+
+                if let Some(shore) = &store.shore_retention {
+                    parse_retention(shore, &format!("{prefix}.shore_retention"))?;
+                }
+
+                if let Some(r) = &store.root {
+                    if r.trim().is_empty() {
+                        return Err(invalid(&format!("{prefix}.root"), "must not be empty"));
+                    }
+                }
+
+                let resolved_r = store.resolved_root(&self.store_root, name);
+                if !seen_roots.insert(resolved_r.clone()) {
+                    return Err(invalid(
+                        &format!("{prefix}.root"),
+                        &format!("duplicate store root '{resolved_r}'"),
+                    ));
+                }
+
+                if let Some(paths) = &store.paths {
+                    if paths.is_empty() {
+                        return Err(invalid(
+                            &format!("{prefix}.paths"),
+                            "must not be empty if specified",
+                        ));
+                    }
+                    for (p_idx, p) in paths.iter().enumerate() {
+                        if p.trim().is_empty() {
+                            return Err(invalid(
+                                &format!("{prefix}.paths[{p_idx}]"),
+                                "empty pattern",
+                            ));
+                        }
+                    }
+                }
+
+                for (pattern, aggs) in &store.aggs {
+                    if pattern.trim().is_empty() {
+                        return Err(invalid(
+                            &format!("{prefix}.aggs"),
+                            "pattern must not be empty",
+                        ));
+                    }
+                    if aggs.is_empty() {
+                        return Err(invalid(
+                            &format!("{prefix}.aggs.{pattern}"),
+                            "aggregate list must not be empty",
+                        ));
+                    }
+                    let mut seen = BTreeSet::new();
+                    for agg in aggs {
+                        if !["mean", "min", "max", "last", "count"].contains(&agg.as_str())
+                            || !seen.insert(agg)
+                        {
+                            return Err(invalid(
+                                &format!("{prefix}.aggs.{pattern}"),
+                                "unknown or duplicate aggregate",
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
         Ok(())
+    }
+
+    /// Returns the resolved multi-store configuration map (D30).
+    /// If `stores` is empty, synthesizes a single "default" store from top-level fields.
+    pub fn resolved_stores(&self) -> BTreeMap<String, StoreConfig> {
+        if !self.stores.is_empty() {
+            let mut resolved = self.stores.clone();
+            for (name, store) in &mut resolved {
+                if store.root.is_none() {
+                    store.root = Some(store.resolved_root(&self.store_root, name));
+                }
+            }
+            resolved
+        } else {
+            let mut m = BTreeMap::new();
+            m.insert(
+                "default".to_string(),
+                StoreConfig {
+                    width: format!("{}s", self.width_seconds),
+                    retention: format!("{}d", self.retention_years as u64 * 365),
+                    shore_retention: None,
+                    root: Some(self.store_root.clone()),
+                    paths: if self.allow_paths.is_empty() {
+                        None
+                    } else {
+                        Some(self.allow_paths.clone())
+                    },
+                    aggs: BTreeMap::new(),
+                },
+            );
+            m
+        }
     }
 }
 
@@ -505,5 +738,116 @@ mod tests {
                 .to_string()
                 .contains(key));
         }
+    }
+
+    #[test]
+    fn d30_multi_store_config_roundtrip_and_validation() {
+        let toml_str = r#"
+[stores.default]
+width = "10s"
+retention = "730d"
+
+[stores.hr]
+width = "1s"
+retention = "90d"
+shore_retention = "90d"
+paths = ["navigation.position", "navigation.speedOverGround"]
+[stores.hr.aggs]
+"navigation.*" = ["last"]
+"environment.wind.*" = ["mean", "max"]
+"environment.depth.*" = ["min"]
+"#;
+        let c = TiConfig::from_toml(toml_str).unwrap();
+        assert_eq!(c.stores.len(), 2);
+        let default_store = &c.stores["default"];
+        assert_eq!(default_store.width_seconds().unwrap(), 10);
+        assert_eq!(
+            default_store.retention_seconds().unwrap(),
+            Some(730 * 86400)
+        );
+        assert_eq!(
+            default_store.resolved_root("/var/ti", "default"),
+            "/var/ti/stores/default"
+        );
+
+        let hr_store = &c.stores["hr"];
+        assert_eq!(hr_store.width_seconds().unwrap(), 1);
+        assert_eq!(hr_store.retention_seconds().unwrap(), Some(90 * 86400));
+        assert_eq!(
+            hr_store.shore_retention_seconds().unwrap(),
+            Some(90 * 86400)
+        );
+        assert_eq!(hr_store.paths.as_ref().unwrap().len(), 2);
+        assert_eq!(hr_store.aggs["navigation.*"], vec!["last"]);
+        assert_eq!(hr_store.aggs["environment.wind.*"], vec!["mean", "max"]);
+
+        // Empty stores backward compatibility
+        let empty_stores_cfg =
+            TiConfig::from_toml("width_seconds = 10\nstore_root = '/var/ti'\nretention_years = 2")
+                .unwrap();
+        assert!(empty_stores_cfg.stores.is_empty());
+        let resolved = empty_stores_cfg.resolved_stores();
+        assert_eq!(resolved.len(), 1);
+        assert!(resolved.contains_key("default"));
+        assert_eq!(resolved["default"].width_seconds().unwrap(), 10);
+        assert_eq!(resolved["default"].root.as_deref(), Some("/var/ti"));
+
+        // Validation errors
+        for (input, expected_err) in [
+            (
+                "[stores.hr]\nwidth = '1s'\nretention = '90d'",
+                "stores: multi-store configuration requires a 'default' store",
+            ),
+            (
+                "[stores.default]\nwidth = '7s'\nretention = '730d'",
+                "stores.default.width: width (7s) must divide 3600 evenly",
+            ),
+            (
+                "[stores.default]\nwidth = '10x'\nretention = '730d'",
+                "stores.default.width: unknown duration suffix",
+            ),
+            (
+                "[stores.default]\nwidth = '0s'\nretention = '730d'",
+                "stores.default.width: duration must be positive",
+            ),
+            (
+                "[stores.default]\nwidth = 'forever'\nretention = '730d'",
+                "stores.default.width: unknown duration suffix",
+            ),
+            (
+                "[stores.default]\nwidth = '10s'\nretention = '10foo'",
+                "stores.default.retention: unknown duration suffix",
+            ),
+            (
+                "[stores.default]\nwidth = '10s'\nretention = '730d'\n[stores.default.aggs]\n'x' = ['bogus']",
+                "stores.default.aggs.x: unknown or duplicate aggregate",
+            ),
+            (
+                "[stores.default]\nwidth = '10s'\nretention = '730d'\npaths = []",
+                "stores.default.paths: must not be empty if specified",
+            ),
+            (
+                "[stores.default]\nwidth = '10s'\nretention = '730d'\npaths = ['']",
+                "stores.default.paths[0]: empty pattern",
+            ),
+            (
+                "[stores.default]\nwidth = '10s'\nretention = '730d'\nroot = '/same'\n[stores.hr]\nwidth = '1s'\nretention = '90d'\nroot = '/same'",
+                "stores.hr.root: duplicate store root '/same'",
+            ),
+        ] {
+            let err = TiConfig::from_toml(input).unwrap_err().to_string();
+            assert!(
+                err.contains(expected_err),
+                "Expected error containing '{expected_err}', got '{err}'"
+            );
+        }
+
+        // Retention "forever" is allowed
+        let forever_cfg =
+            TiConfig::from_toml("[stores.default]\nwidth = '10s'\nretention = 'forever'").unwrap();
+        assert_eq!(
+            forever_cfg.stores["default"].retention_seconds().unwrap(),
+            None
+        );
     }
 }
