@@ -59,6 +59,9 @@ pub fn run_cli(args: &[String]) -> Result<()> {
 }
 /// `run_cli` with an optional W5 document index factory for `--store` sessions.
 pub fn run_cli_with(args: &[String], documents: Option<&crate::DocumentsFactory>) -> Result<()> {
+    if args.first().map(String::as_str) != Some("verify") {
+        return crate::cli::run(args, documents);
+    }
     let arg = |flag: &str| {
         args.iter()
             .position(|v| v == flag)

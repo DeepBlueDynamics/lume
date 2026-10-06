@@ -234,6 +234,10 @@ fn run_lume_cli(args: Vec<String>) -> Result<String, String> {
 }
 
 fn execute_tool_by_name(name: &str, args: serde_json::Value, default_db: &str) -> Result<String, String> {
+    #[cfg(feature = "ti")]
+    if matches!(name, "ti_query" | "ti_schema" | "ti_explain" | "ti_status") {
+        return crate::ti_mcp::call(name, args);
+    }
     match name {
         "lume_index" => {
             let db = args.get("db").and_then(|v| v.as_str()).unwrap_or(default_db);
@@ -412,7 +416,7 @@ fn handle_mcp_request(req_val: serde_json::Value) -> serde_json::Value {
             })
         }
         "tools/list" => {
-            json!({
+            let response = json!({
                 "jsonrpc": "2.0",
                 "id": id,
                 "result": {
@@ -479,7 +483,16 @@ fn handle_mcp_request(req_val: serde_json::Value) -> serde_json::Value {
                         }
                     ]
                 }
-            })
+            });
+            #[cfg(feature = "ti")]
+            let response = {
+                let mut response = response;
+                if let Some(tools) = response["result"]["tools"].as_array_mut() {
+                    tools.extend(crate::ti_mcp::definitions());
+                }
+                response
+            };
+            response
         }
         "tools/call" => {
             let params = match req_val.get("params") {

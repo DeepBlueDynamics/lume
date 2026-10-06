@@ -62,3 +62,16 @@ Geo SQL binds implicit @last coordinates in typed analysis. OR(H3 cover, BSI env
 The ignored Q7 stored-output gate requires `TI_DATA_DIR`, `TI_EXPECTED_DIR` and `TMPDIR` under the workspace. It builds one vessel's relevant raw partitions into a scratch Store. q7-005 remains pending W5 because it also invokes match(). q7-006's missing TI GROUP BY is reported to the corpus owner. Shared expected.log reports empty output for all six Q7 entries; those comparisons alone cannot establish corpus recall. Nonempty local geo fixtures provide separate correctness evidence.
 
 The container has no rustfmt/clippy; Rust 1.96 formatting and strict clippy remain assigned to Pike's host at merge.
+
+## W7 CLI/MCP first slice
+
+Verified in the container on 2026-10-06, based on 3354bd0:
+
+- `cargo test --features ti`: 51 passed, zero failures, including the three MCP shape/registration/cap tests. The existing root cands assignment warning remains.
+- `cargo test -p ti-sql --lib --test surfaces`: 7 unit + 4 surface tests passed. Includes all four CLI parsers, invalid flags/positionals, persisted/config/header width conflicts, canonical @mean names and m/s units, read-only rejection, open shard status, and idempotent Parquet document import.
+- All builds use `CARGO_INCREMENTAL=0`, two compile jobs, workspace TMPDIR, and one build at a time. Interim target measurement 2.8 GB, below the 15 GB budget.
+- `cargo build --features ti`: passed. `target/debug/lume ti query "SELECT count(*) FROM telemetry" --store /workspace/lume/.lanes/data/store-full` exited successfully and printed 3,974,400. Cold startup took several minutes including width validation and snapshot opening; no latency acceptance claim.
+- Default `cargo build` (without ti): passed; existing root cands warning only. Final target measurement 3.3 GB. No parallel full builds or incremental artifacts.
+- Host Rust 1.96 formatting and strict clippy are assigned to Pike, confirmed by Hyperia mail.
+
+MCP query envelopes cap both decoded JSON and encoded text content, with a 500-row ceiling and a 64 KiB budget. Large UTF-8 rows are omitted with a truncation hint. Status distinguishes unavailable ingest/sync metrics instead of reporting zero lag. HTTP/pgwire and the remaining M5 surfaces are outside this slice.

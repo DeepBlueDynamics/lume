@@ -67,3 +67,17 @@ Agent end-to-end: plain-English question → correct rows.
 
 ## Note
 This lane is far larger than the others (Rust server + Node plugin + container packaging + pg wire). Consider splitting into W7a (Rust surfaces) and W7b (packaging/plugin) — see [repo-fit](../repo-fit.md) §6.
+
+## Rust surfaces — first slice (2026-10-06)
+
+Implemented on `ti/w7-surfaces`, scoped to the lead's CLI/MCP assignment:
+
+- [x] `lume ti query <sql> --store <root> [--json]`, `explain`, `status`, and `import-docs <docs_dir>`; existing `verify` and root LumeText injection retained.
+- [x] In-process `ti_query`, `ti_schema`, `ti_explain`, `ti_status` registration behind `ti`; optional store argument defaults to `TI_STORE_ROOT` or `./ti`.
+- [x] Shared `ti_sql::TiEngine` adapters; query streaming, 500-row / 64 KiB caps, truncation hint, elapsed time, pushdown summary and units. JSON/CSV/Markdown query envelopes are capped including MCP text escaping. Direct mean aliases are emitted with canonical `@mean` names.
+- [x] Width derived from persisted RBM headers, with explicit/config/header mismatch rejection; empty stores require `--width <seconds>` or `<store>/ti.toml`.
+- [x] Parser, four-tool JSON shape, row/byte caps, UTF-8, canonical units, width conflicts, read-only rejection and idempotent Parquet import tests.
+- [x] Real-store CLI smoke: count(*) returned 3,974,400; default cargo build passed. See ti-sql/CHECKS.md for commands and limits.
+- [ ] Host fmt/strict clippy: assigned to Pike at merge.
+
+`import-docs` uses W5's existing six-column Parquet reader and stores the document set under `<store>/docs/`. Query replies provide columns, rows, row_count, truncated, elapsed_ms, pushdown, units and hint; rendered formats also provide data. Status provides WAL bytes and open/sealed shard counts; ingest lag and last sync are explicitly null/unavailable until the later ingest-supervisor/sync integration. Sessions are planning snapshots opened for each CLI/MCP operation. This slice does not complete the broader W7 engine supervisor, HTTP, pgwire, resolve, intervals, packaging or M5 gates.
