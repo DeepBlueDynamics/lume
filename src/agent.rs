@@ -238,6 +238,8 @@ fn execute_tool_by_name(name: &str, args: serde_json::Value, default_db: &str) -
     if matches!(name, "ti_query" | "ti_schema" | "ti_explain" | "ti_status" | "ti_resolve") {
         return crate::ti_mcp::call(name, args);
     }
+    #[cfg(feature = "ti")]
+    if name == "lume_sql" { return crate::sql::call(args, default_db); }
     match name {
         "lume_index" => {
             let db = args.get("db").and_then(|v| v.as_str()).unwrap_or(default_db);
@@ -494,6 +496,7 @@ fn handle_mcp_request(req_val: serde_json::Value, _ti: &TiState) -> serde_json::
                 let mut response = response;
                 if let Some(tools) = response["result"]["tools"].as_array_mut() {
                     tools.extend(crate::ti_mcp::definitions());
+                    tools.push(crate::sql::definition());
                 }
                 response
             };

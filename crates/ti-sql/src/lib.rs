@@ -23,6 +23,7 @@ mod verify;
 pub use catalog::*;
 pub use classifier::*;
 pub use docs::DocsProvider;
+pub use datafusion;
 pub use fixture::*;
 pub use materialize::*;
 pub use provider::*;

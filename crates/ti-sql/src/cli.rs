@@ -18,8 +18,9 @@ pub struct Args {
     pub store: PathBuf,
     pub width: Option<u64>,
     pub json: bool,
+    pub docs_index: Option<PathBuf>,
 }
-pub const USAGE: &str = "lume ti query <sql> --store <root> [--json] [--width <seconds>]\nlume ti explain <sql> --store <root> [--json] [--width <seconds>]\nlume ti status --store <root> [--width <seconds>]\nlume ti import-docs <docs_dir> --store <root> [--width <seconds>]
+pub const USAGE: &str = "lume ti query <sql> --store <root> [--json] [--width <seconds>] [--docs-index <lume-index>]\nlume ti explain <sql> --store <root> [--json] [--width <seconds>]\nlume ti status --store <root> [--width <seconds>]\nlume ti import-docs <docs_dir> --store <root> [--width <seconds>]
 lume ti import-docs --parquet <glob> --entity <column> --time <column> [--time-end <column>] --title <column> --body <column> --store <root>
 lume ti repl --store <root> [--width <seconds>]";
 fn invalid(message: impl Into<String>) -> DataFusionError {
@@ -32,17 +33,20 @@ pub fn parse(args: &[String]) -> Result<Args> {
     let mut positional = None;
     let mut store = None;
     let mut width = None;
+    let mut docs_index = None;
     let mut json = false;
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
-            "--store" | "--width" => {
+            "--store" | "--width" | "--docs-index" => {
                 let flag = &args[i];
                 let value = args
                     .get(i + 1)
                     .filter(|v| !v.starts_with("--"))
                     .ok_or_else(|| invalid(format!("{flag} requires a value")))?;
-                if flag == "--store" {
+                if flag == "--docs-index" {
+                    if docs_index.replace(PathBuf::from(value)).is_some() { return Err(invalid("duplicate --docs-index")); }
+                } else if flag == "--store" {
                     if store.replace(PathBuf::from(value)).is_some() {
                         return Err(invalid("duplicate --store"));
                     }
@@ -87,6 +91,7 @@ pub fn parse(args: &[String]) -> Result<Args> {
         store: store.ok_or_else(|| invalid("--store is required"))?,
         width,
         json,
+        docs_index,
     })
 }
 pub fn table(response: &Value) -> String {
@@ -127,6 +132,16 @@ pub fn table(response: &Value) -> String {
     out
 }
 pub fn run(args: &[String], documents: Option<&DocumentsFactory>) -> Result<()> {
+    run_with_index(args, documents, None)
+}
+pub type IndexRegistrar = dyn Fn(&crate::SqlSession, &std::path::Path) -> Result<()>;
+fn register_index(engine: &TiEngine, args: &Args, registrar: Option<&IndexRegistrar>) -> Result<()> {
+    if let Some(root) = &args.docs_index {
+        registrar.ok_or_else(|| invalid("--docs-index requires an ordinary-index adapter"))?(&engine.session, root)?;
+    }
+    Ok(())
+}
+pub fn run_with_index(args: &[String], documents: Option<&DocumentsFactory>, registrar: Option<&IndexRegistrar>) -> Result<()> {
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!("{USAGE}");
         return Ok(());
@@ -134,11 +149,12 @@ pub fn run(args: &[String], documents: Option<&DocumentsFactory>) -> Result<()> 
     let args = parse(args)?;
     let runtime = tokio::runtime::Runtime::new()?;
     if args.command == Command::Repl {
-        return repl(&runtime, &args, documents);
+        return repl(&runtime, &args, documents, registrar);
     }
     let response = runtime.block_on(async {
         // Validate before writes; an existing telemetry store is required.
         let engine = TiEngine::open(&args.store, args.width, documents).await?;
+        register_index(&engine, &args, registrar)?;
         match &args.command {
             Command::Query(sql) => engine.query(sql, crate::MAX_ROWS).await,
             Command::Explain(sql) => engine.explain(sql).await,
@@ -196,10 +212,12 @@ fn repl(
     runtime: &tokio::runtime::Runtime,
     args: &Args,
     documents: Option<&DocumentsFactory>,
+    registrar: Option<&IndexRegistrar>,
 ) -> Result<()> {
     use std::io::{BufRead, Write};
     let started = std::time::Instant::now();
     let engine = runtime.block_on(TiEngine::open(&args.store, args.width, documents))?;
+    register_index(&engine, args, registrar)?;
     let width = engine.session.catalog.width_seconds;
     println!(
         "Lume TI: {} ({} s buckets, {} vessels, {} fields) opened in {:.2} s. Type .help or .examples.",
@@ -328,7 +346,8 @@ mod tests {
                 command: Command::Query("SELECT count(*) FROM telemetry".into()),
                 store: "root".into(),
                 width: Some(60),
-                json: true
+                json: true,
+                docs_index: None,
             }
         );
         assert!(matches!(

@@ -50,6 +50,13 @@ fn main() {
     let subcommand = args[1].trim().to_lowercase();
     match subcommand.as_str() {
         #[cfg(feature = "ti")]
+        "sql" => {
+            if let Err(e) = lume::sql::run_cli(&args[2..]) {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        }
+        #[cfg(feature = "ti")]
         "ti" => {
             if args.len() >= 3 && args[2] == "ingest" {
                 if let Err(e) = handle_ti_ingest(&args[3..]) {
@@ -70,7 +77,7 @@ fn main() {
             } else if args.get(2).is_some_and(|name| name == "import-docs") && args[3..].iter().any(|flag| flag == "--parquet") {
                 lume::ti_parquet::run_docs_cli(&args[3..])
             } else {
-                ti_sql::run_cli_with(&args[2..], Some(&documents))
+                ti_sql::cli::run_with_index(&args[2..], Some(&documents), Some(&lume::sql::register))
             };
             if let Err(e) = result {
                 eprintln!("Error: {e}");
@@ -388,6 +395,8 @@ SUBCOMMANDS:
   stream     Stream the live phase/Weber search relaxation as NDJSON for the 3D visualizer
   answer     Agentic plan→retrieve→answer loop with citations, streamed for the visualizer
 "#, env!("CARGO_PKG_VERSION"));
+    #[cfg(feature = "ti")]
+    println!("  sql        Read-only SQL over a Lume index (sql --help)\n  ti         Time-series SQL; --docs-index joins ordinary indexed documents");
 }
 
 fn print_index_help() {

@@ -38,6 +38,8 @@ pub mod search;
 #[cfg(feature = "ti")]
 pub mod ti_text;
 #[cfg(feature = "ti")]
+pub mod sql;
+#[cfg(feature = "ti")]
 pub mod ti_rules;
 #[cfg(feature = "ti")]
 pub mod ti_parquet;
