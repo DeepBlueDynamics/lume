@@ -19,10 +19,10 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::parquet::{backfill_directory, BackfillStatus};
 use arrow_array::{Array, StringArray, UInt8Array};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use ti_contracts::{Catalog, ShardKey, ShardSink, TiConfig, VesselSpec};
-use crate::parquet::{backfill_directory, BackfillStatus};
 use ti_store::{DocStore, Store};
 
 fn dir_bytes(p: &Path) -> u64 {
@@ -152,7 +152,9 @@ pub fn run_signalk(args: &[String]) {
     if let Ok(width) = std::env::var("TI_WIDTH") {
         config.width_seconds = width.parse().expect("TI_WIDTH must be whole seconds");
     }
-    if let Some(width) = args.get(3) { config.width_seconds = width.parse().expect("width must be whole seconds"); }
+    if let Some(width) = args.get(3) {
+        config.width_seconds = width.parse().expect("width must be whole seconds");
+    }
     config.validate().expect("validate config");
     println!("bucket width   : {} s", config.width_seconds);
     let scales = catalog_scales(raw);
@@ -191,8 +193,9 @@ pub fn run_signalk(args: &[String]) {
         }
 
         let t0 = Instant::now();
-        let results = backfill_directory(raw, self_urn, None, &config, catalog.as_ref(), &mut store)
-            .expect("backfill");
+        let results =
+            backfill_directory(raw, self_urn, None, &config, catalog.as_ref(), &mut store)
+                .expect("backfill");
         let backfill_s = t0.elapsed().as_secs_f64();
         let rows: u64 = results
             .iter()
@@ -240,10 +243,13 @@ pub fn run_signalk(args: &[String]) {
         let vessels = catalog_vessels(raw);
         println!("vessels        : {} from catalog/vessels", vessels.len());
 
-        let mut default_store = Store::open_or_create(root, config.width_seconds).expect("open default store");
+        let mut default_store =
+            Store::open_or_create(root, config.width_seconds).expect("open default store");
         let default_catalog = Arc::clone(default_store.catalog());
         for vessel in &vessels {
-            default_catalog.register_vessel(vessel).expect("register vessel in default");
+            default_catalog
+                .register_vessel(vessel)
+                .expect("register vessel in default");
         }
 
         let mut extra_stores = std::collections::BTreeMap::new();
@@ -275,7 +281,8 @@ pub fn run_signalk(args: &[String]) {
             catalogs.insert(name.clone(), cat.as_ref());
         }
 
-        let mut sinks: std::collections::BTreeMap<String, &mut dyn ShardSink> = std::collections::BTreeMap::new();
+        let mut sinks: std::collections::BTreeMap<String, &mut dyn ShardSink> =
+            std::collections::BTreeMap::new();
         sinks.insert("default".to_string(), &mut default_store);
         for (name, s) in &mut extra_stores {
             sinks.insert(name.clone(), s);
@@ -330,26 +337,40 @@ pub fn run_signalk(args: &[String]) {
     }
 }
 
-
 /// Store wiring shared by the mapped CLI and library callers; seals each store.
-pub fn mapped(config: &TiConfig, mappings: &[ti_contracts::ParquetMapping]) -> ti_contracts::Result<crate::mapped_parquet::MappingReport> {
+pub fn mapped(
+    config: &TiConfig,
+    mappings: &[ti_contracts::ParquetMapping],
+) -> ti_contracts::Result<crate::mapped_parquet::MappingReport> {
     use std::collections::BTreeMap;
     use ti_contracts::ShardSource;
     let resolved = config.resolved_stores();
     let mut stores = BTreeMap::new();
     for (name, settings) in &resolved {
         let root = settings.resolved_root(&config.store_root, name);
-        stores.insert(name.clone(), Store::open_or_create(Path::new(&root), settings.width_seconds()?)?);
+        stores.insert(
+            name.clone(),
+            Store::open_or_create(Path::new(&root), settings.width_seconds()?)?,
+        );
     }
-    let catalogs: BTreeMap<_, _> = stores.iter().map(|(name, store)| (name.clone(), store.catalog().clone())).collect();
-    let references = catalogs.iter().map(|(name, catalog)|
-        (name.clone(), catalog.as_ref() as &dyn Catalog)).collect();
-    let mut sinks = stores.iter_mut().map(|(name, store)|
-        (name.clone(), store as &mut dyn ShardSink)).collect();
+    let catalogs: BTreeMap<_, _> = stores
+        .iter()
+        .map(|(name, store)| (name.clone(), store.catalog().clone()))
+        .collect();
+    let references = catalogs
+        .iter()
+        .map(|(name, catalog)| (name.clone(), catalog.as_ref() as &dyn Catalog))
+        .collect();
+    let mut sinks = stores
+        .iter_mut()
+        .map(|(name, store)| (name.clone(), store as &mut dyn ShardSink))
+        .collect();
     let report = crate::mapped_parquet::backfill(mappings, config, &references, &mut sinks)?;
     drop(sinks);
     for store in stores.values_mut() {
-        for key in store.shards(None, 0, u32::MAX) { store.seal(key)?; }
+        for key in store.shards(None, 0, u32::MAX) {
+            store.seal(key)?;
+        }
         store.shutdown()?;
     }
     Ok(report)

@@ -209,7 +209,9 @@ pub fn time_seconds(
         }
         DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View | DataType::Dictionary(_, _) => {
             use chrono::TimeZone;
-            let Some(value) = text(column, row)? else { return Ok(None); };
+            let Some(value) = text(column, row)? else {
+                return Ok(None);
+            };
             if let Ok(time) = chrono::DateTime::parse_from_rfc3339(&value) {
                 return Ok(Some(time.timestamp()));
             }
@@ -255,7 +257,9 @@ pub fn time_seconds(
     Ok(Some(seconds))
 }
 fn supported(data_type: &DataType) -> bool {
-    if let DataType::Dictionary(_, value) = data_type { return supported(value); }
+    if let DataType::Dictionary(_, value) = data_type {
+        return supported(value);
+    }
     matches!(
         data_type,
         DataType::Int8
@@ -352,12 +356,24 @@ pub fn read_file(
                 EntityMapping::Column(name) => text(column(name)?, row)?,
                 EntityMapping::Constant { constant } => Some(constant.clone()),
             };
-            let Some(entity) = entity.filter(|s| !s.is_empty()) else { report.null_entity += 1; continue };
+            let Some(entity) = entity.filter(|s| !s.is_empty()) else {
+                report.null_entity += 1;
+                continue;
+            };
             ti_contracts::validate_entity_urn(&entity)?;
-            let Some(timestamp) = time_seconds(time, row, mapping.time_unit, mapping.timezone.as_deref())?
-                else { report.null_time += 1; continue };
-            let source = mapping.source.as_deref().map(|name| text(column(name)?, row)).transpose()?
-                .flatten().unwrap_or_else(|| "default".into());
+            let Some(timestamp) =
+                time_seconds(time, row, mapping.time_unit, mapping.timezone.as_deref())?
+            else {
+                report.null_time += 1;
+                continue;
+            };
+            let source = mapping
+                .source
+                .as_deref()
+                .map(|name| text(column(name)?, row))
+                .transpose()?
+                .flatten()
+                .unwrap_or_else(|| "default".into());
             let values = match mapping.format {
                 ParquetFormat::Long => {
                     let Some(metric) = text(column(mapping.metric.as_ref().unwrap())?, row)?
@@ -386,7 +402,9 @@ pub fn read_file(
                     value,
                 });
                 report.points_read += 1;
-                if points.len() == 8192 { consume(std::mem::take(&mut points))?; }
+                if points.len() == 8192 {
+                    consume(std::mem::take(&mut points))?;
+                }
             }
         }
         consume(points)?;
@@ -475,26 +493,68 @@ pub fn backfill(
     catalogs: &BTreeMap<String, &dyn ti_contracts::Catalog>,
     sinks: &mut BTreeMap<String, &mut dyn ti_contracts::ShardSink>,
 ) -> Result<MappingReport> {
-    use crate::{BucketWindow, Classifier, NormalizedValue};
     use crate::window_journal::{WindowJournal, WindowKey};
+    use crate::{BucketWindow, Classifier, NormalizedValue};
     use ti_contracts::{bucket_of, VesselSpec};
     fn window_bytes(window: &BucketWindow) -> u64 {
         // Conservative allocation estimate: map nodes, String capacity, sources and cells.
-        let sources = |set: &BTreeSet<String>| set.iter().map(|s| 128 + s.capacity() as u64).sum::<u64>();
-        256 + window.numeric.iter().map(|(p,a)| 384 + p.capacity() as u64 + sources(&a.sources)).sum::<u64>()
-            + window.set.iter().map(|(p,a)| 320 + p.capacity() as u64 + a.winning_value.capacity() as u64 + sources(&a.sources)).sum::<u64>()
-            + window.count.iter().map(|(p,a)| 256 + p.capacity() as u64 + sources(&a.sources)).sum::<u64>()
-            + window.geo.iter().map(|(p,a)| 256 + p.capacity() as u64 + a.cells.len() as u64 * 128 + sources(&a.sources)).sum::<u64>()
+        let sources =
+            |set: &BTreeSet<String>| set.iter().map(|s| 128 + s.capacity() as u64).sum::<u64>();
+        256 + window
+            .numeric
+            .iter()
+            .map(|(p, a)| 384 + p.capacity() as u64 + sources(&a.sources))
+            .sum::<u64>()
+            + window
+                .set
+                .iter()
+                .map(|(p, a)| {
+                    320 + p.capacity() as u64
+                        + a.winning_value.capacity() as u64
+                        + sources(&a.sources)
+                })
+                .sum::<u64>()
+            + window
+                .count
+                .iter()
+                .map(|(p, a)| 256 + p.capacity() as u64 + sources(&a.sources))
+                .sum::<u64>()
+            + window
+                .geo
+                .iter()
+                .map(|(p, a)| {
+                    256 + p.capacity() as u64 + a.cells.len() as u64 * 128 + sources(&a.sources)
+                })
+                .sum::<u64>()
     }
-    fn emit(key: &WindowKey, window: &BucketWindow, config: &ti_contracts::TiConfig,
-        resolved: &BTreeMap<String, ti_contracts::StoreConfig>, catalogs: &BTreeMap<String, &dyn ti_contracts::Catalog>,
-        sinks: &mut BTreeMap<String, &mut dyn ti_contracts::ShardSink>, pending: &mut BTreeMap<String, Vec<ti_contracts::BucketRecord>>,
+    fn emit(
+        key: &WindowKey,
+        window: &BucketWindow,
+        config: &ti_contracts::TiConfig,
+        resolved: &BTreeMap<String, ti_contracts::StoreConfig>,
+        catalogs: &BTreeMap<String, &dyn ti_contracts::Catalog>,
+        sinks: &mut BTreeMap<String, &mut dyn ti_contracts::ShardSink>,
+        pending: &mut BTreeMap<String, Vec<ti_contracts::BucketRecord>>,
     ) -> Result<()> {
-        let records = window.emit_records_with_aggs(key.1, key.2, true, Some(&resolved[&key.0].aggs), config, catalogs[&key.0])?;
-        if records.len() > 50_000 { return Err(invalid("mapped bucket exceeds 50k record transaction limit")); }
+        let records = window.emit_records_with_aggs(
+            key.1,
+            key.2,
+            true,
+            Some(&resolved[&key.0].aggs),
+            config,
+            catalogs[&key.0],
+        )?;
+        if records.len() > 50_000 {
+            return Err(invalid(
+                "mapped bucket exceeds 50k record transaction limit",
+            ));
+        }
         let batch = pending.entry(key.0.clone()).or_default();
-        if batch.len() + records.len() > 50_000 || batch.iter().any(|r| r.vessel == key.1 && r.bucket == key.2) {
-            sinks.get_mut(&key.0).unwrap().apply(batch)?; batch.clear();
+        if batch.len() + records.len() > 50_000
+            || batch.iter().any(|r| r.vessel == key.1 && r.bucket == key.2)
+        {
+            sinks.get_mut(&key.0).unwrap().apply(batch)?;
+            batch.clear();
         }
         batch.extend(records);
         Ok(())
@@ -502,7 +562,10 @@ pub fn backfill(
     let resolved = config.resolved_stores();
     let limits = &config.sources.backfill;
     let mut journal = WindowJournal::new(&config.store_root, limits)?;
-    let mut classifiers: BTreeMap<_, _> = resolved.keys().map(|n| (n.clone(), Classifier::new(config))).collect();
+    let mut classifiers: BTreeMap<_, _> = resolved
+        .keys()
+        .map(|n| (n.clone(), Classifier::new(config)))
+        .collect();
     let mut windows = BTreeMap::<WindowKey, BucketWindow>::new();
     let mut sizes = BTreeMap::<WindowKey, u64>::new();
     let mut active_bytes = 0u64;
@@ -514,33 +577,76 @@ pub fn backfill(
             let mut file_report = MappingReport::default();
             read_file(&file, mapping, &mut file_report, |points| {
                 for raw in points {
-                    for point in crate::normalize_point(raw, &config.allow_paths, &config.deny_paths) {
-                        if matches!(point.value, NormalizedValue::Double(_)) && ti_contracts::metric_unit(&config.units, &point.path).is_none() {
+                    for point in
+                        crate::normalize_point(raw, &config.allow_paths, &config.deny_paths)
+                    {
+                        if matches!(point.value, NormalizedValue::Double(_))
+                            && ti_contracts::metric_unit(&config.units, &point.path).is_none()
+                        {
                             report.unit_scale_misses.insert(point.path.clone());
                         }
                         for (name, settings) in &resolved {
-                            let Some(catalog) = catalogs.get(name) else { continue };
-                            if !sinks.contains_key(name) { continue; }
-                            if settings.paths.as_ref().is_some_and(|paths| !crate::normalize::is_path_allowed(&point.path, paths, &config.deny_paths)) { continue; }
-                            let vessel = catalog.register_vessel(&VesselSpec { urn: point.context.clone(), name: None, mmsi: None })?;
+                            let Some(catalog) = catalogs.get(name) else {
+                                continue;
+                            };
+                            if !sinks.contains_key(name) {
+                                continue;
+                            }
+                            if settings.paths.as_ref().is_some_and(|paths| {
+                                !crate::normalize::is_path_allowed(
+                                    &point.path,
+                                    paths,
+                                    &config.deny_paths,
+                                )
+                            }) {
+                                continue;
+                            }
+                            let vessel = catalog.register_vessel(&VesselSpec {
+                                urn: point.context.clone(),
+                                name: None,
+                                mmsi: None,
+                            })?;
                             let width = settings.width_seconds()?;
                             let bucket = bucket_of(point.timestamp, width)?;
                             let key = (name.clone(), vessel, bucket);
-                            let max_seen = highwater.entry((name.clone(), vessel)).or_insert(point.timestamp);
+                            let max_seen = highwater
+                                .entry((name.clone(), vessel))
+                                .or_insert(point.timestamp);
                             *max_seen = (*max_seen).max(point.timestamp);
-                            let (path, kind) = classifiers.get_mut(name).unwrap().classify(&point.context, &point.path, &point.value)
+                            let (path, kind) = classifiers
+                                .get_mut(name)
+                                .unwrap()
+                                .classify(&point.context, &point.path, &point.value)
                                 .ok_or_else(|| invalid("unclassifiable mapped value"))?;
-                            if path != point.path { report.classification_misses.insert(format!("{}: type changed to {path}", point.path)); }
-                            if let std::collections::btree_map::Entry::Vacant(entry) = windows.entry(key.clone()) {
+                            if path != point.path {
+                                report
+                                    .classification_misses
+                                    .insert(format!("{}: type changed to {path}", point.path));
+                            }
+                            if let std::collections::btree_map::Entry::Vacant(entry) =
+                                windows.entry(key.clone())
+                            {
                                 let restored = journal.load(&key)?;
-                                if !restored.is_empty() { report.late_bucket_reloads += 1; }
+                                if !restored.is_empty() {
+                                    report.late_bucket_reloads += 1;
+                                }
                                 entry.insert(restored);
                             }
                             let window = windows.get_mut(&key).unwrap();
-                            crate::watermark::populate_window(window, &path, &point.value, &point.source, point.timestamp, &kind, config)?;
+                            crate::watermark::populate_window(
+                                window,
+                                &path,
+                                &point.value,
+                                &point.source,
+                                point.timestamp,
+                                &kind,
+                                config,
+                            )?;
                             let size = window_bytes(window);
-                            active_bytes = active_bytes - sizes.insert(key, size).unwrap_or(0) + size;
-                            report.peak_active_windows = report.peak_active_windows.max(windows.len());
+                            active_bytes =
+                                active_bytes - sizes.insert(key, size).unwrap_or(0) + size;
+                            report.peak_active_windows =
+                                report.peak_active_windows.max(windows.len());
                             report.peak_active_bytes = report.peak_active_bytes.max(active_bytes);
                             if active_bytes > limits.max_active_bytes {
                                 return Err(invalid("Parquet backfill active-window memory cap reached; lower sources.backfill.lateness_seconds, sort input by entity/time, or import a smaller range"));
@@ -548,16 +654,30 @@ pub fn backfill(
                         }
                     }
                 }
-                let closed: Vec<_> = windows.keys().filter(|key| {
-                    let width = resolved[&key.0].width_seconds().expect("validated width");
-                    let end = i128::from(ti_contracts::EPOCH) + (i128::from(key.2) + 1) * i128::from(width);
-                    end <= i128::from(highwater[&(key.0.clone(), key.1)]) - i128::from(limits.lateness_seconds)
-                }).cloned().collect();
+                let closed: Vec<_> = windows
+                    .keys()
+                    .filter(|key| {
+                        let width = resolved[&key.0].width_seconds().expect("validated width");
+                        let end = i128::from(ti_contracts::EPOCH)
+                            + (i128::from(key.2) + 1) * i128::from(width);
+                        end <= i128::from(highwater[&(key.0.clone(), key.1)])
+                            - i128::from(limits.lateness_seconds)
+                    })
+                    .cloned()
+                    .collect();
                 for key in closed {
                     let window = windows.remove(&key).unwrap();
                     active_bytes -= sizes.remove(&key).unwrap_or(0);
                     journal.save(key.clone(), &window)?;
-                    emit(&key, &window, config, &resolved, catalogs, sinks, &mut pending)?;
+                    emit(
+                        &key,
+                        &window,
+                        config,
+                        &resolved,
+                        catalogs,
+                        sinks,
+                        &mut pending,
+                    )?;
                 }
                 Ok(())
             })?;
@@ -576,13 +696,28 @@ pub fn backfill(
                 .extend(file_report.unsupported_columns);
             if report.files % 256 == 0 {
                 for (name, records) in &mut pending {
-                    if !records.is_empty() { sinks.get_mut(name).unwrap().apply(records)?; records.clear(); }
+                    if !records.is_empty() {
+                        sinks.get_mut(name).unwrap().apply(records)?;
+                        records.clear();
+                    }
                 }
-                for sink in sinks.values_mut() { sink.flush()?; }
+                for sink in sinks.values_mut() {
+                    sink.flush()?;
+                }
             }
         }
     }
-    for (key, window) in windows { emit(&key, &window, config, &resolved, catalogs, sinks, &mut pending)?; }
+    for (key, window) in windows {
+        emit(
+            &key,
+            &window,
+            config,
+            &resolved,
+            catalogs,
+            sinks,
+            &mut pending,
+        )?;
+    }
     for (name, records) in pending {
         if !records.is_empty() {
             sinks.get_mut(&name).unwrap().apply(&records)?;

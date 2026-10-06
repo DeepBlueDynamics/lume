@@ -43,7 +43,10 @@ fn gen(args: &[String]) {
                 return;
             }
             "signalk" => {}
-            _ => { eprintln!("unknown profile: {profile}"); std::process::exit(2); }
+            _ => {
+                eprintln!("unknown profile: {profile}");
+                std::process::exit(2);
+            }
         }
     }
     let perf = args.iter().any(|a| a == "--perf");

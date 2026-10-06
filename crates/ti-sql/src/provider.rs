@@ -272,7 +272,9 @@ impl ExecutionPlan for TelemetryExec {
                         .iter()
                         .map(|f| {
                             if f.name() == "entity" {
-                                return Ok(batch.column(batch.schema().index_of("vessel")?).clone());
+                                return Ok(batch
+                                    .column(batch.schema().index_of("vessel")?)
+                                    .clone());
                             }
                             if let Ok(index) = batch.schema().index_of(f.name()) {
                                 return Ok(batch.column(index).clone());

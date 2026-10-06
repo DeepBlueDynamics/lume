@@ -74,10 +74,7 @@ impl SqlSession {
         )?;
         context.register_table(
             "docs",
-            Arc::new(MemTable::try_new(
-                crate::docs::sql_schema(),
-                vec![vec![]],
-            )?),
+            Arc::new(MemTable::try_new(crate::docs::sql_schema(), vec![vec![]])?),
         )?;
         let vessels: Vec<_> = catalog.vessels.values().collect();
         let batch = RecordBatch::try_new(

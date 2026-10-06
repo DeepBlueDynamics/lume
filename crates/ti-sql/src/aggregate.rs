@@ -254,7 +254,8 @@ fn candidate(final_agg: &AggregateExec) -> std::result::Result<BitmapAggregateEx
             && (expr
                 .downcast_ref::<Literal>()
                 .is_some_and(|v| !v.value().is_null())
-                || direct_column(&expr).is_some_and(|c| matches!(c.name(), "vessel" | "entity" | "ts")))
+                || direct_column(&expr)
+                    .is_some_and(|c| matches!(c.name(), "vessel" | "entity" | "ts")))
         {
             requests.push(Request {
                 field: 0,
@@ -284,7 +285,9 @@ fn candidate(final_agg: &AggregateExec) -> std::result::Result<BitmapAggregateEx
     let mut bins = 0;
     for (expr, _) in agg.group_expr().expr() {
         let expr = resolve(expr.clone(), &input).map_err(|e| e.to_string())?;
-        let stride_ns = if direct_column(&expr).is_some_and(|c| matches!(c.name(), "vessel" | "entity")) {
+        let stride_ns = if direct_column(&expr)
+            .is_some_and(|c| matches!(c.name(), "vessel" | "entity"))
+        {
             None
         } else if let Some(fun) = expr.downcast_ref::<ScalarFunctionExpr>() {
             if fun.name() != "date_bin"
@@ -372,7 +375,9 @@ impl BitmapAggregateExec {
                 .fields()
                 .iter()
                 .map(|f| match f.name().as_str() {
-                    "vessel" | "entity" => Arc::new(StringArray::from(vec![vessel.urn.as_str()])) as ArrayRef,
+                    "vessel" | "entity" => {
+                        Arc::new(StringArray::from(vec![vessel.urn.as_str()])) as ArrayRef
+                    }
                     "ts" => Arc::new(TimestampSecondArray::from(vec![ts]).with_timezone("UTC"))
                         as ArrayRef,
                     _ => new_null_array(f.data_type(), 1),

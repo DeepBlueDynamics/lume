@@ -560,10 +560,17 @@ impl TiConfig {
                 ));
             }
         }
-        for mapping in &self.sources.parquet { mapping.validate()?; }
+        for mapping in &self.sources.parquet {
+            mapping.validate()?;
+        }
         let backfill = &self.sources.backfill;
-        if backfill.max_active_bytes == 0 || backfill.max_index_entries == 0 || backfill.max_journal_bytes == 0 {
-            return Err(Error::InvalidInput("sources.backfill limits must be positive".into()));
+        if backfill.max_active_bytes == 0
+            || backfill.max_index_entries == 0
+            || backfill.max_journal_bytes == 0
+        {
+            return Err(Error::InvalidInput(
+                "sources.backfill limits must be positive".into(),
+            ));
         }
         for (pattern, entry) in &self.units {
             if pattern.is_empty() || entry.unit.is_empty() || entry.scale > 18 {

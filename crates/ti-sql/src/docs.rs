@@ -58,7 +58,11 @@ pub(crate) fn match_udf() -> ScalarUDF {
 
 pub(crate) fn sql_schema() -> SchemaRef {
     let mut fields = ti_contracts::docs_schema().fields().to_vec();
-    fields.push(Arc::new(datafusion::arrow::datatypes::Field::new("entity", DataType::Utf8, false)));
+    fields.push(Arc::new(datafusion::arrow::datatypes::Field::new(
+        "entity",
+        DataType::Utf8,
+        false,
+    )));
     Arc::new(datafusion::arrow::datatypes::Schema::new(fields))
 }
 
@@ -148,11 +152,14 @@ impl TableProvider for DocsProvider {
                 })
                 .collect::<Result<_>>()?;
         }
-        let batches = batches.into_iter().map(|batch| {
-            let mut columns = batch.columns().to_vec();
-            columns.push(batch.column(1).clone());
-            Ok(RecordBatch::try_new(self.schema(), columns)?)
-        }).collect::<Result<Vec<_>>>()?;
+        let batches = batches
+            .into_iter()
+            .map(|batch| {
+                let mut columns = batch.columns().to_vec();
+                columns.push(batch.column(1).clone());
+                Ok(RecordBatch::try_new(self.schema(), columns)?)
+            })
+            .collect::<Result<Vec<_>>>()?;
         MemTable::try_new(self.schema(), vec![batches])?
             .scan(state, projection, &[], limit)
             .await

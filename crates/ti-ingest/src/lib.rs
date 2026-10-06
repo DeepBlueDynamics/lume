@@ -8,23 +8,23 @@
 //! - NDJSON delta recording and deterministic replay
 //! - InfluxDB backfill mapper
 
+pub mod backfill;
 pub mod bucket;
 pub mod classify;
 pub mod decode;
 pub mod derived;
 pub mod docs;
 pub mod influx;
-pub mod mapped_parquet;
 pub mod mapped_docs;
-pub mod backfill;
+pub mod mapped_parquet;
 pub mod normalize;
 pub mod notifications;
 pub mod parquet;
-mod window_journal;
 pub mod recorder;
 pub mod service;
 pub mod watermark;
 pub mod websocket;
+mod window_journal;
 
 pub use bucket::{resolve_aggs_for_path, BucketWindow};
 pub use classify::Classifier;
