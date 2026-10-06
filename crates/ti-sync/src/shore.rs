@@ -6,7 +6,7 @@
 //! sealed shards into the shore store manifest.
 
 use std::collections::BTreeMap;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 use ti_contracts::{
@@ -263,7 +263,7 @@ impl ShoreReceiver {
             }
             #[cfg(unix)]
             {
-                if let Ok(dir_file) = File::open(&version_dir) {
+                if let Ok(dir_file) = fs::File::open(&version_dir) {
                     let _ = dir_file.sync_all();
                 }
             }
