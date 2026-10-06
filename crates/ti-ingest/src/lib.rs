@@ -15,6 +15,7 @@ pub mod derived;
 pub mod docs;
 pub mod influx;
 pub mod normalize;
+pub mod notifications;
 pub mod parquet;
 pub mod recorder;
 pub mod watermark;

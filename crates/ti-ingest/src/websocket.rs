@@ -20,6 +20,7 @@ use tungstenite::{connect, Message, WebSocket};
 
 use crate::decode::decode_delta;
 use crate::normalize::normalize_point;
+use crate::notifications::NotificationDocuments;
 use crate::recorder::DeltaRecorder;
 use crate::watermark::{MultiStoreBucketer, WatermarkBucketer};
 
@@ -151,6 +152,8 @@ pub fn run_stream_loop(
     running: Arc<AtomicBool>,
     mut recorder: Option<DeltaRecorder>,
 ) -> Result<()> {
+    let root = config.resolved_stores()["default"].resolved_root(&config.store_root, "default");
+    let mut documents = NotificationDocuments::open(std::path::Path::new(&root))?;
     let url = &config.signal_k.url;
     let token = config.signal_k.token.as_deref();
 
@@ -170,6 +173,9 @@ pub fn run_stream_loop(
                 while running.load(Ordering::Relaxed) {
                     match socket.read() {
                         Ok(Message::Text(text)) => {
+                            documents.ingest_message(
+                                &text, self_urn, chrono::Utc::now().timestamp(), config,
+                            )?;
                             if let Err(e) = process_message(
                                 &text,
                                 self_urn,
@@ -275,6 +281,8 @@ pub fn run_stream_loop_multi(
     running: Arc<AtomicBool>,
     mut recorder: Option<DeltaRecorder>,
 ) -> Result<()> {
+    let root = config.resolved_stores()["default"].resolved_root(&config.store_root, "default");
+    let mut documents = NotificationDocuments::open(std::path::Path::new(&root))?;
     let url = &config.signal_k.url;
     let token = config.signal_k.token.as_deref();
 
@@ -294,6 +302,9 @@ pub fn run_stream_loop_multi(
                 while running.load(Ordering::Relaxed) {
                     match socket.read() {
                         Ok(Message::Text(text)) => {
+                            documents.ingest_message(
+                                &text, self_urn, chrono::Utc::now().timestamp(), config,
+                            )?;
                             if let Err(e) = process_message_multi(
                                 &text,
                                 self_urn,

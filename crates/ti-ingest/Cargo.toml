@@ -7,6 +7,7 @@ description = "Ingest pipeline for Lume Telemetry Index (decode, normalize, buck
 
 [dependencies]
 ti-contracts = { path = "../ti-contracts" }
+ti-store = { path = "../ti-store" }
 ti-geo = { path = "../ti-geo" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -18,5 +19,4 @@ tungstenite = { version = "0.24", default-features = false, features = ["handsha
 blake3 = { version = "1.5", features = ["pure"] }
 
 [dev-dependencies]
-ti-store = { path = "../ti-store" }
 tempfile = "3"
