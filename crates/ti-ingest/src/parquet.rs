@@ -257,7 +257,23 @@ pub fn read_parquet_points(path: &Path, self_urn: &str) -> Result<Vec<RawDataPoi
 
 /// Backfill a single Parquet file through normalization and bucketing, emitting
 /// idempotent `rewrite: true` records to the sink.
+/// Backfill one file and flush, so the file is durable on return.
 pub fn backfill_parquet_file(
+    path: &Path,
+    self_urn: &str,
+    manifest_hashes: Option<&HashSet<[u8; 32]>>,
+    config: &TiConfig,
+    catalog: &dyn Catalog,
+    sink: &mut dyn ShardSink,
+) -> Result<BackfillStatus> {
+    let status =
+        backfill_parquet_file_unflushed(path, self_urn, manifest_hashes, config, catalog, sink)?;
+    sink.flush()?;
+    Ok(status)
+}
+
+/// Backfill one file without flushing. Callers batch flushes; the WAL (D16) covers a crash in between.
+fn backfill_parquet_file_unflushed(
     path: &Path,
     self_urn: &str,
     manifest_hashes: Option<&HashSet<[u8; 32]>>,
@@ -348,8 +364,6 @@ pub fn backfill_parquet_file(
         }
     }
 
-    sink.flush()?;
-
     Ok(BackfillStatus::Ingested {
         hash,
         rows_read,
@@ -359,6 +373,9 @@ pub fn backfill_parquet_file(
 
 /// Recursively backfill all `.parquet` files found under `dir`.
 /// Files are sorted by path for deterministic processing order.
+/// Number of files between store flushes during a directory backfill.
+const BACKFILL_FLUSH_EVERY_FILES: usize = 256;
+
 pub fn backfill_directory(
     dir: &Path,
     self_urn: &str,
@@ -372,11 +389,22 @@ pub fn backfill_directory(
     files.sort();
 
     let mut results = Vec::with_capacity(files.len());
-    for file in files {
-        let status =
-            backfill_parquet_file(&file, self_urn, manifest_hashes, config, catalog, sink)?;
+    for (i, file) in files.iter().enumerate() {
+        let status = backfill_parquet_file_unflushed(
+            file,
+            self_urn,
+            manifest_hashes,
+            config,
+            catalog,
+            sink,
+        )?;
         results.push(status);
+        // Flush in batches: a flush per file (one per path per day) dominated backfill time.
+        if (i + 1) % BACKFILL_FLUSH_EVERY_FILES == 0 {
+            sink.flush()?;
+        }
     }
+    sink.flush()?;
     Ok(results)
 }
 
