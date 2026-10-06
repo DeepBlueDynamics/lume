@@ -2,7 +2,9 @@
 
 (function () {
   // Base API path: handles both standalone webapp path and plugin route
-  const apiBase = window.location.pathname.replace(/\/(?:index\.html)?$/, '');
+  // The webapp is served at /signalk-lume-ti/, but the plugin router (and its API) lives at
+  // /plugins/signalk-lume-ti/. Requests need the user's Signal K login (same-origin cookie).
+  const apiBase = '/plugins/signalk-lume-ti';
 
   let lastQueryRows = [];
   let lastQueryColumns = [];

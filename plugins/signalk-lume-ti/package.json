@@ -9,7 +9,8 @@
     "signalk-category-utility"
   ],
   "signalk": {
-    "appPath": "/signalk-lume-ti"
+    "appPath": "/signalk-lume-ti",
+    "displayName": "Lume TI"
   },
   "author": "Lume Authors",
   "license": "BSD-3-Clause",

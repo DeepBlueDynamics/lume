@@ -34,9 +34,9 @@
         <div class="query-toolbar">
           <span class="toolbar-label">Quick Queries:</span>
           <button class="preset-btn" data-query="SELECT ts, &quot;navigation.speedOverGround&quot;, &quot;environment.wind.speedTrue&quot; FROM telemetry ORDER BY ts DESC LIMIT 50;">Recent SOG & Wind</button>
-          <button class="preset-btn" data-query="SELECT ts, &quot;navigation.speedOverGround&quot; FROM telemetry_hr ORDER BY ts DESC LIMIT 50;">1s High-Res SOG</button>
+          <button class="preset-btn" data-query="SELECT ts, &quot;environment.depth.belowTransducer@min&quot; AS depth_min, &quot;environment.depth.belowKeel@min&quot; AS below_keel FROM telemetry ORDER BY ts DESC LIMIT 50;">Recent Depth</button>
           <button class="preset-btn" data-query="SELECT ts, &quot;navigation.position.latitude&quot;, &quot;navigation.position.longitude&quot; FROM telemetry WHERE &quot;navigation.position.latitude&quot; IS NOT NULL ORDER BY ts DESC LIMIT 50;">Recent Positions</button>
-          <button class="preset-btn" data-query="SELECT time_bucket(INTERVAL '1 hour', ts) as hour, avg(&quot;electrical.batteries.house.voltage&quot;) as avg_v FROM telemetry GROUP BY 1 ORDER BY 1 DESC LIMIT 24;">Hourly Voltage</button>
+          <button class="preset-btn" data-query="SELECT date_bin(INTERVAL '1 hour', ts) AS hour, max(&quot;navigation.speedOverGround@max&quot;) AS max_sog, max(&quot;environment.wind.speedApparent@max&quot;) AS max_wind FROM telemetry GROUP BY 1 ORDER BY 1 DESC LIMIT 24;">Hourly Max SOG & Wind</button>
           <button class="preset-btn" data-query="SELECT count(*) as total_buckets FROM telemetry;">Bucket Count</button>
         </div>
 
