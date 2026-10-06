@@ -112,7 +112,7 @@ Then tell the lead the side branch name, its base commit, and which lane it shou
 ## 5. Reporting protocol
 
 - Report to the lead (**Industrial Pike**, pane `ee764a09`) by Hyperia mail. Agents may also mail each other directly.
-- A report should give your branch, the commit hash(es) ready to merge, what changed, which tests you ran, and anything blocked or decided. The field list is a suggestion *(unconfirmed)*.
+- A report should give your branch, the commit hash(es) ready to merge, what changed, which tests you ran (and on which rustc), **whether fmt and strict clippy ran, or that your container lacks them**, and anything blocked or decided. The field list is a suggestion *(unconfirmed)*.
 - The lead checks mail and agent panes **every 15 minutes**. Don't expect a faster reply.
 - Decisions that touch contracts, dependencies or scope go to the lead. They get recorded in the decisions log ([spec/11](spec/11-risks-decisions.md)), not only in mail.
 
@@ -146,7 +146,7 @@ Codex rejects unannotated MCP tools when its approval policy is `never`.
 **Compact Echidna** (pane `6914c38e`; it replaced Regular Pheasant `364a3fc7`, which is gone) is a PowerShell 7 pane on the Windows host with the Windows Rust toolchain.
 
 - Use it when your container has no cargo, or when you need a Windows build.
-- A restored container can be missing `rustfmt` and `clippy`, as Long Horse's is. In that case run fmt and strict clippy here, or say in your report that you couldn't. The lead then runs them at merge.
+- A restored container can be missing `rustfmt` and `clippy`, as Long Horse's is. **If yours lacks them, you must say so in your report.** The lead then runs `cargo fmt -p <crate>` and rustc 1.96 strict clippy on the host at merge, and commits any fixes separately (for example `c92c325`). You may also run them yourself in a host split.
 - Each agent may **split it once**. Run your builds in your split, not in the original pane.
 - **A cold `--features ti` build takes about 10 minutes on the host** (DataFusion). Don't start cold builds in parallel with other agents. Check the other splits first, and reuse your clone's warm `target/` when you can.
 - Build inside your own clone, e.g. `cd C:\Users\kordl\Code\DeepBlueDynamics\lume\.lanes\<name>`. Each clone has its own `target/`, so lanes don't overwrite each other's builds.
