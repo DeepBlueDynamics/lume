@@ -163,6 +163,9 @@ pub(crate) fn call(name: &str, args: Value) -> Result<String, String> {
     serde_json::to_string(&result).map_err(|e| e.to_string())
 }
 #[cfg(test)]
+#[path = "ti_questions_test.rs"]
+mod questions_tests;
+#[cfg(test)]
 mod tests {
     use super::*;
     fn engine() -> ti_sql::TiEngine {

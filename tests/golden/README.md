@@ -57,6 +57,20 @@ Each `Entry`:
    require `|ti - oracle| ≤ 1 × 10^−scale` (D34); otherwise ignore (oracle-only columns like
    a placeholder `score` are non-authoritative).
 
+## Scripted fleet questions
+
+`fleet_questions.json` contains 20 natural-language questions for the integrator's M5 agent run. Each entry preserves its `source_entry` from `corpus.json`, the DuckDB `oracle_sql`, embedded output copied from the committed `expected/<source_entry>.json`, and its tolerance rules. The corpus data is the five-vessel correctness set in store-full. The fixture is 46 KB, independent of the runtime resolver.
+
+For deterministic regression, each question supplies a resolve phrase and a SQL template. The harness takes the top-one resolved canonical column, quotes it, substitutes `{column}`, and calls `ti_query`. It checks the selected column as well as the rows; truncation is a failure. All 20 must succeed. The fixture also records separate, independently hand-calculated expectations for a three-bucket in-memory store used by ordinary tests. These small expectations do not replace the golden oracle outputs.
+
+Run the full golden-store replay explicitly:
+
+```sh
+CARGO_INCREMENTAL=0 TI_QUESTIONS_STORE=<store-full> cargo test --features ti --lib twenty_questions_against_golden_store_oracle -- --ignored --nocapture
+```
+
+This regression harness does not close M5 item 2. The integrator must separately run a nemesis8 agent with only Lume MCP and grade its answers against the oracle outputs. No model/network dependency is needed for regression tests.
+
 ## Oracle conventions
 
 - Every oracle twin buckets the parquet with
