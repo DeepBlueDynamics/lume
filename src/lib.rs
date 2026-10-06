@@ -35,6 +35,8 @@ pub mod hybrid;
 pub mod agent;
 pub mod crawl;
 pub mod search;
+#[cfg(feature = "ti")]
+pub mod ti_text;
 pub use search::{search, LoadedIndex, SearchOptions, SearchResults, SearchResultHit, SearchMode, BlendMode};
 // pub mod cli;
 

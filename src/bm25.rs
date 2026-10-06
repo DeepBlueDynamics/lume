@@ -464,6 +464,7 @@ impl Bm25Index {
     }
 
     /// Evaluates a query and returns matching sections ordered by their BM25 score.
+    /// Prints pruning and rejection diagnostics to stderr (the CLI's behaviour).
     pub fn search(
         &self,
         query: &str,
@@ -471,6 +472,35 @@ impl Bm25Index {
         params: &Bm25Params,
         tagger: Option<&Tagger>,
     ) -> Vec<SearchHit> {
+        self.search_impl(query, variant, params, tagger, true)
+    }
+
+    /// `search` without stderr diagnostics, for in-process callers (Lume TI `match()`).
+    pub fn search_quiet(
+        &self,
+        query: &str,
+        variant: SearchVariant,
+        params: &Bm25Params,
+        tagger: Option<&Tagger>,
+    ) -> Vec<SearchHit> {
+        self.search_impl(query, variant, params, tagger, false)
+    }
+
+    fn search_impl(
+        &self,
+        query: &str,
+        variant: SearchVariant,
+        params: &Bm25Params,
+        tagger: Option<&Tagger>,
+        verbose: bool,
+    ) -> Vec<SearchHit> {
+        macro_rules! diag {
+            ($($arg:tt)*) => {
+                if verbose {
+                    eprintln!($($arg)*);
+                }
+            };
+        }
         let query_tokens = filter_query_stopwords(tokenize(query));
         if query_tokens.is_empty() || self.num_docs == 0 {
             return Vec::new();
@@ -576,7 +606,7 @@ impl Bm25Index {
         }
 
         let pruning_elapsed = start_pruning.elapsed();
-        eprintln!(
+        diag!(
             "\x1B[32m[Two-Stage Pruning] Pruned candidate space from {} to {} (roaring generated: {}) sections in {:.2?}\x1B[0m",
             self.num_docs, pruned_candidates.len(), num_candidates_roaring, pruning_elapsed
         );
@@ -687,29 +717,29 @@ impl Bm25Index {
         }
         
         // Print high-level Rejection Accounting summary to stderr
-        eprintln!("\x1B[33mCandidates: {}\x1B[0m", num_candidates_roaring);
-        eprintln!("\x1B[33mRanked: {}\x1B[0m", hits.len());
-        eprintln!("\x1B[33mRejected:\x1B[0m");
-        eprintln!("  MissingSection: {}", rejected_missing);
-        eprintln!("  EmptyText: {}", rejected_empty);
-        eprintln!("  FieldNotRankable: {}", rejected_not_rankable);
-        eprintln!("  TagSignatureMismatch: {}", rejected_tag_mismatch);
-        eprintln!("  NoTokenMatch: {}", rejected_no_token);
-        eprintln!("  ScoreBelowThreshold: {}", rejected_below_threshold);
+        diag!("\x1B[33mCandidates: {}\x1B[0m", num_candidates_roaring);
+        diag!("\x1B[33mRanked: {}\x1B[0m", hits.len());
+        diag!("\x1B[33mRejected:\x1B[0m");
+        diag!("  MissingSection: {}", rejected_missing);
+        diag!("  EmptyText: {}", rejected_empty);
+        diag!("  FieldNotRankable: {}", rejected_not_rankable);
+        diag!("  TagSignatureMismatch: {}", rejected_tag_mismatch);
+        diag!("  NoTokenMatch: {}", rejected_no_token);
+        diag!("  ScoreBelowThreshold: {}", rejected_below_threshold);
 
         // Trigger deep diagnostic explanation if hits is empty but we had candidates
         if hits.is_empty() && num_candidates_roaring > 0 {
-            eprintln!("\n\x1B[1;31m🔍 [Deep Rejection Diagnostics] Why zero ranked results?\x1B[0m");
+            diag!("\n\x1B[1;31m🔍 [Deep Rejection Diagnostics] Why zero ranked results?\x1B[0m");
             for detail in &candidate_details {
                 if let Some(reason) = detail.rejected {
                     let doc_id = detail.section_id;
-                    eprintln!("  \x1B[1;33mCandidate {} rejected:\x1B[0m {:?}", doc_id, reason);
+                    diag!("  \x1B[1;33mCandidate {} rejected:\x1B[0m {:?}", doc_id, reason);
                     
                     let doc_idx = doc_id as usize;
                     if doc_idx < self.sections.len() {
                         let sec = &self.sections[doc_idx];
-                        eprintln!("     - Header: {:?}", sec.title);
-                        eprintln!("     - Body Snippet: {:?}", if sec.body.len() > 100 { format!("{}...", &sec.body[..100]) } else { sec.body.clone() });
+                        diag!("     - Header: {:?}", sec.title);
+                        diag!("     - Body Snippet: {:?}", if sec.body.len() > 100 { format!("{}...", &sec.body[..100]) } else { sec.body.clone() });
                         
                         let title_tokens = tokenize(&sec.title);
                         let body_tokens = tokenize(&sec.body);
@@ -717,12 +747,12 @@ impl Bm25Index {
                         let title_terms: Vec<String> = title_tokens.iter().map(|t| String::from_utf8_lossy(&t.bytes).to_string()).collect();
                         let body_terms: Vec<String> = body_tokens.iter().map(|t| String::from_utf8_lossy(&t.bytes).to_string()).collect();
                         
-                        eprintln!("     - Title Tokens: {:?}", title_terms);
-                        eprintln!("     - Body Tokens: {:?}", body_terms);
+                        diag!("     - Title Tokens: {:?}", title_terms);
+                        diag!("     - Body Tokens: {:?}", body_terms);
                         
                         let pf = &self.prime_filters[doc_idx];
                         
-                        eprintln!("     - Token-by-Token Query Evaluation:");
+                        diag!("     - Token-by-Token Query Evaluation:");
                         for q_tok in &query_tokens {
                             let term_str = String::from_utf8_lossy(&q_tok.bytes);
                             let prime_match = pf.test_term(&q_tok.bytes);
@@ -730,7 +760,7 @@ impl Bm25Index {
                             let title_tf = self.title_tfs[doc_idx].get(&q_tok.bytes).copied().unwrap_or(0);
                             let body_tf = self.body_tfs[doc_idx].get(&q_tok.bytes).copied().unwrap_or(0);
                             
-                            eprintln!(
+                            diag!(
                                 "       * Term '{}' -> Prime Filter Match: {} | Title TF: {} | Body TF: {}",
                                 term_str, prime_match, title_tf, body_tf
                             );
@@ -738,7 +768,7 @@ impl Bm25Index {
                     }
                 }
             }
-            eprintln!();
+            diag!();
         }
 
         hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
