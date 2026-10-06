@@ -43,36 +43,74 @@ impl ShardSink for RecordingSink {
     }
 }
 
-fn get_peak_rss_mb() -> f64 {
+fn get_peak_rss_mb() -> Option<f64> {
     if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
         for line in status.lines() {
             if line.starts_with("VmHWM:") || line.starts_with("VmRSS:") {
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 if parts.len() >= 2 {
                     if let Ok(kb) = parts[1].parse::<f64>() {
-                        return kb / 1024.0;
+                        return Some(kb / 1024.0);
                     }
                 }
             }
         }
     }
-    0.0
+    None
 }
 
-fn smoke_data_raw_dir() -> PathBuf {
-    std::env::var("TI_DATA_DIR")
-        .map(|d| PathBuf::from(d).join("tier=raw"))
-        .unwrap_or_else(|_| PathBuf::from("/workspace/lume/.lanes/data/w3-smoke/tier=raw"))
+fn get_raw_dir() -> PathBuf {
+    if let Ok(val) = std::env::var("TI_DATA_DIR") {
+        let p = PathBuf::from(&val);
+        if p.join("tier=raw").exists() {
+            p.join("tier=raw")
+        } else if p.exists() && p.file_name().and_then(|n| n.to_str()) == Some("tier=raw") {
+            p
+        } else {
+            panic!(
+                "TI_DATA_DIR was set to {:?}, but neither that directory nor its tier=raw subdirectory exists!",
+                val
+            );
+        }
+    } else {
+        let default_p = PathBuf::from("/workspace/lume/.lanes/data/w3-smoke/tier=raw");
+        if !default_p.exists() {
+            panic!(
+                "TI_DATA_DIR not set and default smoke directory does not exist at {:?}. Run with TI_DATA_DIR=<path>.",
+                default_p
+            );
+        }
+        default_p
+    }
+}
+
+fn get_open_shard_keys(root: &Path) -> Vec<ShardKey> {
+    let mut keys = Vec::new();
+    let shards_root = root.join("shards");
+    if let Ok(v_entries) = std::fs::read_dir(shards_root) {
+        for ve in v_entries.flatten() {
+            if let Ok(v) = ve.file_name().to_string_lossy().parse::<u32>() {
+                if let Ok(s_entries) = std::fs::read_dir(ve.path()) {
+                    for se in s_entries.flatten() {
+                        if let Ok(s) = se.file_name().to_string_lossy().parse::<u32>() {
+                            keys.push(ShardKey {
+                                vessel: v,
+                                shard: s,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    keys.sort_by_key(|k| (k.vessel, k.shard));
+    keys
 }
 
 #[test]
+#[ignore = "needs TI_DATA_DIR"]
 fn test_m2_parquet_backfill_idempotence() {
-    let raw_dir = smoke_data_raw_dir();
-    if !raw_dir.exists() {
-        eprintln!("Smoke dataset not found at {:?}, skipping test", raw_dir);
-        return;
-    }
-
+    let raw_dir = get_raw_dir();
     let config = TiConfig::default();
     let self_urn = "vessels.urn:mrn:imo:mmsi:367000000";
 
@@ -114,12 +152,14 @@ fn test_m2_parquet_backfill_idempotence() {
         total_rows
     );
 
-    // Day 041/042 timestamps are ~1.77e9 => bucket ~19.3M => shard 294
-    let shard_key = ShardKey {
-        vessel: 0,
-        shard: 294,
-    };
-    let entry1 = store1.seal(shard_key).unwrap();
+    let shard_keys1 = get_open_shard_keys(tmp1.path());
+    assert!(
+        !shard_keys1.is_empty(),
+        "Store 1 must have at least one open shard"
+    );
+    for &shard_key in &shard_keys1 {
+        store1.seal(shard_key).unwrap();
+    }
     let manifest1_entries = store1.manifest().entries();
 
     // 2. Second backfill run into fresh Store 2
@@ -138,17 +178,17 @@ fn test_m2_parquet_backfill_idempotence() {
     .unwrap();
 
     assert_eq!(results1.len(), results2.len());
-    let entry2 = store2.seal(shard_key).unwrap();
+    let shard_keys2 = get_open_shard_keys(tmp2.path());
+    assert_eq!(shard_keys1, shard_keys2);
+    for &shard_key in &shard_keys2 {
+        store2.seal(shard_key).unwrap();
+    }
     let manifest2_entries = store2.manifest().entries();
 
     // Manifest hashes must be completely identical between two fresh stores!
     assert_eq!(
-        entry1.hash, entry2.hash,
-        "Sealed shard BLAKE3 hash must be identical across fresh store runs"
-    );
-    assert_eq!(
         manifest1_entries, manifest2_entries,
-        "Full manifest entries must be identical"
+        "Full manifest entries must be identical across fresh store runs"
     );
 
     // 3. Test skipping when manifest hashes are supplied
@@ -178,30 +218,70 @@ fn test_m2_parquet_backfill_idempotence() {
     .unwrap();
     assert_eq!(rewrite_results.len(), results1.len());
 
-    let entry1_re_sealed = store1.seal(shard_key).unwrap();
+    for &shard_key in &shard_keys1 {
+        store1.seal(shard_key).unwrap();
+    }
+    let manifest1_re_entries = store1.manifest().entries();
     assert_eq!(
-        entry1_re_sealed.hash, entry1.hash,
-        "In-place clear-and-rewrite backfill must produce identical sealed shard hash"
+        manifest1_re_entries, manifest1_entries,
+        "In-place clear-and-rewrite backfill must produce identical sealed shard entries"
     );
 
     println!(
-        "M2 Backfill Idempotence PASSED: manifest hash = {}",
-        ti_ingest::hash_to_hex(&entry1.hash)
+        "M2 Backfill Idempotence PASSED: manifest entries count = {}, first shard hash = {}",
+        manifest1_entries.len(),
+        manifest1_entries
+            .first()
+            .map(|e| ti_ingest::hash_to_hex(&e.hash))
+            .unwrap_or_default()
     );
 }
 
 #[test]
+#[ignore = "needs TI_DATA_DIR"]
 fn test_m2_oracle_replay_24h() {
-    let raw_dir = smoke_data_raw_dir();
-    if !raw_dir.exists() {
-        eprintln!("Smoke dataset not found at {:?}, skipping test", raw_dir);
-        return;
-    }
-
+    let raw_dir = get_raw_dir();
     let config = TiConfig::default();
     let self_urn = "vessels.urn:mrn:imo:mmsi:367000000";
 
-    // 1. Collect all day=041 parquet files (representing exactly 24 h)
+    // 1. Find the first day present in raw_dir
+    fn find_first_day_tag(dir: &Path) -> Option<String> {
+        let mut days = Vec::new();
+        fn scan(d: &Path, days: &mut Vec<String>) {
+            if let Ok(entries) = std::fs::read_dir(d) {
+                for e in entries.flatten() {
+                    let p = e.path();
+                    if p.is_dir() {
+                        let name = e.file_name().to_string_lossy().to_string();
+                        if name.starts_with("day=") {
+                            days.push(name);
+                        } else {
+                            scan(&p, days);
+                        }
+                    }
+                }
+            }
+        }
+        scan(dir, &mut days);
+        days.sort();
+        days.dedup();
+        days.into_iter().next()
+    }
+
+    let day_tag = std::env::var("TI_REPLAY_DAY")
+        .map(|d| {
+            if d.starts_with("day=") {
+                d
+            } else {
+                format!("day={:0>3}", d)
+            }
+        })
+        .unwrap_or_else(|_| {
+            find_first_day_tag(&raw_dir).expect("No day= directory found in raw_dir")
+        });
+    println!("Selected 24h dataset day tag: {}", day_tag);
+
+    // Collect all parquet files for this vessel and day
     let mut files = Vec::new();
     fn collect_day_files(dir: &Path, day_tag: &str, out: &mut Vec<PathBuf>) {
         if let Ok(entries) = std::fs::read_dir(dir) {
@@ -217,11 +297,21 @@ fn test_m2_oracle_replay_24h() {
             }
         }
     }
-    collect_day_files(&raw_dir, "day=041", &mut files);
-    files.sort();
-    assert!(!files.is_empty(), "Day 041 files must exist");
 
-    // Read all raw points from day=041
+    let vessel_dir_candidates = [
+        raw_dir.join("context=vessels__urn-mrn-imo-mmsi-367000000"),
+        raw_dir.clone(),
+    ];
+    let search_dir = vessel_dir_candidates
+        .iter()
+        .find(|d| d.exists())
+        .unwrap_or(&raw_dir);
+
+    collect_day_files(search_dir, &day_tag, &mut files);
+    files.sort();
+    assert!(!files.is_empty(), "Day files must exist for {}", day_tag);
+
+    // Read all raw points from the selected day
     let mut all_points = Vec::new();
     for f in &files {
         let pts = read_parquet_points(f, self_urn).unwrap();
@@ -230,8 +320,10 @@ fn test_m2_oracle_replay_24h() {
     // Chronological order
     all_points.sort_by_key(|p| p.timestamp);
     println!(
-        "Read {} raw points for 24h day=041 dataset",
-        all_points.len()
+        "Read {} raw points for 24h {} dataset ({} parquet files)",
+        all_points.len(),
+        day_tag,
+        files.len()
     );
     assert!(!all_points.is_empty());
 
@@ -568,10 +660,15 @@ fn test_m2_throughput_and_rss() {
         "  Throughput:        {:.1} values/s (gate target: >= 20,000 values/s)",
         throughput
     );
-    println!(
-        "  Peak RSS:          {:.2} MB (gate target: <= 400 MB)",
-        peak_rss_mb
-    );
+    match peak_rss_mb {
+        Some(mb) => {
+            println!("  Peak RSS:          {:.2} MB (gate target: <= 400 MB)", mb);
+            assert!(mb <= 400.0, "Peak RSS {:.2} MB exceeds 400 MB target", mb);
+        }
+        None => {
+            println!("  Peak RSS:          n/a (unsupported OS)");
+        }
+    }
     println!("--------------------------------------------------");
 
     assert!(
@@ -579,11 +676,4 @@ fn test_m2_throughput_and_rss() {
         "Throughput {:.1} values/s below 20,000 values/s target",
         throughput
     );
-    if peak_rss_mb > 0.0 {
-        assert!(
-            peak_rss_mb <= 400.0,
-            "Peak RSS {:.2} MB exceeds 400 MB target",
-            peak_rss_mb
-        );
-    }
 }
