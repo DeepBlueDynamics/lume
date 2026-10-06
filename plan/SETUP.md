@@ -10,6 +10,8 @@ Items marked *(unconfirmed)* are conventions the docs keeper has not verified. A
 Lume is a Rust crate (`lume` 0.12.0, edition 2021): `src/lib.rs` plus a CLI in `src/main.rs`.
 By default it has four direct dependencies (`tantivy-fst`, `ureq`, `serde`, `serde_json`) and a committed `Cargo.lock`.
 The repo is now a Cargo workspace. The root `lume` package stays at `.`, and Lume TI (the telemetry index) lives in members under `crates/ti-*` (so far only `crates/ti-contracts`). TI is compiled only behind the `ti` cargo feature, which is off by default.
+
+**`ti-contracts` is frozen** (`96ac45d`). It holds the shared types and traits, the catalog, the Arrow schemas, the WAL/shard envelopes, the `TiEngine` facade and the `ti.toml` schema (`config.rs`). [spec/10](spec/10-contracts.md) mirrors its source, and [spec/14](spec/14-semantics.md) freezes the behavioral rules. **Any change to a boundary in it needs a contracts PR approved by the lead (integrator).** Build your lane against the crate as it is, and mock other lanes behind its traits. If you think a contract is wrong, mail the lead. Don't patch it in your lane.
 The golden SQL corpus is in `tests/golden/` (see its `README.md`).
 The work happens on branch `plan/lume-ti`, not `main`.
 
@@ -128,15 +130,15 @@ Codex rejects unannotated MCP tools when its approval policy is `never`.
   | DuckDB | Used as an oracle through the **CLI**, not as a bundled Rust crate |
   | Release builds | `cargo-zigbuild` for musl targets |
 
-  The log also records pure-Rust Parquet codecs only, with no zstd (D11), `blake3` with `pure` (D12), and an early aarch64-musl smoke test for pgwire SCRAM, which pulls in `ring` (D13). The next free number is D18.
-- The contracts crate itself depends on `arrow-array`, `arrow-schema` and `roaring` only, not DataFusion.
+  The log also records pure-Rust Parquet codecs only, with no zstd (D11), `blake3` with `pure` (D12), and an early aarch64-musl smoke test for pgwire SCRAM, which pulls in `ring` (D13). D18 (`serde`) and D19 (`toml`) cover the dependencies of `ti-contracts`. New decisions start at **D22**, and spec/11 says Zygomorphic Prawn's corpus/generator lane takes the next numbers.
+- The contracts crate itself depends on `arrow-array`, `arrow-schema`, `roaring`, `serde` and `toml` only, not DataFusion.
 
 ## 10. How the lead merges
 
 The lead (Industrial Pike) is the only one who writes to `plan/lume-ti`.
 
 1. An agent reports a ready commit by mail.
-2. The lead fetches the branch straight from the clone, for example `git fetch .lanes/w0 ti/w0-contracts`.
+2. The lead fetches the branch straight from the clone, for example `git fetch .lanes/w1 ti/w1-core`.
 3. The lead reviews it and merges it into `plan/lume-ti` in the shared tree. Merge style (merge commit, squash or fast-forward) is the lead's call *(unconfirmed)*.
 4. The docs keeper refreshes [STATUS.md](STATUS.md) and this file after each merge.
 5. When `plan/lume-ti` is merged to `main` is not yet decided *(unconfirmed)*. The spec wants lanes integrated on `main` daily behind the `ti` flag ([spec/10](spec/10-contracts.md)).
