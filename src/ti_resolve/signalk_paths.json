@@ -1,0 +1,2447 @@
+{
+  "source": "https://github.com/SignalK/specification",
+  "commit": "fb628fb4ee569149fd3810b271d0f987428b4703",
+  "version": "1.8.4",
+  "entries": [
+    {
+      "pattern": "communication.callsignHf",
+      "description": "Schema describing the communication child-object of a Vessel. Callsign for HF communication",
+      "units": null
+    },
+    {
+      "pattern": "communication.callsignVhf",
+      "description": "Schema describing the communication child-object of a Vessel. Callsign for VHF communication",
+      "units": null
+    },
+    {
+      "pattern": "communication.email",
+      "description": "Schema describing the communication child-object of a Vessel. Regular email for the skipper",
+      "units": null
+    },
+    {
+      "pattern": "communication.emailHf",
+      "description": "Schema describing the communication child-object of a Vessel. Email address to be used for HF email (Winmail, Airmail, Sailmail)",
+      "units": null
+    },
+    {
+      "pattern": "communication.phoneNumber",
+      "description": "Schema describing the communication child-object of a Vessel. Phone number of skipper",
+      "units": null
+    },
+    {
+      "pattern": "communication.satPhoneNumber",
+      "description": "Schema describing the communication child-object of a Vessel. Satellite phone number for vessel.",
+      "units": null
+    },
+    {
+      "pattern": "communication.skipperName",
+      "description": "Schema describing the communication child-object of a Vessel. Full name of the skipper of the vessel.",
+      "units": null
+    },
+    {
+      "pattern": "design.airHeight",
+      "description": "An object describing the vessels primary dimensions and statistics. Total height of the vessel",
+      "units": "m"
+    },
+    {
+      "pattern": "design.aisShipType",
+      "description": "An object describing the vessels primary dimensions and statistics. The ais ship type see http://www.bosunsmate.org/ais/message5.php",
+      "units": null
+    },
+    {
+      "pattern": "design.aisShipType.id",
+      "description": "An object describing the vessels primary dimensions and statistics. The ais ship type see http://www.bosunsmate.org/ais/message5.php The ship type number",
+      "units": null
+    },
+    {
+      "pattern": "design.aisShipType.name",
+      "description": "An object describing the vessels primary dimensions and statistics. The ais ship type see http://www.bosunsmate.org/ais/message5.php The ship type name",
+      "units": null
+    },
+    {
+      "pattern": "design.beam",
+      "description": "An object describing the vessels primary dimensions and statistics. Beam length",
+      "units": "m"
+    },
+    {
+      "pattern": "design.displacement",
+      "description": "An object describing the vessels primary dimensions and statistics. The displacement of the vessel",
+      "units": "kg"
+    },
+    {
+      "pattern": "design.draft.canoe",
+      "description": "An object describing the vessels primary dimensions and statistics. The draft of the vessel The draft of the vessel without protrusions such as keel, centerboard, rudder",
+      "units": "m"
+    },
+    {
+      "pattern": "design.draft.current",
+      "description": "An object describing the vessels primary dimensions and statistics. The draft of the vessel The current draft of the vessel",
+      "units": "m"
+    },
+    {
+      "pattern": "design.draft.maximum",
+      "description": "An object describing the vessels primary dimensions and statistics. The draft of the vessel The maximum draft of the vessel",
+      "units": "m"
+    },
+    {
+      "pattern": "design.draft.minimum",
+      "description": "An object describing the vessels primary dimensions and statistics. The draft of the vessel The minimum draft of the vessel",
+      "units": "m"
+    },
+    {
+      "pattern": "design.keel.angle",
+      "description": "An object describing the vessels primary dimensions and statistics. Information about the vessel's keel A number indicating at which angle the keel currently is (in case of a canting keel), negative to port.",
+      "units": "rad"
+    },
+    {
+      "pattern": "design.keel.lift",
+      "description": "An object describing the vessels primary dimensions and statistics. Information about the vessel's keel In the case of a lifting keel, centreboard or daggerboard, the part of the keel which is extended. 0 is 'all the way up' and 1 is 'all the way down'. 0.8 would be 80% down.",
+      "units": "ratio"
+    },
+    {
+      "pattern": "design.keel.type",
+      "description": "An object describing the vessels primary dimensions and statistics. Information about the vessel's keel The type of keel.",
+      "units": null
+    },
+    {
+      "pattern": "design.length.hull",
+      "description": "An object describing the vessels primary dimensions and statistics. The various lengths of the vessel Length of hull",
+      "units": "m"
+    },
+    {
+      "pattern": "design.length.overall",
+      "description": "An object describing the vessels primary dimensions and statistics. The various lengths of the vessel Length overall",
+      "units": "m"
+    },
+    {
+      "pattern": "design.length.waterline",
+      "description": "An object describing the vessels primary dimensions and statistics. The various lengths of the vessel Length at waterline",
+      "units": "m"
+    },
+    {
+      "pattern": "design.rigging.configuration",
+      "description": "An object describing the vessels primary dimensions and statistics. Information about the vessel's rigging The configuration of the rigging",
+      "units": null
+    },
+    {
+      "pattern": "design.rigging.masts",
+      "description": "An object describing the vessels primary dimensions and statistics. Information about the vessel's rigging The number of masts on the vessel.",
+      "units": null
+    },
+    {
+      "pattern": "electrical.ac.*.location",
+      "description": "Schema describing the electrical child-object of a Vessel. AC buses AC Bus, one or many, within the vessel  Common ID items shared by electrical items Installed location of device on vessel",
+      "units": null
+    },
+    {
+      "pattern": "electrical.ac.*.manufacturer.model",
+      "description": "Schema describing the electrical child-object of a Vessel. AC buses AC Bus, one or many, within the vessel  Common ID items shared by electrical items Model or part number",
+      "units": null
+    },
+    {
+      "pattern": "electrical.ac.*.manufacturer.name",
+      "description": "Schema describing the electrical child-object of a Vessel. AC buses AC Bus, one or many, within the vessel  Common ID items shared by electrical items Manufacturer's name",
+      "units": null
+    },
+    {
+      "pattern": "electrical.ac.*.manufacturer.URL",
+      "description": "Schema describing the electrical child-object of a Vessel. AC buses AC Bus, one or many, within the vessel  Common ID items shared by electrical items Web referance / URL",
+      "units": null
+    },
+    {
+      "pattern": "electrical.ac.*.name",
+      "description": "Schema describing the electrical child-object of a Vessel. AC buses AC Bus, one or many, within the vessel  Common ID items shared by electrical items Unique ID of device (houseBattery, alternator, Generator, solar1, inverter, charger, combiner, etc.)",
+      "units": null
+    },
+    {
+      "pattern": "electrical.ac.*.phase.*.apparentPower",
+      "description": "Schema describing the electrical child-object of a Vessel. AC buses AC Bus, one or many, within the vessel Single or A,B or C in 3 Phase systems  AC equipment common qualities Apparent power.",
+      "units": "W"
+    },
+    {
+      "pattern": "electrical.ac.*.phase.*.associatedBus",
+      "description": "Schema describing the electrical child-object of a Vessel. AC buses AC Bus, one or many, within the vessel Single or A,B or C in 3 Phase systems  AC equipment common qualities Name of BUS device is associated with",
+      "units": null
+    },
+    {
+      "pattern": "electrical.ac.*.phase.*.current",
+      "description": "Schema describing the electrical child-object of a Vessel. AC buses AC Bus, one or many, within the vessel Single or A,B or C in 3 Phase systems  AC equipment common qualities RMS current",
+      "units": "A"
+    },
+    {
+      "pattern": "electrical.ac.*.phase.*.frequency",
+      "description": "Schema describing the electrical child-object of a Vessel. AC buses AC Bus, one or many, within the vessel Single or A,B or C in 3 Phase systems  AC equipment common qualities AC frequency.",
+      "units": "Hz"
+    },
+    {
+      "pattern": "electrical.ac.*.phase.*.lineLineVoltage",
+      "description": "Schema describing the electrical child-object of a Vessel. AC buses AC Bus, one or many, within the vessel Single or A,B or C in 3 Phase systems  AC equipment common qualities RMS voltage measured between phases",
+      "units": "V"
+    },
+    {
+      "pattern": "electrical.ac.*.phase.*.lineNeutralVoltage",
+      "description": "Schema describing the electrical child-object of a Vessel. AC buses AC Bus, one or many, within the vessel Single or A,B or C in 3 Phase systems  AC equipment common qualities RMS voltage measured between phase and neutral",
+      "units": "V"
+    },
+    {
+      "pattern": "electrical.ac.*.phase.*.powerFactor",
+      "description": "Schema describing the electrical child-object of a Vessel. AC buses AC Bus, one or many, within the vessel Single or A,B or C in 3 Phase systems  AC equipment common qualities Power factor",
+      "units": null
+    },
+    {
+      "pattern": "electrical.ac.*.phase.*.powerFactorLagging",
+      "description": "Schema describing the electrical child-object of a Vessel. AC buses AC Bus, one or many, within the vessel Single or A,B or C in 3 Phase systems  AC equipment common qualities Lead/lag status.",
+      "units": null
+    },
+    {
+      "pattern": "electrical.ac.*.phase.*.reactivePower",
+      "description": "Schema describing the electrical child-object of a Vessel. AC buses AC Bus, one or many, within the vessel Single or A,B or C in 3 Phase systems  AC equipment common qualities Reactive power",
+      "units": "W"
+    },
+    {
+      "pattern": "electrical.ac.*.phase.*.realPower",
+      "description": "Schema describing the electrical child-object of a Vessel. AC buses AC Bus, one or many, within the vessel Single or A,B or C in 3 Phase systems  AC equipment common qualities Real power.",
+      "units": "W"
+    },
+    {
+      "pattern": "electrical.alternators.*.associatedBus",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about an Alternator charging device Mechanically driven alternator, includes dynamos DC common qualities Name of BUS device is associated with",
+      "units": null
+    },
+    {
+      "pattern": "electrical.alternators.*.chargerRole",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about an Alternator charging device Mechanically driven alternator, includes dynamos Common charger qualities How is charging source configured?  Standalone, or in sync with another charger?",
+      "units": null
+    },
+    {
+      "pattern": "electrical.alternators.*.chargingAlgorithm",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about an Alternator charging device Mechanically driven alternator, includes dynamos Common charger qualities Algorithm being used by the charger",
+      "units": null
+    },
+    {
+      "pattern": "electrical.alternators.*.chargingMode",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about an Alternator charging device Mechanically driven alternator, includes dynamos Common charger qualities Charging mode i.e. float, overcharge, etc.",
+      "units": null
+    },
+    {
+      "pattern": "electrical.alternators.*.current",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about an Alternator charging device Mechanically driven alternator, includes dynamos DC common qualities Current flowing out (+ve) or in (-ve) to the device. Reversed for batteries (+ve = charging).",
+      "units": "A"
+    },
+    {
+      "pattern": "electrical.alternators.*.fieldDrive",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about an Alternator charging device Mechanically driven alternator, includes dynamos % (0..100) of field voltage applied",
+      "units": "%"
+    },
+    {
+      "pattern": "electrical.alternators.*.location",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about an Alternator charging device Mechanically driven alternator, includes dynamos  Common ID items shared by electrical items Installed location of device on vessel",
+      "units": null
+    },
+    {
+      "pattern": "electrical.alternators.*.manufacturer.model",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about an Alternator charging device Mechanically driven alternator, includes dynamos  Common ID items shared by electrical items Model or part number",
+      "units": null
+    },
+    {
+      "pattern": "electrical.alternators.*.manufacturer.name",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about an Alternator charging device Mechanically driven alternator, includes dynamos  Common ID items shared by electrical items Manufacturer's name",
+      "units": null
+    },
+    {
+      "pattern": "electrical.alternators.*.manufacturer.URL",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about an Alternator charging device Mechanically driven alternator, includes dynamos  Common ID items shared by electrical items Web referance / URL",
+      "units": null
+    },
+    {
+      "pattern": "electrical.alternators.*.name",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about an Alternator charging device Mechanically driven alternator, includes dynamos  Common ID items shared by electrical items Unique ID of device (houseBattery, alternator, Generator, solar1, inverter, charger, combiner, etc.)",
+      "units": null
+    },
+    {
+      "pattern": "electrical.alternators.*.pulleyRatio",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about an Alternator charging device Mechanically driven alternator, includes dynamos Mechanical pulley ratio of driving source (Used to back calculate engine RPMs)",
+      "units": "ratio"
+    },
+    {
+      "pattern": "electrical.alternators.*.regulatorTemperature",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about an Alternator charging device Mechanically driven alternator, includes dynamos Current temperature of critical regulator components",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.alternators.*.revolutions",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about an Alternator charging device Mechanically driven alternator, includes dynamos Alternator revolutions per second (x60 for RPM)",
+      "units": "Hz"
+    },
+    {
+      "pattern": "electrical.alternators.*.setpointCurrent",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about an Alternator charging device Mechanically driven alternator, includes dynamos Common charger qualities Target current limit",
+      "units": "A"
+    },
+    {
+      "pattern": "electrical.alternators.*.setpointVoltage",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about an Alternator charging device Mechanically driven alternator, includes dynamos Common charger qualities Target regulation voltage",
+      "units": "V"
+    },
+    {
+      "pattern": "electrical.alternators.*.temperature",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about an Alternator charging device Mechanically driven alternator, includes dynamos DC common qualities Temperature measured within or on the device",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.alternators.*.temperature.faultLower",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about an Alternator charging device Mechanically driven alternator, includes dynamos DC common qualities Lower fault temperature limit - device may disable/disconnect",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.alternators.*.temperature.faultUpper",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about an Alternator charging device Mechanically driven alternator, includes dynamos DC common qualities Upper fault temperature limit - device may disable/disconnect",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.alternators.*.temperature.warnLower",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about an Alternator charging device Mechanically driven alternator, includes dynamos DC common qualities Lower operational temperature limit",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.alternators.*.temperature.warnUpper",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about an Alternator charging device Mechanically driven alternator, includes dynamos DC common qualities Upper operational temperature limit",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.alternators.*.voltage",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about an Alternator charging device Mechanically driven alternator, includes dynamos DC common qualities Voltage measured at or as close as possible to the device",
+      "units": "V"
+    },
+    {
+      "pattern": "electrical.alternators.*.voltage.ripple",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about an Alternator charging device Mechanically driven alternator, includes dynamos DC common qualities DC Ripple voltage",
+      "units": "V"
+    },
+    {
+      "pattern": "electrical.batteries.*.associatedBus",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel DC common qualities Name of BUS device is associated with",
+      "units": null
+    },
+    {
+      "pattern": "electrical.batteries.*.capacity.actual",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel Data about the battery's capacity The measured capacity of battery. This may change over time and will likely deviate from the nominal capacity.",
+      "units": "J"
+    },
+    {
+      "pattern": "electrical.batteries.*.capacity.dischargeLimit",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel Data about the battery's capacity Minimum capacity to be left in the battery while discharging",
+      "units": "J"
+    },
+    {
+      "pattern": "electrical.batteries.*.capacity.dischargeSinceFull",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel Data about the battery's capacity Cumulative discharge since battery was last full",
+      "units": "C"
+    },
+    {
+      "pattern": "electrical.batteries.*.capacity.nominal",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel Data about the battery's capacity The capacity of battery as specified by the manufacturer",
+      "units": "J"
+    },
+    {
+      "pattern": "electrical.batteries.*.capacity.remaining",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel Data about the battery's capacity Capacity remaining in battery",
+      "units": "J"
+    },
+    {
+      "pattern": "electrical.batteries.*.capacity.stateOfCharge",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel Data about the battery's capacity State of charge, 1 = 100%",
+      "units": "ratio"
+    },
+    {
+      "pattern": "electrical.batteries.*.capacity.stateOfHealth",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel Data about the battery's capacity State of Health, 1 = 100%",
+      "units": "ratio"
+    },
+    {
+      "pattern": "electrical.batteries.*.capacity.timeRemaining",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel Data about the battery's capacity Time to discharge to discharge limit at current rate",
+      "units": "s"
+    },
+    {
+      "pattern": "electrical.batteries.*.chemistry",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel Type of battery FLA, LiFePO4, etc.",
+      "units": null
+    },
+    {
+      "pattern": "electrical.batteries.*.current",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel DC common qualities Current flowing out (+ve) or in (-ve) to the device. Reversed for batteries (+ve = charging).",
+      "units": "A"
+    },
+    {
+      "pattern": "electrical.batteries.*.lifetimeDischarge",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel Cumulative charge discharged from battery over operational lifetime of battery",
+      "units": "C"
+    },
+    {
+      "pattern": "electrical.batteries.*.lifetimeRecharge",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel Cumulative charge recharged into battery over operational lifetime of battery",
+      "units": "C"
+    },
+    {
+      "pattern": "electrical.batteries.*.location",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel  Common ID items shared by electrical items Installed location of device on vessel",
+      "units": null
+    },
+    {
+      "pattern": "electrical.batteries.*.manufacturer.model",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel  Common ID items shared by electrical items Model or part number",
+      "units": null
+    },
+    {
+      "pattern": "electrical.batteries.*.manufacturer.name",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel  Common ID items shared by electrical items Manufacturer's name",
+      "units": null
+    },
+    {
+      "pattern": "electrical.batteries.*.manufacturer.URL",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel  Common ID items shared by electrical items Web referance / URL",
+      "units": null
+    },
+    {
+      "pattern": "electrical.batteries.*.name",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel  Common ID items shared by electrical items Unique ID of device (houseBattery, alternator, Generator, solar1, inverter, charger, combiner, etc.)",
+      "units": null
+    },
+    {
+      "pattern": "electrical.batteries.*.temperature",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel DC common qualities Temperature measured within or on the device",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.batteries.*.temperature.faultLower",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel DC common qualities Lower fault temperature limit - device may disable/disconnect",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.batteries.*.temperature.faultUpper",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel DC common qualities Upper fault temperature limit - device may disable/disconnect",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.batteries.*.temperature.limitDischargeLower",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel Additional / unique temperatures associated with a battery Operational minimum temperature limit for battery discharge",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.batteries.*.temperature.limitDischargeUpper",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel Additional / unique temperatures associated with a battery Operational maximum temperature limit for battery discharge",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.batteries.*.temperature.limitRechargeLower",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel Additional / unique temperatures associated with a battery Operational minimum temperature limit for battery recharging",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.batteries.*.temperature.limitRechargeUpper",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel Additional / unique temperatures associated with a battery Operational maximum temperature limit for battery recharging",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.batteries.*.temperature.warnLower",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel DC common qualities Lower operational temperature limit",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.batteries.*.temperature.warnUpper",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel DC common qualities Upper operational temperature limit",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.batteries.*.voltage",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel DC common qualities Voltage measured at or as close as possible to the device",
+      "units": "V"
+    },
+    {
+      "pattern": "electrical.batteries.*.voltage.ripple",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the vessel's batteries Batteries, one or many, within the vessel DC common qualities DC Ripple voltage",
+      "units": "V"
+    },
+    {
+      "pattern": "electrical.chargers.*.associatedBus",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about AC sourced battery charger Battery charger DC common qualities Name of BUS device is associated with",
+      "units": null
+    },
+    {
+      "pattern": "electrical.chargers.*.chargerRole",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about AC sourced battery charger Battery charger Common charger qualities How is charging source configured?  Standalone, or in sync with another charger?",
+      "units": null
+    },
+    {
+      "pattern": "electrical.chargers.*.chargingAlgorithm",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about AC sourced battery charger Battery charger Common charger qualities Algorithm being used by the charger",
+      "units": null
+    },
+    {
+      "pattern": "electrical.chargers.*.chargingMode",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about AC sourced battery charger Battery charger Common charger qualities Charging mode i.e. float, overcharge, etc.",
+      "units": null
+    },
+    {
+      "pattern": "electrical.chargers.*.current",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about AC sourced battery charger Battery charger DC common qualities Current flowing out (+ve) or in (-ve) to the device. Reversed for batteries (+ve = charging).",
+      "units": "A"
+    },
+    {
+      "pattern": "electrical.chargers.*.location",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about AC sourced battery charger Battery charger  Common ID items shared by electrical items Installed location of device on vessel",
+      "units": null
+    },
+    {
+      "pattern": "electrical.chargers.*.manufacturer.model",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about AC sourced battery charger Battery charger  Common ID items shared by electrical items Model or part number",
+      "units": null
+    },
+    {
+      "pattern": "electrical.chargers.*.manufacturer.name",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about AC sourced battery charger Battery charger  Common ID items shared by electrical items Manufacturer's name",
+      "units": null
+    },
+    {
+      "pattern": "electrical.chargers.*.manufacturer.URL",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about AC sourced battery charger Battery charger  Common ID items shared by electrical items Web referance / URL",
+      "units": null
+    },
+    {
+      "pattern": "electrical.chargers.*.name",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about AC sourced battery charger Battery charger  Common ID items shared by electrical items Unique ID of device (houseBattery, alternator, Generator, solar1, inverter, charger, combiner, etc.)",
+      "units": null
+    },
+    {
+      "pattern": "electrical.chargers.*.setpointCurrent",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about AC sourced battery charger Battery charger Common charger qualities Target current limit",
+      "units": "A"
+    },
+    {
+      "pattern": "electrical.chargers.*.setpointVoltage",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about AC sourced battery charger Battery charger Common charger qualities Target regulation voltage",
+      "units": "V"
+    },
+    {
+      "pattern": "electrical.chargers.*.temperature",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about AC sourced battery charger Battery charger DC common qualities Temperature measured within or on the device",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.chargers.*.temperature.faultLower",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about AC sourced battery charger Battery charger DC common qualities Lower fault temperature limit - device may disable/disconnect",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.chargers.*.temperature.faultUpper",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about AC sourced battery charger Battery charger DC common qualities Upper fault temperature limit - device may disable/disconnect",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.chargers.*.temperature.warnLower",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about AC sourced battery charger Battery charger DC common qualities Lower operational temperature limit",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.chargers.*.temperature.warnUpper",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about AC sourced battery charger Battery charger DC common qualities Upper operational temperature limit",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.chargers.*.voltage",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about AC sourced battery charger Battery charger DC common qualities Voltage measured at or as close as possible to the device",
+      "units": "V"
+    },
+    {
+      "pattern": "electrical.chargers.*.voltage.ripple",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about AC sourced battery charger Battery charger DC common qualities DC Ripple voltage",
+      "units": "V"
+    },
+    {
+      "pattern": "electrical.inverters.*.ac.apparentPower",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the Inverter that has both DC and AC qualities DC to AC inverter, one or many, within the vessel AC equipment common qualities Apparent power.",
+      "units": "W"
+    },
+    {
+      "pattern": "electrical.inverters.*.ac.associatedBus",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the Inverter that has both DC and AC qualities DC to AC inverter, one or many, within the vessel AC equipment common qualities Name of BUS device is associated with",
+      "units": null
+    },
+    {
+      "pattern": "electrical.inverters.*.ac.current",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the Inverter that has both DC and AC qualities DC to AC inverter, one or many, within the vessel AC equipment common qualities RMS current",
+      "units": "A"
+    },
+    {
+      "pattern": "electrical.inverters.*.ac.frequency",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the Inverter that has both DC and AC qualities DC to AC inverter, one or many, within the vessel AC equipment common qualities AC frequency.",
+      "units": "Hz"
+    },
+    {
+      "pattern": "electrical.inverters.*.ac.lineLineVoltage",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the Inverter that has both DC and AC qualities DC to AC inverter, one or many, within the vessel AC equipment common qualities RMS voltage measured between phases",
+      "units": "V"
+    },
+    {
+      "pattern": "electrical.inverters.*.ac.lineNeutralVoltage",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the Inverter that has both DC and AC qualities DC to AC inverter, one or many, within the vessel AC equipment common qualities RMS voltage measured between phase and neutral",
+      "units": "V"
+    },
+    {
+      "pattern": "electrical.inverters.*.ac.powerFactor",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the Inverter that has both DC and AC qualities DC to AC inverter, one or many, within the vessel AC equipment common qualities Power factor",
+      "units": null
+    },
+    {
+      "pattern": "electrical.inverters.*.ac.powerFactorLagging",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the Inverter that has both DC and AC qualities DC to AC inverter, one or many, within the vessel AC equipment common qualities Lead/lag status.",
+      "units": null
+    },
+    {
+      "pattern": "electrical.inverters.*.ac.reactivePower",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the Inverter that has both DC and AC qualities DC to AC inverter, one or many, within the vessel AC equipment common qualities Reactive power",
+      "units": "W"
+    },
+    {
+      "pattern": "electrical.inverters.*.ac.realPower",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the Inverter that has both DC and AC qualities DC to AC inverter, one or many, within the vessel AC equipment common qualities Real power.",
+      "units": "W"
+    },
+    {
+      "pattern": "electrical.inverters.*.dc.associatedBus",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the Inverter that has both DC and AC qualities DC to AC inverter, one or many, within the vessel DC common qualities Name of BUS device is associated with",
+      "units": null
+    },
+    {
+      "pattern": "electrical.inverters.*.dc.current",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the Inverter that has both DC and AC qualities DC to AC inverter, one or many, within the vessel DC common qualities Current flowing out (+ve) or in (-ve) to the device. Reversed for batteries (+ve = charging).",
+      "units": "A"
+    },
+    {
+      "pattern": "electrical.inverters.*.dc.temperature",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the Inverter that has both DC and AC qualities DC to AC inverter, one or many, within the vessel DC common qualities Temperature measured within or on the device",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.inverters.*.dc.temperature.faultLower",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the Inverter that has both DC and AC qualities DC to AC inverter, one or many, within the vessel DC common qualities Lower fault temperature limit - device may disable/disconnect",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.inverters.*.dc.temperature.faultUpper",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the Inverter that has both DC and AC qualities DC to AC inverter, one or many, within the vessel DC common qualities Upper fault temperature limit - device may disable/disconnect",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.inverters.*.dc.temperature.warnLower",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the Inverter that has both DC and AC qualities DC to AC inverter, one or many, within the vessel DC common qualities Lower operational temperature limit",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.inverters.*.dc.temperature.warnUpper",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the Inverter that has both DC and AC qualities DC to AC inverter, one or many, within the vessel DC common qualities Upper operational temperature limit",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.inverters.*.dc.voltage",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the Inverter that has both DC and AC qualities DC to AC inverter, one or many, within the vessel DC common qualities Voltage measured at or as close as possible to the device",
+      "units": "V"
+    },
+    {
+      "pattern": "electrical.inverters.*.dc.voltage.ripple",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the Inverter that has both DC and AC qualities DC to AC inverter, one or many, within the vessel DC common qualities DC Ripple voltage",
+      "units": "V"
+    },
+    {
+      "pattern": "electrical.inverters.*.inverterMode",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the Inverter that has both DC and AC qualities DC to AC inverter, one or many, within the vessel Mode of inverter",
+      "units": null
+    },
+    {
+      "pattern": "electrical.inverters.*.location",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the Inverter that has both DC and AC qualities DC to AC inverter, one or many, within the vessel  Common ID items shared by electrical items Installed location of device on vessel",
+      "units": null
+    },
+    {
+      "pattern": "electrical.inverters.*.manufacturer.model",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the Inverter that has both DC and AC qualities DC to AC inverter, one or many, within the vessel  Common ID items shared by electrical items Model or part number",
+      "units": null
+    },
+    {
+      "pattern": "electrical.inverters.*.manufacturer.name",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the Inverter that has both DC and AC qualities DC to AC inverter, one or many, within the vessel  Common ID items shared by electrical items Manufacturer's name",
+      "units": null
+    },
+    {
+      "pattern": "electrical.inverters.*.manufacturer.URL",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the Inverter that has both DC and AC qualities DC to AC inverter, one or many, within the vessel  Common ID items shared by electrical items Web referance / URL",
+      "units": null
+    },
+    {
+      "pattern": "electrical.inverters.*.name",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about the Inverter that has both DC and AC qualities DC to AC inverter, one or many, within the vessel  Common ID items shared by electrical items Unique ID of device (houseBattery, alternator, Generator, solar1, inverter, charger, combiner, etc.)",
+      "units": null
+    },
+    {
+      "pattern": "electrical.solar.*.associatedBus",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about Solar charging device(s) Photovoltaic charging devices DC common qualities Name of BUS device is associated with",
+      "units": null
+    },
+    {
+      "pattern": "electrical.solar.*.chargerRole",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about Solar charging device(s) Photovoltaic charging devices Common charger qualities How is charging source configured?  Standalone, or in sync with another charger?",
+      "units": null
+    },
+    {
+      "pattern": "electrical.solar.*.chargingAlgorithm",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about Solar charging device(s) Photovoltaic charging devices Common charger qualities Algorithm being used by the charger",
+      "units": null
+    },
+    {
+      "pattern": "electrical.solar.*.chargingMode",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about Solar charging device(s) Photovoltaic charging devices Common charger qualities Charging mode i.e. float, overcharge, etc.",
+      "units": null
+    },
+    {
+      "pattern": "electrical.solar.*.controllerMode",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about Solar charging device(s) Photovoltaic charging devices The current state of the engine",
+      "units": null
+    },
+    {
+      "pattern": "electrical.solar.*.current",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about Solar charging device(s) Photovoltaic charging devices DC common qualities Current flowing out (+ve) or in (-ve) to the device. Reversed for batteries (+ve = charging).",
+      "units": "A"
+    },
+    {
+      "pattern": "electrical.solar.*.load",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about Solar charging device(s) Photovoltaic charging devices State of load port on controller (if applicable)",
+      "units": null
+    },
+    {
+      "pattern": "electrical.solar.*.loadCurrent",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about Solar charging device(s) Photovoltaic charging devices Amperage being supplied to load directly connected to controller",
+      "units": "A"
+    },
+    {
+      "pattern": "electrical.solar.*.location",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about Solar charging device(s) Photovoltaic charging devices  Common ID items shared by electrical items Installed location of device on vessel",
+      "units": null
+    },
+    {
+      "pattern": "electrical.solar.*.manufacturer.model",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about Solar charging device(s) Photovoltaic charging devices  Common ID items shared by electrical items Model or part number",
+      "units": null
+    },
+    {
+      "pattern": "electrical.solar.*.manufacturer.name",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about Solar charging device(s) Photovoltaic charging devices  Common ID items shared by electrical items Manufacturer's name",
+      "units": null
+    },
+    {
+      "pattern": "electrical.solar.*.manufacturer.URL",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about Solar charging device(s) Photovoltaic charging devices  Common ID items shared by electrical items Web referance / URL",
+      "units": null
+    },
+    {
+      "pattern": "electrical.solar.*.name",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about Solar charging device(s) Photovoltaic charging devices  Common ID items shared by electrical items Unique ID of device (houseBattery, alternator, Generator, solar1, inverter, charger, combiner, etc.)",
+      "units": null
+    },
+    {
+      "pattern": "electrical.solar.*.panelCurrent",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about Solar charging device(s) Photovoltaic charging devices Amperage being supplied from Solar Panels to controller",
+      "units": "A"
+    },
+    {
+      "pattern": "electrical.solar.*.panelPower",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about Solar charging device(s) Photovoltaic charging devices Power being supplied from Solar Panels to controller",
+      "units": "W"
+    },
+    {
+      "pattern": "electrical.solar.*.panelTemperature",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about Solar charging device(s) Photovoltaic charging devices Temperature of panels",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.solar.*.panelVoltage",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about Solar charging device(s) Photovoltaic charging devices Voltage being supplied from Solar Panels to controller",
+      "units": "V"
+    },
+    {
+      "pattern": "electrical.solar.*.setpointCurrent",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about Solar charging device(s) Photovoltaic charging devices Common charger qualities Target current limit",
+      "units": "A"
+    },
+    {
+      "pattern": "electrical.solar.*.setpointVoltage",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about Solar charging device(s) Photovoltaic charging devices Common charger qualities Target regulation voltage",
+      "units": "V"
+    },
+    {
+      "pattern": "electrical.solar.*.temperature",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about Solar charging device(s) Photovoltaic charging devices DC common qualities Temperature measured within or on the device",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.solar.*.temperature.faultLower",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about Solar charging device(s) Photovoltaic charging devices DC common qualities Lower fault temperature limit - device may disable/disconnect",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.solar.*.temperature.faultUpper",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about Solar charging device(s) Photovoltaic charging devices DC common qualities Upper fault temperature limit - device may disable/disconnect",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.solar.*.temperature.warnLower",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about Solar charging device(s) Photovoltaic charging devices DC common qualities Lower operational temperature limit",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.solar.*.temperature.warnUpper",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about Solar charging device(s) Photovoltaic charging devices DC common qualities Upper operational temperature limit",
+      "units": "K"
+    },
+    {
+      "pattern": "electrical.solar.*.voltage",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about Solar charging device(s) Photovoltaic charging devices DC common qualities Voltage measured at or as close as possible to the device",
+      "units": "V"
+    },
+    {
+      "pattern": "electrical.solar.*.voltage.ripple",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about Solar charging device(s) Photovoltaic charging devices DC common qualities DC Ripple voltage",
+      "units": "V"
+    },
+    {
+      "pattern": "electrical.solar.*.yieldToday",
+      "description": "Schema describing the electrical child-object of a Vessel. Data about Solar charging device(s) Photovoltaic charging devices Total energy generated by Solar Panels today",
+      "units": "J"
+    },
+    {
+      "pattern": "environment.current.drift",
+      "description": "Schema describing the environmental child-object of a Vessel. Direction and strength of current affecting the vessel The speed component of the water current vector",
+      "units": "m/s"
+    },
+    {
+      "pattern": "environment.current.setMagnetic",
+      "description": "Schema describing the environmental child-object of a Vessel. Direction and strength of current affecting the vessel The direction component of the water current vector referenced to magnetic north",
+      "units": "rad"
+    },
+    {
+      "pattern": "environment.current.setTrue",
+      "description": "Schema describing the environmental child-object of a Vessel. Direction and strength of current affecting the vessel The direction component of the water current vector referenced to true (geographic) north",
+      "units": "rad"
+    },
+    {
+      "pattern": "environment.depth.belowKeel",
+      "description": "Schema describing the environmental child-object of a Vessel. Depth related data Depth below keel",
+      "units": "m"
+    },
+    {
+      "pattern": "environment.depth.belowSurface",
+      "description": "Schema describing the environmental child-object of a Vessel. Depth related data Depth from surface",
+      "units": "m"
+    },
+    {
+      "pattern": "environment.depth.belowTransducer",
+      "description": "Schema describing the environmental child-object of a Vessel. Depth related data Depth below Transducer",
+      "units": "m"
+    },
+    {
+      "pattern": "environment.depth.surfaceToTransducer",
+      "description": "Schema describing the environmental child-object of a Vessel. Depth related data Depth transducer is below the water surface",
+      "units": "m"
+    },
+    {
+      "pattern": "environment.depth.transducerToKeel",
+      "description": "Schema describing the environmental child-object of a Vessel. Depth related data Depth from the transducer to the bottom of the keel",
+      "units": "m"
+    },
+    {
+      "pattern": "environment.heave",
+      "description": "Schema describing the environmental child-object of a Vessel. Vertical movement of the vessel due to waves",
+      "units": "m"
+    },
+    {
+      "pattern": "environment.inside.*.airDensity",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions inside the vessel's hull This regex pattern is used for validation of the identifier for the environmental zone, eg. engineRoom, mainCabin, refrigerator Air density in zone",
+      "units": "kg/m3"
+    },
+    {
+      "pattern": "environment.inside.*.dewPoint",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions inside the vessel's hull This regex pattern is used for validation of the identifier for the environmental zone, eg. engineRoom, mainCabin, refrigerator DEPRECATED: use dewPointTemperature",
+      "units": "K"
+    },
+    {
+      "pattern": "environment.inside.*.dewPointTemperature",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions inside the vessel's hull This regex pattern is used for validation of the identifier for the environmental zone, eg. engineRoom, mainCabin, refrigerator Dewpoint in zone",
+      "units": "K"
+    },
+    {
+      "pattern": "environment.inside.*.heatIndexTemperature",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions inside the vessel's hull This regex pattern is used for validation of the identifier for the environmental zone, eg. engineRoom, mainCabin, refrigerator Current heat index temperature in zone",
+      "units": "K"
+    },
+    {
+      "pattern": "environment.inside.*.illuminance",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions inside the vessel's hull This regex pattern is used for validation of the identifier for the environmental zone, eg. engineRoom, mainCabin, refrigerator Illuminance in zone",
+      "units": "Lux"
+    },
+    {
+      "pattern": "environment.inside.*.pressure",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions inside the vessel's hull This regex pattern is used for validation of the identifier for the environmental zone, eg. engineRoom, mainCabin, refrigerator Pressure in zone",
+      "units": "Pa"
+    },
+    {
+      "pattern": "environment.inside.*.relativeHumidity",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions inside the vessel's hull This regex pattern is used for validation of the identifier for the environmental zone, eg. engineRoom, mainCabin, refrigerator Relative humidity in zone",
+      "units": "ratio"
+    },
+    {
+      "pattern": "environment.inside.*.temperature",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions inside the vessel's hull This regex pattern is used for validation of the identifier for the environmental zone, eg. engineRoom, mainCabin, refrigerator Temperature",
+      "units": "K"
+    },
+    {
+      "pattern": "environment.inside.airDensity",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions inside the vessel's hull Air density in zone",
+      "units": "kg/m3"
+    },
+    {
+      "pattern": "environment.inside.dewPoint",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions inside the vessel's hull DEPRECATED: use dewPointTemperature",
+      "units": "K"
+    },
+    {
+      "pattern": "environment.inside.dewPointTemperature",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions inside the vessel's hull Dewpoint in zone",
+      "units": "K"
+    },
+    {
+      "pattern": "environment.inside.heatIndexTemperature",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions inside the vessel's hull Current heat index temperature in zone",
+      "units": "K"
+    },
+    {
+      "pattern": "environment.inside.illuminance",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions inside the vessel's hull Illuminance in zone",
+      "units": "Lux"
+    },
+    {
+      "pattern": "environment.inside.pressure",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions inside the vessel's hull Pressure in zone",
+      "units": "Pa"
+    },
+    {
+      "pattern": "environment.inside.relativeHumidity",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions inside the vessel's hull Relative humidity in zone",
+      "units": "ratio"
+    },
+    {
+      "pattern": "environment.inside.temperature",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions inside the vessel's hull Temperature",
+      "units": "K"
+    },
+    {
+      "pattern": "environment.mode",
+      "description": "Schema describing the environmental child-object of a Vessel. Mode of the vessel based on the current conditions. Can be combined with navigation.state to control vessel signals eg switch to night mode for instrumentation and lights, or make sound signals for fog.",
+      "units": null
+    },
+    {
+      "pattern": "environment.outside.airDensity",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions outside of the vessel's hull Current outside air density",
+      "units": "kg/m3"
+    },
+    {
+      "pattern": "environment.outside.apparentWindChillTemperature",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions outside of the vessel's hull Current outside apparent wind chill temperature",
+      "units": "K"
+    },
+    {
+      "pattern": "environment.outside.dewPointTemperature",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions outside of the vessel's hull Current outside dew point temperature",
+      "units": "K"
+    },
+    {
+      "pattern": "environment.outside.heatIndexTemperature",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions outside of the vessel's hull Current outside heat index temperature",
+      "units": "K"
+    },
+    {
+      "pattern": "environment.outside.humidity",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions outside of the vessel's hull DEPRECATED: use relativeHumidity",
+      "units": "ratio"
+    },
+    {
+      "pattern": "environment.outside.illuminance",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions outside of the vessel's hull Current outside ambient light flux.",
+      "units": "Lux"
+    },
+    {
+      "pattern": "environment.outside.pressure",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions outside of the vessel's hull Current outside air ambient pressure",
+      "units": "Pa"
+    },
+    {
+      "pattern": "environment.outside.relativeHumidity",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions outside of the vessel's hull Current outside air relative humidity",
+      "units": "ratio"
+    },
+    {
+      "pattern": "environment.outside.temperature",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions outside of the vessel's hull Current outside air temperature",
+      "units": "K"
+    },
+    {
+      "pattern": "environment.outside.theoreticalWindChillTemperature",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions outside of the vessel's hull Current outside theoretical wind chill temperature",
+      "units": "K"
+    },
+    {
+      "pattern": "environment.tide.heightHigh",
+      "description": "Schema describing the environmental child-object of a Vessel. Tide data Next high tide height  relative to lowest astronomical tide (LAT/Chart Datum)",
+      "units": "m"
+    },
+    {
+      "pattern": "environment.tide.heightLow",
+      "description": "Schema describing the environmental child-object of a Vessel. Tide data The next low tide height relative to lowest astronomical tide (LAT/Chart Datum)",
+      "units": "m"
+    },
+    {
+      "pattern": "environment.tide.heightNow",
+      "description": "Schema describing the environmental child-object of a Vessel. Tide data The current tide height  relative to lowest astronomical tide (LAT/Chart Datum)",
+      "units": "m"
+    },
+    {
+      "pattern": "environment.time.millis",
+      "description": "Schema describing the environmental child-object of a Vessel. A time reference for the vessel. All clocks on the vessel dispaying local time should use the timezone offset here. If a timezoneRegion is supplied the timezone must also be supplied. If timezoneRegion is supplied that should be displayed by UIs in preference to simply timezone. ie 12:05 (Europe/London) should be displayed in preference to 12:05 (UTC+01:00) Milliseconds since the UNIX epoch (1970-01-01 00:00:00)",
+      "units": null
+    },
+    {
+      "pattern": "environment.time.timezoneOffset",
+      "description": "Schema describing the environmental child-object of a Vessel. A time reference for the vessel. All clocks on the vessel dispaying local time should use the timezone offset here. If a timezoneRegion is supplied the timezone must also be supplied. If timezoneRegion is supplied that should be displayed by UIs in preference to simply timezone. ie 12:05 (Europe/London) should be displayed in preference to 12:05 (UTC+01:00) Onboard timezone offset from UTC in hours and minutes (-)hhmm. +ve means east of Greenwich. For use by UIs",
+      "units": null
+    },
+    {
+      "pattern": "environment.time.timezoneRegion",
+      "description": "Schema describing the environmental child-object of a Vessel. A time reference for the vessel. All clocks on the vessel dispaying local time should use the timezone offset here. If a timezoneRegion is supplied the timezone must also be supplied. If timezoneRegion is supplied that should be displayed by UIs in preference to simply timezone. ie 12:05 (Europe/London) should be displayed in preference to 12:05 (UTC+01:00) Onboard timezone offset as listed in the IANA timezone database (tz database)",
+      "units": null
+    },
+    {
+      "pattern": "environment.water.salinity",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions of the water that the vessel is sailing in Water salinity",
+      "units": "ratio"
+    },
+    {
+      "pattern": "environment.water.temperature",
+      "description": "Schema describing the environmental child-object of a Vessel. Environmental conditions of the water that the vessel is sailing in Current water temperature",
+      "units": "K"
+    },
+    {
+      "pattern": "environment.wind.angleApparent",
+      "description": "Schema describing the environmental child-object of a Vessel. Wind data. Apparent wind angle, negative to port",
+      "units": "rad"
+    },
+    {
+      "pattern": "environment.wind.angleTrueGround",
+      "description": "Schema describing the environmental child-object of a Vessel. Wind data. True wind angle based on speed over ground, negative to port",
+      "units": "rad"
+    },
+    {
+      "pattern": "environment.wind.angleTrueWater",
+      "description": "Schema describing the environmental child-object of a Vessel. Wind data. True wind angle based on speed through water, negative to port",
+      "units": "rad"
+    },
+    {
+      "pattern": "environment.wind.directionChangeAlarm",
+      "description": "Schema describing the environmental child-object of a Vessel. Wind data. The angle the wind needs to shift to raise an alarm",
+      "units": "rad"
+    },
+    {
+      "pattern": "environment.wind.directionMagnetic",
+      "description": "Schema describing the environmental child-object of a Vessel. Wind data. The wind direction relative to magnetic north",
+      "units": "rad"
+    },
+    {
+      "pattern": "environment.wind.directionTrue",
+      "description": "Schema describing the environmental child-object of a Vessel. Wind data. The wind direction relative to true north",
+      "units": "rad"
+    },
+    {
+      "pattern": "environment.wind.speedApparent",
+      "description": "Schema describing the environmental child-object of a Vessel. Wind data. Apparent wind speed",
+      "units": "m/s"
+    },
+    {
+      "pattern": "environment.wind.speedOverGround",
+      "description": "Schema describing the environmental child-object of a Vessel. Wind data. Wind speed over ground (as calculated from speedApparent and vessel's speed over ground)",
+      "units": "m/s"
+    },
+    {
+      "pattern": "environment.wind.speedTrue",
+      "description": "Schema describing the environmental child-object of a Vessel. Wind data. Wind speed over water (as calculated from speedApparent and vessel's speed through water)",
+      "units": "m/s"
+    },
+    {
+      "pattern": "navigation.anchor.currentRadius",
+      "description": "Schema describing the navigation child-object of a Vessel. The anchor data, for anchor watch etc Current distance to anchor",
+      "units": "m"
+    },
+    {
+      "pattern": "navigation.anchor.maxRadius",
+      "description": "Schema describing the navigation child-object of a Vessel. The anchor data, for anchor watch etc Radius of anchor alarm boundary. The distance from anchor to the center of the boat",
+      "units": "m"
+    },
+    {
+      "pattern": "navigation.anchor.position.altitude",
+      "description": "Schema describing the navigation child-object of a Vessel. The anchor data, for anchor watch etc The actual anchor position of the vessel in 3 dimensions, probably an estimate at best The position in 3 dimensions Altitude",
+      "units": "m"
+    },
+    {
+      "pattern": "navigation.anchor.position.latitude",
+      "description": "Schema describing the navigation child-object of a Vessel. The anchor data, for anchor watch etc The actual anchor position of the vessel in 3 dimensions, probably an estimate at best The position in 3 dimensions Latitude",
+      "units": "deg"
+    },
+    {
+      "pattern": "navigation.anchor.position.longitude",
+      "description": "Schema describing the navigation child-object of a Vessel. The anchor data, for anchor watch etc The actual anchor position of the vessel in 3 dimensions, probably an estimate at best The position in 3 dimensions Longitude",
+      "units": "deg"
+    },
+    {
+      "pattern": "navigation.attitude.pitch",
+      "description": "Schema describing the navigation child-object of a Vessel. Vessel attitude: roll, pitch and yaw Pitch, +ve is bow up",
+      "units": "rad"
+    },
+    {
+      "pattern": "navigation.attitude.roll",
+      "description": "Schema describing the navigation child-object of a Vessel. Vessel attitude: roll, pitch and yaw Vessel roll, +ve is list to starboard",
+      "units": "rad"
+    },
+    {
+      "pattern": "navigation.attitude.yaw",
+      "description": "Schema describing the navigation child-object of a Vessel. Vessel attitude: roll, pitch and yaw Yaw, +ve is heading change to starboard",
+      "units": "rad"
+    },
+    {
+      "pattern": "navigation.closestApproach.distance",
+      "description": "Schema describing the navigation child-object of a Vessel. Calculated values for other vessels, e.g. from AIS Closest Point of Approach (CPA), distance between own vessel and other vessel, based on current speeds, headings and positions",
+      "units": "m"
+    },
+    {
+      "pattern": "navigation.closestApproach.timeTo",
+      "description": "Schema describing the navigation child-object of a Vessel. Calculated values for other vessels, e.g. from AIS Time to Closest Point of Approach (TCPA), between own vessel and other vessel, based on current speeds, headings and positions",
+      "units": "s"
+    },
+    {
+      "pattern": "navigation.courseGreatCircle.activeRoute.estimatedTimeOfArrival",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Great Circle The currently active course (can be a route, or just a point one is navigating towards) Data required if sailing to an active route, defined in resources. The estimated time of arrival at the end of the current route",
+      "units": null
+    },
+    {
+      "pattern": "navigation.courseGreatCircle.activeRoute.href",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Great Circle The currently active course (can be a route, or just a point one is navigating towards) Data required if sailing to an active route, defined in resources. A reference (URL) to the presently active route, in resources.",
+      "units": null
+    },
+    {
+      "pattern": "navigation.courseGreatCircle.activeRoute.startTime",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Great Circle The currently active course (can be a route, or just a point one is navigating towards) Data required if sailing to an active route, defined in resources. The time this route was activated",
+      "units": null
+    },
+    {
+      "pattern": "navigation.courseGreatCircle.bearingTrackMagnetic",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Great Circle The currently active course (can be a route, or just a point one is navigating towards) The bearing of a line between previousPoint and nextPoint, relative to magnetic north.",
+      "units": "rad"
+    },
+    {
+      "pattern": "navigation.courseGreatCircle.bearingTrackTrue",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Great Circle The currently active course (can be a route, or just a point one is navigating towards) The bearing of a line between previousPoint and nextPoint, relative to true north.",
+      "units": "rad"
+    },
+    {
+      "pattern": "navigation.courseGreatCircle.crossTrackError",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Great Circle The currently active course (can be a route, or just a point one is navigating towards) The distance from the vessel's present position to the closest point on a line (track) between previousPoint and nextPoint. A negative number indicates that the vessel is currently to the left of this line (and thus must steer right to compensate), a positive number means the vessel is to the right of the line (steer left to compensate).",
+      "units": "m"
+    },
+    {
+      "pattern": "navigation.courseGreatCircle.nextPoint.bearingMagnetic",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Great Circle The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating towards The bearing of a line between the vessel's current position and nextPoint, relative to magnetic north",
+      "units": "rad"
+    },
+    {
+      "pattern": "navigation.courseGreatCircle.nextPoint.bearingTrue",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Great Circle The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating towards The bearing of a line between the vessel's current position and nextPoint, relative to true north",
+      "units": "rad"
+    },
+    {
+      "pattern": "navigation.courseGreatCircle.nextPoint.distance",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Great Circle The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating towards The distance in meters between the vessel's present position and the nextPoint",
+      "units": "m"
+    },
+    {
+      "pattern": "navigation.courseGreatCircle.nextPoint.estimatedTimeOfArrival",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Great Circle The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating towards The estimated time of arrival at nextPoint position",
+      "units": null
+    },
+    {
+      "pattern": "navigation.courseGreatCircle.nextPoint.href",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Great Circle The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating towards A reference (URL) to an object (under resources) this point is related to",
+      "units": null
+    },
+    {
+      "pattern": "navigation.courseGreatCircle.nextPoint.position.altitude",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Great Circle The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating towards The position of nextPoint in two dimensions The position in 3 dimensions Altitude",
+      "units": "m"
+    },
+    {
+      "pattern": "navigation.courseGreatCircle.nextPoint.position.latitude",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Great Circle The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating towards The position of nextPoint in two dimensions The position in 3 dimensions Latitude",
+      "units": "deg"
+    },
+    {
+      "pattern": "navigation.courseGreatCircle.nextPoint.position.longitude",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Great Circle The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating towards The position of nextPoint in two dimensions The position in 3 dimensions Longitude",
+      "units": "deg"
+    },
+    {
+      "pattern": "navigation.courseGreatCircle.nextPoint.timeToGo",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Great Circle The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating towards Time in seconds to reach nextPoint's perpendicular) with current speed & direction",
+      "units": "s"
+    },
+    {
+      "pattern": "navigation.courseGreatCircle.nextPoint.type",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Great Circle The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating towards The type of the next point (e.g. Waypoint, POI, Race Mark, etc)",
+      "units": null
+    },
+    {
+      "pattern": "navigation.courseGreatCircle.nextPoint.velocityMadeGood",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Great Circle The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating towards The velocity component of the vessel towards the nextPoint",
+      "units": "m/s"
+    },
+    {
+      "pattern": "navigation.courseGreatCircle.previousPoint.distance",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Great Circle The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating from The distance in meters between previousPoint and the vessel's present position",
+      "units": "m"
+    },
+    {
+      "pattern": "navigation.courseGreatCircle.previousPoint.href",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Great Circle The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating from A reference (URL) to an object (under resources) this point is related to",
+      "units": null
+    },
+    {
+      "pattern": "navigation.courseGreatCircle.previousPoint.position.altitude",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Great Circle The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating from The position of lastPoint in two dimensions The position in 3 dimensions Altitude",
+      "units": "m"
+    },
+    {
+      "pattern": "navigation.courseGreatCircle.previousPoint.position.latitude",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Great Circle The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating from The position of lastPoint in two dimensions The position in 3 dimensions Latitude",
+      "units": "deg"
+    },
+    {
+      "pattern": "navigation.courseGreatCircle.previousPoint.position.longitude",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Great Circle The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating from The position of lastPoint in two dimensions The position in 3 dimensions Longitude",
+      "units": "deg"
+    },
+    {
+      "pattern": "navigation.courseGreatCircle.previousPoint.type",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Great Circle The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating from The type of the previous point (e.g. Waypoint, POI, Race Mark, etc)",
+      "units": null
+    },
+    {
+      "pattern": "navigation.courseOverGroundMagnetic",
+      "description": "Schema describing the navigation child-object of a Vessel. Course over ground (magnetic)",
+      "units": "rad"
+    },
+    {
+      "pattern": "navigation.courseOverGroundTrue",
+      "description": "Schema describing the navigation child-object of a Vessel. Course over ground (true)",
+      "units": "rad"
+    },
+    {
+      "pattern": "navigation.courseRhumbline.activeRoute.estimatedTimeOfArrival",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Rhumbline The currently active course (can be a route, or just a point one is navigating towards) Data required if sailing to an active route, defined in resources. The estimated time of arrival at the end of the current route",
+      "units": null
+    },
+    {
+      "pattern": "navigation.courseRhumbline.activeRoute.href",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Rhumbline The currently active course (can be a route, or just a point one is navigating towards) Data required if sailing to an active route, defined in resources. A reference (URL) to the presently active route, in resources.",
+      "units": null
+    },
+    {
+      "pattern": "navigation.courseRhumbline.activeRoute.startTime",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Rhumbline The currently active course (can be a route, or just a point one is navigating towards) Data required if sailing to an active route, defined in resources. The time this route was activated",
+      "units": null
+    },
+    {
+      "pattern": "navigation.courseRhumbline.bearingTrackMagnetic",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Rhumbline The currently active course (can be a route, or just a point one is navigating towards) The bearing of a line between previousPoint and nextPoint, relative to magnetic north.",
+      "units": "rad"
+    },
+    {
+      "pattern": "navigation.courseRhumbline.bearingTrackTrue",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Rhumbline The currently active course (can be a route, or just a point one is navigating towards) The bearing of a line between previousPoint and nextPoint, relative to true north.",
+      "units": "rad"
+    },
+    {
+      "pattern": "navigation.courseRhumbline.crossTrackError",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Rhumbline The currently active course (can be a route, or just a point one is navigating towards) The distance from the vessel's present position to the closest point on a line (track) between previousPoint and nextPoint. A negative number indicates that the vessel is currently to the left of this line (and thus must steer right to compensate), a positive number means the vessel is to the right of the line (steer left to compensate).",
+      "units": "m"
+    },
+    {
+      "pattern": "navigation.courseRhumbline.nextPoint.bearingMagnetic",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Rhumbline The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating towards The bearing of a line between the vessel's current position and nextPoint, relative to magnetic north",
+      "units": "rad"
+    },
+    {
+      "pattern": "navigation.courseRhumbline.nextPoint.bearingTrue",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Rhumbline The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating towards The bearing of a line between the vessel's current position and nextPoint, relative to true north",
+      "units": "rad"
+    },
+    {
+      "pattern": "navigation.courseRhumbline.nextPoint.distance",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Rhumbline The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating towards The distance in meters between the vessel's present position and the nextPoint",
+      "units": "m"
+    },
+    {
+      "pattern": "navigation.courseRhumbline.nextPoint.estimatedTimeOfArrival",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Rhumbline The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating towards The estimated time of arrival at nextPoint position",
+      "units": null
+    },
+    {
+      "pattern": "navigation.courseRhumbline.nextPoint.href",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Rhumbline The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating towards A reference (URL) to an object (under resources) this point is related to",
+      "units": null
+    },
+    {
+      "pattern": "navigation.courseRhumbline.nextPoint.position.altitude",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Rhumbline The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating towards The position of nextPoint in two dimensions The position in 3 dimensions Altitude",
+      "units": "m"
+    },
+    {
+      "pattern": "navigation.courseRhumbline.nextPoint.position.latitude",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Rhumbline The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating towards The position of nextPoint in two dimensions The position in 3 dimensions Latitude",
+      "units": "deg"
+    },
+    {
+      "pattern": "navigation.courseRhumbline.nextPoint.position.longitude",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Rhumbline The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating towards The position of nextPoint in two dimensions The position in 3 dimensions Longitude",
+      "units": "deg"
+    },
+    {
+      "pattern": "navigation.courseRhumbline.nextPoint.timeToGo",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Rhumbline The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating towards Time in seconds to reach nextPoint's perpendicular) with current speed & direction",
+      "units": "s"
+    },
+    {
+      "pattern": "navigation.courseRhumbline.nextPoint.type",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Rhumbline The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating towards The type of the next point (e.g. Waypoint, POI, Race Mark, etc)",
+      "units": null
+    },
+    {
+      "pattern": "navigation.courseRhumbline.nextPoint.velocityMadeGood",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Rhumbline The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating towards The velocity component of the vessel towards the nextPoint",
+      "units": "m/s"
+    },
+    {
+      "pattern": "navigation.courseRhumbline.previousPoint.distance",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Rhumbline The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating from The distance in meters between previousPoint and the vessel's present position",
+      "units": "m"
+    },
+    {
+      "pattern": "navigation.courseRhumbline.previousPoint.href",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Rhumbline The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating from A reference (URL) to an object (under resources) this point is related to",
+      "units": null
+    },
+    {
+      "pattern": "navigation.courseRhumbline.previousPoint.position.altitude",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Rhumbline The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating from The position of lastPoint in two dimensions The position in 3 dimensions Altitude",
+      "units": "m"
+    },
+    {
+      "pattern": "navigation.courseRhumbline.previousPoint.position.latitude",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Rhumbline The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating from The position of lastPoint in two dimensions The position in 3 dimensions Latitude",
+      "units": "deg"
+    },
+    {
+      "pattern": "navigation.courseRhumbline.previousPoint.position.longitude",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Rhumbline The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating from The position of lastPoint in two dimensions The position in 3 dimensions Longitude",
+      "units": "deg"
+    },
+    {
+      "pattern": "navigation.courseRhumbline.previousPoint.type",
+      "description": "Schema describing the navigation child-object of a Vessel. Course information computed with Rhumbline The currently active course (can be a route, or just a point one is navigating towards) The point on earth the vessel's presently navigating from The type of the previous point (e.g. Waypoint, POI, Race Mark, etc)",
+      "units": null
+    },
+    {
+      "pattern": "navigation.datetime",
+      "description": "Schema describing the navigation child-object of a Vessel. Time and Date from the GNSS Positioning System GNSS Time and Date in RFC 3339 (UTC only without local offset) format",
+      "units": "RFC 3339 (UTC)"
+    },
+    {
+      "pattern": "navigation.datetime.gnssTimeSource",
+      "description": "Schema describing the navigation child-object of a Vessel. Time and Date from the GNSS Positioning System Source of GNSS Date and Time",
+      "units": null
+    },
+    {
+      "pattern": "navigation.destination.commonName",
+      "description": "Schema describing the navigation child-object of a Vessel. The intended destination of this trip Common name of the Destination, eg 'Fiji', also used in ais messages",
+      "units": null
+    },
+    {
+      "pattern": "navigation.destination.eta",
+      "description": "Schema describing the navigation child-object of a Vessel. The intended destination of this trip Expected time of arrival at destination waypoint",
+      "units": null
+    },
+    {
+      "pattern": "navigation.destination.waypoint",
+      "description": "Schema describing the navigation child-object of a Vessel. The intended destination of this trip UUID of destination waypoint",
+      "units": null
+    },
+    {
+      "pattern": "navigation.gnss.antennaAltitude",
+      "description": "Schema describing the navigation child-object of a Vessel. Global satellite navigation meta information Altitude of antenna",
+      "units": "m"
+    },
+    {
+      "pattern": "navigation.gnss.differentialAge",
+      "description": "Schema describing the navigation child-object of a Vessel. Global satellite navigation meta information Age of DGPS data",
+      "units": "s"
+    },
+    {
+      "pattern": "navigation.gnss.differentialReference",
+      "description": "Schema describing the navigation child-object of a Vessel. Global satellite navigation meta information ID of DGPS base station",
+      "units": null
+    },
+    {
+      "pattern": "navigation.gnss.geoidalSeparation",
+      "description": "Schema describing the navigation child-object of a Vessel. Global satellite navigation meta information Difference between WGS84 earth ellipsoid and mean sea level",
+      "units": null
+    },
+    {
+      "pattern": "navigation.gnss.horizontalDilution",
+      "description": "Schema describing the navigation child-object of a Vessel. Global satellite navigation meta information Horizontal Dilution of Precision",
+      "units": null
+    },
+    {
+      "pattern": "navigation.gnss.integrity",
+      "description": "Schema describing the navigation child-object of a Vessel. Global satellite navigation meta information Integrity of the satellite fix",
+      "units": null
+    },
+    {
+      "pattern": "navigation.gnss.methodQuality",
+      "description": "Schema describing the navigation child-object of a Vessel. Global satellite navigation meta information Quality of the satellite fix",
+      "units": null
+    },
+    {
+      "pattern": "navigation.gnss.positionDilution",
+      "description": "Schema describing the navigation child-object of a Vessel. Global satellite navigation meta information Positional Dilution of Precision",
+      "units": null
+    },
+    {
+      "pattern": "navigation.gnss.satellites",
+      "description": "Schema describing the navigation child-object of a Vessel. Global satellite navigation meta information Number of satellites",
+      "units": null
+    },
+    {
+      "pattern": "navigation.gnss.type",
+      "description": "Schema describing the navigation child-object of a Vessel. Global satellite navigation meta information Fix type",
+      "units": null
+    },
+    {
+      "pattern": "navigation.headingCompass",
+      "description": "Schema describing the navigation child-object of a Vessel. Current magnetic heading received from the compass. This is not adjusted for magneticDeviation of the compass",
+      "units": "rad"
+    },
+    {
+      "pattern": "navigation.headingMagnetic",
+      "description": "Schema describing the navigation child-object of a Vessel. Current magnetic heading of the vessel, equals 'headingCompass adjusted for magneticDeviation'",
+      "units": "rad"
+    },
+    {
+      "pattern": "navigation.headingTrue",
+      "description": "Schema describing the navigation child-object of a Vessel. The current true north heading of the vessel, equals 'headingMagnetic adjusted for magneticVariation'",
+      "units": "rad"
+    },
+    {
+      "pattern": "navigation.leewayAngle",
+      "description": "Schema describing the navigation child-object of a Vessel. Leeway Angle derived from the longitudinal and transverse speeds through the water",
+      "units": "rad"
+    },
+    {
+      "pattern": "navigation.lights",
+      "description": "Schema describing the navigation child-object of a Vessel. Current state of the vessels navigation lights",
+      "units": null
+    },
+    {
+      "pattern": "navigation.log",
+      "description": "Schema describing the navigation child-object of a Vessel. Total distance traveled",
+      "units": "m"
+    },
+    {
+      "pattern": "navigation.magneticDeviation",
+      "description": "Schema describing the navigation child-object of a Vessel. Magnetic deviation of the compass at the current headingCompass",
+      "units": "rad"
+    },
+    {
+      "pattern": "navigation.magneticVariation",
+      "description": "Schema describing the navigation child-object of a Vessel. The magnetic variation (declination) at the current position that must be added to the magnetic heading to derive the true heading. Easterly variations are positive and Westerly variations are negative (in Radians).",
+      "units": "rad"
+    },
+    {
+      "pattern": "navigation.magneticVariationAgeOfService",
+      "description": "Schema describing the navigation child-object of a Vessel. Seconds since the 1st Jan 1970 that the variation calculation was made",
+      "units": "s"
+    },
+    {
+      "pattern": "navigation.maneuver",
+      "description": "Schema describing the navigation child-object of a Vessel. Special maneuver such as regional passing arrangement. (from ais)",
+      "units": null
+    },
+    {
+      "pattern": "navigation.position.altitude",
+      "description": "Schema describing the navigation child-object of a Vessel. The position of the vessel in 2 or 3 dimensions (WGS84 datum). A server may optionally apply lever-arm correction when GNSS antenna offsets are configured (sensors.<id>.fromBow / fromCenter linked to a source via sensors.<id>.$source) and vessel heading is available, publishing the position at the Common Coordinate Reference Point (CCRP): the center of the vessel on the longitudinal centerline, body coordinates (design.length.value.overall / 2, 0) measured from the bow. The correction either replaces the matching source's value in place (the delta's $source still identifies the antenna) or, when both raw and corrected positions are wanted, publishes the corrected position as a separate source under $source <id>.ccrp alongside the untouched antenna position. The correction is not flagged in the delta. The position in 3 dimensions Altitude",
+      "units": "m"
+    },
+    {
+      "pattern": "navigation.position.latitude",
+      "description": "Schema describing the navigation child-object of a Vessel. The position of the vessel in 2 or 3 dimensions (WGS84 datum). A server may optionally apply lever-arm correction when GNSS antenna offsets are configured (sensors.<id>.fromBow / fromCenter linked to a source via sensors.<id>.$source) and vessel heading is available, publishing the position at the Common Coordinate Reference Point (CCRP): the center of the vessel on the longitudinal centerline, body coordinates (design.length.value.overall / 2, 0) measured from the bow. The correction either replaces the matching source's value in place (the delta's $source still identifies the antenna) or, when both raw and corrected positions are wanted, publishes the corrected position as a separate source under $source <id>.ccrp alongside the untouched antenna position. The correction is not flagged in the delta. The position in 3 dimensions Latitude",
+      "units": "deg"
+    },
+    {
+      "pattern": "navigation.position.longitude",
+      "description": "Schema describing the navigation child-object of a Vessel. The position of the vessel in 2 or 3 dimensions (WGS84 datum). A server may optionally apply lever-arm correction when GNSS antenna offsets are configured (sensors.<id>.fromBow / fromCenter linked to a source via sensors.<id>.$source) and vessel heading is available, publishing the position at the Common Coordinate Reference Point (CCRP): the center of the vessel on the longitudinal centerline, body coordinates (design.length.value.overall / 2, 0) measured from the bow. The correction either replaces the matching source's value in place (the delta's $source still identifies the antenna) or, when both raw and corrected positions are wanted, publishes the corrected position as a separate source under $source <id>.ccrp alongside the untouched antenna position. The correction is not flagged in the delta. The position in 3 dimensions Longitude",
+      "units": "deg"
+    },
+    {
+      "pattern": "navigation.racing.distanceStartline",
+      "description": "Schema describing the navigation child-object of a Vessel. Specific navigational data related to yacht racing. The current distance to the start line",
+      "units": "m"
+    },
+    {
+      "pattern": "navigation.racing.layline.distance",
+      "description": "Schema describing the navigation child-object of a Vessel. Specific navigational data related to yacht racing. The layline crossing the current course The current distance to the layline",
+      "units": "m"
+    },
+    {
+      "pattern": "navigation.racing.layline.time",
+      "description": "Schema describing the navigation child-object of a Vessel. Specific navigational data related to yacht racing. The layline crossing the current course The time to the layline at current speed and heading",
+      "units": "s"
+    },
+    {
+      "pattern": "navigation.racing.oppositeLayline.distance",
+      "description": "Schema describing the navigation child-object of a Vessel. Specific navigational data related to yacht racing. The layline parallell to current course The current distance to the layline",
+      "units": "m"
+    },
+    {
+      "pattern": "navigation.racing.oppositeLayline.time",
+      "description": "Schema describing the navigation child-object of a Vessel. Specific navigational data related to yacht racing. The layline parallell to current course The time to the layline at current speed and heading",
+      "units": "s"
+    },
+    {
+      "pattern": "navigation.racing.startLinePort.altitude",
+      "description": "Schema describing the navigation child-object of a Vessel. Specific navigational data related to yacht racing. Position of port start mark The position in 3 dimensions Altitude",
+      "units": "m"
+    },
+    {
+      "pattern": "navigation.racing.startLinePort.latitude",
+      "description": "Schema describing the navigation child-object of a Vessel. Specific navigational data related to yacht racing. Position of port start mark The position in 3 dimensions Latitude",
+      "units": "deg"
+    },
+    {
+      "pattern": "navigation.racing.startLinePort.longitude",
+      "description": "Schema describing the navigation child-object of a Vessel. Specific navigational data related to yacht racing. Position of port start mark The position in 3 dimensions Longitude",
+      "units": "deg"
+    },
+    {
+      "pattern": "navigation.racing.startLineStb.altitude",
+      "description": "Schema describing the navigation child-object of a Vessel. Specific navigational data related to yacht racing. Position of starboard start mark The position in 3 dimensions Altitude",
+      "units": "m"
+    },
+    {
+      "pattern": "navigation.racing.startLineStb.latitude",
+      "description": "Schema describing the navigation child-object of a Vessel. Specific navigational data related to yacht racing. Position of starboard start mark The position in 3 dimensions Latitude",
+      "units": "deg"
+    },
+    {
+      "pattern": "navigation.racing.startLineStb.longitude",
+      "description": "Schema describing the navigation child-object of a Vessel. Specific navigational data related to yacht racing. Position of starboard start mark The position in 3 dimensions Longitude",
+      "units": "deg"
+    },
+    {
+      "pattern": "navigation.racing.timePortDown",
+      "description": "Schema describing the navigation child-object of a Vessel. Specific navigational data related to yacht racing. Time to arrive at the start line on port, turning downwind",
+      "units": "s"
+    },
+    {
+      "pattern": "navigation.racing.timePortUp",
+      "description": "Schema describing the navigation child-object of a Vessel. Specific navigational data related to yacht racing. Time to arrive at the start line on port, turning upwind",
+      "units": "s"
+    },
+    {
+      "pattern": "navigation.racing.timeStbdDown",
+      "description": "Schema describing the navigation child-object of a Vessel. Specific navigational data related to yacht racing. Time to arrive at the start line on starboard, turning downwind",
+      "units": "s"
+    },
+    {
+      "pattern": "navigation.racing.timeStbdUp",
+      "description": "Schema describing the navigation child-object of a Vessel. Specific navigational data related to yacht racing. Time to arrive at the start line on starboard, turning upwind",
+      "units": "s"
+    },
+    {
+      "pattern": "navigation.racing.timeToStart",
+      "description": "Schema describing the navigation child-object of a Vessel. Specific navigational data related to yacht racing. Time left before start",
+      "units": "s"
+    },
+    {
+      "pattern": "navigation.rateOfTurn",
+      "description": "Schema describing the navigation child-object of a Vessel. Rate of turn (+ve is change to starboard). If the value is AIS RIGHT or LEFT, set to +-0.0206 rads and add warning in notifications",
+      "units": "rad/s"
+    },
+    {
+      "pattern": "navigation.speedOverGround",
+      "description": "Schema describing the navigation child-object of a Vessel. Vessel speed over ground. If converting from AIS 'HIGH' value, set to 102.2 (Ais max value) and add warning in notifications",
+      "units": "m/s"
+    },
+    {
+      "pattern": "navigation.speedThroughWater",
+      "description": "Schema describing the navigation child-object of a Vessel. Vessel speed through the water",
+      "units": "m/s"
+    },
+    {
+      "pattern": "navigation.speedThroughWaterLongitudinal",
+      "description": "Schema describing the navigation child-object of a Vessel. Longitudinal speed through the water",
+      "units": "m/s"
+    },
+    {
+      "pattern": "navigation.speedThroughWaterTransverse",
+      "description": "Schema describing the navigation child-object of a Vessel. Transverse speed through the water (Leeway)",
+      "units": "m/s"
+    },
+    {
+      "pattern": "navigation.state",
+      "description": "Schema describing the navigation child-object of a Vessel. Current navigational state of the vessel",
+      "units": null
+    },
+    {
+      "pattern": "navigation.trip.lastReset",
+      "description": "Schema describing the navigation child-object of a Vessel. Trip data Trip log reset time",
+      "units": null
+    },
+    {
+      "pattern": "navigation.trip.log",
+      "description": "Schema describing the navigation child-object of a Vessel. Trip data Total distance traveled on this trip / since trip reset",
+      "units": "m"
+    },
+    {
+      "pattern": "performance.activePolar",
+      "description": "Schema describing the performance child-object of a Vessel. The UUID of the active polar table",
+      "units": null
+    },
+    {
+      "pattern": "performance.activePolarData.description",
+      "description": "Schema describing the performance child-object of a Vessel. The 'polar' object belonging to the selected 'activePolar'",
+      "units": null
+    },
+    {
+      "pattern": "performance.activePolarData.id",
+      "description": "Schema describing the performance child-object of a Vessel. The 'polar' object belonging to the selected 'activePolar'",
+      "units": null
+    },
+    {
+      "pattern": "performance.activePolarData.name",
+      "description": "Schema describing the performance child-object of a Vessel. The 'polar' object belonging to the selected 'activePolar'",
+      "units": null
+    },
+    {
+      "pattern": "performance.beatAngle",
+      "description": "Schema describing the performance child-object of a Vessel. The true wind beat angle for the best velocity made good based on current current polar diagram and WindSpeedTrue.",
+      "units": "rad"
+    },
+    {
+      "pattern": "performance.beatAngleTargetSpeed",
+      "description": "Schema describing the performance child-object of a Vessel. The target speed for the beat angle.",
+      "units": "m/s"
+    },
+    {
+      "pattern": "performance.beatAngleVelocityMadeGood",
+      "description": "Schema describing the performance child-object of a Vessel. The velocity made good for the beat angle.",
+      "units": "m/s"
+    },
+    {
+      "pattern": "performance.gybeAngle",
+      "description": "Schema describing the performance child-object of a Vessel. The true wind gybe angle for the best velocity made good downwind based on current polar diagram and WindSpeedTrue.",
+      "units": "rad"
+    },
+    {
+      "pattern": "performance.gybeAngleTargetSpeed",
+      "description": "Schema describing the performance child-object of a Vessel. The target speed for the gybe angle.",
+      "units": "m/s"
+    },
+    {
+      "pattern": "performance.gybeAngleVelocityMadeGood",
+      "description": "Schema describing the performance child-object of a Vessel. The velocity made good for the gybe angle",
+      "units": "m/s"
+    },
+    {
+      "pattern": "performance.leeway",
+      "description": "Schema describing the performance child-object of a Vessel. Current leeway",
+      "units": "rad"
+    },
+    {
+      "pattern": "performance.polars.*.description",
+      "description": "Schema describing the performance child-object of a Vessel. Polar objects",
+      "units": null
+    },
+    {
+      "pattern": "performance.polars.*.id",
+      "description": "Schema describing the performance child-object of a Vessel. Polar objects",
+      "units": null
+    },
+    {
+      "pattern": "performance.polars.*.name",
+      "description": "Schema describing the performance child-object of a Vessel. Polar objects",
+      "units": null
+    },
+    {
+      "pattern": "performance.polarSpeed",
+      "description": "Schema describing the performance child-object of a Vessel. The current polar speed based on current polar diagram, WindSpeedTrue and angleTrueWater.",
+      "units": "m/s"
+    },
+    {
+      "pattern": "performance.polarSpeedRatio",
+      "description": "Schema describing the performance child-object of a Vessel. The ratio of current speed through water to the polar speed.",
+      "units": "ratio"
+    },
+    {
+      "pattern": "performance.tackMagnetic",
+      "description": "Schema describing the performance child-object of a Vessel. Magnetic heading on opposite tack.",
+      "units": "rad"
+    },
+    {
+      "pattern": "performance.tackTrue",
+      "description": "Schema describing the performance child-object of a Vessel. True heading on opposite tack.",
+      "units": "rad"
+    },
+    {
+      "pattern": "performance.targetAngle",
+      "description": "Schema describing the performance child-object of a Vessel. The true wind gybe or beat angle for the best velocity made good downwind or upwind based on current polar diagram and WindSpeedTrue.",
+      "units": "rad"
+    },
+    {
+      "pattern": "performance.targetSpeed",
+      "description": "Schema describing the performance child-object of a Vessel. The target speed for the beat angle or gybe angle, which ever is applicable.",
+      "units": "m/s"
+    },
+    {
+      "pattern": "performance.velocityMadeGood",
+      "description": "Schema describing the performance child-object of a Vessel. The current velocity made good derived from the speed through water and appearant wind angle. A positive value is heading upwind, negative downwind.",
+      "units": "m/s"
+    },
+    {
+      "pattern": "performance.velocityMadeGoodToWaypoint",
+      "description": "Schema describing the performance child-object of a Vessel. The current velocity made good to the next waypoint derived from the speedOverGround, courseOverGround.",
+      "units": "m/s"
+    },
+    {
+      "pattern": "propulsion.*.alternatorVoltage",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit Alternator voltage",
+      "units": "V"
+    },
+    {
+      "pattern": "propulsion.*.boostPressure",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit Engine boost (turbo, supercharger) pressure",
+      "units": "Pa"
+    },
+    {
+      "pattern": "propulsion.*.coolantPressure",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit Coolant pressure",
+      "units": "Pa"
+    },
+    {
+      "pattern": "propulsion.*.coolantTemperature",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit Coolant temperature",
+      "units": "K"
+    },
+    {
+      "pattern": "propulsion.*.drive.thrustAngle",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit Data about the engine's drive. Current thrust angle for steerable drives, +ve is thrust to Starboard",
+      "units": "rad"
+    },
+    {
+      "pattern": "propulsion.*.drive.trimState",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit Data about the engine's drive. Trim/tilt state, 0<=ratio<=1, 1 is 100% up",
+      "units": "ratio"
+    },
+    {
+      "pattern": "propulsion.*.drive.type",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit Data about the engine's drive. The type of drive the boat has i.e Outboard, shaft, jet, etc.",
+      "units": null
+    },
+    {
+      "pattern": "propulsion.*.engineLoad",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit Engine load ratio, 0<=ratio<=1, 1 is 100%",
+      "units": "ratio"
+    },
+    {
+      "pattern": "propulsion.*.engineTorque",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit Engine torque ratio, 0<=ratio<=1, 1 is 100%",
+      "units": "ratio"
+    },
+    {
+      "pattern": "propulsion.*.exhaustTemperature",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit Exhaust temperature",
+      "units": "K"
+    },
+    {
+      "pattern": "propulsion.*.fuel.averageRate",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit Data about the engine's Fuel Supply Average fuel rate of consumption",
+      "units": "m3/s"
+    },
+    {
+      "pattern": "propulsion.*.fuel.economyRate",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit Data about the engine's Fuel Supply Economy fuel rate of consumption",
+      "units": "m3/s"
+    },
+    {
+      "pattern": "propulsion.*.fuel.pressure",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit Data about the engine's Fuel Supply Fuel pressure",
+      "units": "Pa"
+    },
+    {
+      "pattern": "propulsion.*.fuel.rate",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit Data about the engine's Fuel Supply Fuel rate  of consumption",
+      "units": "m3/s"
+    },
+    {
+      "pattern": "propulsion.*.fuel.type",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit Data about the engine's Fuel Supply Fuel type",
+      "units": null
+    },
+    {
+      "pattern": "propulsion.*.fuel.used",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit Data about the engine's Fuel Supply Used fuel since last reset. Resetting is at user discretion",
+      "units": "m3"
+    },
+    {
+      "pattern": "propulsion.*.intakeManifoldTemperature",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit Intake manifold temperature",
+      "units": "K"
+    },
+    {
+      "pattern": "propulsion.*.label",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit Human readable label for the propulsion unit",
+      "units": null
+    },
+    {
+      "pattern": "propulsion.*.oilPressure",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit Oil pressure",
+      "units": "Pa"
+    },
+    {
+      "pattern": "propulsion.*.oilTemperature",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit Oil temperature",
+      "units": "K"
+    },
+    {
+      "pattern": "propulsion.*.revolutions",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit Engine revolutions (x60 for RPM)",
+      "units": "Hz"
+    },
+    {
+      "pattern": "propulsion.*.runTime",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit Total running time for engine (Engine Hours in seconds)",
+      "units": "s"
+    },
+    {
+      "pattern": "propulsion.*.state",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit The current state of the engine",
+      "units": null
+    },
+    {
+      "pattern": "propulsion.*.temperature",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit Engine temperature",
+      "units": "K"
+    },
+    {
+      "pattern": "propulsion.*.transmission.gear",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit The transmission (gear box) of the named engine Currently selected gear the engine is in i.e. Forward, Reverse, etc.",
+      "units": null
+    },
+    {
+      "pattern": "propulsion.*.transmission.gearRatio",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit The transmission (gear box) of the named engine Gear ratio, engine rotations per propeller shaft rotation",
+      "units": "ratio"
+    },
+    {
+      "pattern": "propulsion.*.transmission.oilPressure",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit The transmission (gear box) of the named engine Oil pressure",
+      "units": "Pa"
+    },
+    {
+      "pattern": "propulsion.*.transmission.oilTemperature",
+      "description": "An engine, named by a unique name within this vessel This regex pattern is used for validation of the identifier for the propulsion unit The transmission (gear box) of the named engine Oil temperature",
+      "units": "K"
+    },
+    {
+      "pattern": "sails.area.active",
+      "description": "An object describing the vessels sails if the vessel is a sailboat. An object containing information about the vessels' sails. The total area of the sails currently in use on the vessel",
+      "units": "m2"
+    },
+    {
+      "pattern": "sails.area.total",
+      "description": "An object describing the vessels sails if the vessel is a sailboat. An object containing information about the vessels' sails. The total area of all sails on the vessel",
+      "units": "m2"
+    },
+    {
+      "pattern": "sails.inventory.*._attr._group",
+      "description": "An object describing the vessels sails if the vessel is a sailboat. An object containing a description of each sail available to the vessel crew 'sail' data type. Filesystem specific data, e.g. security, possibly more later. The group owning this resource.",
+      "units": null
+    },
+    {
+      "pattern": "sails.inventory.*._attr._mode",
+      "description": "An object describing the vessels sails if the vessel is a sailboat. An object containing a description of each sail available to the vessel crew 'sail' data type. Filesystem specific data, e.g. security, possibly more later. Unix style permissions, often written in `owner:group:other` form, `-rw-r--r--`",
+      "units": null
+    },
+    {
+      "pattern": "sails.inventory.*._attr._owner",
+      "description": "An object describing the vessels sails if the vessel is a sailboat. An object containing a description of each sail available to the vessel crew 'sail' data type. Filesystem specific data, e.g. security, possibly more later. The owner of this resource.",
+      "units": null
+    },
+    {
+      "pattern": "sails.inventory.*.active",
+      "description": "An object describing the vessels sails if the vessel is a sailboat. An object containing a description of each sail available to the vessel crew 'sail' data type. Indicates wether this sail is currently in use or not",
+      "units": null
+    },
+    {
+      "pattern": "sails.inventory.*.area",
+      "description": "An object describing the vessels sails if the vessel is a sailboat. An object containing a description of each sail available to the vessel crew 'sail' data type. The total area of this sail in square meters",
+      "units": "m2"
+    },
+    {
+      "pattern": "sails.inventory.*.brand",
+      "description": "An object describing the vessels sails if the vessel is a sailboat. An object containing a description of each sail available to the vessel crew 'sail' data type. The brand of the sail (optional)",
+      "units": null
+    },
+    {
+      "pattern": "sails.inventory.*.material",
+      "description": "An object describing the vessels sails if the vessel is a sailboat. An object containing a description of each sail available to the vessel crew 'sail' data type. The material the sail is made from (optional)",
+      "units": null
+    },
+    {
+      "pattern": "sails.inventory.*.maximumWind",
+      "description": "An object describing the vessels sails if the vessel is a sailboat. An object containing a description of each sail available to the vessel crew 'sail' data type. The maximum wind speed this sail can be used with",
+      "units": "m/s"
+    },
+    {
+      "pattern": "sails.inventory.*.minimumWind",
+      "description": "An object describing the vessels sails if the vessel is a sailboat. An object containing a description of each sail available to the vessel crew 'sail' data type. The minimum wind speed this sail can be used with",
+      "units": "m/s"
+    },
+    {
+      "pattern": "sails.inventory.*.name",
+      "description": "An object describing the vessels sails if the vessel is a sailboat. An object containing a description of each sail available to the vessel crew 'sail' data type. An unique identifier by which the crew identifies a sail",
+      "units": null
+    },
+    {
+      "pattern": "sails.inventory.*.reducedState.furledRatio",
+      "description": "An object describing the vessels sails if the vessel is a sailboat. An object containing a description of each sail available to the vessel crew 'sail' data type. An object describing reduction of sail area Ratio of sail reduction, 0 means full and 1 is completely furled in",
+      "units": null
+    },
+    {
+      "pattern": "sails.inventory.*.reducedState.reduced",
+      "description": "An object describing the vessels sails if the vessel is a sailboat. An object containing a description of each sail available to the vessel crew 'sail' data type. An object describing reduction of sail area describes whether the sail is reduced or not",
+      "units": null
+    },
+    {
+      "pattern": "sails.inventory.*.reducedState.reefs",
+      "description": "An object describing the vessels sails if the vessel is a sailboat. An object containing a description of each sail available to the vessel crew 'sail' data type. An object describing reduction of sail area Number of reefs set, 0 means full",
+      "units": null
+    },
+    {
+      "pattern": "sails.inventory.*.type",
+      "description": "An object describing the vessels sails if the vessel is a sailboat. An object containing a description of each sail available to the vessel crew 'sail' data type. The type of sail",
+      "units": null
+    },
+    {
+      "pattern": "steering.autopilot.backlash",
+      "description": "Schema describing the steering child-object of a vessel. Autopilot data Slack in the rudder drive mechanism",
+      "units": "rad"
+    },
+    {
+      "pattern": "steering.autopilot.deadZone",
+      "description": "Schema describing the steering child-object of a vessel. Autopilot data Dead zone to ignore for rudder corrections",
+      "units": "rad"
+    },
+    {
+      "pattern": "steering.autopilot.gain",
+      "description": "Schema describing the steering child-object of a vessel. Autopilot data Auto-pilot gain, higher number equals more rudder movement for a given turn",
+      "units": null
+    },
+    {
+      "pattern": "steering.autopilot.maxDriveCurrent",
+      "description": "Schema describing the steering child-object of a vessel. Autopilot data Maximum current to use to drive servo",
+      "units": "A"
+    },
+    {
+      "pattern": "steering.autopilot.maxDriveRate",
+      "description": "Schema describing the steering child-object of a vessel. Autopilot data Maximum rudder rotation speed",
+      "units": "rad/s"
+    },
+    {
+      "pattern": "steering.autopilot.mode",
+      "description": "Schema describing the steering child-object of a vessel. Autopilot data Operational mode",
+      "units": null
+    },
+    {
+      "pattern": "steering.autopilot.portLock",
+      "description": "Schema describing the steering child-object of a vessel. Autopilot data Position of servo on port lock",
+      "units": "rad"
+    },
+    {
+      "pattern": "steering.autopilot.starboardLock",
+      "description": "Schema describing the steering child-object of a vessel. Autopilot data Position of servo on starboard lock",
+      "units": "rad"
+    },
+    {
+      "pattern": "steering.autopilot.state",
+      "description": "Schema describing the steering child-object of a vessel. Autopilot data Autopilot state",
+      "units": null
+    },
+    {
+      "pattern": "steering.autopilot.target.headingMagnetic",
+      "description": "Schema describing the steering child-object of a vessel. Autopilot data Autopilot target Target heading for autopilot, relative to Magnetic North",
+      "units": "rad"
+    },
+    {
+      "pattern": "steering.autopilot.target.headingTrue",
+      "description": "Schema describing the steering child-object of a vessel. Autopilot data Autopilot target Target heading for autopilot, relative to North",
+      "units": "rad"
+    },
+    {
+      "pattern": "steering.autopilot.target.windAngleApparent",
+      "description": "Schema describing the steering child-object of a vessel. Autopilot data Autopilot target Target angle to steer, relative to Apparent wind, +ve to starboard, -ve to port",
+      "units": "rad"
+    },
+    {
+      "pattern": "steering.autopilot.target.windAngleTrue",
+      "description": "Schema describing the steering child-object of a vessel. Autopilot data Autopilot target Target angle to steer, relative to true wind, +ve to starboard, -ve to port",
+      "units": "rad"
+    },
+    {
+      "pattern": "steering.rudderAngle",
+      "description": "Schema describing the steering child-object of a vessel. Current rudder angle, +ve is rudder to Starboard",
+      "units": "rad"
+    },
+    {
+      "pattern": "steering.rudderAngleTarget",
+      "description": "Schema describing the steering child-object of a vessel. The angle the rudder should move to, +ve is rudder to Starboard",
+      "units": "rad"
+    },
+    {
+      "pattern": "tanks.baitWell.*.capacity",
+      "description": "A tank, named by a unique identifier Bait tank Tank, one or many, within the vessel Total capacity",
+      "units": "m3"
+    },
+    {
+      "pattern": "tanks.baitWell.*.currentLevel",
+      "description": "A tank, named by a unique identifier Bait tank Tank, one or many, within the vessel Level of fluid in tank 0-100%",
+      "units": "ratio"
+    },
+    {
+      "pattern": "tanks.baitWell.*.currentVolume",
+      "description": "A tank, named by a unique identifier Bait tank Tank, one or many, within the vessel Volume of fluid in tank",
+      "units": "m3"
+    },
+    {
+      "pattern": "tanks.baitWell.*.extinguishant",
+      "description": "A tank, named by a unique identifier Bait tank Tank, one or many, within the vessel The preferred extinguishant to douse a fire in this tank",
+      "units": null
+    },
+    {
+      "pattern": "tanks.baitWell.*.name",
+      "description": "A tank, named by a unique identifier Bait tank Tank, one or many, within the vessel The name of the tank. Useful if multiple tanks of a certain type are on board",
+      "units": null
+    },
+    {
+      "pattern": "tanks.baitWell.*.pressure",
+      "description": "A tank, named by a unique identifier Bait tank Tank, one or many, within the vessel Pressure of contents in tank, especially LPG/gas",
+      "units": "Pa"
+    },
+    {
+      "pattern": "tanks.baitWell.*.temperature",
+      "description": "A tank, named by a unique identifier Bait tank Tank, one or many, within the vessel Temperature of tank, especially cryogenic or LPG/gas",
+      "units": "K"
+    },
+    {
+      "pattern": "tanks.baitWell.*.type",
+      "description": "A tank, named by a unique identifier Bait tank Tank, one or many, within the vessel The type of tank",
+      "units": null
+    },
+    {
+      "pattern": "tanks.baitWell.*.viscosity",
+      "description": "A tank, named by a unique identifier Bait tank Tank, one or many, within the vessel Viscosity of the fluid, if applicable",
+      "units": "Pa/s"
+    },
+    {
+      "pattern": "tanks.ballast.*.capacity",
+      "description": "A tank, named by a unique identifier Ballast tanks Tank, one or many, within the vessel Total capacity",
+      "units": "m3"
+    },
+    {
+      "pattern": "tanks.ballast.*.currentLevel",
+      "description": "A tank, named by a unique identifier Ballast tanks Tank, one or many, within the vessel Level of fluid in tank 0-100%",
+      "units": "ratio"
+    },
+    {
+      "pattern": "tanks.ballast.*.currentVolume",
+      "description": "A tank, named by a unique identifier Ballast tanks Tank, one or many, within the vessel Volume of fluid in tank",
+      "units": "m3"
+    },
+    {
+      "pattern": "tanks.ballast.*.extinguishant",
+      "description": "A tank, named by a unique identifier Ballast tanks Tank, one or many, within the vessel The preferred extinguishant to douse a fire in this tank",
+      "units": null
+    },
+    {
+      "pattern": "tanks.ballast.*.name",
+      "description": "A tank, named by a unique identifier Ballast tanks Tank, one or many, within the vessel The name of the tank. Useful if multiple tanks of a certain type are on board",
+      "units": null
+    },
+    {
+      "pattern": "tanks.ballast.*.pressure",
+      "description": "A tank, named by a unique identifier Ballast tanks Tank, one or many, within the vessel Pressure of contents in tank, especially LPG/gas",
+      "units": "Pa"
+    },
+    {
+      "pattern": "tanks.ballast.*.temperature",
+      "description": "A tank, named by a unique identifier Ballast tanks Tank, one or many, within the vessel Temperature of tank, especially cryogenic or LPG/gas",
+      "units": "K"
+    },
+    {
+      "pattern": "tanks.ballast.*.type",
+      "description": "A tank, named by a unique identifier Ballast tanks Tank, one or many, within the vessel The type of tank",
+      "units": null
+    },
+    {
+      "pattern": "tanks.ballast.*.viscosity",
+      "description": "A tank, named by a unique identifier Ballast tanks Tank, one or many, within the vessel Viscosity of the fluid, if applicable",
+      "units": "Pa/s"
+    },
+    {
+      "pattern": "tanks.blackWater.*.capacity",
+      "description": "A tank, named by a unique identifier Black water tank (sewage) Tank, one or many, within the vessel Total capacity",
+      "units": "m3"
+    },
+    {
+      "pattern": "tanks.blackWater.*.currentLevel",
+      "description": "A tank, named by a unique identifier Black water tank (sewage) Tank, one or many, within the vessel Level of fluid in tank 0-100%",
+      "units": "ratio"
+    },
+    {
+      "pattern": "tanks.blackWater.*.currentVolume",
+      "description": "A tank, named by a unique identifier Black water tank (sewage) Tank, one or many, within the vessel Volume of fluid in tank",
+      "units": "m3"
+    },
+    {
+      "pattern": "tanks.blackWater.*.extinguishant",
+      "description": "A tank, named by a unique identifier Black water tank (sewage) Tank, one or many, within the vessel The preferred extinguishant to douse a fire in this tank",
+      "units": null
+    },
+    {
+      "pattern": "tanks.blackWater.*.name",
+      "description": "A tank, named by a unique identifier Black water tank (sewage) Tank, one or many, within the vessel The name of the tank. Useful if multiple tanks of a certain type are on board",
+      "units": null
+    },
+    {
+      "pattern": "tanks.blackWater.*.pressure",
+      "description": "A tank, named by a unique identifier Black water tank (sewage) Tank, one or many, within the vessel Pressure of contents in tank, especially LPG/gas",
+      "units": "Pa"
+    },
+    {
+      "pattern": "tanks.blackWater.*.temperature",
+      "description": "A tank, named by a unique identifier Black water tank (sewage) Tank, one or many, within the vessel Temperature of tank, especially cryogenic or LPG/gas",
+      "units": "K"
+    },
+    {
+      "pattern": "tanks.blackWater.*.type",
+      "description": "A tank, named by a unique identifier Black water tank (sewage) Tank, one or many, within the vessel The type of tank",
+      "units": null
+    },
+    {
+      "pattern": "tanks.blackWater.*.viscosity",
+      "description": "A tank, named by a unique identifier Black water tank (sewage) Tank, one or many, within the vessel Viscosity of the fluid, if applicable",
+      "units": "Pa/s"
+    },
+    {
+      "pattern": "tanks.freshWater.*.capacity",
+      "description": "A tank, named by a unique identifier Fresh water tank (drinking) Tank, one or many, within the vessel Total capacity",
+      "units": "m3"
+    },
+    {
+      "pattern": "tanks.freshWater.*.currentLevel",
+      "description": "A tank, named by a unique identifier Fresh water tank (drinking) Tank, one or many, within the vessel Level of fluid in tank 0-100%",
+      "units": "ratio"
+    },
+    {
+      "pattern": "tanks.freshWater.*.currentVolume",
+      "description": "A tank, named by a unique identifier Fresh water tank (drinking) Tank, one or many, within the vessel Volume of fluid in tank",
+      "units": "m3"
+    },
+    {
+      "pattern": "tanks.freshWater.*.extinguishant",
+      "description": "A tank, named by a unique identifier Fresh water tank (drinking) Tank, one or many, within the vessel The preferred extinguishant to douse a fire in this tank",
+      "units": null
+    },
+    {
+      "pattern": "tanks.freshWater.*.name",
+      "description": "A tank, named by a unique identifier Fresh water tank (drinking) Tank, one or many, within the vessel The name of the tank. Useful if multiple tanks of a certain type are on board",
+      "units": null
+    },
+    {
+      "pattern": "tanks.freshWater.*.pressure",
+      "description": "A tank, named by a unique identifier Fresh water tank (drinking) Tank, one or many, within the vessel Pressure of contents in tank, especially LPG/gas",
+      "units": "Pa"
+    },
+    {
+      "pattern": "tanks.freshWater.*.temperature",
+      "description": "A tank, named by a unique identifier Fresh water tank (drinking) Tank, one or many, within the vessel Temperature of tank, especially cryogenic or LPG/gas",
+      "units": "K"
+    },
+    {
+      "pattern": "tanks.freshWater.*.type",
+      "description": "A tank, named by a unique identifier Fresh water tank (drinking) Tank, one or many, within the vessel The type of tank",
+      "units": null
+    },
+    {
+      "pattern": "tanks.freshWater.*.viscosity",
+      "description": "A tank, named by a unique identifier Fresh water tank (drinking) Tank, one or many, within the vessel Viscosity of the fluid, if applicable",
+      "units": "Pa/s"
+    },
+    {
+      "pattern": "tanks.fuel.*.capacity",
+      "description": "A tank, named by a unique identifier Fuel tank (petrol or diesel) Tank, one or many, within the vessel Total capacity",
+      "units": "m3"
+    },
+    {
+      "pattern": "tanks.fuel.*.currentLevel",
+      "description": "A tank, named by a unique identifier Fuel tank (petrol or diesel) Tank, one or many, within the vessel Level of fluid in tank 0-100%",
+      "units": "ratio"
+    },
+    {
+      "pattern": "tanks.fuel.*.currentVolume",
+      "description": "A tank, named by a unique identifier Fuel tank (petrol or diesel) Tank, one or many, within the vessel Volume of fluid in tank",
+      "units": "m3"
+    },
+    {
+      "pattern": "tanks.fuel.*.extinguishant",
+      "description": "A tank, named by a unique identifier Fuel tank (petrol or diesel) Tank, one or many, within the vessel The preferred extinguishant to douse a fire in this tank",
+      "units": null
+    },
+    {
+      "pattern": "tanks.fuel.*.name",
+      "description": "A tank, named by a unique identifier Fuel tank (petrol or diesel) Tank, one or many, within the vessel The name of the tank. Useful if multiple tanks of a certain type are on board",
+      "units": null
+    },
+    {
+      "pattern": "tanks.fuel.*.pressure",
+      "description": "A tank, named by a unique identifier Fuel tank (petrol or diesel) Tank, one or many, within the vessel Pressure of contents in tank, especially LPG/gas",
+      "units": "Pa"
+    },
+    {
+      "pattern": "tanks.fuel.*.temperature",
+      "description": "A tank, named by a unique identifier Fuel tank (petrol or diesel) Tank, one or many, within the vessel Temperature of tank, especially cryogenic or LPG/gas",
+      "units": "K"
+    },
+    {
+      "pattern": "tanks.fuel.*.type",
+      "description": "A tank, named by a unique identifier Fuel tank (petrol or diesel) Tank, one or many, within the vessel The type of tank",
+      "units": null
+    },
+    {
+      "pattern": "tanks.fuel.*.viscosity",
+      "description": "A tank, named by a unique identifier Fuel tank (petrol or diesel) Tank, one or many, within the vessel Viscosity of the fluid, if applicable",
+      "units": "Pa/s"
+    },
+    {
+      "pattern": "tanks.gas.*.capacity",
+      "description": "A tank, named by a unique identifier Lpg/propane and other gases Tank, one or many, within the vessel Total capacity",
+      "units": "m3"
+    },
+    {
+      "pattern": "tanks.gas.*.currentLevel",
+      "description": "A tank, named by a unique identifier Lpg/propane and other gases Tank, one or many, within the vessel Level of fluid in tank 0-100%",
+      "units": "ratio"
+    },
+    {
+      "pattern": "tanks.gas.*.currentVolume",
+      "description": "A tank, named by a unique identifier Lpg/propane and other gases Tank, one or many, within the vessel Volume of fluid in tank",
+      "units": "m3"
+    },
+    {
+      "pattern": "tanks.gas.*.extinguishant",
+      "description": "A tank, named by a unique identifier Lpg/propane and other gases Tank, one or many, within the vessel The preferred extinguishant to douse a fire in this tank",
+      "units": null
+    },
+    {
+      "pattern": "tanks.gas.*.name",
+      "description": "A tank, named by a unique identifier Lpg/propane and other gases Tank, one or many, within the vessel The name of the tank. Useful if multiple tanks of a certain type are on board",
+      "units": null
+    },
+    {
+      "pattern": "tanks.gas.*.pressure",
+      "description": "A tank, named by a unique identifier Lpg/propane and other gases Tank, one or many, within the vessel Pressure of contents in tank, especially LPG/gas",
+      "units": "Pa"
+    },
+    {
+      "pattern": "tanks.gas.*.temperature",
+      "description": "A tank, named by a unique identifier Lpg/propane and other gases Tank, one or many, within the vessel Temperature of tank, especially cryogenic or LPG/gas",
+      "units": "K"
+    },
+    {
+      "pattern": "tanks.gas.*.type",
+      "description": "A tank, named by a unique identifier Lpg/propane and other gases Tank, one or many, within the vessel The type of tank",
+      "units": null
+    },
+    {
+      "pattern": "tanks.gas.*.viscosity",
+      "description": "A tank, named by a unique identifier Lpg/propane and other gases Tank, one or many, within the vessel Viscosity of the fluid, if applicable",
+      "units": "Pa/s"
+    },
+    {
+      "pattern": "tanks.liveWell.*.capacity",
+      "description": "A tank, named by a unique identifier Live tank (fish) Tank, one or many, within the vessel Total capacity",
+      "units": "m3"
+    },
+    {
+      "pattern": "tanks.liveWell.*.currentLevel",
+      "description": "A tank, named by a unique identifier Live tank (fish) Tank, one or many, within the vessel Level of fluid in tank 0-100%",
+      "units": "ratio"
+    },
+    {
+      "pattern": "tanks.liveWell.*.currentVolume",
+      "description": "A tank, named by a unique identifier Live tank (fish) Tank, one or many, within the vessel Volume of fluid in tank",
+      "units": "m3"
+    },
+    {
+      "pattern": "tanks.liveWell.*.extinguishant",
+      "description": "A tank, named by a unique identifier Live tank (fish) Tank, one or many, within the vessel The preferred extinguishant to douse a fire in this tank",
+      "units": null
+    },
+    {
+      "pattern": "tanks.liveWell.*.name",
+      "description": "A tank, named by a unique identifier Live tank (fish) Tank, one or many, within the vessel The name of the tank. Useful if multiple tanks of a certain type are on board",
+      "units": null
+    },
+    {
+      "pattern": "tanks.liveWell.*.pressure",
+      "description": "A tank, named by a unique identifier Live tank (fish) Tank, one or many, within the vessel Pressure of contents in tank, especially LPG/gas",
+      "units": "Pa"
+    },
+    {
+      "pattern": "tanks.liveWell.*.temperature",
+      "description": "A tank, named by a unique identifier Live tank (fish) Tank, one or many, within the vessel Temperature of tank, especially cryogenic or LPG/gas",
+      "units": "K"
+    },
+    {
+      "pattern": "tanks.liveWell.*.type",
+      "description": "A tank, named by a unique identifier Live tank (fish) Tank, one or many, within the vessel The type of tank",
+      "units": null
+    },
+    {
+      "pattern": "tanks.liveWell.*.viscosity",
+      "description": "A tank, named by a unique identifier Live tank (fish) Tank, one or many, within the vessel Viscosity of the fluid, if applicable",
+      "units": "Pa/s"
+    },
+    {
+      "pattern": "tanks.lubrication.*.capacity",
+      "description": "A tank, named by a unique identifier Lubrication tank (oil or grease) Tank, one or many, within the vessel Total capacity",
+      "units": "m3"
+    },
+    {
+      "pattern": "tanks.lubrication.*.currentLevel",
+      "description": "A tank, named by a unique identifier Lubrication tank (oil or grease) Tank, one or many, within the vessel Level of fluid in tank 0-100%",
+      "units": "ratio"
+    },
+    {
+      "pattern": "tanks.lubrication.*.currentVolume",
+      "description": "A tank, named by a unique identifier Lubrication tank (oil or grease) Tank, one or many, within the vessel Volume of fluid in tank",
+      "units": "m3"
+    },
+    {
+      "pattern": "tanks.lubrication.*.extinguishant",
+      "description": "A tank, named by a unique identifier Lubrication tank (oil or grease) Tank, one or many, within the vessel The preferred extinguishant to douse a fire in this tank",
+      "units": null
+    },
+    {
+      "pattern": "tanks.lubrication.*.name",
+      "description": "A tank, named by a unique identifier Lubrication tank (oil or grease) Tank, one or many, within the vessel The name of the tank. Useful if multiple tanks of a certain type are on board",
+      "units": null
+    },
+    {
+      "pattern": "tanks.lubrication.*.pressure",
+      "description": "A tank, named by a unique identifier Lubrication tank (oil or grease) Tank, one or many, within the vessel Pressure of contents in tank, especially LPG/gas",
+      "units": "Pa"
+    },
+    {
+      "pattern": "tanks.lubrication.*.temperature",
+      "description": "A tank, named by a unique identifier Lubrication tank (oil or grease) Tank, one or many, within the vessel Temperature of tank, especially cryogenic or LPG/gas",
+      "units": "K"
+    },
+    {
+      "pattern": "tanks.lubrication.*.type",
+      "description": "A tank, named by a unique identifier Lubrication tank (oil or grease) Tank, one or many, within the vessel The type of tank",
+      "units": null
+    },
+    {
+      "pattern": "tanks.lubrication.*.viscosity",
+      "description": "A tank, named by a unique identifier Lubrication tank (oil or grease) Tank, one or many, within the vessel Viscosity of the fluid, if applicable",
+      "units": "Pa/s"
+    },
+    {
+      "pattern": "tanks.wasteWater.*.capacity",
+      "description": "A tank, named by a unique identifier Waste water tank (grey water) Tank, one or many, within the vessel Total capacity",
+      "units": "m3"
+    },
+    {
+      "pattern": "tanks.wasteWater.*.currentLevel",
+      "description": "A tank, named by a unique identifier Waste water tank (grey water) Tank, one or many, within the vessel Level of fluid in tank 0-100%",
+      "units": "ratio"
+    },
+    {
+      "pattern": "tanks.wasteWater.*.currentVolume",
+      "description": "A tank, named by a unique identifier Waste water tank (grey water) Tank, one or many, within the vessel Volume of fluid in tank",
+      "units": "m3"
+    },
+    {
+      "pattern": "tanks.wasteWater.*.extinguishant",
+      "description": "A tank, named by a unique identifier Waste water tank (grey water) Tank, one or many, within the vessel The preferred extinguishant to douse a fire in this tank",
+      "units": null
+    },
+    {
+      "pattern": "tanks.wasteWater.*.name",
+      "description": "A tank, named by a unique identifier Waste water tank (grey water) Tank, one or many, within the vessel The name of the tank. Useful if multiple tanks of a certain type are on board",
+      "units": null
+    },
+    {
+      "pattern": "tanks.wasteWater.*.pressure",
+      "description": "A tank, named by a unique identifier Waste water tank (grey water) Tank, one or many, within the vessel Pressure of contents in tank, especially LPG/gas",
+      "units": "Pa"
+    },
+    {
+      "pattern": "tanks.wasteWater.*.temperature",
+      "description": "A tank, named by a unique identifier Waste water tank (grey water) Tank, one or many, within the vessel Temperature of tank, especially cryogenic or LPG/gas",
+      "units": "K"
+    },
+    {
+      "pattern": "tanks.wasteWater.*.type",
+      "description": "A tank, named by a unique identifier Waste water tank (grey water) Tank, one or many, within the vessel The type of tank",
+      "units": null
+    },
+    {
+      "pattern": "tanks.wasteWater.*.viscosity",
+      "description": "A tank, named by a unique identifier Waste water tank (grey water) Tank, one or many, within the vessel Viscosity of the fluid, if applicable",
+      "units": "Pa/s"
+    }
+  ]
+}

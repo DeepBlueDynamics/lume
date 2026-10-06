@@ -17,7 +17,7 @@ Signal K plugin, container app, resource limits.
 - [ ] `ti_resolve`, `ti_schema`, `ti_sql`, `ti_intervals`, `ti_explain`, `ti_status` with the spec'd inputs/outputs.
 - [ ] Caps: 500 rows / 64 KB with "aggregate" hint; units echoed on every result; `@agg` naming mandatory in output.
 - [ ] Call `TiEngine` in-process (not the shell-out-to-CLI pattern current tools use).
-- [ ] `ti_resolve`: Lume hybrid search over the `paths` catalog + Signal K spec descriptions; 100-phrase test set.
+- [x] `ti_resolve`: lexical Lume BM25 over stored catalog paths + pinned Signal K descriptions; 100-phrase test set (93/100 top-3).
 
 ### HTTP (same port)
 - [ ] `POST /ti/sql` → Arrow IPC / JSON / CSV by `Accept`.
@@ -58,7 +58,7 @@ Signal K plugin, container app, resource limits.
 Agent end-to-end: plain-English question → correct rows.
 
 ## Gate (M5)
-- [ ] MCP tools live in `lume serve`; `ti_resolve` top-3 correct for ≥ 90 % of 100 phrases
+- [x] MCP tools live in `lume serve`; `ti_resolve` top-3 correct for ≥ 90 % of 100 phrases (93/100; resolve slice below)
 - [ ] nemesis8 agent with only Lume MCP answers 20 scripted fleet questions, graded against oracle
 - [ ] Plugin installs on HALPI2 (HaLOS Marine store) and OpenPlotter (Pi 4 4 GB + Pi 5), gets a token, supervises ingest; psql + Grafana pass a 20-query smoke set
 
@@ -93,4 +93,21 @@ The lead's approved slice uses `POST /ti/query` and `ti_query` naming (rather th
 - [x] Ephemeral-port real-server integration covers each endpoint, Arrow decoding and JSON equivalence, truncation, empty timestamp results, oversized UTF-8 rows, read-only rejection and catalog hiding after startup to verify HTTP/MCP snapshot reuse.
 - [x] Width discovery reads one representative RBM header per shard field directory; configuration and requested-width mismatch checks remain. Fresh-process store-full status elapsed time: 85.546 s before, 70.199 s after (17.94% decrease). OS caches were not purged; these runs do not isolate the remaining snapshot/catalog startup cost.
 
-The default bind remains 0.0.0.0. LAN-only binding and NUTS/bearer authentication are explicitly outside this approved slice. HTTP ingest/sync/CSV, pgwire, resolve, intervals tools, packaging and full M5 gates remain pending. The engine captures a startup planning snapshot; restart to refresh externally changed catalogs/shards until ingest-supervisor integration. Arrow IPC bodies are bounded before writing their Content-Length; no unbounded result collection is added. Request bodies are capped at 64 KiB; chunked request encoding is unsupported.
+This HTTP checkpoint predates the resolve/bind slice below. Configurable binding and loopback default are now implemented; NUTS/bearer authentication remains pending. HTTP ingest/sync/CSV, pgwire, resolve, intervals tools, packaging and full M5 gates remain pending. The engine captures a startup planning snapshot; restart to refresh externally changed catalogs/shards until ingest-supervisor integration. Arrow IPC bodies are bounded before writing their Content-Length; no unbounded result collection is added. Request bodies are capped at 64 KiB; chunked request encoding is unsupported.
+
+## Rust surfaces — resolve and binding slice (2026-10-06)
+
+- [x] MCP `ti_resolve {phrase, vessel?, limit?}` and `GET /ti/resolve?q=<phrase>&vessel=<URN-or-name-or-MMSI>&limit=8`. Candidates provide path, canonical column, agg, units, description, BM25 score, last value, timestamp and vessel. Unknown vessels are rejected; a vessel filter excludes unreported fields.
+- [x] Offline Lume BM25 over stored columns, enriched by 488 pinned Signal K 1.8.4 schema metadata patterns. Runtime does not consume golden phrases or access the network. Custom paths fall back to path tokens. The configured server caches its immutable resolver alongside the shared TiEngine.
+- [x] Last values come from the most recent populated bucket for each candidate, using shard presence bitmaps and one-row reads. Null last values indicate a registered field without data. No SI conversions are applied to stored column values.
+- [x] `tests/golden/resolve.json`: 100 distinct manually authored phrases across 50 expected paths. The fixture ranks against 488 catalog columns and requires >= 90/100 top-3; verified result 93/100. Seven misses remain visible in the test diagnostics. This is the specified fixture gate, not a fleet-wide accuracy claim.
+- [x] `lume serve --ti-store <root>` defaults to 127.0.0.1; `--bind <IP>` selects a boat LAN interface, 0.0.0.0, or IPv6 address explicitly. Ordinary serve without --ti-store retains 0.0.0.0 by default. The lead's explicit loopback-default requirement supersedes the earlier container-wide bind rule for the TI server.
+- [x] No wildcard CORS on /ti success/error/OPTIONS replies. Configured TI server MCP/SSE replies and standalone TI tool replies also omit wildcard CORS, preventing an alternate browser path to the same telemetry. Non-TI serve transport retains its existing CORS behavior.
+- [x] Real-server tests confirm loopback default, explicit bind, resolve HTTP/MCP shapes and values, URL decoding, invalid inputs, preflight/error CORS and shared snapshot reuse. Scratch uses CARGO_TARGET_TMPDIR.
+
+### Next items
+
+- [ ] NUTS authentication for shore, plus explicit boat bearer-token policy.
+- [ ] pgwire, then the remaining ingest/sync/plugin/packaging and M5 gates.
+
+Signal K schema data attribution, commit pin and upstream CC-BY-SA 2.0 license are in src/ti_resolve/. No runtime dependencies or frozen contracts changed. Container bind-mount status timings are not a code optimization target; Pike's host timings supersede that diagnostic direction. Host Rust 1.96 fmt/strict clippy remain assigned to Pike for this slice.

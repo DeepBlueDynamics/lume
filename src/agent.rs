@@ -235,7 +235,7 @@ fn run_lume_cli(args: Vec<String>) -> Result<String, String> {
 
 fn execute_tool_by_name(name: &str, args: serde_json::Value, default_db: &str) -> Result<String, String> {
     #[cfg(feature = "ti")]
-    if matches!(name, "ti_query" | "ti_schema" | "ti_explain" | "ti_status") {
+    if matches!(name, "ti_query" | "ti_schema" | "ti_explain" | "ti_status" | "ti_resolve") {
         return crate::ti_mcp::call(name, args);
     }
     match name {
@@ -523,7 +523,7 @@ fn handle_mcp_request(req_val: serde_json::Value, _ti: &TiState) -> serde_json::
             let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
             
             #[cfg(feature = "ti")]
-            let result = if let Some(server) = _ti.as_ref().filter(|_| matches!(name,"ti_query"|"ti_schema"|"ti_explain"|"ti_status")) {
+            let result = if let Some(server) = _ti.as_ref().filter(|_| matches!(name,"ti_query"|"ti_schema"|"ti_explain"|"ti_status"|"ti_resolve")) {
                 server.mcp(name,&arguments)
             } else { execute_tool_by_name(name,arguments,".lume-index") };
             #[cfg(not(feature = "ti"))]
@@ -605,32 +605,36 @@ fn handle_connection(mut stream: TcpStream, _ti: &TiState) -> std::io::Result<()
     let path = parts[1];
 
     #[cfg(feature = "ti")]
-    if method != "OPTIONS" && path.starts_with("/ti/") {
+    if path.starts_with("/ti/") {
         let Some(end) = find_subsequence(&buffer[..bytes_read], b"\r\n\r\n") else {
             stream.write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n")?;
             return Ok(());
         };
         return crate::ti_http::handle(&mut stream,_ti.as_deref(),method,path,&req_str[..end],&buffer[end+4..bytes_read]);
     }
+    #[cfg(feature = "ti")]
+    let cors=if _ti.is_some(){""}else{"Access-Control-Allow-Origin: *\r\n"};
+    #[cfg(not(feature = "ti"))]
+    let cors="Access-Control-Allow-Origin: *\r\n";
     if method == "OPTIONS" {
-        let response = "HTTP/1.1 200 OK\r\n\
-                        Access-Control-Allow-Origin: *\r\n\
+        let response = format!("HTTP/1.1 200 OK\r\n\
+                        {cors}\
                         Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n\
                         Access-Control-Allow-Headers: *\r\n\
-                        Content-Length: 0\r\n\r\n";
+                        Content-Length: 0\r\n\r\n");
         stream.write_all(response.as_bytes())?;
         stream.flush()?;
         return Ok(());
     }
 
     if method == "GET" && (path == "/sse" || path.starts_with("/sse?")) {
-        let response = "HTTP/1.1 200 OK\r\n\
+        let response = format!("HTTP/1.1 200 OK\r\n\
                         Content-Type: text/event-stream\r\n\
                         Cache-Control: no-cache\r\n\
                         Connection: keep-alive\r\n\
-                        Access-Control-Allow-Origin: *\r\n\r\n\
+                        {cors}\r\n\
                         event: endpoint\r\n\
-                        data: /message\r\n\r\n";
+                        data: /message\r\n\r\n");
         stream.write_all(response.as_bytes())?;
         stream.flush()?;
 
@@ -684,7 +688,7 @@ fn handle_connection(mut stream: TcpStream, _ti: &TiState) -> std::io::Result<()
                 let err_resp = format!(
                     "HTTP/1.1 400 Bad Request\r\n\
                      Content-Type: application/json\r\n\
-                     Access-Control-Allow-Origin: *\r\n\r\n{}",
+                     {cors}\r\n{}",
                     json!({
                         "jsonrpc": "2.0",
                         "error": { "code": -32700, "message": format!("Parse error: {}", e) },
@@ -697,17 +701,20 @@ fn handle_connection(mut stream: TcpStream, _ti: &TiState) -> std::io::Result<()
             }
         };
 
+        // Standalone TI MCP calls must not reintroduce browser access to TI data.
+        #[cfg(feature = "ti")]
+        let cors=if rpc_req["params"]["name"].as_str().is_some_and(|name|matches!(name,"ti_query"|"ti_schema"|"ti_explain"|"ti_status"|"ti_resolve")){""}else{cors};
         let response_json = handle_mcp_request(rpc_req, _ti);
         if response_json.is_null() {
-            let response = "HTTP/1.1 204 No Content\r\n\
-                            Access-Control-Allow-Origin: *\r\n\r\n";
+            let response = format!("HTTP/1.1 204 No Content\r\n\
+                            {cors}\r\n");
             stream.write_all(response.as_bytes())?;
         } else {
             let resp_str = serde_json::to_string(&response_json).unwrap_or_default();
             let response = format!(
                 "HTTP/1.1 200 OK\r\n\
                  Content-Type: application/json\r\n\
-                 Access-Control-Allow-Origin: *\r\n\
+                 {cors}\
                  Access-Control-Allow-Headers: *\r\n\
                  Access-Control-Allow-Methods: *\r\n\
                  Content-Length: {}\r\n\r\n{}",
@@ -721,9 +728,9 @@ fn handle_connection(mut stream: TcpStream, _ti: &TiState) -> std::io::Result<()
     }
 
     // Default 404 response for other paths
-    let not_found = "HTTP/1.1 404 Not Found\r\n\
-                     Access-Control-Allow-Origin: *\r\n\
-                     Content-Length: 0\r\n\r\n";
+    let not_found = format!("HTTP/1.1 404 Not Found\r\n\
+                     {cors}\
+                     Content-Length: 0\r\n\r\n");
     stream.write_all(not_found.as_bytes())?;
     stream.flush()?;
     Ok(())
@@ -734,24 +741,32 @@ fn handle_connection(mut stream: TcpStream, _ti: &TiState) -> std::io::Result<()
 const MAX_CONCURRENT_CONNECTIONS: usize = 64;
 
 pub fn serve(port: u16) -> Result<(), String> {
+    serve_on(port,"0.0.0.0")
+}
+pub fn serve_on(port:u16,bind:&str)->Result<(),String>{
+    let bind=bind.parse::<std::net::IpAddr>().map_err(|e|format!("Invalid bind address: {e}"))?;
     #[cfg(feature = "ti")]
     let ti = None;
     #[cfg(not(feature = "ti"))]
     let ti = ();
-    serve_configured(port,ti)
+    serve_configured(port,ti,bind)
 }
 #[cfg(feature = "ti")]
-pub fn serve_with_ti(port: u16,root: &std::path::Path) -> Result<(),String> {
-    let ti = std::sync::Arc::new(crate::ti_http::TiServer::open(root)?);
-    serve_configured(port,Some(ti))
+pub fn serve_with_ti(port:u16,root:&std::path::Path)->Result<(),String>{
+    serve_with_ti_on(port,root,"127.0.0.1")
 }
-fn serve_configured(port: u16, _ti: TiState) -> Result<(), String> {
+#[cfg(feature = "ti")]
+pub fn serve_with_ti_on(port:u16,root:&std::path::Path,bind:&str)->Result<(),String>{
+    let bind=bind.parse::<std::net::IpAddr>().map_err(|e|format!("Invalid bind address: {e}"))?;
+    let ti=std::sync::Arc::new(crate::ti_http::TiServer::open(root)?);
+    serve_configured(port,Some(ti),bind)
+}
+fn serve_configured(port:u16,_ti:TiState,bind:std::net::IpAddr)->Result<(),String>{
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
-
-    let listener = TcpListener::bind(format!("0.0.0.0:{}", port))
-        .map_err(|e| format!("Failed to bind to port {}: {}", port, e))?;
-    println!("Lume MCP HTTP server listening on http://{}", listener.local_addr().map_err(|e|e.to_string())?);
+    let address=std::net::SocketAddr::new(bind,port);
+    let listener=TcpListener::bind(address).map_err(|e|format!("Failed to bind to {address}: {e}"))?;
+    println!("Lume MCP HTTP server listening on http://{}",listener.local_addr().map_err(|e|e.to_string())?);
 
     let active = Arc::new(AtomicUsize::new(0));
     for stream in listener.incoming() {

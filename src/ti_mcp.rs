@@ -1,16 +1,18 @@
 //! In-process W7 MCP adapter. No CLI subprocesses.
 use serde_json::{json, Value};
 pub(crate) fn definitions() -> Vec<Value> {
-    ["ti_query","ti_schema","ti_explain","ti_status"].into_iter().map(|name|{
-        let mut properties=json!({"store":{"type":"string","description":"Existing TI store root; default TI_STORE_ROOT or ./ti"},
+    ["ti_query","ti_schema","ti_explain","ti_status","ti_resolve"].into_iter().map(|name|{
+        let mut properties=json!({"store":{"type":"string","description":"Existing TI store root; default configured --ti-store, otherwise TI_STORE_ROOT or ./ti"},
             "width_seconds":{"type":"integer","minimum":1,"description":"Required only for an empty store without ti.toml"}});
         let required=match name {
+            "ti_resolve"=>{properties["phrase"]=json!({"type":"string"});properties["vessel"]=json!({"type":"string","description":"Known vessel URN, name or MMSI"});properties["limit"]=json!({"type":"integer","minimum":1,"maximum":500,"default":8});vec!["phrase"]},
             "ti_query"=>{properties["sql"]=json!({"type":"string"});properties["max_rows"]=json!({"type":"integer","minimum":1,"maximum":500,"default":500});properties["format"]=json!({"type":"string","enum":["json","csv","markdown"],"default":"json"});vec!["sql"]},
             "ti_explain"=>{properties["sql"]=json!({"type":"string"});vec!["sql"]},
             "ti_schema"=>{properties["prefix"]=json!({"type":"string"});properties["type"]=json!({"type":"string"});vec![]},
             _=>vec![],
         };
         json!({"name":name,"description":match name {
+            "ti_resolve"=>"Resolve a phrase to ranked stored columns using offline Lume BM25, with units and latest values.",
             "ti_query"=>"Read-only TI SQL, capped at 500 rows and 64 KiB; returns units, truncation, timing and pushdown details.",
             "ti_schema"=>"TI tables and columns, units, scales and time coverage.",
             "ti_explain"=>"Read-only TI plan and measured pushdown report.",
@@ -34,6 +36,7 @@ pub(crate) async fn dispatch(
             .ok_or_else(|| "sql is required".to_string())
     };
     match name {
+        "ti_resolve" => crate::ti_resolve::PathsResolver::new(&engine.session.catalog).resolve(engine,args).await,
         "ti_query" => {
             let limit = args
                 .get("max_rows")
@@ -224,8 +227,8 @@ mod tests {
     #[test]
     fn registered_tools_have_required_sql_and_feature_shapes() {
         let tools = definitions();
-        assert_eq!(tools.len(), 4);
-        for name in ["ti_query", "ti_schema", "ti_explain", "ti_status"] {
+        assert_eq!(tools.len(), 5);
+        for name in ["ti_query", "ti_schema", "ti_explain", "ti_status", "ti_resolve"] {
             assert!(tools.iter().any(|t| t["name"] == name));
         }
         assert_eq!(tools[0]["inputSchema"]["required"], json!(["sql"]));
