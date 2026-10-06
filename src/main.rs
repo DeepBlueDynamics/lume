@@ -346,14 +346,26 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
     }
 
     if serve {
-        let serve_root = store_path.clone();
         let serve_bind = bind.unwrap_or_else(|| "127.0.0.1".to_string());
-        std::thread::spawn(move || {
-            println!("Starting integrated query server on {serve_bind}:{port}...");
-            if let Err(e) = lume::agent::serve_with_ti_pg_on(port, &serve_root, &serve_bind, pg) {
-                eprintln!("Error in query server: {e}");
+        let width = service.config.width_seconds;
+        match lume::ti_http::TiServer::open_with_width(&store_path, Some(width)) {
+            Ok(server) => {
+                let ti_server = std::sync::Arc::new(server);
+                let ti_server_clone = ti_server.clone();
+                service.set_flush_hook(std::sync::Arc::new(move || {
+                    let _ = ti_server_clone.reload_engine();
+                }));
+                std::thread::spawn(move || {
+                    println!("Starting integrated query server on {serve_bind}:{port}...");
+                    if let Err(e) = lume::agent::serve_with_ti_server(port, ti_server, &serve_bind, pg) {
+                        eprintln!("Error in query server: {e}");
+                    }
+                });
             }
-        });
+            Err(e) => {
+                eprintln!("Failed to initialize integrated query server: {e}");
+            }
+        }
     }
 
     println!(

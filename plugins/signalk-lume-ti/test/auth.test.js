@@ -24,7 +24,8 @@ test('TokenManager executes Signal K device access request and polls until appro
       req.on('data', (c) => { body += c; });
       req.on('end', () => {
         const parsed = JSON.parse(body);
-        assert.strictEqual(parsed.clientId, 'signalk-lume-ti');
+        assert.match(parsed.clientId, /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+        assert.strictEqual(parsed.permissions, 'readonly');
         res.writeHead(202, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           state: 'PENDING',

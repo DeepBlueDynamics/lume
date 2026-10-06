@@ -46,6 +46,80 @@ pub struct Store {
 }
 
 impl Store {
+    /// Open a store strictly read-only for querying.
+    /// Does not open or replay WAL files, does not truncate files, and performs no disk writes.
+    pub fn open_readonly(root: &Path, width_seconds: u64) -> Result<Self> {
+        let catalog = Arc::new(DiskCatalog::open_or_create(root)?);
+        let manifest = Arc::new(Manifest::open_or_create(root)?);
+
+        let retention_path = root.join("retention.json");
+        let retention: RetentionState = if retention_path.exists() {
+            serde_json::from_slice(&fs::read(retention_path)?)
+                .map_err(|e| Error::Corrupt(format!("retention state: {e}")))?
+        } else {
+            RetentionState::default()
+        };
+
+        let mut open_shards: BTreeMap<ShardKey, OpenShard> = BTreeMap::new();
+
+        // Discover and load any flushed open shards on disk
+        let shards_root = root.join("shards");
+        if shards_root.exists() {
+            if let Ok(entries) = fs::read_dir(&shards_root) {
+                for v_entry in entries.flatten() {
+                    if let Ok(v_ord) = v_entry.file_name().to_string_lossy().parse::<u32>() {
+                        if let Ok(s_entries) = fs::read_dir(v_entry.path()) {
+                            for s_entry in s_entries.flatten() {
+                                if let Ok(s_no) =
+                                    s_entry.file_name().to_string_lossy().parse::<u32>()
+                                {
+                                    if let Ok(Some(open_shard)) =
+                                        OpenShard::load_open(root, v_ord, s_no, catalog.as_ref())
+                                    {
+                                        let key = open_shard.data.key;
+                                        let end = i128::from(EPOCH)
+                                            + (i128::from(key.shard) + 1)
+                                                * 65536
+                                                * i128::from(width_seconds);
+                                        let mut restored = if retention
+                                            .cutoff
+                                            .is_some_and(|cutoff| end <= i128::from(cutoff))
+                                        {
+                                            OpenShard::new(key)
+                                        } else {
+                                            Self::restore_open(
+                                                root,
+                                                key,
+                                                catalog.as_ref(),
+                                                &manifest,
+                                            )?
+                                        };
+                                        restored.data.fields.extend(open_shard.data.fields);
+                                        restored.data.specs.extend(open_shard.data.specs);
+                                        restored.has_data = true;
+                                        open_shards.insert(key, restored);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(Self {
+            root: root.to_path_buf(),
+            width_seconds,
+            catalog,
+            manifest,
+            wals: BTreeMap::new(),
+            open_shards,
+            sealed_shards: BTreeMap::new(),
+            text_index: None,
+            retention,
+        })
+    }
+
     /// Open an existing store or initialize a new one in `root`.
     /// Replays any un-flushed WAL records automatically.
     pub fn open_or_create(root: &Path, width_seconds: u64) -> Result<Self> {

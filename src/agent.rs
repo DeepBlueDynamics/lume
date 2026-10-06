@@ -769,6 +769,21 @@ pub fn serve_with_ti_pg_on(port:u16,root:&std::path::Path,bind:&str,pg:Option<u1
     let _pg=pg.map(|port|crate::ti_pg::start(ti.clone(),std::net::SocketAddr::new(bind,port))).transpose()?;
     serve_configured(port,Some(ti),bind)
 }
+#[cfg(feature = "ti")]
+pub fn serve_with_ti_server(
+    port: u16,
+    ti: std::sync::Arc<crate::ti_http::TiServer>,
+    bind: &str,
+    pg: Option<u16>,
+) -> Result<(), String> {
+    let bind = bind
+        .parse::<std::net::IpAddr>()
+        .map_err(|e| format!("Invalid bind address: {e}"))?;
+    let _pg = pg
+        .map(|port| crate::ti_pg::start(ti.clone(), std::net::SocketAddr::new(bind, port)))
+        .transpose()?;
+    serve_configured(port, Some(ti), bind)
+}
 fn serve_configured(port:u16,_ti:TiState,bind:std::net::IpAddr)->Result<(),String>{
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;

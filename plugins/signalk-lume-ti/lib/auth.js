@@ -3,7 +3,35 @@
 const fs = require('fs');
 const http = require('http');
 const https = require('https');
+const crypto = require('crypto');
+const path = require('path');
 const { URL } = require('url');
+
+function isValidUuid(id) {
+  return typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+}
+
+function resolveClientId(tokenPath, explicitClientId) {
+  if (explicitClientId && isValidUuid(explicitClientId)) {
+    return explicitClientId;
+  }
+  const dataDir = path.dirname(tokenPath);
+  const clientIdFile = path.join(dataDir, 'client-id.json');
+  try {
+    if (fs.existsSync(clientIdFile)) {
+      const data = JSON.parse(fs.readFileSync(clientIdFile, 'utf8'));
+      if (data.clientId && isValidUuid(data.clientId)) {
+        return data.clientId;
+      }
+    }
+  } catch (_) {}
+  const newId = crypto.randomUUID();
+  try {
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.writeFileSync(clientIdFile, JSON.stringify({ clientId: newId }, null, 2), 'utf8');
+  } catch (_) {}
+  return newId;
+}
 
 /**
  * Signal K Device Access-Request Flow Manager.
@@ -30,7 +58,7 @@ class TokenManager {
   constructor(options) {
     this.tokenPath = options.tokenPath;
     this.signalkHttpUrl = toHttpUrl(options.signalkUrl || 'ws://127.0.0.1:3000');
-    this.clientId = options.clientId || 'signalk-lume-ti';
+    this.clientId = resolveClientId(this.tokenPath, options.clientId);
     this.description = options.description || 'Lume TI Ingest and Query Engine';
     this.pollIntervalMs = options.pollIntervalMs || 2000;
     this.onTokenReceived = options.onTokenReceived || (() => {});
@@ -114,7 +142,7 @@ class TokenManager {
     const postData = JSON.stringify({
       clientId: this.clientId,
       description: this.description,
-      permissions: 'read',
+      permissions: 'readonly',
     });
 
     const targetUrl = new URL('/signalk/v1/access/requests', this.signalkHttpUrl);
