@@ -6,21 +6,37 @@ contract between the corpus (this lane) and the W0 generator/catalog (Rigid Road
 If the generator emits different paths, the corpus and this list must be updated together
 in a contracts PR.
 
-## Parquet `raw` schema
+## Parquet layout (REAL signalk-parquet, per plan/design/signalk-formats.md)
 
-The oracle SQL assumes this signalk-parquet layout (one row per raw sample):
+The generator writes the **real** signalk-parquet raw tier, not a bespoke schema:
+
+- Hive layout `tier=raw/context=<ctx>/path=<path>/year=YYYY/day=DDD/<prefix>_<export>.parquet`.
+- `received_timestamp` / `signalk_timestamp` are **ISO-8601 VARCHAR**, not TIMESTAMP.
+- No `$source` column; the sourceRef is `source_label` (plus `source`, `source_type`,
+  `source_pgn`, `source_src`, `meta` JSON).
+- Scalar paths have a `value` column (DOUBLE / BOOLEAN / UTF8, inferred per file).
+- Object paths (e.g. `navigation.position`) have **no** `value` column, only
+  `value_<key>` columns (`value_latitude`, `value_longitude`, ...). Nested objects and
+  arrays are dropped.
+
+The oracles do **not** read these files directly. They target a DuckDB view `raw`
+(`tests/golden/raw_view.sql`) that flattens the real layout into the logical schema below,
+casting the string timestamps, coalescing the per-file value types, mapping `source_label`
+→ `source`, and splitting object paths into `path.<key>` rows.
+
+## Logical `raw` view (what oracles see)
 
 | Column | Type | Meaning |
 |---|---|---|
 | `context` | VARCHAR | Signal K context URN, e.g. `vessels.urn:mrn:imo:mmsi:367000000` |
-| `path` | VARCHAR | Signal K path |
-| `ts` | TIMESTAMP | Sensor timestamp (bucket key; `signalk_timestamp`) |
+| `path` | VARCHAR | Signal K path (object paths flattened to `path.key`) |
+| `ts` | TIMESTAMP | `signalk_timestamp`, falling back to `received_timestamp` |
 | `value` | DOUBLE | Numeric value (bsi) |
 | `value_str` | VARCHAR | String/enum value (set) |
+| `source` | VARCHAR | sourceRef (from `source_label`) |
 
-`received_timestamp` is not needed by the oracle (backfill maps `signalk_timestamp` →
-`ts`). Numeric and set samples are separate rows (a string sample has `value = NULL` and
-vice versa).
+Numeric and set samples are separate rows (a string sample has `value = NULL` and vice
+versa).
 
 ## `docs` schema (notes, logbook, alerts)
 
@@ -86,6 +102,14 @@ profile). Scale is the fixed-point factor used by both ingest and the oracle.
 `navigation.position` also produces H3 `geo` cells at res 5, 7, 9 (used by
 `within_nm`/`in_bbox`), which the corpus exercises but the oracle computes from lat/lon.
 
+### Set field semantics (single-valued per bucket)
+
+Set fields (states, enums, booleans, strings) are **single-valued per bucket**: the last
+value from the preferred source. The generator emits exactly one source per state path, so
+the oracle's `arg_max(value_str, ts)` matches TI's preferred-source last value. Negation
+uses `IS DISTINCT FROM` with a presence join (spec 14). `path$source` is the multi-valued
+exception (any-sample semantics) and is not exercised yet.
+
 ### Set field enumerations
 
 - `propulsion.port.state`, `propulsion.starboard.state`, `propulsion.main.state`: `started`, `idle`, `reverse`, `off`.
@@ -98,7 +122,8 @@ profile). Scale is the fixed-point factor used by both ingest and the oracle.
 
 - `leak`, `water` — `notes`
 - `bilge` — `notes`
-- `anchorage`, `anchor` — `logbook`, `notes`
+- `anchorage` — `logbook`
+- `mooring` — `notes`  (unambiguous; `anchor` was dropped because it is a substring of `anchorage`)
 - `weather` — `notes`
 - `alarm` — `alerts`
 

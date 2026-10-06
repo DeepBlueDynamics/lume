@@ -9,14 +9,14 @@ Items marked *(unconfirmed)* are conventions the docs keeper has not verified. A
 
 Lume is a Rust crate (`lume` 0.12.0, edition 2021): `src/lib.rs` plus a CLI in `src/main.rs`.
 By default it has four direct dependencies (`tantivy-fst`, `ureq`, `serde`, `serde_json`) and a committed `Cargo.lock`.
-The repo is now a Cargo workspace. The root `lume` package stays at `.`, and Lume TI (the telemetry index) lives in members under `crates/ti-*` (merged so far: `crates/ti-contracts`, `crates/ti-core`, `crates/ti-store`, `crates/ti-sql` and `crates/ti-ingest`). TI is compiled only behind the `ti` cargo feature, which is off by default.
+The repo is now a Cargo workspace. The root `lume` package stays at `.`, and Lume TI (the telemetry index) lives in members under `crates/ti-*` (merged so far: `crates/ti-contracts`, `crates/ti-core`, `crates/ti-store`, `crates/ti-sql`, `crates/ti-ingest` and `crates/ti-bench`). TI is compiled only behind the `ti` cargo feature, which is off by default.
 
 **`ti-contracts` is frozen** (`96ac45d`). It holds the shared types and traits, the catalog, the Arrow schemas, the WAL/shard envelopes, the `TiEngine` facade and the `ti.toml` schema (`config.rs`). [spec/10](spec/10-contracts.md) mirrors its source, and [spec/14](spec/14-semantics.md) freezes the behavioral rules. **Any change to a boundary in it needs a contracts PR approved by the lead (integrator).** Build your lane against the crate as it is, and mock other lanes behind its traits. If you think a contract is wrong, mail the lead. Don't patch it in your lane.
 
 **`ti-core`** (W1, `f7faf5f`) holds the in-memory bitmap rows (presence, set, BSI, count), the BSI algorithms, and the three-valued predicate evaluator with the `MemoryShard`/`MemorySource` fixtures. Its [README](../crates/ti-core/README.md) is the reference for the row and evaluator API, and for what is deliberately left to other lanes (Arrow `read` goes to W4, durable WAL/flush/seal to W2, the geo refinement under `NOT` to W6).
 The golden SQL corpus is in `tests/golden/` (see its `README.md`).
 
-**Shared data dir: `.lanes/data/`.** Generated correctness data and expected outputs go here. They never go in a lane clone's tracked files or in git. The dir is under `.lanes/`, so it is gitignored. All containers and the host can see it: in a container it is `/workspace/lume/.lanes/data/`, and on the host it is `C:\Users\kordl\Code\DeepBlueDynamics\lume\.lanes\data\`. The correctness set (~1.9 GB) goes in `.lanes/data/correctness/`. **As of 07:19 UTC that copy is incomplete (1.5 GB), so do not use it** until it is regenerated (see STATUS). W3 keeps its own smoke set in `.lanes/data/w3-smoke/`. Treat data another lane wrote as read-only unless you own it *(unconfirmed convention)*.
+**Shared data dir: `.lanes/data/`.** Generated correctness data and expected outputs go here. They never go in a lane clone's tracked files or in git. The dir is under `.lanes/`, so it is gitignored. All containers and the host can see it: in a container it is `/workspace/lume/.lanes/data/`, and on the host it is `C:\Users\kordl\Code\DeepBlueDynamics\lume\.lanes\data\`. The correctness set (~1.9 GB) goes in `.lanes/data/correctness/`. It is **ready**: regenerated on the host from `71b7fcd`, 1.8 GB, 11,508 files. Its manifest hash is in `.lanes/data/correctness.sha256` (`edfef2d8…`). Check against that file before you rely on the data. W3 keeps its own smoke set in `.lanes/data/w3-smoke/`. Treat data another lane wrote as read-only unless you own it *(unconfirmed convention)*.
 The work happens on branch `plan/lume-ti`, not `main`.
 
 ## 2. Build and test the existing crate
@@ -50,11 +50,22 @@ cargo test  --locked -p ti-core            # includes 10,000-case property suite
 cargo test  --locked -p ti-store           # includes the 1,000-run kill -9 crash test (~75 s)
 cargo test  --locked -p ti-sql             # DataFusion SQL layer
 cargo test  --locked -p ti-ingest          # decode, bucketer, sources, recorder/replay
+cargo test  --locked -p ti-bench           # generator, including the window pin test
 ```
+
+**Data-dependent tests (M2 gate).** These need a dataset in `.lanes/data/` and run in release:
+
+```sh
+TI_DATA_DIR=<dir> cargo test --release -p ti-ingest --test m2_gate -- --nocapture
+# e.g. TI_DATA_DIR=.lanes/data/w3-smoke (smoke) or .lanes/data/correctness (full set)
+```
+
+On the host in PowerShell, use `$env:TI_DATA_DIR = '<dir>'; cargo test --release -p ti-ingest --test m2_gate -- --nocapture`.
+**Warning:** without data these tests currently **skip silently and report a pass**. A fix (`#[ignore]`) is pending, so check the `--nocapture` output for real match counts. Peak RSS currently reads 0.00 MB on non-Linux hosts.
 
 A plain `cargo test` only tests the root crate, because `default-members = ["."]`.
 
-**Strict checks, scoped to each TI crate.** Run both for every `crates/ti-*` crate you touch (currently `ti-contracts`, `ti-core`, `ti-store`, `ti-sql` and `ti-ingest`; `ti-bench` is committed in a lane but not merged):
+**Strict checks, scoped to each TI crate.** Run both for every `crates/ti-*` crate you touch (currently `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest` and `ti-bench`):
 
 ```sh
 cargo clippy -p <ti crate> -- -D warnings
@@ -79,10 +90,24 @@ The clone's `origin` is the shared repo itself (`C:/Users/kordl/Code/DeepBlueDyn
    Who creates clones (lead or agent) is not written down *(unconfirmed)*.
 2. **Check identity** (section 7) and confirm which pane you are.
 3. **Read your lane file** in `plan/lanes/` or `plan/design/`, plus [repo-fit.md](repo-fit.md) and [spec/10-contracts.md](spec/10-contracts.md).
-4. **Work and commit only inside your clone.** Never edit the shared working tree at the repo root. Never touch another agent's clone.
+4. **Only ever write in your own clone.** Never edit the shared working tree at the repo root. You may read other lanes' clones with git commands only (`git -C .lanes/<other> log`, `status`, `show`, `diff`). Never edit, check out, reset, stash or commit in a clone that isn't yours. If another clone needs fixing, ask the lead.
 5. **Don't push.** The lead fetches your branch straight from your clone.
 6. **Stay current when asked.** The clone's `origin/plan/lume-ti` is a snapshot from when it was cloned. `git fetch origin` refreshes it. Ask the lead before you merge or rebase onto a newer `plan/lume-ti` *(unconfirmed convention)*.
 7. **Before reporting a commit,** run the section 2 commands, plus the section 3 commands for any TI crate you touched, in your clone, and check line endings (section 6).
+
+### Building on another lane's unmerged work: the side-branch pattern
+
+If you need commits from another lane that the lead hasn't merged yet, fetch them **into your own clone** on a new branch. Don't put them on your lane branch, and don't work in their clone.
+
+```sh
+# in your own clone, e.g. .lanes/w3
+git fetch ../corpus ti/w0-corpus             # read-only fetch from the other clone
+git switch -c ti/<topic> FETCH_HEAD          # new side branch on top of their commit
+# ...commit your changes here...
+git switch ti/<your-lane>                    # go back to your own lane branch
+```
+
+Then tell the lead the side branch name, its base commit, and which lane it should merge with. Example: `ti/bench-days` (`d3e8f66`) in `.lanes/w3` adds `ti-bench` date flags on top of the corpus lane's `86f0ffb`, and was merged together with the corpus lane in `c65e515`.
 
 ## 5. Reporting protocol
 
@@ -128,6 +153,25 @@ Codex rejects unannotated MCP tools when its approval policy is `never`.
 - Use PowerShell syntax there (`$env:VAR = 'x'`, not `VAR=x`).
 - Some containers also have cargo locally. Either is fine; say which one you used in your report.
 
+### Bulk data generation: run it on the host
+
+Writing generated data through a container's bind mount is very slow. On the host, `ti-bench` writes about 2 s per day of the correctness set. **Run bulk generation on the host**, into `.lanes/data/`, and coordinate with the lead first so two agents don't regenerate the same set.
+
+```powershell
+cargo run --release --locked -p ti-bench -- gen --root <dir> [--days N]
+```
+
+| Flag | Meaning (from `crates/ti-bench/src/main.rs`) |
+|---|---|
+| `--root <dir>` | Output directory, in the signalk-parquet layout. Defaults to `ti-bench-out` |
+| `--days N` | Generate N days from the start (sets the end to start + N × 86,400 s) |
+| `--start <unix s>`, `--end <unix s>` | Explicit window. `--end` wins over `--days` |
+| `--seed <n>` | RNG seed. Defaults to the crate's `DEFAULT_SEED` |
+| `--vessels <n>` | Vessel count. Defaults to the correctness set's count (the performance count with `--perf`) |
+| `--perf` | Performance-set defaults (window and vessel count) |
+
+Set `TI_BENCH_VERIFY_DETERMINISM=1` to regenerate into `<dir>.regen` and fail if any file differs. The lead's M0 check was `gen --days 1` run twice, which gave an identical sha256 over 258 files (about 20 MB/day). Without `--days`, it generates the default correctness window `START_SECS..END_SECS` in `crates/ti-bench/src/gen.rs`. That is 2026-03-01T00:00Z..2026-06-01T00:00Z (fixed in `71b7fcd`, pinned by `crates/ti-bench/tests/window.rs`). If you change the window, update `tests/golden/corpus.json` and the pin test together.
+
 ## 9. Dependency policy
 
 - **Every new runtime dependency needs a line in the decisions log** ([spec/11](spec/11-risks-decisions.md), D8+) before it merges. This is a PR rule from [spec/10](spec/10-contracts.md).
@@ -142,7 +186,7 @@ Codex rejects unannotated MCP tools when its approval policy is `never`.
   | DuckDB | Used as an oracle through the **CLI**, not as a bundled Rust crate |
   | Release builds | `cargo-zigbuild` for musl targets |
 
-  The log also records pure-Rust Parquet codecs only, with no zstd (D11), `blake3` with `pure` (D12), and an early aarch64-musl smoke test for pgwire SCRAM, which pulls in `ring` (D13). **D27 amends D11:** `zstd-sys` (C) is accepted because DataFusion's `arrow-ipc` forces it in. That deviates from the spec's croaring-only C rule and is awaiting spec-owner confirmation. D18 (`serde`) and D19 (`toml`) cover the dependencies of `ti-contracts`. D23 is `proptest` (a `ti-core` dev-dependency). D24 (`bincode`) and D25 (`crc32fast`) are in `ti-store`. D22 (`ti-bench`) is reserved for the corpus lane. D26 (DataFusion) and D27 (`zstd-sys`) are logged. D28 (`tungstenite`) and D29 (`parquet`) are reserved for W3. The next free number is **D30**. Ask the lead before taking it.
+  The log also records pure-Rust Parquet codecs only, with no zstd (D11), `blake3` with `pure` (D12), and an early aarch64-musl smoke test for pgwire SCRAM, which pulls in `ring` (D13). **D27 amends D11:** `zstd-sys` (C) is accepted because DataFusion's `arrow-ipc` forces it in. That deviates from the spec's croaring-only C rule and is awaiting spec-owner confirmation. D18 (`serde`) and D19 (`toml`) cover the dependencies of `ti-contracts`. D23 is `proptest` (a `ti-core` dev-dependency). D24 (`bincode`) and D25 (`crc32fast`) are in `ti-store`. D22 (`ti-bench`: arrow/parquet 59.2 with pure-Rust codecs, chrono) is logged (`71b7fcd`). D26 (DataFusion) and D27 (`zstd-sys`) are logged. D28 (`tungstenite`) and D29 (`parquet`) are reserved for W3. D30 is the 1 s high-resolution store ([design/hi-res-store.md](design/hi-res-store.md)). The next free number is **D31**. Ask the lead before taking it.
 - The contracts crate itself depends on `arrow-array`, `arrow-schema`, `roaring`, `serde` and `toml` only, not DataFusion.
 
 ## 10. How the lead merges

@@ -20,7 +20,7 @@ and cheaply.
 
 ## Open questions
 
-- [ ] Default bucket width: 10 s, or 1 s with 1-min rollups? (1 s is 10× the index size)
+- [x] Default bucket width: 10 s, or 1 s with 1-min rollups? (1 s is 10× the index size). **Resolved by D30:** keep 10 s for everything, plus a separate 1 s store for navigation, wind and depth with 90-day configurable retention.
 - [ ] Per-source values as first-class columns in v1, or only `$source` sets?
 - [ ] AIS contacts as a second table (`contacts`, columns = observer × bucket, rows = MMSI), or out of scope?
 - [ ] Shore storage: local NVMe only, or sealed shards in object storage with a read cache?
@@ -54,6 +54,7 @@ and cheaply.
 | D19 | toml 0.9 in ti-contracts | W0 part 2: parse the typed ti.toml schema, reject unknown keys and report key-qualified validation errors; pure Rust |
 | D20 | `raw` (for both the DuckDB oracle and TI) is a normalizing view over the real signalk-parquet layout: `context, ts TIMESTAMP, path, value DOUBLE, value_str VARCHAR, source`, with object keys flattened to `path.key` | Lead decision after [design/signalk-formats.md](../design/signalk-formats.md) found string timestamps, no `$source` column and per-file value types. Oracles stay layout-independent, and the generator writes the real layout so the view is tested against it ([repo-fit §10](../repo-fit.md)) |
 | D21 | Ordinary set fields are single-valued per bucket: exactly one row bit per column, the last preferred-source value. Rows are pairwise disjoint and union to presence; the Arrow type is Utf8. `$source` stays multi-valued `List<Utf8>`, and W4 rewrites `=` to `array_has` | Lead ruling at the contracts freeze: with Exact pushdown, a filter must agree with the projected value, because DataFusion doesn't re-check it. Mid-bucket changes are covered by `@starts` / edge counts. Enforced by `validate_ordinary_set_rows` |
+| D22 | `ti-bench` workspace member: arrow 59.2 + parquet 59.2 (default-features off; flate2-zlib-rs, lz4_flex, snap, arrow) + chrono 0.4 (default-features off, clock) | Synthetic signalk-parquet generator for the correctness and performance sets (Zygomorphic Prawn, merged by lead in c65e515). Pure-Rust codecs only (D11/D27); not a dependency of the `lume` binary |
 | D23 | proptest 1.x as a ti-core dev-dependency | W1: 10,000-case independent scalar/bitmap checks for signed BSI, predicate trees and D21 rewrites; coordinated with Prawn (D22 reserved for ti-bench), no new root runtime dependency |
 | D24 | bincode 1.3 in ti-store | W2: length-prefixed little-endian fixed-integer serialization for WAL record payloads (spec 14 §79); pinned 1.3.3 in Cargo.lock. WAL payload encoding is an on-disk format versioned by the frozen WAL header (v1); any change of encoder or major version requires a header version bump plus a migration note |
 | D25 | crc32fast 1.4+ in ti-store | W2: IEEE CRC32 frame checksum for WAL records over sequence LE and payload (spec 14 §78); pure-Rust fast table-based CRC32, already in shared lockfile |
@@ -61,7 +62,6 @@ and cheaply.
 
 Reserved, and written by the owning lane at merge (agreed among the lanes on 2026-10-06):
 
-- D22: Zygomorphic Prawn, `ti-bench` generator crate (arrow/parquet 59.x pure-Rust codecs, chrono; dev/optional)
 
 | # | Decision | Why |
 |---|---|---|
@@ -69,7 +69,11 @@ Reserved, and written by the owning lane at merge (agreed among the lanes on 202
 | D28 | `tungstenite` 0.24 in `ti-ingest` (blocking, plain `ws://` without TLS) | W3: Signal K WebSocket client and subscription management; keeps ingest off tokio and preserves low-priority thread budget. `wss://` requires rustls/ring and is out of scope for v1 (W7/W8 follow-up if remote Signal K needed) |
 | D29 | `parquet` 59.2 in `ti-ingest` (`default-features = false`, `arrow`, `snap`, `flate2`, `zstd`) | W3: signalk-parquet raw tier backfill reader; pure-Rust codecs (`snap`, `flate2`), with `zstd` enabled reusing `zstd-sys` already accepted under D27 (no new C crates). C crates `bzip2-sys` and `lzma-sys` stay strictly forbidden |
 
-The next free number is **D30**. Ask the lead before taking one. Every new runtime dependency needs a line here
+| # | Decision | Why |
+|---|---|---|
+| D30 | A second **1 s high-resolution store** (`telemetry_hr`) beside the 10 s store, holding an allow-list of navigation (position, SOG, COG, heading: `@last`), wind (`@mean`, `@max`) and depth (`@min`). Retention is per store and configurable, defaulting to **90 days** on the Pi and on shore (`shore_retention`) | User decision, 2026-10-06. 10 s loses track shape (about 36 m between fixes at 7 kn), while gusts and shallowest depth are already kept by `@max`/`@min`. A 1 s bucket holds about one sample at Signal K's ~1 Hz, so it's full fidelity for those paths at about 0.15–0.5 GB per vessel over 90 days. No frozen-type change; needs a `ti.toml` contracts PR. Design: [design/hi-res-store.md](../design/hi-res-store.md). Scheduled after M3 |
+
+The next free number is **D31**. Ask the lead before taking one. Every new runtime dependency needs a line here
 (PR rule, [10-contracts](10-contracts.md)).
 
 ## Sources (from spec)

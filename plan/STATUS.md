@@ -1,25 +1,24 @@
 # Lume TI — Status board
 
-Last updated: **2026-10-06 07:19 UTC** (docs keeper, after `46d69f4`: W3 ingest foundation merged, and the agent panes changed)
+Last updated: **2026-10-06 07:50 UTC** (docs keeper, after `4c55f60`: M2 harness merged, window fix, correctness set ready, D30)
 
-Integration branch `plan/lume-ti` is at `46d69f4`. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46.
-Workspace members: `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`. Next free decision: **D30** (ask the lead before taking it).
+Integration branch `plan/lume-ti` is at `4c55f60`. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46.
+Workspace members: `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench`. Next free decision: **D31** (ask the lead before taking it).
 Setup and workflow: [SETUP.md](SETUP.md).
 
 ## Critical path right now
 
-- **Corpus and generator work has no owner.** Zygomorphic Prawn is **offline**. Its generator is committed in `.lanes/corpus` at `86f0ffb` but not merged. **M0 items 3 and 4, M2 and M3 all wait on it.** The next step is to restore that agent or reassign the work (open item below).
-- **`.lanes/data/correctness` is INCOMPLETE. DO NOT USE IT.** Generation was interrupted at about 1.5 of ~1.9 GB.
+- **Corpus expected outputs** (61 × `tests/golden/expected/*.json`) block M0 item 4 and M3. Artificial Shark is generating them with **DuckDB 1.5.6** in its container, on `ti/corpus-expected`.
+- **The correctness set is READY.** It was regenerated on the host from `71b7fcd` (the fixed window): 1.8 GB, 11,508 files, in 2 min 31 s. Manifest sha256 `edfef2d8089e5fda112c1fac4340479981b7beb4372b45ed8bd31b72fa9d7c8e` is in `.lanes/data/correctness.sha256`. The earlier "do not use" warning is resolved.
+- **M2 on the full set** is next (Artificial Shark). Smoke results are green.
 
 ## Pane changes (about 06:00 UTC)
-
-The original agent panes closed. Their sessions were restored into new panes with new container identities.
 
 | Role | Now | Formerly |
 |---|---|---|
 | W4 SQL owner | **Long Horse** `888bff45`, nemesis8/n8-hazy-badger | Rigid Roadrunner `d58ca1b1`, n8-sly-viper |
-| W3 ingest owner | **Artificial Shark** `fd91f4b1`, nemesis8/n8-quiet-crane | Romantic Pike `90fc608c`, n8-keen-kiwi |
-| Corpus and generator | **offline** | Zygomorphic Prawn `eccaf836`, n8-noble-toad |
+| W3 ingest + corpus part 3 owner | **Artificial Shark** `fd91f4b1`, nemesis8/n8-quiet-crane | Romantic Pike `90fc608c`, n8-keen-kiwi |
+| Corpus and generator | Lead took it over and merged it (`c65e515`) | Zygomorphic Prawn `eccaf836`, n8-noble-toad: **retired** (permanently offline, per the user) |
 | Host build pane | **Compact Echidna** `6914c38e` | Regular Pheasant `364a3fc7` (gone) |
 
 Commit messages, the decisions log and older docs use the former names.
@@ -28,25 +27,26 @@ Commit messages, the decisions log and older docs use the former names.
 
 | Commit | What |
 |---|---|
-| `46d69f4` | Merge the `ti/w3-ingest` **foundation** (`b175642`): decode (source label delegating to `ti_contracts::normalized_source_label`, with a parity test), normalize, classify, bucketer, watermark, derived fields, WebSocket/Parquet/InfluxDB sources, recorder/replay. Host-verified: 46 root tests, 21 `ti-ingest` tests, rustc 1.96 strict clippy, fmt, `--features ti` build (3 min 9 s), no bzip2/lzma/liblzma. `ring` is present only through root lume's existing `ureq`/rustls, not TI. **M2 is not complete** |
-| `3ac046d` | Docs refresh for the W4 foundation merge and the shared data dir |
-| `98816b5` | Merge the `ti/w4-sql` **foundation**: DataFusion `=55.1.0` (defaults off), telemetry/docs/raw/catalog providers, pushdown classifier, W1-backed materializer, plan-level timestamp rewrite (prepared `$1` stays Exact), stored-output verify harness. 12 `ti-sql` tests. **M3 is not complete** |
-| `20d1b96` | D28 (`tungstenite`) and D29 (`parquet`) reserved for W3. Next free: D30 |
-| `cf98c61` | Merge `ti/w2-store` (WAL group commit, deterministic seal, repair, 1,000-run crash test). **M1 complete** |
-| `922fc07` | **D27**: accept `zstd-sys` (C), forced in by DataFusion's `arrow-ipc`. Amends D11. Awaiting the user |
-| `f7faf5f` | Merge `ti/w1-core` (bitmap rows, BSI, three-valued evaluator; [README](../crates/ti-core/README.md)) |
+| `4c55f60` | Merge the **W3 M2 harness** (`af9cc7c`, `crates/ti-ingest/tests/m2_gate.rs`, with an independent Rust oracle). The lead re-ran it on the host against `w3-smoke` with `TI_DATA_DIR`. Results: **153,374/153,374** records matched, the backfill manifest hash `be11a34b…` was identical across runs, and **181,783 values/s** in release. Known issues went back to Artificial Shark: tests pass **vacuously** when data is absent (fix: `#[ignore]`), peak RSS reads 0.00 MB on non-Linux, and a one-off DuckDB cross-check is requested |
+| `6ee96b9` | Docs refresh for the corpus takeover, `ti-bench` usage and the window issue |
+| `571cc2b` | **D30**: user-approved 1 s high-resolution store `telemetry_hr` (navigation `@last`, wind `@mean`+`@max`, depth `@min`). Retention is configurable per store and defaults to 90 days, with a separate `shore_retention`. Design: [design/hi-res-store.md](design/hi-res-store.md). Scheduled **after M3**. It resolves spec/11's bucket-width question. Next free: D31 |
+| `71b7fcd` | **`ti-bench` window fix**: START/END are now 2026-03-01/06-01 UTC (they were Feb 10 16:00 / May 12 16:00). Adds the `tests/window.rs` pin test, logs D22 properly, and removes the stray `.lanes/data/ti-bench-days-flags.patch` |
+| `c65e515` | Corpus lane merged by the lead: `ti-bench` generator, `--days` flags, exact oracles, `raw_view.sql`, review fixes. **M0 item 3 done** |
+| `33c67b1` | Merge `ti/w4-sql`: `ti-store` list/sourceRef fix + durable SQL Store adapter |
+| `46d69f4` | Merge the `ti/w3-ingest` foundation |
+| `98816b5` | Merge the `ti/w4-sql` foundation (DataFusion `=55.1.0`) |
 
-Earlier: `1297968` search library, `96ac45d` contracts freeze, `48d0db1` D20/D21, `b0ea0e1` [signalk-formats](design/signalk-formats.md), `d8b2a88` corpus part 1 (61 queries), `06dd5c5` workspace + `ti-contracts` part 1. Full list: `git log --oneline --first-parent plan/lume-ti`.
+Earlier: `cf98c61` W2 store (**M1 complete**), `922fc07` D27, `f7faf5f` W1 core, `1297968` search library, `96ac45d` contracts freeze, `b0ea0e1` [signalk-formats](design/signalk-formats.md), `d8b2a88` corpus part 1, `06dd5c5` workspace. Full list: `git log --oneline --first-parent plan/lume-ti`.
 
 ## Agents
 
 | Agent (pane name) | Pane | Lane/scope | Branch | Clone | Last known state |
 |---|---|---|---|---|---|
-| Industrial Pike | `ee764a09` | Lead and integrator. Fetches lane branches and merges them into `plan/lume-ti`. For Long Horse's merges, it also runs fmt and 1.96 clippy on the host | `plan/lume-ti` | shared tree | `46d69f4` |
-| Long Horse (formerly Rigid Roadrunner) | `888bff45` | **W4 `ti-sql`** ([lanes/W4](lanes/W4-sql.md)), the critical path to M3 | `ti/w4-sql` | `.lanes/w4` | Its restored container **lacks rustfmt and clippy**. Running the `ti-store` crash suite, then committing the `ti-store` fix and the SQL Store adapter as separate commits. Clone: `ti-store` fix staged (`shard.rs`, `tests/read_lists.rs`, `.gitignore`), unstaged `crates/ti-sql/` changes, new `src/store.rs` and `tests/store.rs`, and an untracked `.test-tmp/` |
-| Artificial Shark (formerly Romantic Pike) | `fd91f4b1` | **W3 `ti-ingest`** ([lanes/W3](lanes/W3-ingest.md)) | `ti/w3-ingest` | `.lanes/w3` | Foundation merged (`46d69f4`). Building the M2 harness on a self-generated 1 vessel × 1 day smoke set in `.lanes/data/w3-smoke`. Clean tree |
-| Zygomorphic Prawn | `eccaf836` | W0 corpus parts 2–3 and the `ti-bench` generator | `ti/w0-corpus` | `.lanes/corpus` | **OFFLINE.** Generator committed at `86f0ffb`, not merged. The clone also has an **uncommitted** change to `crates/ti-bench/src/main.rs` (26+/14−) that isn't covered by `86f0ffb` |
-| Compact Echidna (formerly Regular Pheasant) | `6914c38e` | Host build pane (PowerShell 7, Windows Rust toolchain, rustc 1.96.1). Not an agent | — | — | Agents may split it once each. Cold `--features ti` builds take a long time (~10 min cold, 3 min 9 s at the W3 merge), so don't start parallel cold builds |
+| Industrial Pike | `ee764a09` | Lead and integrator. Owns the merged corpus lane and host data generation. Runs fmt and 1.96 clippy on the host for Long Horse's merges | `plan/lume-ti` | shared tree | `4c55f60` |
+| Long Horse (formerly Rigid Roadrunner) | `888bff45` | **W4 part 2** (M4 items without W5/W6): `intervals()`, `BitmapAggregateExec`, `EXPLAIN`, ≥ 10× benchmark | `ti/w4-sql` | `.lanes/w4` | All 4 M4 integration tests green: intervals cross-shard/gap/`min_len`, aggregate selection and fallbacks, and random aggregate comparisons against the materializing path. **Benchmark running** (50 vessels × 365 d at W = 60 s, Q4). **Nothing committed yet.** Clone: new `aggregate.rs` and `intervals.rs`, plus changes to 5 `ti-sql` files and an untracked `.test-tmp/`, on base `33c67b1` |
+| Artificial Shark (formerly Romantic Pike) | `fd91f4b1` | **Corpus part 3** (expected outputs, DuckDB 1.5.6) and the **full-set M2 rerun** | `ti/corpus-expected` (checked out), `ti/w3-ingest` | `.lanes/w3` | M2 harness merged (`4c55f60`). `ti/corpus-expected` is cut from `c65e515`, which predates the window fix `71b7fcd`. It has an uncommitted change to `tests/golden/raw_view.sql` |
+| Zygomorphic Prawn | `eccaf836` | — | — | `.lanes/corpus` (retired) | **Retired.** Work merged in `c65e515` |
+| Compact Echidna (formerly Regular Pheasant) | `6914c38e` | Host build pane (PowerShell 7, rustc 1.96.1). Not an agent | — | — | Bulk data generation runs here. Don't start parallel cold `--features ti` builds |
 
 How to refresh the last column: `git -C .lanes/<x> log --oneline -5` and `git -C .lanes/<x> status --short`.
 
@@ -56,13 +56,15 @@ Week numbers count from kickoff. A milestone closes only when every gate test pa
 
 | Milestone | Lanes | Weeks | Gate status |
 |---|---|---|---|
-| M0 Contracts | W0 | 1 | **In progress, blocked.** 2/4 done. Items 3 and 4 need the corpus/generator owner |
+| M0 Contracts | W0 | 1 | **In progress.** 3/4 done. Item 4 waits on expected outputs |
 | M1 Core and store | W1, W2 | 2–4 | **Complete** (`cf98c61`) |
-| M2 Ingest | W3 | 2–5 | **In progress.** Foundation merged (`46d69f4`). 0/3 gate items passed |
-| M3 SQL and pushdown | W4 | 2–6 | **In progress.** Foundation merged (`98816b5`). Waits on corpus expected outputs |
-| M4 Text, geo, intervals | W4, W5, W6 | 6–8 | Not started |
+| M2 Ingest | W3 | 2–5 | **In progress.** Harness merged (`4c55f60`) and green on the smoke set. Full-set run is next |
+| M3 SQL and pushdown | W4 | 2–6 | **In progress, blocked** on corpus expected outputs |
+| M4 Text, geo, intervals | W4, W5, W6 | 6–8 | **In progress (W4 part only).** 4 integration tests green, benchmark running, nothing committed. W5 and W6 not assigned |
 | M5 Agent surface | W7 | 7–9 | Not started |
 | M6 Fleet and benchmarks | W8, integrator | 9–12 | Not started |
+
+After M3: the D30 high-resolution store ([design/hi-res-store.md](design/hi-res-store.md)) and `lume sql` over plain indexes.
 
 ### M0 gate detail
 
@@ -70,32 +72,30 @@ Week numbers count from kickoff. A milestone closes only when every gate test pa
 |---|---|---|
 | 1 | `ti-contracts` merged with types, traits, doc comments | **Done** (`96ac45d`) |
 | 2 | `ti.toml` schema with defaults | **Done** (`96ac45d`) |
-| 3 | `ti-bench gen` reproduces the correctness set byte-identically from a seed | **Blocked.** Generator at `86f0ffb` (not merged). Owner offline. Correctness set incomplete |
-| 4 | ≥ 60 golden queries with oracle twins and expected output | **Blocked.** 61 queries merged. The oracle fixes in the lane aren't merged. No expected outputs |
+| 3 | `ti-bench gen` reproduces the correctness set byte-identically from a seed | **Done** (`c65e515`). Window fixed and pinned (`71b7fcd`) |
+| 4 | ≥ 60 golden queries with oracle twins and expected output | In progress. 61 queries + exact oracles merged. Expected outputs: Artificial Shark, DuckDB 1.5.6 |
 
 ### M2 gate detail
 
 | # | Gate item | State |
 |---|---|---|
-| 1 | Replaying a recorded 24 h delta log yields `BucketRecord`s equal to oracle bucketing | Open. Recorder/replay merged. Harness in progress on `.lanes/data/w3-smoke` |
-| 2 | Parquet backfill of the correctness set is idempotent | Open. Needs the real correctness set (blocked) |
-| 3 | Pi 5 sustains 20,000 values/s for 1 h within the CPU and RSS budget | Open. No throughput number yet |
+| 1 | Replaying a recorded 24 h delta log yields `BucketRecord`s equal to oracle bucketing | Smoke set green (153,374/153,374, independent Rust oracle). Full set and a DuckDB cross-check pending |
+| 2 | Parquet backfill of the correctness set is idempotent | Smoke set green (manifest `be11a34b…` identical across runs). Full set pending |
+| 3 | Pi 5 sustains 20,000 values/s for 1 h within the CPU and RSS budget | 181,783 values/s in release on the **host (x86), not a Pi 5**. RSS is unmeasured on non-Linux (reads 0.00 MB). A Pi 5 run is still needed (unconfirmed whether that's planned) |
 
 ### M3 gate detail
 
 | # | Gate item | State |
 |---|---|---|
-| 1 | All non-text, non-geo golden queries match the oracle (fixture, then real store) | Open. Verify harness merged. Waits on expected outputs |
-| 2 | `EXPLAIN` shows Exact pushdown for every expression marked Exact | Open. Classifier merged (unconfirmed whether this gate has been checked) |
-| 3 | `raw` table queries the same Parquet and matches DuckDB exactly | Open. Waits on the data |
-
-M1: all 4 gate items done (`f7faf5f`, `cf98c61`). Pre-work: search library done (`1297968`). `lume sql` is planned for after M3.
+| 1 | All non-text, non-geo golden queries match the oracle (fixture, then real store) | Open. Waits on expected outputs |
+| 2 | `EXPLAIN` shows Exact pushdown for every expression marked Exact | Open (unconfirmed whether this gate has been checked) |
+| 3 | `raw` table queries the same Parquet and matches DuckDB exactly | Open. Data ready, and DuckDB is available in Artificial Shark's container |
 
 ## Open decisions waiting on the user
 
 From [spec/11-risks-decisions.md](spec/11-risks-decisions.md) (open questions):
 
-1. Default bucket width: 10 s, or 1 s with 1-min rollups? (1 s makes the index 10× larger)
+1. ~~Default bucket width: 10 s, or 1 s with 1-min rollups?~~ **Resolved by D30**: keep 10 s, and add a 1 s `telemetry_hr` store for the navigation, wind and depth allow-list.
 2. Per-source values as first-class columns in v1, or only `$source` sets?
 3. AIS contacts as a second `contacts` table, or out of scope?
 4. Shore storage: local NVMe only, or sealed shards in object storage with a read cache?
@@ -114,17 +114,19 @@ From [spec/02-pilot-vessel.md](spec/02-pilot-vessel.md) (owner assumptions to co
 
 Spec deviations and proposals needing the user:
 
-14. **D27: accept `zstd-sys` (C)**, which DataFusion 55.1.0 forces in through `arrow-ipc` even with default features off. This amends D11 and deviates from spec/10 (C bindings only for `croaring`). Flagged by the lead for spec-owner confirmation.
+14. **D27: accept `zstd-sys` (C)**, forced in by DataFusion 55.1.0's `arrow-ipc`. Amends D11 and deviates from spec/10 (C bindings only for `croaring`). Awaiting spec-owner confirmation.
 15. **Pinned `rust-toolchain.toml`**, proposed because the host (rustc 1.96.1) and the containers (1.99) report different clippy lints.
 
 ## Open items (team, not user)
 
-- [ ] **Restore Zygomorphic Prawn, or reassign the corpus/generator work.** Blocks M0 items 3–4, M2 and M3. Whoever takes it over should resolve the uncommitted `ti-bench/src/main.rs` change in `.lanes/corpus`.
-- [ ] Regenerate `.lanes/data/correctness` completely (currently 1.5 of ~1.9 GB, **do not use**).
-- [ ] Verify [signalk-formats §1.3](design/signalk-formats.md) (raw-tier Parquet schema) against a real `.parquet` file with DuckDB `DESCRIBE`.
-- [ ] Long Horse: `ti-store` fix (non-null list items, sorted distinct sourceRefs) and the SQL Store adapter, as separate commits.
-- [ ] Long Horse's container has no rustfmt or clippy. The lead runs both on the host at merge. Restore them in the container (unconfirmed whether planned).
-- [ ] Strict TI checks (`clippy -D warnings`, `fmt --check` per `crates/ti-*`) are not in `ci.yml` yet.
-- [ ] Toolchain drift between the host and the containers (item 15 above).
+- [x] `ti-bench` window mismatch. Fixed in `71b7fcd`, with a pin test.
+- [x] Full correctness set on the host, with `.lanes/data/correctness.sha256` (`edfef2d8…`). Ready.
+- [ ] **M2 harness follow-ups (Artificial Shark):** stop vacuous passes without data (`#[ignore]`), fix the RSS reading on non-Linux, and do a one-off DuckDB cross-check.
+- [ ] M2 on the full correctness set, and a Pi 5 throughput/RSS run.
+- [ ] Corpus expected outputs (Artificial Shark, `ti/corpus-expected`). That branch predates `71b7fcd`, so it should be rebased or merged before its outputs are trusted (unconfirmed whether that matters for the JSON outputs).
+- [ ] Verify [signalk-formats §1.3](design/signalk-formats.md) against a **real** signalk-parquet `.parquet` file with DuckDB `DESCRIBE`. Generator output doesn't count.
+- [ ] Long Horse's container has no rustfmt or clippy. The lead runs both on the host at merge.
+- [ ] Strict TI checks are not in `ci.yml` yet.
+- [ ] Toolchain drift between the host and the containers (item 15).
 
 Also undecided: the repo-fit items in [repo-fit.md](repo-fit.md), such as the W7a/W7b split (§6). These are lead decisions unless escalated (unconfirmed).

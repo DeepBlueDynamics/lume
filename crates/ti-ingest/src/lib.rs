@@ -21,12 +21,13 @@ pub mod websocket;
 
 pub use bucket::BucketWindow;
 pub use classify::Classifier;
-pub use decode::{decode_delta, SignalKDelta, SignalKSource, SignalKUpdate};
+pub use decode::{decode_delta, RawDataPoint, SignalKDelta, SignalKSource, SignalKUpdate};
 pub use derived::{DerivedEvent, DerivedTracker};
 pub use influx::{map_influx_point, InfluxPoint, InfluxValue};
 pub use normalize::{normalize_point, NormalizedPoint, NormalizedValue};
 pub use parquet::{
-    backfill_parquet_file, compute_file_hash, hash_to_hex, read_parquet_points, BackfillStatus,
+    backfill_directory, backfill_parquet_file, compute_file_hash, hash_to_hex, read_parquet_points,
+    BackfillStatus,
 };
 pub use recorder::{DeltaRecorder, DeltaReplay};
 pub use watermark::WatermarkBucketer;

@@ -61,6 +61,7 @@ Additions beyond the spec:
 |---|---|---|
 | [Search library extraction](design/search-api.md) | — | week 1 (pre-work for W5, W7) |
 | [`lume sql` over plain indexes](design/lume-sql.md) | search extraction, W4 DataFusion pin | after M3 |
+| [1 s high-resolution store](design/hi-res-store.md) (D30) | W2, W3, W4 merged; `ti.toml` contracts PR | after M3 |
 
 ## Status
 
