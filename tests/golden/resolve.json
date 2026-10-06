@@ -1,0 +1,402 @@
+[
+  {
+    "phrase": "How fast are we moving over the ground?",
+    "expected_path": "navigation.speedOverGround"
+  },
+  {
+    "phrase": "GPS speed SOG",
+    "expected_path": "navigation.speedOverGround"
+  },
+  {
+    "phrase": "speed through the water",
+    "expected_path": "navigation.speedThroughWater"
+  },
+  {
+    "phrase": "STW water speed",
+    "expected_path": "navigation.speedThroughWater"
+  },
+  {
+    "phrase": "course over ground true",
+    "expected_path": "navigation.courseOverGroundTrue"
+  },
+  {
+    "phrase": "COG relative to true north",
+    "expected_path": "navigation.courseOverGroundTrue"
+  },
+  {
+    "phrase": "magnetic course over ground",
+    "expected_path": "navigation.courseOverGroundMagnetic"
+  },
+  {
+    "phrase": "COG magnetic course",
+    "expected_path": "navigation.courseOverGroundMagnetic"
+  },
+  {
+    "phrase": "true north heading",
+    "expected_path": "navigation.headingTrue"
+  },
+  {
+    "phrase": "vessel heading corrected for variation",
+    "expected_path": "navigation.headingTrue"
+  },
+  {
+    "phrase": "magnetic heading of the vessel",
+    "expected_path": "navigation.headingMagnetic"
+  },
+  {
+    "phrase": "heading adjusted for magnetic deviation",
+    "expected_path": "navigation.headingMagnetic"
+  },
+  {
+    "phrase": "compass heading",
+    "expected_path": "navigation.headingCompass"
+  },
+  {
+    "phrase": "heading received from the compass",
+    "expected_path": "navigation.headingCompass"
+  },
+  {
+    "phrase": "how fast is the boat turning? rate of turn",
+    "expected_path": "navigation.rateOfTurn"
+  },
+  {
+    "phrase": "turn rate to starboard",
+    "expected_path": "navigation.rateOfTurn"
+  },
+  {
+    "phrase": "magnetic variation at our position",
+    "expected_path": "navigation.magneticVariation"
+  },
+  {
+    "phrase": "magnetic declination",
+    "expected_path": "navigation.magneticVariation"
+  },
+  {
+    "phrase": "position latitude",
+    "expected_path": "navigation.position.latitude"
+  },
+  {
+    "phrase": "vessel latitude coordinate",
+    "expected_path": "navigation.position.latitude"
+  },
+  {
+    "phrase": "position longitude",
+    "expected_path": "navigation.position.longitude"
+  },
+  {
+    "phrase": "vessel longitude coordinate",
+    "expected_path": "navigation.position.longitude"
+  },
+  {
+    "phrase": "position altitude",
+    "expected_path": "navigation.position.altitude"
+  },
+  {
+    "phrase": "vessel altitude",
+    "expected_path": "navigation.position.altitude"
+  },
+  {
+    "phrase": "vessel roll angle",
+    "expected_path": "navigation.attitude.roll"
+  },
+  {
+    "phrase": "how much are we rolling?",
+    "expected_path": "navigation.attitude.roll"
+  },
+  {
+    "phrase": "pitch bow up",
+    "expected_path": "navigation.attitude.pitch"
+  },
+  {
+    "phrase": "vessel pitch angle",
+    "expected_path": "navigation.attitude.pitch"
+  },
+  {
+    "phrase": "yaw heading change",
+    "expected_path": "navigation.attitude.yaw"
+  },
+  {
+    "phrase": "vessel yaw angle",
+    "expected_path": "navigation.attitude.yaw"
+  },
+  {
+    "phrase": "total distance traveled",
+    "expected_path": "navigation.log"
+  },
+  {
+    "phrase": "navigation log distance",
+    "expected_path": "navigation.log"
+  },
+  {
+    "phrase": "trip distance since reset",
+    "expected_path": "navigation.trip.log"
+  },
+  {
+    "phrase": "trip log",
+    "expected_path": "navigation.trip.log"
+  },
+  {
+    "phrase": "current distance to anchor",
+    "expected_path": "navigation.anchor.currentRadius"
+  },
+  {
+    "phrase": "anchor current radius",
+    "expected_path": "navigation.anchor.currentRadius"
+  },
+  {
+    "phrase": "anchor alarm boundary radius",
+    "expected_path": "navigation.anchor.maxRadius"
+  },
+  {
+    "phrase": "maximum anchor watch radius",
+    "expected_path": "navigation.anchor.maxRadius"
+  },
+  {
+    "phrase": "number of satellites",
+    "expected_path": "navigation.gnss.satellites"
+  },
+  {
+    "phrase": "GNSS satellite count",
+    "expected_path": "navigation.gnss.satellites"
+  },
+  {
+    "phrase": "horizontal dilution of precision",
+    "expected_path": "navigation.gnss.horizontalDilution"
+  },
+  {
+    "phrase": "GNSS horizontal dilution",
+    "expected_path": "navigation.gnss.horizontalDilution"
+  },
+  {
+    "phrase": "apparent wind speed",
+    "expected_path": "environment.wind.speedApparent"
+  },
+  {
+    "phrase": "AWS apparent wind",
+    "expected_path": "environment.wind.speedApparent"
+  },
+  {
+    "phrase": "true wind speed",
+    "expected_path": "environment.wind.speedTrue"
+  },
+  {
+    "phrase": "TWS true wind",
+    "expected_path": "environment.wind.speedTrue"
+  },
+  {
+    "phrase": "apparent wind angle",
+    "expected_path": "environment.wind.angleApparent"
+  },
+  {
+    "phrase": "AWA apparent angle",
+    "expected_path": "environment.wind.angleApparent"
+  },
+  {
+    "phrase": "true wind angle through water",
+    "expected_path": "environment.wind.angleTrueWater"
+  },
+  {
+    "phrase": "TWA wind angle water",
+    "expected_path": "environment.wind.angleTrueWater"
+  },
+  {
+    "phrase": "depth below keel",
+    "expected_path": "environment.depth.belowKeel"
+  },
+  {
+    "phrase": "UKC under keel clearance",
+    "expected_path": "environment.depth.belowKeel"
+  },
+  {
+    "phrase": "water depth below transducer",
+    "expected_path": "environment.depth.belowTransducer"
+  },
+  {
+    "phrase": "transducer depth",
+    "expected_path": "environment.depth.belowTransducer"
+  },
+  {
+    "phrase": "depth below water surface",
+    "expected_path": "environment.depth.belowSurface"
+  },
+  {
+    "phrase": "surface depth",
+    "expected_path": "environment.depth.belowSurface"
+  },
+  {
+    "phrase": "water temperature",
+    "expected_path": "environment.water.temperature"
+  },
+  {
+    "phrase": "sea water temperature",
+    "expected_path": "environment.water.temperature"
+  },
+  {
+    "phrase": "outside air temperature",
+    "expected_path": "environment.outside.temperature"
+  },
+  {
+    "phrase": "ambient outside temperature",
+    "expected_path": "environment.outside.temperature"
+  },
+  {
+    "phrase": "outside atmospheric pressure",
+    "expected_path": "environment.outside.pressure"
+  },
+  {
+    "phrase": "barometric pressure",
+    "expected_path": "environment.outside.pressure"
+  },
+  {
+    "phrase": "outside relative humidity",
+    "expected_path": "environment.outside.humidity"
+  },
+  {
+    "phrase": "air humidity outside",
+    "expected_path": "environment.outside.humidity"
+  },
+  {
+    "phrase": "port engine RPM",
+    "expected_path": "propulsion.port.revolutions"
+  },
+  {
+    "phrase": "port engine revolutions",
+    "expected_path": "propulsion.port.revolutions"
+  },
+  {
+    "phrase": "port engine oil pressure",
+    "expected_path": "propulsion.port.oilPressure"
+  },
+  {
+    "phrase": "engine oil pressure",
+    "expected_path": "propulsion.port.oilPressure"
+  },
+  {
+    "phrase": "port engine oil temperature",
+    "expected_path": "propulsion.port.oilTemperature"
+  },
+  {
+    "phrase": "engine oil temperature",
+    "expected_path": "propulsion.port.oilTemperature"
+  },
+  {
+    "phrase": "port engine coolant temperature",
+    "expected_path": "propulsion.port.coolantTemperature"
+  },
+  {
+    "phrase": "coolant temperature",
+    "expected_path": "propulsion.port.coolantTemperature"
+  },
+  {
+    "phrase": "port engine coolant pressure",
+    "expected_path": "propulsion.port.coolantPressure"
+  },
+  {
+    "phrase": "coolant pressure",
+    "expected_path": "propulsion.port.coolantPressure"
+  },
+  {
+    "phrase": "port engine running hours",
+    "expected_path": "propulsion.port.runTime"
+  },
+  {
+    "phrase": "engine total running time",
+    "expected_path": "propulsion.port.runTime"
+  },
+  {
+    "phrase": "port engine fuel consumption rate",
+    "expected_path": "propulsion.port.fuel.rate"
+  },
+  {
+    "phrase": "engine fuel rate",
+    "expected_path": "propulsion.port.fuel.rate"
+  },
+  {
+    "phrase": "port engine turbo boost pressure",
+    "expected_path": "propulsion.port.boostPressure"
+  },
+  {
+    "phrase": "engine supercharger pressure",
+    "expected_path": "propulsion.port.boostPressure"
+  },
+  {
+    "phrase": "house battery voltage",
+    "expected_path": "electrical.batteries.house.voltage"
+  },
+  {
+    "phrase": "battery voltage",
+    "expected_path": "electrical.batteries.house.voltage"
+  },
+  {
+    "phrase": "house battery current",
+    "expected_path": "electrical.batteries.house.current"
+  },
+  {
+    "phrase": "battery amperage",
+    "expected_path": "electrical.batteries.house.current"
+  },
+  {
+    "phrase": "house battery state of charge",
+    "expected_path": "electrical.batteries.house.capacity.stateOfCharge"
+  },
+  {
+    "phrase": "battery SOC",
+    "expected_path": "electrical.batteries.house.capacity.stateOfCharge"
+  },
+  {
+    "phrase": "house battery state of health",
+    "expected_path": "electrical.batteries.house.capacity.stateOfHealth"
+  },
+  {
+    "phrase": "battery health",
+    "expected_path": "electrical.batteries.house.capacity.stateOfHealth"
+  },
+  {
+    "phrase": "battery discharge time remaining",
+    "expected_path": "electrical.batteries.house.capacity.timeRemaining"
+  },
+  {
+    "phrase": "house battery time to discharge limit",
+    "expected_path": "electrical.batteries.house.capacity.timeRemaining"
+  },
+  {
+    "phrase": "solar panel power",
+    "expected_path": "electrical.solar.0.panelPower"
+  },
+  {
+    "phrase": "photovoltaic panel watts",
+    "expected_path": "electrical.solar.0.panelPower"
+  },
+  {
+    "phrase": "solar panel voltage",
+    "expected_path": "electrical.solar.0.panelVoltage"
+  },
+  {
+    "phrase": "panel voltage to solar controller",
+    "expected_path": "electrical.solar.0.panelVoltage"
+  },
+  {
+    "phrase": "fuel tank level",
+    "expected_path": "tanks.fuel.0.currentLevel"
+  },
+  {
+    "phrase": "fuel tank current level",
+    "expected_path": "tanks.fuel.0.currentLevel"
+  },
+  {
+    "phrase": "fresh water tank level",
+    "expected_path": "tanks.freshWater.0.currentLevel"
+  },
+  {
+    "phrase": "drinking water tank level",
+    "expected_path": "tanks.freshWater.0.currentLevel"
+  },
+  {
+    "phrase": "rudder angle",
+    "expected_path": "steering.rudderAngle"
+  },
+  {
+    "phrase": "steering rudder angle",
+    "expected_path": "steering.rudderAngle"
+  }
+]

@@ -11,6 +11,7 @@ pub(crate) struct TiServer {
     runtime: ti_sql::SurfaceRuntime,
     root: PathBuf,
     gate: Mutex<()>,
+    resolver: crate::ti_resolve::PathsResolver,
 }
 impl TiServer {
     pub(crate) fn open(root: &Path) -> Result<Self, String> {
@@ -25,7 +26,9 @@ impl TiServer {
         let engine = runtime
             .block_on(ti_sql::TiEngine::open(root, None, Some(&factory)))
             .map_err(|e| e.to_string())?;
+        let resolver = crate::ti_resolve::PathsResolver::new(&engine.session.catalog);
         Ok(Self {
+            resolver,
             engine: Arc::new(engine),
             runtime,
             root: root.canonicalize().map_err(|e| e.to_string())?,
@@ -52,10 +55,17 @@ impl TiServer {
             .session
             .reset_diagnostics()
             .map_err(|e| e.to_string())?;
-        let reply = self
-            .runtime
-            .block_on(crate::ti_mcp::dispatch(&self.engine, name, args))?;
+        let reply = self.dispatch(name, args)?;
         serde_json::to_string(&reply).map_err(|e| e.to_string())
+    }
+    fn dispatch(&self, name: &str, args: &Value) -> Result<Value, String> {
+        if name == "ti_resolve" {
+            self.runtime
+                .block_on(self.resolver.resolve(&self.engine, args))
+        } else {
+            self.runtime
+                .block_on(crate::ti_mcp::dispatch(&self.engine, name, args))
+        }
     }
     fn response(
         &self,
@@ -64,15 +74,18 @@ impl TiServer {
         body: &[u8],
         accept: &str,
     ) -> Result<Reply, String> {
+        let (path, query) = path.split_once('?').unwrap_or((path, ""));
         let expected = match path {
             "/ti/query" | "/ti/explain" => "POST",
-            "/ti/schema" | "/ti/status" => "GET",
+            "/ti/schema" | "/ti/status" | "/ti/resolve" => "GET",
             _ => return Ok(Reply::error(404, "Unknown TI endpoint")),
         };
         if method != expected {
             return Ok(Reply::error(405, "Method not allowed"));
         }
-        let args: Value = if method == "POST" {
+        let args: Value = if path == "/ti/resolve" {
+            resolve_args(query)?
+        } else if method == "POST" {
             serde_json::from_slice(body).map_err(|e| e.to_string())?
         } else {
             json!({})
@@ -127,17 +140,60 @@ impl TiServer {
             "/ti/query" => "ti_query",
             "/ti/explain" => "ti_explain",
             "/ti/schema" => "ti_schema",
+            "/ti/resolve" => "ti_resolve",
             _ => "ti_status",
         };
         let mut args = args;
         if path == "/ti/query" {
             args["format"] = json!("json");
         }
-        let reply = self
-            .runtime
-            .block_on(crate::ti_mcp::dispatch(&self.engine, name, &args))?;
+        let reply = self.dispatch(name, &args)?;
         Ok(Reply::json(200, reply))
     }
+}
+fn resolve_args(query: &str) -> Result<Value, String> {
+    fn decode(s: &str) -> Result<String, String> {
+        let bytes = s.as_bytes();
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < bytes.len() {
+            match bytes[i] {
+                b'+' => out.push(b' '),
+                b'%' => {
+                    let pair = bytes.get(i + 1..i + 3).ok_or("Invalid percent encoding")?;
+                    let hex = std::str::from_utf8(pair).map_err(|e| e.to_string())?;
+                    out.push(u8::from_str_radix(hex, 16).map_err(|e| e.to_string())?);
+                    i += 2;
+                }
+                b => out.push(b),
+            }
+            i += 1;
+        }
+        String::from_utf8(out).map_err(|e| e.to_string())
+    }
+    let mut args = json!({});
+    for pair in query.split('&').filter(|s| !s.is_empty()) {
+        let (key, value) = pair
+            .split_once('=')
+            .ok_or("Expected query parameter=value")?;
+        let key = decode(key)?;
+        let value = decode(value)?;
+        let target = match key.as_str() {
+            "q" => "phrase",
+            "vessel" => "vessel",
+            "limit" => "limit",
+            _ => return Err(format!("Unknown resolve parameter: {key}")),
+        };
+        if args.get(target).is_some() {
+            return Err(format!("Duplicate resolve parameter: {key}"));
+        }
+        args[target] = if target == "limit" {
+            json!(value.parse::<u64>().map_err(|e| e.to_string())?)
+        } else {
+            json!(value)
+        };
+    }
+    Ok(args)
 }
 struct Reply {
     status: u16,
@@ -160,13 +216,14 @@ impl Reply {
     fn write(self, stream: &mut TcpStream) -> std::io::Result<()> {
         let reason = match self.status {
             200 => "OK",
+            204 => "No Content",
             400 => "Bad Request",
             404 => "Not Found",
             405 => "Method Not Allowed",
             413 => "Payload Too Large",
             _ => "Service Unavailable",
         };
-        write!(stream,"HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\n{}\r\n",self.status,reason,self.kind,self.body.len(),self.extra)?;
+        write!(stream,"HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n{}\r\n",self.status,reason,self.kind,self.body.len(),self.extra)?;
         stream.write_all(&self.body)?;
         stream.flush()
     }
@@ -179,6 +236,15 @@ pub(crate) fn handle(
     headers: &str,
     initial: &[u8],
 ) -> std::io::Result<()> {
+    if method == "OPTIONS" {
+        return Reply {
+            status: 204,
+            kind: "application/json",
+            body: vec![],
+            extra: String::new(),
+        }
+        .write(stream);
+    }
     let Some(server) = server else {
         return Reply::error(503, "TI is disabled; start with --ti-store <root>").write(stream);
     };

@@ -88,4 +88,19 @@ Verified in the container on 2026-10-06 after rebasing ti/w7-surfaces onto 26e53
 - All builds used CARGO_INCREMENTAL=0, two jobs, one build at a time and workspace TMPDIR. Final target measurement 5.8 GB, below 15 GB.
 - Rust 1.96 fmt/strict clippy for this slice remain assigned to Pike's host; not run in this container.
 
-HTTP and configured-server MCP requests share one startup TiEngine/runtime through Arc, with serialized admission and diagnostic reset. Arrow IPC stream-format responses are bounded and buffered before HTTP writing, with row count/truncation/hint headers and units metadata. Catalog/shard refresh, ingest supervision, LAN-only binding, NUTS/bearer auth and pgwire are outside this slice; see W7-serve.md.
+HTTP and configured-server MCP requests share one startup TiEngine/runtime through Arc, with serialized admission and diagnostic reset. Arrow IPC stream-format responses are bounded and buffered before HTTP writing, with row count/truncation/hint headers and units metadata. Catalog/shard refresh, ingest supervision, LAN-only binding, NUTS/bearer auth and pgwire were outside that slice; see the following checkpoint and W7-serve.md.
+
+## W7 resolve and binding checkpoint
+
+Verified in the container on 2026-10-06, based on 400557c:
+
+- `cargo test --features ti`: 55 passed (51 root unit, 2 HTTP integration, 2 resolve integration), zero failures. This final run includes the boxed ureq test-helper error requested by Pike for host clippy.
+- The 100 distinct golden phrases place the expected path in the top three for 93/100, against 488 catalog columns. The seven misses remain in the fixture; this is fixture recall, not a general accuracy claim. Latest-value tests cover shard boundaries, vessel filters, stored units, unreported columns and scalar set fields.
+- HTTP integration checks resolve through HTTP and MCP, shared startup state, the default loopback bind, explicit 0.0.0.0 override, malformed requests, and absence of wildcard CORS on TI routes and the MCP bypass.
+- Default `cargo build` without ti passed before the final test-helper-only edit. The existing root cands assignment warning remains.
+- The resolver bundles attributed Signal K 1.8.4 descriptions pinned to fb628fb4ee569149fd3810b271d0f987428b4703. Its data license is preserved separately; no dependencies or frozen contracts changed.
+- Builds used CARGO_INCREMENTAL=0, two jobs, one build at a time, workspace TMPDIR and CARGO_TARGET_TMPDIR for integration scratch. Measured target size: 6.1 GB, below 15 GB.
+- Pike's 16:21Z mail reports the preceding bce7779 host tests, default build and strict ti-crate clippy green, and cold host status at 2.17 seconds. These are lead-reported host results, not measurements run in this container; container bind-mount timing is not an optimization target.
+- Formatting and strict Rust 1.96 clippy for this new slice remain assigned to Pike's host; not run locally.
+
+Configured TI servers now default to 127.0.0.1, with an explicit --bind IP override; ordinary serve retains its existing default. Browser wildcard CORS is removed from TI responses and from MCP when TI is configured. NUTS shore authentication, boat bearer policy, pgwire and the remaining M5 acceptance gates are pending; see W7-serve.md.

@@ -137,13 +137,21 @@ fn main() {
                     eprintln!("--ti-store requires a store root");std::process::exit(2);
                 })
             });
+            let bind=args.iter().position(|a|a=="--bind").map(|pos|{
+                args.get(pos+1).filter(|s|!s.starts_with("--")).map(String::as_str).unwrap_or_else(||{
+                    eprintln!("--bind requires an IP address");std::process::exit(2);
+                })
+            });
             #[cfg(feature = "ti")]
-            let result = match ti_store {
-                Some(root)=>lume::agent::serve_with_ti(port,std::path::Path::new(root)),
-                None=>lume::agent::serve(port),
+            let result=match ti_store{
+                Some(root)=>match bind{
+                    Some(bind)=>lume::agent::serve_with_ti_on(port,std::path::Path::new(root),bind),
+                    None=>lume::agent::serve_with_ti(port,std::path::Path::new(root)),
+                },
+                None=>lume::agent::serve_on(port,bind.unwrap_or("0.0.0.0")),
             };
             #[cfg(not(feature = "ti"))]
-            let result = if ti_store.is_some(){Err("--ti-store requires a build with --features ti".to_string())}else{lume::agent::serve(port)};
+            let result=if ti_store.is_some(){Err("--ti-store requires a build with --features ti".to_string())}else{lume::agent::serve_on(port,bind.unwrap_or("0.0.0.0"))};
             if let Err(e) = result {
                 eprintln!("Error starting serve mode: {}", e);
                 std::process::exit(1);
@@ -2108,6 +2116,7 @@ USAGE:
 OPTIONS:
   -p, --port <PORT>      Port to bind the HTTP server to [default: 5863 — "LUME" on a phone keypad]
   --ti-store <ROOT>     Open one shared TI engine for /ti and MCP (requires feature ti)
+  --bind <IP>           Bind address [with TI: 127.0.0.1; otherwise: 0.0.0.0]
   -h, --help             Prints help information
 "#);
 }
