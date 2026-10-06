@@ -24,6 +24,8 @@ pub struct SyncClient<T: Transport> {
     transport: T,
     chunk_size: usize,
     max_retries: usize,
+    link_budget: Option<u64>,
+    idle_priority: bool,
 }
 
 impl<T: Transport> SyncClient<T> {
@@ -33,6 +35,8 @@ impl<T: Transport> SyncClient<T> {
             transport,
             chunk_size: DEFAULT_CHUNK_SIZE,
             max_retries: 100,
+            link_budget: None,
+            idle_priority: false,
         }
     }
 
@@ -43,6 +47,16 @@ impl<T: Transport> SyncClient<T> {
 
     pub fn with_max_retries(mut self, retries: usize) -> Self {
         self.max_retries = retries;
+        self
+    }
+
+    pub fn with_link_budget(mut self, budget: Option<u64>) -> Self {
+        self.link_budget = budget;
+        self
+    }
+
+    pub fn with_idle_priority(mut self, idle: bool) -> Self {
+        self.idle_priority = idle;
         self
     }
 
@@ -124,6 +138,15 @@ impl<T: Transport> SyncClient<T> {
         for chunk in &chunks {
             if acknowledged.contains(&chunk.chunk_index) {
                 continue;
+            }
+
+            if let Some(budget) = self.link_budget {
+                if report.bytes_uploaded + (chunk.data.len() as u64) > budget {
+                    return Err(Error::Unsupported("link budget exhausted".into()));
+                }
+            }
+            if self.idle_priority {
+                std::thread::yield_now();
             }
 
             let mut chunk_retries = 0;

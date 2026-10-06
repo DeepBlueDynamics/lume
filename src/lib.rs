@@ -44,7 +44,7 @@ pub mod ti_parquet;
 #[cfg(feature = "ti")]
 mod ti_mcp;
 #[cfg(feature = "ti")]
-mod ti_http;
+pub mod ti_http;
 #[cfg(feature = "ti")]
 mod ti_pg;
 #[cfg(feature = "ti")]

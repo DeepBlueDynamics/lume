@@ -5,7 +5,7 @@ default-members = ["."]
 
 [features]
 default = []
-ti = ["dep:ti-contracts", "dep:ti-core", "dep:ti-store", "dep:ti-sql", "dep:ti-ingest", "dep:ti-geo", "dep:pgwire", "dep:tokio", "dep:futures", "dep:async-trait"]
+ti = ["dep:ti-contracts", "dep:ti-core", "dep:ti-store", "dep:ti-sql", "dep:ti-ingest", "dep:ti-geo", "dep:ti-sync", "dep:pgwire", "dep:tokio", "dep:futures", "dep:async-trait"]
 
 [package]
 name = "lume"
@@ -25,6 +25,7 @@ ti-sql = { path = "crates/ti-sql", optional = true }
 ti-store = { path = "crates/ti-store", optional = true }
 ti-ingest = { path = "crates/ti-ingest", optional = true }
 ti-geo = { path = "crates/ti-geo", optional = true }
+ti-sync = { path = "crates/ti-sync", optional = true }
 
 pgwire = { version = "=0.41.0", default-features = false, features = ["server-api"], optional = true }
 tokio = { version = "1", features = ["net", "rt-multi-thread", "sync", "time", "macros"], optional = true }
@@ -33,6 +34,7 @@ async-trait = { version = "0.1", optional = true }
 
 [dev-dependencies]
 tokio-postgres = "0.7"
+ti-bench = { path = "crates/ti-bench" }
 
 [[bin]]
 name = "lume"

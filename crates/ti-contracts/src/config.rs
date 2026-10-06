@@ -46,6 +46,9 @@ pub struct TiConfig {
     /// Multi-store configurations (D30). If empty/omitted, single-store mode uses top-level fields.
     #[serde(default)]
     pub stores: BTreeMap<String, StoreConfig>,
+    /// Fleet synchronization configuration (W8).
+    #[serde(default)]
+    pub sync: SyncConfig,
 }
 
 /// Device token comes from a one-time Signal K access request.
@@ -124,6 +127,38 @@ pub struct QueryLimits {
     pub heavy_queries: usize,
     /// Pause background work above this temperature.
     pub thermal_celsius: u16,
+}
+
+/// Fleet synchronization configuration (W8).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct SyncConfig {
+    /// Path to a shared bearer token file for sync endpoints.
+    pub token_file: Option<String>,
+    /// Inline bearer token for sync (alternative to token_file).
+    pub token: Option<String>,
+    /// Link budget in bytes per day, if any.
+    pub link_budget_bytes: Option<u64>,
+    /// Idle priority flag (pause under load).
+    pub idle_priority: bool,
+}
+
+impl SyncConfig {
+    /// Resolve the bearer token from token_file if present, or inline token.
+    pub fn resolved_token(&self) -> Option<String> {
+        if let Some(ref path) = self.token_file {
+            if let Ok(content) = std::fs::read_to_string(path) {
+                let trimmed = content.trim().to_string();
+                if !trimmed.is_empty() {
+                    return Some(trimmed);
+                }
+            }
+        }
+        self.token
+            .as_ref()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
 }
 
 /// Configuration for a named store (D30).
@@ -424,6 +459,7 @@ impl Default for TiConfig {
             auth: AuthConfig::default(),
             query: QueryLimits::default(),
             stores: BTreeMap::new(),
+            sync: SyncConfig::default(),
         }
     }
 }

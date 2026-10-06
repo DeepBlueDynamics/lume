@@ -487,8 +487,8 @@ pub fn write_catalogs(root: &str, n_vessels: usize, start: i64, end: i64) -> u64
         let mut last_seen = vec![String::new(); n];
         for i in 0..n {
             ord[i] = i as u32;
-            urn[i] = model::VESSEL_URNS[i].to_string();
-            name[i] = model::VESSEL_NAMES[i].to_string();
+            urn[i] = model::vessel_urn(i);
+            name[i] = model::vessel_name(i);
             mmsi[i] = format!("367{:06}", i);
             first_seen[i] = gen::iso(start);
             last_seen[i] = gen::iso(end);
