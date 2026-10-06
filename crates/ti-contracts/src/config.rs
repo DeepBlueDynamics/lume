@@ -251,12 +251,18 @@ pub struct AlertRule {
     #[serde(default = "default_alert_cap")]
     pub max_per_hour: u32,
 }
-fn default_alert_cap() -> u32 { 60 }
+fn default_alert_cap() -> u32 {
+    60
+}
 
 impl AlertRule {
     /// Exact nanosecond hold duration, shared with intervals().
     pub fn hold_nanoseconds(&self) -> Result<i128> {
-        self.hold.as_deref().map(parse_interval_duration_nanoseconds).transpose().map(|v| v.unwrap_or(0))
+        self.hold
+            .as_deref()
+            .map(parse_interval_duration_nanoseconds)
+            .transpose()
+            .map(|v| v.unwrap_or(0))
     }
 }
 
@@ -264,31 +270,49 @@ impl AlertRule {
 pub fn parse_interval_duration_nanoseconds(s: &str) -> Result<i128> {
     let fail = |message: &str| invalid("interval duration", message);
     let s = s.trim();
-    let n = s.find(|c: char| !c.is_ascii_digit() && c != '.').unwrap_or(s.len());
+    let n = s
+        .find(|c: char| !c.is_ascii_digit() && c != '.')
+        .unwrap_or(s.len());
     let (digits, unit) = s.split_at(n);
     let factor: i128 = match unit.trim() {
-        "ns" => 1, "us" => 1_000, "ms" => 1_000_000,
-        "s" => 1_000_000_000, "m" => 60_000_000_000,
-        "h" => 3_600_000_000_000, "d" => 86_400_000_000_000,
+        "ns" => 1,
+        "us" => 1_000,
+        "ms" => 1_000_000,
+        "s" => 1_000_000_000,
+        "m" => 60_000_000_000,
+        "h" => 3_600_000_000_000,
+        "d" => 86_400_000_000_000,
         "w" => 604_800_000_000_000,
         _ => return Err(fail("requires ns/us/ms/s/m/h/d/w")),
     };
     let mut parts = digits.split('.');
-    let whole = parts.next().unwrap_or("").parse::<i128>()
+    let whole = parts
+        .next()
+        .unwrap_or("")
+        .parse::<i128>()
         .map_err(|_| fail("invalid nonnegative duration"))?;
     let fraction = parts.next().unwrap_or("");
-    if parts.next().is_some() || fraction.len() > 9 || !fraction.bytes().all(|c| c.is_ascii_digit()) {
+    if parts.next().is_some() || fraction.len() > 9 || !fraction.bytes().all(|c| c.is_ascii_digit())
+    {
         return Err(fail("invalid fractional precision"));
     }
     let divisor = 10i128.pow(fraction.len() as u32);
-    let fractional = if fraction.is_empty() { 0 } else {
-        fraction.parse::<i128>().map_err(|_| fail("invalid fraction"))?
+    let fractional = if fraction.is_empty() {
+        0
+    } else {
+        fraction
+            .parse::<i128>()
+            .map_err(|_| fail("invalid fraction"))?
     };
-    let scaled = fractional.checked_mul(factor).ok_or_else(|| fail("overflow"))?;
+    let scaled = fractional
+        .checked_mul(factor)
+        .ok_or_else(|| fail("overflow"))?;
     if scaled % divisor != 0 {
         return Err(fail("below nanosecond precision"));
     }
-    whole.checked_mul(factor).and_then(|v| v.checked_add(scaled / divisor))
+    whole
+        .checked_mul(factor)
+        .and_then(|v| v.checked_add(scaled / divisor))
         .ok_or_else(|| fail("overflow"))
 }
 
@@ -536,25 +560,45 @@ impl TiConfig {
                 ));
             }
         }
-        for mapping in &self.sources.parquet { mapping.validate()?; }
+        for mapping in &self.sources.parquet {
+            mapping.validate()?;
+        }
         for (pattern, entry) in &self.units {
             if pattern.is_empty() || entry.unit.is_empty() || entry.scale > 18 {
-                return Err(invalid("units", "requires nonempty patterns/units and scale <= 18"));
+                return Err(invalid(
+                    "units",
+                    "requires nonempty patterns/units and scale <= 18",
+                ));
             }
         }
         let mut rule_names = BTreeSet::new();
         for (i, rule) in self.rules.iter().enumerate() {
             let key = format!("rules[{i}]");
-            if rule.name.is_empty() || !rule.name.bytes().all(|c| c.is_ascii_alphanumeric() || b"_-.".contains(&c))
-                || !rule_names.insert(&rule.name) {
-                return Err(invalid(&key, "name must be unique and use letters, digits, _, - or ."));
+            if rule.name.is_empty()
+                || !rule
+                    .name
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || b"_-.".contains(&c))
+                || !rule_names.insert(&rule.name)
+            {
+                return Err(invalid(
+                    &key,
+                    "name must be unique and use letters, digits, _, - or .",
+                ));
             }
             if !["alert", "warn", "alarm", "emergency"].contains(&rule.severity.as_str())
-                || rule.when.trim().is_empty() || rule.message.trim().is_empty()
-                || rule.max_per_hour == 0 || rule.vessel.as_ref().is_some_and(|v| v.trim().is_empty()) {
-                return Err(invalid(&key, "requires severity, predicate, message and a positive hourly cap"));
+                || rule.when.trim().is_empty()
+                || rule.message.trim().is_empty()
+                || rule.max_per_hour == 0
+                || rule.vessel.as_ref().is_some_and(|v| v.trim().is_empty())
+            {
+                return Err(invalid(
+                    &key,
+                    "requires severity, predicate, message and a positive hourly cap",
+                ));
             }
-            rule.hold_nanoseconds().map_err(|e| invalid(&key, &e.to_string()))?;
+            rule.hold_nanoseconds()
+                .map_err(|e| invalid(&key, &e.to_string()))?;
         }
         if self.bind.address.parse::<IpAddr>().is_err() {
             return Err(invalid("bind.address", "must be an IPv4/IPv6 address"));
@@ -740,7 +784,8 @@ mod tests {
     use super::*;
     #[test]
     fn alert_rules_accept_literal_paths_and_interval_holds() {
-        let config = TiConfig::from_toml(r#"
+        let config = TiConfig::from_toml(
+            r#"
 store_root = 'C:\boats\ti'
 [[rules]]
 name = 'battery'
@@ -748,17 +793,25 @@ severity = 'warn'
 when = '"electrical.batteries.house.voltage@min" < 24.6'
 for = '5m'
 message = 'house battery {electrical.batteries.house.voltage@min} V'
-"#).unwrap();
+"#,
+        )
+        .unwrap();
         assert_eq!(config.rules[0].max_per_hour, 60);
         assert_eq!(config.rules[0].hold_nanoseconds().unwrap(), 300_000_000_000);
-        assert_eq!(parse_interval_duration_nanoseconds("0.001s").unwrap(), 1_000_000);
+        assert_eq!(
+            parse_interval_duration_nanoseconds("0.001s").unwrap(),
+            1_000_000
+        );
         assert!(parse_interval_duration_nanoseconds("0.1ns").is_err());
-        assert!(TiConfig::from_toml(r#"[[rules]]
+        assert!(TiConfig::from_toml(
+            r#"[[rules]]
 name='battery'
 severity='warn'
 when='true'
 message='battery'
-max_per_hour=0"#).is_err());
+max_per_hour=0"#
+        )
+        .is_err());
     }
 
     #[test]

@@ -481,7 +481,9 @@ impl TiEngine {
         let parquet_import: Value = if report_path.exists() {
             serde_json::from_slice(&std::fs::read(report_path)?)
                 .map_err(|e| datafusion::common::DataFusionError::External(Box::new(e)))?
-        } else { Value::Null };
+        } else {
+            Value::Null
+        };
         let mut ingest_lag_seconds = Value::Null;
         let mut last_delta = Value::Null;
         let mut reconnects = Value::Null;

@@ -15,13 +15,13 @@ mod catalog;
 mod config;
 mod engine;
 mod envelopes;
-mod schemas;
 mod parquet;
-pub use parquet::*;
+mod schemas;
 pub use catalog::*;
 pub use config::*;
 pub use engine::*;
 pub use envelopes::*;
+pub use parquet::*;
 pub use schemas::*;
 
 mod helpers;
