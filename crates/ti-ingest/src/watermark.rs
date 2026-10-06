@@ -353,7 +353,7 @@ fn source_priority(path: &str, source: &str, config: &TiConfig) -> usize {
         .unwrap_or(0)
 }
 
-fn populate_window(
+pub(crate) fn populate_window(
     window: &mut BucketWindow,
     path: &str,
     value: &NormalizedValue,

@@ -477,6 +477,11 @@ impl TiEngine {
             unavailable.push(format!("store '{s}': catalog directory absent"));
         }
         let alerts = crate::rules::alert_status(&self.root)?;
+        let report_path = self.root.join("parquet-import.json");
+        let parquet_import: Value = if report_path.exists() {
+            serde_json::from_slice(&std::fs::read(report_path)?)
+                .map_err(|e| datafusion::common::DataFusionError::External(Box::new(e)))?
+        } else { Value::Null };
         let mut ingest_lag_seconds = Value::Null;
         let mut last_delta = Value::Null;
         let mut reconnects = Value::Null;
@@ -502,7 +507,7 @@ impl TiEngine {
             "active_alerts_truncated": alerts["active_alerts_truncated"],
             "wal_bytes": wal_bytes, "shards": {"open": shards.len() - sealed, "sealed": sealed},
             "ingest_lag_seconds": ingest_lag_seconds, "vessels": vessels, "units": self.units(),
-            "skipped_stores": self.skipped_stores,
+            "skipped_stores": self.skipped_stores, "parquet_import": parquet_import,
             "unavailable": unavailable
         });
         if !last_delta.is_null() {
