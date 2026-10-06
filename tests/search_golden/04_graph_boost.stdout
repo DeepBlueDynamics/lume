@@ -1,0 +1,325 @@
+Searching corpus: docs/monte_cristo (1926 sections, db: /workspace/lume/.lanes/search/tests/search_golden/.scratch_db)
+[SKG walk] seeds: Mercédès → neighbors: Fernand (0.38), Edmond Dantès (0.36), Caderousse (0.30), Marseilles (0.30)
+[⚠️] Semantic search unavailable for this index (no semantic session — index with -s); falling back to lexical BM25.
+Executing lexical BM25 search (graph=0.6)...
+[1] Score: 11.7921 [SKG: 1.00] | Chapter 5. The Marriage Feast (Part 6/22) (File: docs/monte_cristo/book.md, Line: 1962)
+The bride blushed, while Fernand, restless and uneasy, seemed to start
+at every fresh sound, and from time to time wiped away the large drops
+of perspiration that gathered on his brow.
+
+“Well, never mind that, neighbor Caderousse; it is not worthwhile to
+contradict me for such a trifle as that. ’Tis true that Mercédès is not
+actually my wife; but,” added he, drawing out his watch, “in an hour
+and a half she will be.”
+
+A general exclamation of surprise ran round the table, with the
+exception of the elder Dantès, whose laugh displayed the still perfect
+beauty of his large white teeth. Mercédès looked pleased and gratified,
+while Fernand grasped the handle of his knife with a convulsive clutch.
+
+“In an hour?” inquired Danglars, turning pale. “How is that, my
+friend?”
+
+“Why, thus it is,” replied Dantès. “Thanks to the influence of M.
+Morrel, to whom, next to my father, I owe every blessing I enjoy, every
+difficulty has been removed. We have purchased permission to waive the
+usual delay; and at half-past two o’clock the Mayor of Marseilles will
+be waiting for us at the city hall. Now, as a quarter-past one has
+already struck, I do not consider I have asserted too much in saying,
+that, in another hour and thirty minutes Mercédès will have become
+Madame Dantès.”
+
+0069m
+
+[2] Score: 11.3608 [SKG: 0.87] | Chapter 3. The Catalans (Part 6/15) (File: docs/monte_cristo/book.md, Line: 1183)
+“Ah, your pardon,” said Dantès, frowning in his turn; “I did not
+perceive that there were three of us.” Then, turning to Mercédès, he
+inquired, “Who is this gentleman?”
+
+“One who will be your best friend, Dantès, for he is my friend, my
+cousin, my brother; it is Fernand—the man whom, after you, Edmond, I
+love the best in the world. Do you not remember him?”
+
+“Yes!” said Dantès, and without relinquishing Mercédès’ hand clasped in
+one of his own, he extended the other to the Catalan with a cordial
+air. But Fernand, instead of responding to this amiable gesture,
+remained mute and trembling. Edmond then cast his eyes scrutinizingly
+at the agitated and embarrassed Mercédès, and then again on the gloomy
+and menacing Fernand. This look told him all, and his anger waxed hot.
+
+“I did not know, when I came with such haste to you, that I was to meet
+an enemy here.”
+
+“An enemy!” cried Mercédès, with an angry look at her cousin. “An enemy
+in my house, do you say, Edmond! If I believed that, I would place my
+arm under yours and go with you to Marseilles, leaving the house to
+return to it no more.”
+
+Fernand’s eye darted lightning. “And should any misfortune occur to
+you, dear Edmond,” she continued with the same calmness which proved to
+Fernand that the young girl had read the very innermost depths of his
+sinister thought, “if misfortune should occur to you, I would ascend
+the highest point of the Cape de Morgiou and cast myself headlong from
+it.”
+
+[3] Score: 11.3586 [SKG: 0.87] | Chapter 3. The Catalans (Part 13/15) (File: docs/monte_cristo/book.md, Line: 1399)
+“Ah, very well, that’s an explanation!” said Caderousse. “How do you
+do, Madame Dantès?”
+
+Mercédès courtesied gravely, and said—“That is not my name, and in my
+country it bodes ill fortune, they say, to call a young girl by the
+name of her betrothed before he becomes her husband. So call me
+Mercédès, if you please.”
+
+“We must excuse our worthy neighbor, Caderousse,” said Dantès, “he is
+so easily mistaken.”
+
+“So, then, the wedding is to take place immediately, M. Dantès,” said
+Danglars, bowing to the young couple.
+
+“As soon as possible, M. Danglars; today all preliminaries will be
+arranged at my father’s, and tomorrow, or next day at latest, the
+wedding festival here at La Réserve. My friends will be there, I hope;
+that is to say, you are invited, M. Danglars, and you, Caderousse.”
+
+“And Fernand,” said Caderousse with a chuckle; “Fernand, too, is
+invited!”
+
+“My wife’s brother is my brother,” said Edmond; “and we, Mercédès and
+I, should be very sorry if he were absent at such a time.”
+
+Fernand opened his mouth to reply, but his voice died on his lips, and
+he could not utter a word.
+
+“Today the preliminaries, tomorrow or next day the ceremony! You are in
+a hurry, captain!”
+
+[4] Score: 11.3335 [SKG: 1.00] | Chapter 13. The Hundred Days (Part 10/10) (File: docs/monte_cristo/book.md, Line: 5580)
+“My brother,” said she, as she placed his knapsack on his shoulders,
+“be careful of yourself, for if you are killed, I shall be alone in the
+world.” These words carried a ray of hope into Fernand’s heart. Should
+Dantès not return, Mercédès might one day be his.
+
+0165m
+
+
+
+Mercédès was left alone face to face with the vast plain that had never
+seemed so barren, and the sea that had never seemed so vast. Bathed in
+tears she wandered about the Catalan village. Sometimes she stood mute
+and motionless as a statue, looking towards Marseilles, at other times
+gazing on the sea, and debating as to whether it were not better to
+cast herself into the abyss of the ocean, and thus end her woes. It was
+not want of courage that prevented her putting this resolution into
+execution; but her religious feelings came to her aid and saved her.
+
+Caderousse was, like Fernand, enrolled in the army, but, being married
+and eight years older, he was merely sent to the frontier. Old Dantès,
+who was only sustained by hope, lost all hope at Napoleon’s downfall.
+Five months after he had been separated from his son, and almost at the
+hour of his arrest, he breathed his last in Mercédès’ arms. M. Morrel
+paid the expenses of his funeral, and a few small debts the poor old
+man had contracted.
+
+There was more than benevolence in this action; there was courage; the
+south was aflame, and to assist, even on his death-bed, the father of
+so dangerous a Bonapartist as Dantès, was stigmatized as a crime.
+
+[5] Score: 10.7469 [SKG: 0.87] | Chapter 27. The Story (Part 14/21) (File: docs/monte_cristo/book.md, Line: 12403)
+“Mercédès was at first in the deepest despair at the blow which
+deprived her of Edmond. I have told you of her attempts to propitiate
+M. de Villefort, her devotion to the elder Dantès. In the midst of her
+despair, a new affliction overtook her. This was the departure of
+Fernand—of Fernand, whose crime she did not know, and whom she regarded
+as her brother. Fernand went, and Mercédès remained alone.
+
+“Three months passed and still she wept—no news of Edmond, no news of
+Fernand, no companionship save that of an old man who was dying with
+despair. One evening, after a day of accustomed vigil at the angle of
+two roads leading to Marseilles from the Catalans, she returned to her
+home more depressed than ever. Suddenly she heard a step she knew,
+turned anxiously around, the door opened, and Fernand, dressed in the
+uniform of a sub-lieutenant, stood before her.
+
+“It was not the one she wished for most, but it seemed as if a part of
+her past life had returned to her.
+
+“Mercédès seized Fernand’s hands with a transport which he took for
+love, but which was only joy at being no longer alone in the world, and
+seeing at last a friend, after long hours of solitary sorrow. And then,
+it must be confessed, Fernand had never been hated—he was only not
+precisely loved. Another possessed all Mercédès’ heart; that other was
+absent, had disappeared, perhaps was dead. At this last thought
+Mercédès burst into a flood of tears, and wrung her hands in agony; but
+the thought, which she had always repelled before when it was suggested
+to her by another, came now in full force upon her mind; and then, too,
+old Dantès incessantly said to her, ‘Our Edmond is dead; if he were
+not, he would return to us.’
+
+[6] Score: 10.6940 [SKG: 0.87] | Chapter 13. The Hundred Days (Part 9/10) (File: docs/monte_cristo/book.md, Line: 5544)
+And so Dantès, after the Hundred Days and after Waterloo, remained in
+his dungeon, forgotten of earth and heaven.
+
+Danglars comprehended the full extent of the wretched fate that
+overwhelmed Dantès; and, when Napoleon returned to France, he, after
+the manner of mediocre minds, termed the coincidence, _a decree of
+Providence_. But when Napoleon returned to Paris, Danglars’ heart
+failed him, and he lived in constant fear of Dantès’ return on a
+mission of vengeance. He therefore informed M. Morrel of his wish to
+quit the sea, and obtained a recommendation from him to a Spanish
+merchant, into whose service he entered at the end of March, that is,
+ten or twelve days after Napoleon’s return. He then left for Madrid,
+and was no more heard of.
+
+Fernand understood nothing except that Dantès was absent. What had
+become of him he cared not to inquire. Only, during the respite the
+absence of his rival afforded him, he reflected, partly on the means of
+deceiving Mercédès as to the cause of his absence, partly on plans of
+emigration and abduction, as from time to time he sat sad and
+motionless on the summit of Cape Pharo, at the spot from whence
+Marseilles and the Catalans are visible, watching for the apparition of
+a young and handsome man, who was for him also the messenger of
+vengeance. Fernand’s mind was made up; he would shoot Dantès, and then
+kill himself. But Fernand was mistaken; a man of his disposition never
+kills himself, for he constantly hopes.
+
+During this time the empire made its last conscription, and every man
+in France capable of bearing arms rushed to obey the summons of the
+emperor. Fernand departed with the rest, bearing with him the terrible
+thought that while he was away, his rival would perhaps return and
+marry Mercédès. Had Fernand really meant to kill himself, he would have
+done so when he parted from Mercédès. His devotion, and the compassion
+he showed for her misfortunes, produced the effect they always produce
+on noble minds—Mercédès had always had a sincere regard for Fernand,
+and this was now strengthened by gratitude.
+
+[7] Score: 10.3946 [SKG: 0.84] | Chapter 26. The Pont du Gard Inn (Part 13/22) (File: docs/monte_cristo/book.md, Line: 11672)
+“Mercédès,” said Caderousse eagerly.
+
+“True,” said the abbé, with a stifled sigh, “Mercédès it was.”
+
+“Go on,” urged Caderousse.
+
+“Bring me a _carafe_ of water,” said the abbé.
+
+Caderousse quickly performed the stranger’s bidding; and after pouring
+some into a glass, and slowly swallowing its contents, the abbé,
+resuming his usual placidity of manner, said, as he placed his empty
+glass on the table:
+
+“Where did we leave off?”
+
+“The name of Edmond’s betrothed was Mercédès.”
+
+“To be sure. ‘You will go to Marseilles,’ said Dantès,—for you
+understand, I repeat his words just as he uttered them. Do you
+understand?”
+
+“Perfectly.”
+
+“‘You will sell this diamond; you will divide the money into five equal
+parts, and give an equal portion to these good friends, the only
+persons who have loved me upon earth.’”
+
+“But why into five parts?” asked Caderousse; “you only mentioned four
+persons.”
+
+[8] Score: 10.0788 [SKG: 0.71] | Chapter 2. Father and Son (Part 8/12) (File: docs/monte_cristo/book.md, Line: 853)
+“Yes, but to be captain one must do a little flattery to one’s
+patrons.”
+
+“I hope to be captain without that,” said Dantès.
+
+“So much the better—so much the better! Nothing will give greater
+pleasure to all your old friends; and I know one down there behind the
+Saint Nicolas citadel who will not be sorry to hear it.”
+
+“Mercédès?” said the old man.
+
+“Yes, my dear father, and with your permission, now I have seen you,
+and know you are well and have all you require, I will ask your consent
+to go and pay a visit to the Catalans.”
+
+“Go, my dear boy,” said old Dantès; “and Heaven bless you in your wife,
+as it has blessed me in my son!”
+
+“His wife!” said Caderousse; “why, how fast you go on, father Dantès;
+she is not his wife yet, as it seems to me.”
+
+“No, but according to all probability she soon will be,” replied
+Edmond.
+
+“Yes—yes,” said Caderousse; “but you were right to return as soon as
+possible, my boy.”
+
+“And why?”
+
+“Because Mercédès is a very fine girl, and fine girls never lack
+followers; she particularly has them by dozens.”
+
+[9] Score: 9.9943 [SKG: 0.71] | Chapter 8. The Château d’If (Part 13/14) (File: docs/monte_cristo/book.md, Line: 3837)
+“Listen!” said Dantès. “I am not an abbé, I am not mad; perhaps I shall
+be, but at present, unfortunately, I am not. I will make you another
+offer.”
+
+“What is that?”
+
+“I do not offer you a million, because I have it not; but I will give
+you a hundred crowns if, the first time you go to Marseilles, you will
+seek out a young girl named Mercédès, at the Catalans, and give her two
+lines from me.”
+
+0120m
+
+
+
+“If I took them, and were detected, I should lose my place, which is
+worth two thousand francs a year; so that I should be a great fool to
+run such a risk for three hundred.”
+
+“Well,” said Dantès, “mark this; if you refuse at least to tell
+Mercédès I am here, I will some day hide myself behind the door, and
+when you enter I will dash out your brains with this stool.”
+
+“Threats!” cried the jailer, retreating and putting himself on the
+defensive; “you are certainly going mad. The abbé began like you, and
+in three days you will be like him, mad enough to tie up; but,
+fortunately, there are dungeons here.”
+
+Dantès whirled the stool round his head.
+
+[10] Score: 9.9851 [SKG: 0.87] | Chapter 5. The Marriage Feast (Part 5/22) (File: docs/monte_cristo/book.md, Line: 1928)
+“A pretty silence truly!” said the old father of the bridegroom, as he
+carried to his lips a glass of wine of the hue and brightness of the
+topaz, and which had just been placed before Mercédès herself. “Now,
+would anybody think that this room contained a happy, merry party, who
+desire nothing better than to laugh and dance the hours away?”
+
+“Ah,” sighed Caderousse, “a man cannot always feel happy because he is
+about to be married.”
+
+“The truth is,” replied Dantès, “that I am too happy for noisy mirth;
+if that is what you meant by your observation, my worthy friend, you
+are right; joy takes a strange effect at times, it seems to oppress us
+almost the same as sorrow.”
+
+Danglars looked towards Fernand, whose excitable nature received and
+betrayed each fresh impression.
+
+“Why, what ails you?” asked he of Edmond. “Do you fear any approaching
+evil? I should say that you were the happiest man alive at this
+instant.”
+
+“And that is the very thing that alarms me,” returned Dantès. “Man does
+not appear to me to be intended to enjoy felicity so unmixed; happiness
+is like the enchanted palaces we read of in our childhood, where
+fierce, fiery dragons defend the entrance and approach; and monsters of
+all shapes and kinds, requiring to be overcome ere victory is ours. I
+own that I am lost in wonder to find myself promoted to an honor of
+which I feel myself unworthy—that of being the husband of Mercédès.”
+
+“Nay, nay!” cried Caderousse, smiling, “you have not attained that
+honor yet. Mercédès is not yet your wife. Just assume the tone and
+manner of a husband, and see how she will remind you that your hour is
+not yet come!”
+

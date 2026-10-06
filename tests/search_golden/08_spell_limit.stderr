@@ -1,0 +1,10 @@
+[32m[Two-Stage Pruning] Pruned candidate space from 1926 to 301 (roaring generated: 302) sections in <ELAPSED>[0m
+[33mCandidates: 302[0m
+[33mRanked: 301[0m
+[33mRejected:[0m
+  MissingSection: 0
+  EmptyText: 0
+  FieldNotRankable: 0
+  TagSignatureMismatch: 1
+  NoTokenMatch: 0
+  ScoreBelowThreshold: 0
