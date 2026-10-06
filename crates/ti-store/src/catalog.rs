@@ -15,9 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use arrow_array::{
-    Array, RecordBatch, StringArray, TimestampSecondArray, UInt32Array, UInt8Array,
-};
+use arrow_array::{Array, RecordBatch, StringArray, TimestampSecondArray, UInt32Array, UInt8Array};
 use serde::{Deserialize, Serialize};
 use ti_contracts::{
     paths_schema, vessels_schema, Agg, Catalog, Error, FieldKind, FieldSpec, Result,
@@ -102,18 +100,21 @@ impl PathRecord {
             _ => None,
         });
 
-        let kind = self.kind.clone().unwrap_or_else(|| match self.field_type.as_str() {
-            "presence" => FieldKind::Presence,
-            "set" => FieldKind::Set,
-            "bsi" => FieldKind::Bsi {
-                scale: self.scale.unwrap_or(3),
-            },
-            "count" => FieldKind::Count,
-            "geo" => FieldKind::Geo {
-                res: self.scale.unwrap_or(7),
-            },
-            _ => FieldKind::Presence,
-        });
+        let kind = self
+            .kind
+            .clone()
+            .unwrap_or_else(|| match self.field_type.as_str() {
+                "presence" => FieldKind::Presence,
+                "set" => FieldKind::Set,
+                "bsi" => FieldKind::Bsi {
+                    scale: self.scale.unwrap_or(3),
+                },
+                "count" => FieldKind::Count,
+                "geo" => FieldKind::Geo {
+                    res: self.scale.unwrap_or(7),
+                },
+                _ => FieldKind::Presence,
+            });
 
         FieldSpec {
             id: self.field,
@@ -211,11 +212,17 @@ impl DiskCatalog {
     }
 
     fn persist_dictionaries(&self, state: &CatalogState) -> Result<()> {
-        atomic_write_json(&self.catalog_dir.join("dictionaries.json"), &state.dictionaries)
+        atomic_write_json(
+            &self.catalog_dir.join("dictionaries.json"),
+            &state.dictionaries,
+        )
     }
 
     fn persist_sources(&self, state: &CatalogState) -> Result<()> {
-        atomic_write_json(&self.catalog_dir.join("sources.json"), &state.source_priorities)
+        atomic_write_json(
+            &self.catalog_dir.join("sources.json"),
+            &state.source_priorities,
+        )
     }
 
     /// Compute the canonical catalog snapshot hash per spec 14 §82.

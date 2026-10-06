@@ -14,5 +14,3 @@ pub use store::Store;
 pub use wal::Wal;
 
 pub fn init() {}
-
-

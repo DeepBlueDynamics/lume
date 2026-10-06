@@ -156,5 +156,7 @@ fn test_crash_recovery_1000_runs() {
         }
     }
 
-    println!("All 1,000 kill -9 crash recovery iterations passed with zero lost or duplicated records!");
+    println!(
+        "All 1,000 kill -9 crash recovery iterations passed with zero lost or duplicated records!"
+    );
 }

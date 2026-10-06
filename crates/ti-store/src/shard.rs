@@ -154,9 +154,7 @@ impl ShardData {
             },
             Predicate::BsiCmp { field, op, lo, hi } => match self.fields.get(field) {
                 Some(FieldData::Bsi(f)) => exact(f.compare(op.clone(), *lo, *hi, u)?, f.exists()),
-                Some(FieldData::Count(f)) => {
-                    exact(f.compare(op.clone(), *lo, *hi, u)?, f.exists())
-                }
+                Some(FieldData::Count(f)) => exact(f.compare(op.clone(), *lo, *hi, u)?, f.exists()),
                 Some(_) => return Err(Error::InvalidInput("BsiCmp requires numeric field".into())),
                 None => exact(RoaringBitmap::new(), &RoaringBitmap::new()),
             },
@@ -191,7 +189,9 @@ impl ShardData {
             Predicate::GeoCover { field, cells } => {
                 let f = match self.fields.get(field) {
                     Some(FieldData::Geo(f)) => f,
-                    Some(_) => return Err(Error::InvalidInput("GeoCover requires Geo field".into())),
+                    Some(_) => {
+                        return Err(Error::InvalidInput("GeoCover requires Geo field".into()))
+                    }
                     None => return Ok(exact(RoaringBitmap::new(), &RoaringBitmap::new())),
                 };
                 let hits = f.cover(cells);

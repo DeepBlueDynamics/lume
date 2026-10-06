@@ -14,8 +14,7 @@ use arrow_array::{
     Array, BooleanArray, RecordBatch, StringArray, TimestampSecondArray, UInt32Array, UInt64Array,
 };
 use ti_contracts::{
-    shards_schema, BucketIx, Catalog, Error, Result, ShardKey, ShardManifestEntry, VesselOrd,
-    EPOCH,
+    shards_schema, BucketIx, Catalog, Error, Result, ShardKey, ShardManifestEntry, VesselOrd, EPOCH,
 };
 
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(1);

@@ -971,7 +971,9 @@ mod tests {
         assert_eq!(ge_zero.iter().collect::<Vec<_>>(), vec![1, 2, 3]);
 
         // Between 0 and 100
-        let between = bsi.compare(CmpOp::Between, 0, Some(100), &universe).unwrap();
+        let between = bsi
+            .compare(CmpOp::Between, 0, Some(100), &universe)
+            .unwrap();
         assert_eq!(between.iter().collect::<Vec<_>>(), vec![1, 3]);
 
         // Aggregation
@@ -994,9 +996,14 @@ mod tests {
         let count = orig.encode_rows(&mut buf).unwrap();
 
         let mut cursor = std::io::Cursor::new(buf);
-        let decoded =
-            FieldData::decode_rows(&mut cursor, &FieldKind::Bsi { scale: 2 }, count, None, false)
-                .unwrap();
+        let decoded = FieldData::decode_rows(
+            &mut cursor,
+            &FieldKind::Bsi { scale: 2 },
+            count,
+            None,
+            false,
+        )
+        .unwrap();
 
         assert_eq!(orig, decoded);
     }

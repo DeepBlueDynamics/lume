@@ -281,8 +281,7 @@ fn test_seal_determinism_all_field_types() {
         let bytes1 = fs::read(&f1).unwrap();
         let bytes2 = fs::read(&f2).unwrap();
         assert_eq!(
-            bytes1,
-            bytes2,
+            bytes1, bytes2,
             "File {:?} differs between independent runs!",
             name
         );

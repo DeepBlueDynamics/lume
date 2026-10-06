@@ -87,7 +87,9 @@ impl Store {
                         vessel: rec.vessel,
                         shard: rec.bucket >> 16,
                     };
-                    let shard = open_shards.entry(key).or_insert_with(|| OpenShard::new(key));
+                    let shard = open_shards
+                        .entry(key)
+                        .or_insert_with(|| OpenShard::new(key));
                     if let Ok(spec) = catalog.field(rec.field) {
                         let _ = shard.register_field(spec);
                     }
@@ -96,7 +98,7 @@ impl Store {
                             let _ = shard.register_set_value(rec.field, row_id, &val);
                         }
                     }
-                    let _ = shard.apply(&[rec.clone()]);
+                    let _ = shard.apply(std::slice::from_ref(rec));
                 }
             }
 
@@ -186,7 +188,7 @@ impl ShardSink for Store {
                 shard: rec.bucket >> 16,
             };
             let shard = self.open_shards.get_mut(&key).unwrap();
-            shard.apply(&[rec.clone()])?;
+            shard.apply(std::slice::from_ref(rec))?;
         }
 
         Ok(())
@@ -306,9 +308,13 @@ impl ShardSource for Store {
             entry.version,
             self.catalog.as_ref(),
         )?;
-        sealed
-            .data
-            .materialize(&urn, cols, fields, self.width_seconds, self.catalog.as_ref())
+        sealed.data.materialize(
+            &urn,
+            cols,
+            fields,
+            self.width_seconds,
+            self.catalog.as_ref(),
+        )
     }
 
     fn agg(

@@ -22,6 +22,9 @@ fn bincode_options() -> impl bincode::Options {
         .with_little_endian()
 }
 
+pub type WalReplayRecord = (u64, Vec<BucketRecord>);
+pub type WalRecoveryResult = (String, u64, Vec<WalReplayRecord>, u64);
+
 pub struct Wal {
     file: File,
     path: PathBuf,
@@ -39,7 +42,7 @@ impl Wal {
         wal_dir: &Path,
         vessel_ord: VesselOrd,
         vessel_urn: &str,
-    ) -> Result<(Self, Vec<(u64, Vec<BucketRecord>)>)> {
+    ) -> Result<(Self, Vec<WalReplayRecord>)> {
         std::fs::create_dir_all(wal_dir)?;
         let path = wal_dir.join(format!("{}.wal", vessel_ord));
 
@@ -52,10 +55,7 @@ impl Wal {
                 )));
             }
 
-            let mut file = OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(&path)?;
+            let mut file = OpenOptions::new().read(true).write(true).open(&path)?;
 
             // Cleanly truncate away any torn record at the end
             file.set_len(valid_end_offset)?;
@@ -107,7 +107,9 @@ impl Wal {
     /// Returns the sequence number assigned to this frame.
     pub fn append(&mut self, records: &[BucketRecord]) -> Result<u64> {
         if records.is_empty() {
-            return Err(Error::InvalidInput("Cannot append empty records slice".into()));
+            return Err(Error::InvalidInput(
+                "Cannot append empty records slice".into(),
+            ));
         }
 
         let payload = bincode_options()
@@ -171,7 +173,7 @@ impl Wal {
     /// Replay the WAL file from disk.
     /// Returns (vessel_urn, header_len, valid_records, valid_end_offset).
     /// Stops cleanly at the first torn or CRC-bad record.
-    pub fn recover(path: &Path) -> Result<(String, u64, Vec<(u64, Vec<BucketRecord>)>, u64)> {
+    pub fn recover(path: &Path) -> Result<WalRecoveryResult> {
         let mut file = File::open(path)?;
         let mut magic = [0u8; 8];
         if file.read_exact(&mut magic).is_err() || magic != WAL_MAGIC {
@@ -282,7 +284,10 @@ mod tests {
         let seq1 = wal.append(&rec1).unwrap();
         assert_eq!(seq1, 1);
 
-        let rec2 = vec![make_test_record(0, 101, 1, 43), make_test_record(0, 101, 2, 99)];
+        let rec2 = vec![
+            make_test_record(0, 101, 1, 43),
+            make_test_record(0, 101, 2, 99),
+        ];
         let seq2 = wal.append(&rec2).unwrap();
         assert_eq!(seq2, 2);
 
