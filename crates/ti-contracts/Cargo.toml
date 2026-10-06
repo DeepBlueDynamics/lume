@@ -1,0 +1,11 @@
+[package]
+name = "ti-contracts"
+version = "0.1.0"
+edition = "2021"
+license = "BSD-3-Clause"
+description = "Shared contracts for the Lume Telemetry Index"
+
+[dependencies]
+arrow-array = "59.2"
+arrow-schema = "59.2"
+roaring = "0.11.5"
