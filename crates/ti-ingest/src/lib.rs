@@ -33,7 +33,7 @@ pub use parquet::{
     BackfillStatus,
 };
 pub use recorder::{DeltaRecorder, DeltaReplay};
-pub use watermark::{MultiStoreBucketer, WatermarkBucketer};
+pub use watermark::{ClosedBucketObserver, MultiStoreBucketer, WatermarkBucketer};
 pub use websocket::{
     build_subscription_messages, connect_signalk, process_message, process_message_multi,
     run_stream_loop, run_stream_loop_multi, subscribe_signalk,

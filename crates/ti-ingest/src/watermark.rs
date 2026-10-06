@@ -17,6 +17,14 @@ use crate::classify::Classifier;
 use crate::derived::{DerivedEvent, DerivedTracker};
 use crate::normalize::NormalizedValue;
 
+/// Receives newly closed telemetry buckets after the sink has published its batch.
+/// Bounds are inclusive. Observers run in vessel/bucket order, once for each new
+/// close; late rewrites do not retrigger them. Errors propagate to the ingest caller.
+/// Historical rules run after complete backfill, rather than partial per-path files.
+pub trait ClosedBucketObserver: Send {
+    fn on_closed(&mut self, vessel: VesselOrd, from_bucket: BucketIx, to_bucket: BucketIx) -> Result<()>;
+}
+
 pub struct WatermarkBucketer {
     width_seconds: u64,
     store_name: String,
@@ -27,6 +35,7 @@ pub struct WatermarkBucketer {
     closed_buckets: BTreeSet<(VesselOrd, BucketIx)>,
     classifier: Classifier,
     derived: DerivedTracker,
+    closed_observer: Option<Box<dyn ClosedBucketObserver>>,
 }
 
 impl WatermarkBucketer {
@@ -41,6 +50,7 @@ impl WatermarkBucketer {
             closed_buckets: BTreeSet::new(),
             classifier: Classifier::new(config),
             derived: DerivedTracker::new(&config.derived),
+            closed_observer: None,
         }
     }
 
@@ -56,7 +66,22 @@ impl WatermarkBucketer {
             closed_buckets: BTreeSet::new(),
             classifier: Classifier::new(config),
             derived: DerivedTracker::new(&config.derived),
+            closed_observer: None,
         })
+    }
+
+    /// Install or detach the rule evaluator without introducing a SQL dependency.
+    pub fn set_closed_bucket_observer(&mut self, observer: Option<Box<dyn ClosedBucketObserver>>) {
+        self.closed_observer = observer;
+    }
+
+    fn notify_closed(&mut self, keys: &[(VesselOrd, BucketIx)]) -> Result<()> {
+        if let Some(observer) = &mut self.closed_observer {
+            for &(vessel, bucket) in keys {
+                observer.on_closed(vessel, bucket, bucket)?;
+            }
+        }
+        Ok(())
     }
 
     pub fn width_seconds(&self) -> u64 {
@@ -215,6 +240,7 @@ impl WatermarkBucketer {
     ) -> Result<usize> {
         let watermark = self.watermark();
         let mut closed_count = 0;
+        let mut newly_closed = Vec::new();
 
         let to_close: Vec<(VesselOrd, BucketIx)> = self
             .open_buckets
@@ -248,9 +274,14 @@ impl WatermarkBucketer {
                 }
                 self.closed_buckets.insert(key);
                 closed_count += 1;
+                newly_closed.push(key);
             }
         }
 
+        if self.closed_observer.is_some() && !newly_closed.is_empty() {
+            sink.flush()?;
+        }
+        self.notify_closed(&newly_closed)?;
         Ok(closed_count)
     }
 
@@ -262,6 +293,7 @@ impl WatermarkBucketer {
         sink: &mut dyn ShardSink,
     ) -> Result<usize> {
         let mut count = 0;
+        let mut newly_closed = Vec::new();
         let keys: Vec<(VesselOrd, BucketIx)> = self.open_buckets.keys().cloned().collect();
 
         let store_aggs_opt = if self.store_aggs.is_empty() {
@@ -286,9 +318,11 @@ impl WatermarkBucketer {
                 }
                 self.closed_buckets.insert(key);
                 count += 1;
+                newly_closed.push(key);
             }
         }
         sink.flush()?;
+        self.notify_closed(&newly_closed)?;
         Ok(count)
     }
 }
@@ -363,6 +397,18 @@ impl MultiStoreBucketer {
             bucketers.insert(name, b);
         }
         Ok(Self { bucketers })
+    }
+
+    /// Register an observer for one named store; alert rules use "default".
+    pub fn set_closed_bucket_observer(
+        &mut self,
+        store_name: &str,
+        observer: Option<Box<dyn ClosedBucketObserver>>,
+    ) -> Result<()> {
+        self.bucketers.get_mut(store_name)
+            .ok_or_else(|| ti_contracts::Error::InvalidInput(format!("unknown store {store_name:?}")))?
+            .set_closed_bucket_observer(observer);
+        Ok(())
     }
 
     pub fn bucketer(&self, store_name: &str) -> Option<&WatermarkBucketer> {
