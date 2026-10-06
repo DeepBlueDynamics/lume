@@ -13,17 +13,13 @@
 -- Load it, then materialise `raw`/`docs`/catalogs against a generated root:
 --     .read tests/golden/raw_view.sql
 --     CREATE OR REPLACE VIEW raw AS SELECT * FROM read_raw('<root>');
---     CREATE OR REPLACE VIEW docs AS SELECT * FROM read_parquet('<root>/docs/*.parquet',
---         hive_partitioning=false, union_by_name=true);
+--     CREATE OR REPLACE VIEW docs AS SELECT * FROM read_docs('<root>');
 --     ... same for vessels/paths/shards under <root>/catalog/ ...
 
 -- Flattened raw: one row per (context, path, timestamp, source). Scalar paths expose
 -- `value` (numeric) / `value_str` (string/boolean); object paths are flattened to
 -- path.<key> rows (navigation.position.{latitude,longitude}, navigation.attitude.{roll,pitch,yaw}).
-CREATE OR REPLACE FUNCTION read_raw(root VARCHAR)
-RETURNS TABLE (
-    context VARCHAR, ts TIMESTAMP, path VARCHAR, value DOUBLE, value_str VARCHAR, source VARCHAR
-) AS (
+CREATE OR REPLACE MACRO read_raw(root) AS TABLE
     WITH files AS (
         SELECT * FROM read_parquet(
             root || '/tier=raw/**/*.parquet',
@@ -69,5 +65,20 @@ RETURNS TABLE (
     )
     SELECT * FROM scalar
     UNION ALL SELECT * FROM position
-    UNION ALL SELECT * FROM attitude
-);
+    UNION ALL SELECT * FROM attitude;
+
+-- Flattened docs: casts ISO-8601 VARCHAR timestamps (ts_start, ts_end) to TIMESTAMP
+-- so that time_bucket() and range comparisons work identically to TI SQL docs table.
+CREATE OR REPLACE MACRO read_docs(root) AS TABLE
+    SELECT
+        context,
+        kind,
+        TRY_CAST(ts_start AS TIMESTAMP) AS ts_start,
+        TRY_CAST(ts_end AS TIMESTAMP) AS ts_end,
+        title,
+        body
+    FROM read_parquet(
+        root || '/docs/**/*.parquet',
+        hive_partitioning = false, union_by_name = true
+    );
+
