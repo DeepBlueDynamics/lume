@@ -2643,6 +2643,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ti-bench"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "chrono",
+ "parquet",
+]
+
+[[package]]
 name = "ti-contracts"
 version = "0.1.0"
 dependencies = [

@@ -60,25 +60,30 @@ Each `Entry`:
 
 - Every oracle twin buckets the parquet with
   `time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01')` (the `epoch` above).
+  Buckets are half-open `[start, start + W)` (spec 14).
 - Numeric buckets use the **same aggregate** the TI `@agg` column implies, then
   `round(value, scale)` to match ingest's fixed-point.
-- `set` predicates become `value_str` filters over `raw` (one row per sample); `bsi`
-  predicates become `min/max/avg(value)` bucketed then compared.
+- `bsi` predicates become `min/max/avg(value)` bucketed then compared.
+- **Set fields are single-valued per bucket** (last value from the preferred source):
+  the oracle filters on `arg_max(value_str, ts)` per `(context, path, bucket)`, not on
+  "any sample in the bucket". Negation of a set field uses `IS DISTINCT FROM` with a
+  presence join (spec 14 three-valued semantics): a bucket with no sample for the path
+  does **not** match `state != 'started'`. The generator emits one source per state path
+  so the preferred-source choice is deterministic.
 - `match(kind, q)` becomes a `docs` filter on `lower(body) LIKE '%token%'` (ILIKE-style
-  token match), bucketed on `ts_start`. **Approximation, documented:** this is a
-  substring match, not BM25. It over-approximates in the presence of stemming/ranking;
-  queries here use single-token or OR-of-two-token patterns so the planted-keyword
-  oracle matches BM25 hits. See `paths.md` for the planted keywords.
-- Geo (`within_nm` / `in_bbox`) becomes a haversine / lat-lon range filter over the
-  bucketed `arg_max` lat/lon. **Approximation:** `within_nm` uses an equirectangular
-  approximation `111.195 * sqrt(Δlat² + (Δlon·cos(lat))²)`; TI refines by haversine on
-  materialized rows. Boundary points within the (small) approximation error are excluded
-  from expected outputs in part 2.
-- `intervals(...)` becomes a `GROUP BY vessel` over the same predicate with
-  `HAVING (max-min) >= min_len` and a `count(*) AS buckets`. **Approximation:** the
-  oracle groups the whole matching set as one interval per vessel (no gap-merge of
-  `max_gap`). Part 2 corrects expected outputs for `max_gap`; part 1 documents the
-  semantics.
+  token match), bucketed on `ts_start`. This substring match is **only correct because
+  the generator plants unambiguous keywords** such that BM25 and substring result sets
+  coincide (see `paths.md`). Tokens are chosen so none is a substring of another
+  (e.g. `anchor` was replaced by `mooring` to avoid matching `anchorage`). It is not a
+  general BM25 substitute.
+- Geo: `in_bbox` becomes a lat/lon range filter; `within_nm` becomes an **exact
+  haversine** filter using earth radius **3440.065 nm** (matches TI's refine). Form:
+  `2·3440.065·asin(sqrt(hav(Δlat) + cos(lat0)·cos(lat)·hav(Δlon)))`.
+- `intervals(...)` uses a real gaps-and-islands oracle: group contiguous matching
+  buckets into runs (`row_number()` island trick), merge runs whose gap ≤ `max_gap`,
+  then apply `min_len` after merging. Runs are half-open `[start, end)`, `end` = last
+  matching bucket `+ W`, and `buckets` counts only matching buckets (not bridged gaps).
+  `start` and `end` are both `exact` compared.
 
 ## Pushdown coverage
 
@@ -88,7 +93,7 @@ Each pushdown row in `plan/spec/07-query.md` is exercised by at least one entry:
 |---|---|
 | `vessel =` / `IN` | q1-001, q2-004, qx-012 |
 | `ts` comparisons, `BETWEEN` | q3-005, q3-001 |
-| `set_col = / != / IN / NOT IN` | q2-001 (`=`), q2-004 (`!=`), q3-006 (`OR`), q2-006 (`NOT IN`), q2-003 (`IN`) |
+| `set_col = / != / IN / IS DISTINCT FROM` | q2-001 (`=`), q2-004 (`IS DISTINCT FROM`), q3-006 (`OR`), q2-006 (`IS DISTINCT FROM`), q2-003 (`IN`, `NOT`) |
 | `bsi_col <op> literal`, `BETWEEN` | q2-002 (`BETWEEN`), q3-007 (`BETWEEN`), q2-005 (col-vs-col, unsupported), q4-001 (`>`), q1-002 (`@last`) |
 | `col IS [NOT] NULL` (presence) | q2-003, q3-005 (count col), q1-007 (count field) |
 | `match(...)` | q6-001..q6-006, q2-001, q7-005 |
@@ -102,6 +107,21 @@ correlated/scalar subqueries (qx-003), window functions (q4-003, qx-008), `UNION
 
 Motivating query: q2-001. PV-1 energy queries: q5-002 (electric-only motoring),
 q4-006/qx-012 (energy aggregation).
+
+## Fix log (part 2)
+
+Peer review by Rigid Roadrunner, applied on `ti/w0-corpus`:
+
+| # | Finding | Query ids | Fix |
+|---|---|---|---|
+| 1 | TI vs oracle aggregate mismatch on bare lat/lon | q1-004 | TI now `@last`; oracle `arg_max` (both "last") |
+| 2 | mean vs max mismatch | qx-007 | TI now `@max`; oracle `max` |
+| 3 | malformed `''` escaping in `intervals()` predicate | q5-001..q5-005 | doubled quotes to `''started''`/`''anchored''` |
+| 4 | intervals comparator omitted endpoints / no gap-merge | q5-001..q5-005 | gaps-and-islands oracle; half-open `[start, end)`; `start`/`end` now `exact` |
+| 5 | missing-state treated as `!= started` | q2-004, q2-006, q3-001, q5-002 | `IS DISTINCT FROM` with presence join |
+| — | set fields are last-value-per-bucket (lead ruling) | all set filters | `arg_max(value_str, ts)` per bucket |
+| — | geo approximation → exact | q7-001, q7-003, q7-005 | haversine, radius 3440.065 nm |
+| — | `anchor` substring matches `anchorage` | q7-005 | token changed to `mooring` |
 
 ## Class counts
 

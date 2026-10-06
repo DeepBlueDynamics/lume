@@ -1,0 +1,11 @@
+[package]
+name = "ti-bench"
+version = "0.1.0"
+edition = "2021"
+license = "BSD-3-Clause"
+description = "Synthetic signalk-parquet generator and golden-corpus fixtures for Lume TI"
+
+[dependencies]
+arrow = "59.2"
+parquet = { version = "59.2", default-features = false, features = ["flate2-zlib-rs", "lz4_flex", "snap", "arrow"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
