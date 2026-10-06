@@ -141,7 +141,8 @@ mod tests {
         // 60 seconds of 1 Hz generation with per-path override
         let data = gen::generate_with_config(seed, 1, gen::START_SECS, gen::START_SECS + 60, &cfg);
 
-        let mut counts_by_path: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+        let mut counts_by_path: std::collections::BTreeMap<String, usize> =
+            std::collections::BTreeMap::new();
         for s in &data.samples {
             *counts_by_path.entry(s.path.clone()).or_default() += 1;
         }

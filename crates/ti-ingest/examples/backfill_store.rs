@@ -190,8 +190,9 @@ fn main() {
         }
 
         let t0 = Instant::now();
-        let results = backfill_directory(raw, self_urn, None, &config, catalog.as_ref(), &mut store)
-            .expect("backfill");
+        let results =
+            backfill_directory(raw, self_urn, None, &config, catalog.as_ref(), &mut store)
+                .expect("backfill");
         let backfill_s = t0.elapsed().as_secs_f64();
         let rows: u64 = results
             .iter()
@@ -239,10 +240,13 @@ fn main() {
         let vessels = catalog_vessels(raw);
         println!("vessels        : {} from catalog/vessels", vessels.len());
 
-        let mut default_store = Store::open_or_create(root, config.width_seconds).expect("open default store");
+        let mut default_store =
+            Store::open_or_create(root, config.width_seconds).expect("open default store");
         let default_catalog = Arc::clone(default_store.catalog());
         for vessel in &vessels {
-            default_catalog.register_vessel(vessel).expect("register vessel in default");
+            default_catalog
+                .register_vessel(vessel)
+                .expect("register vessel in default");
         }
 
         let mut extra_stores = std::collections::BTreeMap::new();
@@ -274,7 +278,8 @@ fn main() {
             catalogs.insert(name.clone(), cat.as_ref());
         }
 
-        let mut sinks: std::collections::BTreeMap<String, &mut dyn ShardSink> = std::collections::BTreeMap::new();
+        let mut sinks: std::collections::BTreeMap<String, &mut dyn ShardSink> =
+            std::collections::BTreeMap::new();
         sinks.insert("default".to_string(), &mut default_store);
         for (name, s) in &mut extra_stores {
             sinks.insert(name.clone(), s);

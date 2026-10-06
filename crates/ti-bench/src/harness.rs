@@ -82,12 +82,27 @@ fn percentile(sorted: &[f64], p: f64) -> f64 {
 fn class_target(class: &str) -> (f64, &'static str) {
     match class {
         "Q1" => (20.0, "≤ 20 ms (point lookup)"),
-        "Q2" => (100.0, "≤ 100 ms (shore) / ≤ 150 ms (edge) (selective multi-pred)"),
-        "Q3" => (60.0, "≤ 60 ms (shore) / ≤ 50 ms (edge) (count with filters)"),
-        "Q4" => (300.0, "≤ 300 ms (shore) / ≤ 400 ms (edge) (windowed aggregate)"),
+        "Q2" => (
+            100.0,
+            "≤ 100 ms (shore) / ≤ 150 ms (edge) (selective multi-pred)",
+        ),
+        "Q3" => (
+            60.0,
+            "≤ 60 ms (shore) / ≤ 50 ms (edge) (count with filters)",
+        ),
+        "Q4" => (
+            300.0,
+            "≤ 300 ms (shore) / ≤ 400 ms (edge) (windowed aggregate)",
+        ),
         "Q5" => (150.0, "≤ 150 ms (intervals)"),
-        "Q6" => (150.0, "≤ 150 ms (shore) / ≤ 200 ms (edge) (text + telemetry)"),
-        "Q7" => (250.0, "≤ 250 ms (shore) / ≤ 300 ms (edge) (geo + telemetry)"),
+        "Q6" => (
+            150.0,
+            "≤ 150 ms (shore) / ≤ 200 ms (edge) (text + telemetry)",
+        ),
+        "Q7" => (
+            250.0,
+            "≤ 250 ms (shore) / ≤ 300 ms (edge) (geo + telemetry)",
+        ),
         "Q8" => (500.0, "DuckDB parity ±50 % (broad scan)"),
         _ => (1000.0, "target not defined"),
     }
@@ -129,7 +144,10 @@ pub async fn run_benchmark(
 
     for entry in &corpus.entries {
         if let Some(reason) = &entry.exclude {
-            eprintln!("Skipping excluded query {} ({}): {}", entry.id, entry.qclass, reason);
+            eprintln!(
+                "Skipping excluded query {} ({}): {}",
+                entry.id, entry.qclass, reason
+            );
             continue;
         }
         if let Some(cf) = class_filter {
@@ -164,7 +182,10 @@ pub async fn run_benchmark(
         let max = sorted_warm.last().copied().unwrap_or(0.0);
         let mean = sorted_warm.iter().sum::<f64>() / sorted_warm.len().max(1) as f64;
 
-        eprintln!("cold={:.2}ms, p50={:.2}ms, p95={:.2}ms, rows={}", cold_ms, p50, p95, rows);
+        eprintln!(
+            "cold={:.2}ms, p50={:.2}ms, p95={:.2}ms, rows={}",
+            cold_ms, p50, p95, rows
+        );
 
         query_metrics.push(QueryMetric {
             id: entry.id.clone(),
@@ -197,7 +218,10 @@ pub async fn run_benchmark(
     let mut class_metrics = BTreeMap::new();
     for (class_name, mut warm_lats) in class_warm_latencies {
         warm_lats.sort_by(|a, b| a.total_cmp(b));
-        let cold_lats = class_cold_latencies.get(&class_name).cloned().unwrap_or_default();
+        let cold_lats = class_cold_latencies
+            .get(&class_name)
+            .cloned()
+            .unwrap_or_default();
         let cold_p50 = {
             let mut sc = cold_lats.clone();
             sc.sort_by(|a, b| a.total_cmp(b));
@@ -330,7 +354,10 @@ fn generate_markdown_summary(report: &FullReport) -> String {
     out.push_str(&format!("- **Store Path**: `{}`\n", report.store_path));
     out.push_str(&format!("- **Parquet Path**: `{}`\n", report.parquet_path));
     out.push_str(&format!("- **Warm Iterations**: {}\n", report.iterations));
-    out.push_str(&format!("- **Queries Run**: {}\n\n", report.total_queries_run));
+    out.push_str(&format!(
+        "- **Queries Run**: {}\n\n",
+        report.total_queries_run
+    ));
 
     out.push_str("## Class Summary vs Spec/13 Targets\n\n");
     out.push_str("| Class | Spec Target | TI Cold p50 | TI Warm p50 | TI Warm p95 | TI Warm p99 | DuckDB p95 | Status |\n");

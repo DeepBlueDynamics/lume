@@ -65,7 +65,9 @@ fn gen(args: &[String]) {
         });
 
     let hz = arg(args, "--hz").and_then(|s| s.parse::<f64>().ok());
-    let per_path = args.iter().any(|a| a == "--per-path" || a == "--per-path-override");
+    let per_path = args
+        .iter()
+        .any(|a| a == "--per-path" || a == "--per-path-override");
     let gen_config = if per_path {
         ti_bench::gen::GenConfig {
             hz: hz.unwrap_or(1.0),
@@ -81,7 +83,12 @@ fn gen(args: &[String]) {
     };
 
     let (raw, docs, cats) = ti_bench::write::write_all_stream_with_config(
-        &root, seed, n_vessels, start, end, &gen_config,
+        &root,
+        seed,
+        n_vessels,
+        start,
+        end,
+        &gen_config,
     );
     eprintln!(
         "wrote {} raw files, {} doc files, {} catalog files to {}",
@@ -93,7 +100,12 @@ fn gen(args: &[String]) {
         let tmp = format!("{}.regen", root);
         let _ = std::fs::remove_dir_all(&tmp);
         ti_bench::write::write_all_stream_with_config(
-            &tmp, seed, n_vessels, start, end, &gen_config,
+            &tmp,
+            seed,
+            n_vessels,
+            start,
+            end,
+            &gen_config,
         );
         let same = dirs_identical(Path::new(&root), Path::new(&tmp));
         std::fs::remove_dir_all(&tmp).ok();
@@ -110,10 +122,8 @@ async fn bench(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| "/workspace/lume/.lanes/data/store-full".to_string());
     let parquet = arg(args, "--parquet")
         .unwrap_or_else(|| "/workspace/lume/.lanes/data/correctness".to_string());
-    let corpus = arg(args, "--corpus")
-        .unwrap_or_else(|| "tests/golden/corpus.json".to_string());
-    let out_dir = arg(args, "--out-dir")
-        .unwrap_or_else(|| "bench/results".to_string());
+    let corpus = arg(args, "--corpus").unwrap_or_else(|| "tests/golden/corpus.json".to_string());
+    let out_dir = arg(args, "--out-dir").unwrap_or_else(|| "bench/results".to_string());
     let iterations = arg(args, "--iterations")
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(5);
