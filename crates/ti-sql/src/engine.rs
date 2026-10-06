@@ -494,6 +494,7 @@ impl TiEngine {
         let mut ingest_lag_seconds = Value::Null;
         let mut last_delta = Value::Null;
         let mut reconnects = Value::Null;
+        let mut documents_rejected_pre_epoch = Value::Null;
         let ingest_status_file = self.root.join("ingest_status.json");
         if let Ok(content) = std::fs::read_to_string(&ingest_status_file) {
             if let Ok(val) = serde_json::from_str::<Value>(&content) {
@@ -503,6 +504,9 @@ impl TiEngine {
                 }
                 if let Some(ld) = val.get("last_delta") {
                     last_delta = ld.clone();
+                }
+                if let Some(count) = val.get("documents_rejected_pre_epoch") {
+                    documents_rejected_pre_epoch = count.clone();
                 }
                 if let Some(rc) = val.get("reconnects") {
                     reconnects = rc.clone();
@@ -517,6 +521,7 @@ impl TiEngine {
             "wal_bytes": wal_bytes, "shards": {"open": shards.len() - sealed, "sealed": sealed},
             "ingest_lag_seconds": ingest_lag_seconds, "vessels": vessels, "units": self.units(),
             "skipped_stores": self.skipped_stores, "parquet_import": parquet_import,
+            "documents_rejected_pre_epoch": documents_rejected_pre_epoch,
             "unavailable": unavailable
         });
         if !last_delta.is_null() {

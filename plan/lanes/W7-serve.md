@@ -44,7 +44,8 @@ Signal K plugin, container app, resource limits.
 - [ ] Prebuilt static musl `lume` for linux-arm64 and linux-x64 as optional npm deps (release workflow change).
 - [ ] Supervise `lume ti ingest` + `lume ti serve`; Admin UI status (lag, WAL, disk).
 - [ ] Webapp: SQL console, saved queries + CSV, schema browser; PV-1 energy queries as defaults.
-- [ ] Pin-to-chart → Resources API (notes/regions) on explicit user action only.
+- [x] Pin-to-chart → Resources API (notes/regions) on explicit user action only; ownership metadata group lume-ti, v2 href links, owned-only unpin.
+- [ ] Optional Freeboard display-selection group (/resources/groups); deferred by the lead, distinct from ownership tags.
 - [ ] Store-path picker with SD-card warning; Backfill button.
 
 ### HaLOS container app

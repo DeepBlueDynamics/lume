@@ -2,16 +2,19 @@
 
 (function () {
   // Base API path: handles both standalone webapp path and plugin route
-  const apiBase = window.location.pathname.replace(/\/+$/, '');
+  const apiBase = window.location.pathname.replace(/\/(?:index\.html)?$/, '');
 
   let lastQueryRows = [];
   let lastQueryColumns = [];
+  let lastQuerySql = '';
+  let lastQueryTruncated = false;
 
   document.addEventListener('DOMContentLoaded', () => {
     setupTabs();
     setupPresets();
     setupQueryRunner();
     setupCsvExport();
+    setupChartActions();
     setupSchemaBrowser();
     pollStatus();
     setInterval(pollStatus, 3000);
@@ -89,6 +92,9 @@
     runBtn.textContent = 'Running...';
     metaSpan.textContent = '';
 
+    document.getElementById('pin-chart-btn').disabled = true;
+    lastQueryRows = [];
+    lastQuerySql = '';
     const t0 = performance.now();
 
     try {
@@ -108,6 +114,9 @@
       const data = await res.json();
       const rows = Array.isArray(data) ? data : (data.rows || []);
       lastQueryRows = rows;
+      lastQuerySql = sql;
+      lastQueryTruncated = Boolean(data.truncated);
+      document.getElementById('pin-chart-btn').disabled = !rows.length || lastQueryTruncated || !/\b(intervals|in_bbox)\s*\(/i.test(sql);
 
       metaSpan.textContent = `Elapsed: ${elapsedMs} ms`;
       countSpan.textContent = `${rows.length} rows`;
@@ -148,6 +157,34 @@
       runBtn.disabled = false;
       runBtn.textContent = '▶ Run Query (Ctrl+Enter)';
     }
+  }
+
+  function setupChartActions() {
+    const pinBtn = document.getElementById('pin-chart-btn');
+    const unpinBtn = document.getElementById('unpin-chart-btn');
+    const status = document.getElementById('pin-status');
+    const action = async (fn) => {
+      pinBtn.disabled = true; unpinBtn.disabled = true;
+      try { status.textContent = await fn(); }
+      catch (error) { status.textContent = error.message; }
+      finally {
+        unpinBtn.disabled = false;
+        pinBtn.disabled = !lastQuerySql || !lastQueryRows.length || lastQueryTruncated || !/\b(intervals|in_bbox)\s*\(/i.test(lastQuerySql);
+      }
+    };
+    pinBtn.addEventListener('click', () => action(async () => {
+      const lat = document.getElementById('pin-lat').value.trim();
+      const lon = document.getElementById('pin-lon').value.trim();
+      if (Boolean(lat) !== Boolean(lon)) throw new Error('Supply both latitude and longitude.');
+      const position = lat && lon ? {latitude:Number(lat),longitude:Number(lon)} : undefined;
+      const result = await window.LumeChart.pin({sql:lastQuerySql,rows:lastQueryRows,
+        truncated:lastQueryTruncated,position});
+      return `Pinned ${result.notes} notes and ${result.regions} regions. Notes without coordinates appear in the resource list.`;
+    }));
+    unpinBtn.addEventListener('click', () => {
+      if (!window.confirm('Remove all chart notes and regions created by lume-ti?')) return;
+      action(async () => `Removed ${(await window.LumeChart.unpin()).deleted} lume-ti resources.`);
+    });
   }
 
   // 4. CSV Export
@@ -302,6 +339,7 @@
       setElem('diag-last-delta', ingest.last_delta || '--');
       setElem('diag-records', typeof ingest.records_ingested === 'number' ? ingest.records_ingested.toLocaleString() : '--');
       setElem('diag-reconnects', ingest.reconnects ?? '--');
+      setElem('diag-document-rejections', ingest.documents_rejected_pre_epoch ?? '--');
       setElem('diag-ingest-running', ingest.running !== undefined ? String(ingest.running) : '--');
     } catch (_e) {
       // Network hiccup or server reloading

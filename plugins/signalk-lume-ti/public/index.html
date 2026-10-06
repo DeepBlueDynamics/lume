@@ -45,6 +45,11 @@
           <div class="editor-actions">
             <button id="run-btn" class="primary-btn">▶ Run Query (Ctrl+Enter)</button>
             <button id="export-csv-btn" class="secondary-btn" disabled>⬇ Export CSV</button>
+            <button id="pin-chart-btn" class="secondary-btn" disabled>Pin to chart</button>
+            <button id="unpin-chart-btn" class="secondary-btn">Unpin all lume-ti</button>
+            <label>Note latitude <input id="pin-lat" type="number" min="-90" max="90" step="any" placeholder="optional"></label>
+            <label>longitude <input id="pin-lon" type="number" min="-180" max="180" step="any" placeholder="optional"></label>
+            <span id="pin-status" role="status"></span>
             <span id="query-meta" class="query-meta"></span>
           </div>
         </div>
@@ -114,6 +119,7 @@
               <tr><td>Records Ingested:</td><td id="diag-records">--</td></tr>
               <tr><td>Reconnects:</td><td id="diag-reconnects">--</td></tr>
               <tr><td>Service Running:</td><td id="diag-ingest-running">--</td></tr>
+              <tr><td>Pre-2020 document rejections:</td><td id="diag-document-rejections">--</td></tr>
             </table>
           </div>
         </div>
@@ -121,6 +127,7 @@
     </main>
   </div>
 
+  <script src="pin.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
