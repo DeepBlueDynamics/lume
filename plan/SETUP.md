@@ -131,7 +131,7 @@ lume ti ingest --signalk ws://<host>:3000 --store <root> [--config <path>] [--to
   * Enforce retention sweep across configured stores via `StoreSet`.
   * Update operational status (`<store>/ingest_status.json`) with lag seconds, last delta timestamp, and reconnects.
 - **Token Handling:** Signal K device tokens can be specified via a file path (`--token /etc/lume/signalk-token`), a literal string, or inside `ti.toml` under `[signal_k] token = "..."`. If a path is provided, the file is read and stripped of whitespace.
-- **Integrated Query Server (`--serve`):** Because multi-process concurrent access to an open store root is unsafe (potential race conditions between in-memory open shard state, WAL truncations, and directory writes), `--serve` runs the query server (port 5863, bound to `0.0.0.0`) inside the *same* process alongside the live ingest service.
+- **Integrated Query Server (`--serve`):** Because multi-process concurrent access to an open store root is unsafe (potential race conditions between in-memory open shard state, WAL truncations, and directory writes), `--serve` runs the query server (port 5863, bound to loopback `127.0.0.1` by default; pass `--bind <IP>` to expose) inside the *same* process alongside the live ingest service, reusing the same serve path and flags as `lume serve --ti-store` with no wildcard CORS on `/ti` or the TI `/mcp`.
 - **Clean Shutdown:** On `SIGTERM` or `Ctrl-C` (`SIGINT`), the service traps the signal, cleanly exits the stream loop, flushes all open bucket windows and dirty shards, synchronizes and shuts down all WALs (`spec/03`), updates `ingest_status.json` (`"running": false`), and exits.
 - **Raspberry Pi 5 Systemd Unit:**
   For deployment under HaLOS / Linux on a Pi 5:

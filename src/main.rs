@@ -227,7 +227,7 @@ fn main() {
 #[cfg(feature = "ti")]
 fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
     if args.iter().any(|a| a == "-h" || a == "--help") {
-        println!("Usage: lume ti ingest --signalk <url> --store <root> [--config <path>] [--token <file|token>] [--serve] [--self-urn <urn>]");
+        println!("Usage: lume ti ingest --signalk <url> --store <root> [--config <path>] [--token <file|token>] [--serve] [--bind <IP>] [--port <port>] [--pg <port>] [--self-urn <urn>]");
         return Ok(());
     }
     let mut signalk_url = None;
@@ -235,6 +235,9 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
     let mut config_path = None;
     let mut token_arg = None;
     let mut serve = false;
+    let mut bind = None;
+    let mut port = 5863u16;
+    let mut pg = None;
     let mut self_urn = None;
 
     let mut i = 0;
@@ -268,6 +271,21 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
             "--serve" => {
                 serve = true;
                 i += 1;
+            }
+            "--bind" => {
+                let val = args.get(i + 1).ok_or("--bind requires an IP address")?;
+                bind = Some(val.clone());
+                i += 2;
+            }
+            "--port" | "-p" => {
+                let val = args.get(i + 1).ok_or("--port requires a port")?;
+                port = val.parse::<u16>().map_err(|_| "invalid --port")?;
+                i += 2;
+            }
+            "--pg" => {
+                let val = args.get(i + 1).ok_or("--pg requires a port")?;
+                pg = Some(val.parse::<u16>().map_err(|_| "invalid --pg port")?);
+                i += 2;
             }
             other => return Err(format!("Unknown option: {other}")),
         }
@@ -313,9 +331,10 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
 
     if serve {
         let serve_root = store_path.clone();
+        let serve_bind = bind.unwrap_or_else(|| "127.0.0.1".to_string());
         std::thread::spawn(move || {
-            println!("Starting integrated query server on 0.0.0.0:5863...");
-            if let Err(e) = lume::agent::serve_with_ti_pg_on(5863, &serve_root, "0.0.0.0", None) {
+            println!("Starting integrated query server on {serve_bind}:{port}...");
+            if let Err(e) = lume::agent::serve_with_ti_pg_on(port, &serve_root, &serve_bind, pg) {
                 eprintln!("Error in query server: {e}");
             }
         });

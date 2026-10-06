@@ -326,3 +326,49 @@ fn http_shared_engine_arrow_json_schema_explain_status_and_read_only() {
     assert_eq!(resolved["candidates"][0]["last_value"], 4.0);
     std::fs::rename(hidden, store).unwrap();
 }
+
+#[test]
+fn ingest_serve_defaults_to_loopback() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!(
+        "ingest-serve-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let store_root = root.join("store");
+    drop(ti_store::Store::open_or_create(&store_root, 10).unwrap());
+
+    let mut command = Command::new(env!("CARGO_BIN_EXE_lume"));
+    command.args([
+        "ti",
+        "ingest",
+        "--store",
+        store_root.to_str().unwrap(),
+        "--signalk",
+        "ws://127.0.0.1:59999/stream",
+        "--serve",
+        "--port",
+        "0",
+    ]);
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let mut line = String::new();
+    let mut output = BufReader::new(child.stdout.take().unwrap());
+    while output.read_line(&mut line).unwrap() > 0 {
+        if line.contains("server on ") || line.contains("listening on http://") {
+            break;
+        }
+        line.clear();
+    }
+    assert!(
+        line.contains("127.0.0.1"),
+        "expected default bind under --serve to be 127.0.0.1 (loopback), got: {line}"
+    );
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = std::fs::remove_dir_all(&root);
+}
