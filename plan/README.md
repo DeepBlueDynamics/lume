@@ -53,6 +53,13 @@ federating sealed shards to shore.
 | [W7](lanes/W7-serve.md) | `ti-serve` | W0 | M5 (wk 7–9) |
 | [W8](lanes/W8-sync-bench.md) | `ti-sync` + `ti-bench` | W0, W2 | M6 (wk 9–12) |
 
+Additions beyond the spec:
+
+| Item | Depends on | When |
+|---|---|---|
+| [Search library extraction](design/search-api.md) | — | week 1 (pre-work for W5, W7) |
+| [`lume sql` over plain indexes](design/lume-sql.md) | search extraction, W4 DataFusion pin | after M3 |
+
 ## Status
 
 - [x] Spec received and filed in `inbox/`
