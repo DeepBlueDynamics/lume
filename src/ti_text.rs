@@ -293,6 +293,45 @@ mod tests {
     }
 
     #[test]
+    fn recorded_notification_messages_cover_buckets_and_replay() {
+        let config = ti_contracts::TiConfig::default();
+        let mut tracker = ti_ingest::notifications::NotificationDocuments::from_store(DocStore::in_memory());
+        let messages: Vec<_> = [
+            ("2026-05-28T20:26:40.000Z", "warn"),
+            ("2026-05-28T20:26:50.000Z", "alarm"),
+            ("2026-05-28T20:27:10.000Z", "normal"),
+        ]
+            .into_iter().map(|(ts, state)| {
+                serde_json::json!({
+                    "context": "vessels.self",
+                    "updates": [{
+                        "timestamp": ts,
+                        "values": [{"path": "notifications.battery", "value": {
+                            "state": state, "message": "house battery voltage low", "method": ["sound"]
+                        }}]
+                    }]
+                }).to_string()
+            }).collect();
+        for message in &messages {
+            tracker.ingest_message(message, URN, 0, &config).unwrap();
+        }
+        let before: Vec<_> = tracker.documents().iter().cloned().collect();
+        for message in &messages {
+            tracker.ingest_message(message, URN, 0, &config).unwrap();
+        }
+        assert_eq!(tracker.documents().iter().cloned().collect::<Vec<_>>(), before);
+        assert_eq!(before.len(), 1);
+        let mut docs = DocStore::in_memory();
+        docs.upsert_all(before).unwrap();
+        let text = LumeText::new(docs, Arc::new(|_| Ok(URN.into())), 10);
+        let b0 = bucket_of(T0, 10).unwrap();
+        assert_eq!(
+            text.match_buckets(0, "alerts", "battery", 0, u32::MAX).unwrap().iter().collect::<Vec<_>>(),
+            vec![u64::from(b0), u64::from(b0 + 1), u64::from(b0 + 2)]
+        );
+    }
+
+    #[test]
     fn match_covers_half_open_ranges_and_points() {
         let text = index();
         let b0 = bucket_of(T0, 10).unwrap();

@@ -13,7 +13,8 @@ use std::io::Read;
 use std::path::Path;
 
 use arrow_array::{
-    Array, BooleanArray, Float32Array, Float64Array, Int32Array, Int64Array, RecordBatch,
+    Array, BooleanArray, Float32Array, Float64Array, Int32Array, Int64Array, LargeListArray,
+    ListArray, RecordBatch,
     StringArray, TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
     TimestampSecondArray,
 };
@@ -133,6 +134,17 @@ fn extract_scalar_value(col: &dyn Array, i: usize) -> Option<serde_json::Value> 
         DataType::Utf8 => {
             let s = extract_string(col, i)?;
             Some(serde_json::Value::String(s.to_string()))
+        }
+        DataType::List(_) | DataType::LargeList(_) => {
+            let values = if let Some(list) = col.as_any().downcast_ref::<ListArray>() {
+                list.value(i)
+            } else {
+                col.as_any().downcast_ref::<LargeListArray>()?.value(i)
+            };
+            let items = (0..values.len()).map(|row| {
+                extract_scalar_value(values.as_ref(), row).unwrap_or(serde_json::Value::Null)
+            }).collect();
+            Some(serde_json::Value::Array(items))
         }
         _ => None,
     }
@@ -319,6 +331,22 @@ pub fn backfill_parquet_file_stores_unflushed(
     sinks: &mut BTreeMap<String, &mut dyn ShardSink>,
     bucketer: &mut MultiStoreBucketer,
 ) -> Result<BackfillStatus> {
+    backfill_file_with_documents(
+        path, self_urn, manifest_hashes, config, catalogs, sinks, bucketer, &mut None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn backfill_file_with_documents(
+    path: &Path,
+    self_urn: &str,
+    manifest_hashes: Option<&HashSet<[u8; 32]>>,
+    config: &TiConfig,
+    catalogs: &BTreeMap<String, &dyn Catalog>,
+    sinks: &mut BTreeMap<String, &mut dyn ShardSink>,
+    bucketer: &mut MultiStoreBucketer,
+    documents: &mut Option<crate::notifications::NotificationDocuments>,
+) -> Result<BackfillStatus> {
     let hash = compute_file_hash(path)?;
 
     if let Some(known) = manifest_hashes {
@@ -327,7 +355,15 @@ pub fn backfill_parquet_file_stores_unflushed(
         }
     }
 
-    let raw_points = read_parquet_points(path, self_urn)?;
+    let mut raw_points = read_parquet_points(path, self_urn)?;
+    raw_points.sort_by_key(|p| p.timestamp);
+    if raw_points.iter().any(|p| p.path.starts_with("notifications.")) {
+        if documents.is_none() {
+            let root = config.resolved_stores()["default"].resolved_root(&config.store_root, "default");
+            *documents = Some(crate::notifications::NotificationDocuments::open(Path::new(&root))?);
+        }
+        documents.as_mut().expect("initialized notification documents").ingest(&raw_points, config)?;
+    }
     let rows_read = raw_points.len();
 
     let emitted_map = bucketer.backfill_raw_points(
@@ -392,16 +428,12 @@ pub fn backfill_directory_stores(
     files.sort();
 
     let mut bucketer = MultiStoreBucketer::new(config)?;
+    let mut documents = None;
     let mut results = Vec::with_capacity(files.len());
     for (i, file) in files.iter().enumerate() {
-        let status = backfill_parquet_file_stores_unflushed(
-            file,
-            self_urn,
-            manifest_hashes,
-            config,
-            catalogs,
-            sinks,
-            &mut bucketer,
+        let status = backfill_file_with_documents(
+            file, self_urn, manifest_hashes, config, catalogs, sinks, &mut bucketer,
+            &mut documents,
         )?;
         results.push(status);
         // Flush in batches: a flush per file (one per path per day) dominated backfill time.

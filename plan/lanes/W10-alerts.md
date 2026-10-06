@@ -9,13 +9,13 @@ The aim is to close the loop: every alarm, whether Signal K raised it or Lume TI
 
 Today a `notifications.*` path becomes a state column (`normal`/`alert`/`warn`/`alarm`/`emergency`) plus a raise count, but its message text is dropped.
 
-- [ ] On every transition out of `normal`, open an `alerts` document:
+- [x] On every transition out of `normal`, open an `alerts` document:
   - `id = notifications/<path>/<raise ts>`;
   - `title` = the notification path, with the state;
   - `body` = the Signal K `message` text plus `method` and `state`;
   - `ts_start` = the raise time.
-- [ ] On the return to `normal`, close it by setting `ts_end`. While the alert is still active, it stays a point document at its start bucket (spec/14). If the state changes while raised, update the same id.
-- [ ] Wire it into the live stream (`run_stream_loop` and `run_stream_loop_multi`) and the parquet backfill of `notifications.*` rows. Documents are upserted through `DocStore`, so a re-run is idempotent.
+- [x] On the return to `normal`, close it by setting `ts_end`. While the alert is still active, it stays a point document at its start bucket (spec/14). If the state changes while raised, update the same id.
+- [x] Wire it into the live stream (`run_stream_loop` and `run_stream_loop_multi`) and the parquet backfill of `notifications.*` rows. Documents are upserted through `DocStore`, so a re-run is idempotent.
 
 Acceptance: a recorded delta stream with a raise, an escalation and a clear produces exactly one `alerts` document with the right range and text. Then `match(alerts, '<word from the message>')` returns the covering buckets, and a replay leaves the document set unchanged.
 
@@ -52,3 +52,26 @@ Acceptance:
 
 - **Rules extracted from documents** ("specs that watch themselves"): read an indexed manual or datasheet, propose rules with a citation to the passage, and have a human approve them before they go live.
 - **Delivery** of alerts (push notifications, email, Signal K `notifications.lume.*` writes back to the server).
+
+## Step 1 implementation and checks
+
+Notification lifecycle handling is in `ti-ingest::notifications::NotificationDocuments`.
+Both live loops decode notification objects before telemetry normalization, using wall-clock
+receive time for the existing five-minute skew rule. The parquet reader preserves JSON and
+flattened notification messages/method arrays; directory backfill retains episode state
+across files. The notification document root is the resolved default-store root.
+`backfill_store` sets `config.store_root` to its actual destination.
+
+Replay restores known episode IDs and ranges from DocStore. Escalation replaces title/body
+with the latest raised state and message; clearing retains that text and supplies the
+exclusive end. An active episode stays a point document. Document timestamps are whole
+seconds. Per the lead's ruling, an equal-second raise/clear remains a point document
+(`ts_end = None`), preserving the alarm and the frozen contract. A generated trailing
+`notification_closed_at: <start>` body marker distinguishes this cleared point from an
+active episode on restart; `is_closed_point` exposes that distinction to status readers.
+
+Checks: `cargo test -p ti-ingest` passed 31 tests, with two existing data-dependent tests
+ignored. This includes actual mock WebSocket checks for both live loops and a four-file
+parquet lifecycle replay. The root feature suite includes a recorded notification stream
+whose `match(alerts, 'battery')` hits exactly the three covered buckets.
+Default `cargo build` passed. Host rustfmt/strict clippy remain the lead's merge checks.
