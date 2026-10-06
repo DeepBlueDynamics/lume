@@ -7,9 +7,10 @@ Items marked *(unconfirmed)* are conventions the docs keeper has not verified. A
 
 ## 1. The repo in one paragraph
 
-Lume is one Rust crate (`lume` 0.12.0, edition 2021): `src/lib.rs` plus a CLI in `src/main.rs`.
-It has four direct dependencies (`tantivy-fst`, `ureq`, `serde`, `serde_json`) and a committed `Cargo.lock`.
-Lume TI (the telemetry index) is being added as workspace members under `crates/ti-*`, compiled only behind a `ti` cargo feature.
+Lume is a Rust crate (`lume` 0.12.0, edition 2021): `src/lib.rs` plus a CLI in `src/main.rs`.
+By default it has four direct dependencies (`tantivy-fst`, `ureq`, `serde`, `serde_json`) and a committed `Cargo.lock`.
+The repo is now a Cargo workspace. The root `lume` package stays at `.`, and Lume TI (the telemetry index) lives in members under `crates/ti-*` (so far only `crates/ti-contracts`). TI is compiled only behind the `ti` cargo feature, which is off by default.
+The golden SQL corpus is in `tests/golden/` (see its `README.md`).
 The work happens on branch `plan/lume-ti`, not `main`.
 
 ## 2. Build and test the existing crate
@@ -27,25 +28,30 @@ cargo clippy --all-targets || true   # informational only; the existing crate ha
 - CI runs only on pushes and PRs to `main`. Lane branches and `plan/lume-ti` get **no CI**, so run the commands above yourself before you report a commit.
 - `release.yml` builds release binaries on `v*` tags for five gnu/darwin/msvc targets. It has no musl targets and no `--features ti` build yet ([repo-fit §4](repo-fit.md)).
 
-## 3. The `--features ti` build *(lands with W0)*
+## 3. The `--features ti` build
 
-W0 is converting the root `Cargo.toml` into a workspace. The uncommitted draft in `.lanes/w0` has these settings:
+Landed with W0 part 1 (`06dd5c5`). The root `Cargo.toml` now has:
 
 - `[workspace]` with `resolver = "2"`, `members = ["crates/ti-contracts"]`, `default-members = ["."]`
-- `[features] ti = ["dep:ti-contracts"]`, with `ti-contracts` as an optional path dependency of the root
-
-What this means once it lands:
+- `[features] default = []`, `ti = ["dep:ti-contracts"]`, with `ti-contracts` as an optional path dependency of the root
 
 ```sh
 cargo build --locked                       # default build, unchanged, still 4 direct deps
 cargo build --locked --features ti         # lume binary with TI compiled in
 cargo test  --locked -p ti-contracts       # TI crates are not default members; name them with -p (or use --workspace)
-cargo fmt   -p ti-contracts --check        # strict checks apply to crates/ti-* only
-cargo clippy --locked -p ti-contracts -- -D warnings
 ```
 
 A plain `cargo test` only tests the root crate, because `default-members = ["."]`.
-The exact CI job for the strict `crates/ti-*` checks is a W0 task and has not been written yet.
+
+**Strict checks, scoped to each TI crate.** Run both for every `crates/ti-*` crate you touch (currently `ti-contracts`; `ti-bench` is coming in corpus part 2):
+
+```sh
+cargo clippy -p <ti crate> -- -D warnings
+cargo fmt -p <ti crate> --check
+```
+
+A root-wide `cargo fmt --check` is **not** required. The baseline `src/` isn't rustfmt-clean ([repo-fit §7](repo-fit.md)), so don't reformat `src/` as a side effect of TI work.
+These checks are not in `ci.yml` yet, so run them yourself.
 
 ## 4. Joining as a new agent: the lane-clone workflow
 
@@ -65,7 +71,7 @@ The clone's `origin` is the shared repo itself (`C:/Users/kordl/Code/DeepBlueDyn
 4. **Work and commit only inside your clone.** Never edit the shared working tree at the repo root. Never touch another agent's clone.
 5. **Don't push.** The lead fetches your branch straight from your clone.
 6. **Stay current when asked.** The clone's `origin/plan/lume-ti` is a snapshot from when it was cloned. `git fetch origin` refreshes it. Ask the lead before you merge or rebase onto a newer `plan/lume-ti` *(unconfirmed convention)*.
-7. **Before reporting a commit,** run the section 2 commands (and section 3 once `ti` lands) in your clone, and check line endings (section 6).
+7. **Before reporting a commit,** run the section 2 commands, plus the section 3 commands for any TI crate you touched, in your clone, and check line endings (section 6).
 
 ## 5. Reporting protocol
 
@@ -112,7 +118,7 @@ Codex rejects unannotated MCP tools when its approval policy is `never`.
 
 - **Every new runtime dependency needs a line in the decisions log** ([spec/11](spec/11-risks-decisions.md), D8+) before it merges. This is a PR rule from [spec/10](spec/10-contracts.md).
 - **All TI dependencies are optional and gated behind the `ti` feature.** The default `lume` build keeps its 4 direct dependencies.
-- **No C dependencies, except as decided.** The spec allows C bindings only for `croaring`, and only after the M4 evaluation. Decisions so far (from the dependency survey; being logged by W0 as D8+):
+- **No C dependencies, except as decided.** The spec allows C bindings only for `croaring`, and only after the M4 evaluation. Decisions so far (from the dependency survey, logged as D8–D15):
 
   | Dependency | Decision |
   |---|---|
@@ -122,7 +128,7 @@ Codex rejects unannotated MCP tools when its approval policy is `never`.
   | DuckDB | Used as an oracle through the **CLI**, not as a bundled Rust crate |
   | Release builds | `cargo-zigbuild` for musl targets |
 
-  The W0 draft also records pure-Rust Parquet codecs only (no zstd), `blake3` with `pure`, and an early aarch64-musl smoke test for pgwire SCRAM (it pulls in `ring`). These are uncommitted *(unconfirmed until W0 merges)*.
+  The log also records pure-Rust Parquet codecs only, with no zstd (D11), `blake3` with `pure` (D12), and an early aarch64-musl smoke test for pgwire SCRAM, which pulls in `ring` (D13). The next free number is D18.
 - The contracts crate itself depends on `arrow-array`, `arrow-schema` and `roaring` only, not DataFusion.
 
 ## 10. How the lead merges

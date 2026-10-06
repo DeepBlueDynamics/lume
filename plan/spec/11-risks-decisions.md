@@ -51,7 +51,7 @@ and cheaply.
 | D16 | `ShardSink::apply` acknowledges after a buffered WAL append; WAL is fsynced at least every 1 s (group commit), and always before `flush` advances or truncates it and on shutdown | Lead decision on spec/14's stricter per-apply fsync proposal. Bounds power-loss to ≈1 s, well inside spec/03's 60 s allowance, without paying an fsync per apply on the Pi. W2 may benchmark per-apply fsync and propose a change |
 | D17 | Contract types derive `Debug, Clone, PartialEq` (plus `Eq` where all fields allow); `Predicate`/`FieldValue` also need them for proptest | Lead decision: spec/10 showed derives only on `ShardKey`, but W1's proptests and every lane's fixtures need to construct, print and compare these values. Applied in W0 part 2 |
 
-New decisions go below as D16+. Every new runtime dependency needs a line here
+New decisions go below as D18+. Every new runtime dependency needs a line here
 (PR rule, [10-contracts](10-contracts.md)).
 
 ## Sources (from spec)

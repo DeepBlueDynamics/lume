@@ -1,21 +1,29 @@
 # Lume TI — Status board
 
-Last updated: **2026-10-06 03:54 UTC** (docs keeper, first pass)
+Last updated: **2026-10-06 04:01 UTC** (docs keeper, after the W0 part 1 and corpus part 1 merges)
 
-Integration branch `plan/lume-ti` is at `510a2df` (gitignore: per-agent lane clones under `.lanes/`).
+Integration branch `plan/lume-ti` is at `d8b2a88` (Merge ti/w0-corpus).
 Setup and workflow: [SETUP.md](SETUP.md).
+
+## Recent merges into `plan/lume-ti`
+
+| Commit | What |
+|---|---|
+| `d8b2a88` | Merge `ti/w0-corpus`: golden corpus part 1, 61 queries with DuckDB oracle twins in `tests/golden/`. Known issues are fixed in part 2 (below) |
+| `fde14ba` | Decisions D16 (WAL group commit) and D17 (contract derives) |
+| `06dd5c5` | Merge `ti/w0-contracts`: W0 part 1. Cargo workspace (root at `.`, member `crates/ti-contracts`, `ti` feature off by default), `ti-contracts` crate, `spec/14-semantics.md`, decisions D8–D15. The lead re-verified it on the host: build, 42 root tests, `--features ti`, 4 contracts tests, `clippy -D warnings -p ti-contracts` and `fmt -p ti-contracts` all pass, and the default build keeps 4 deps |
 
 ## Agents
 
 | Agent (pane name) | Pane | Lane/scope | Branch | Clone | Last known state |
 |---|---|---|---|---|---|
-| Industrial Pike | `ee764a09` | Lead and integrator. Fetches lane branches and merges them into `plan/lume-ti` | `plan/lume-ti` | shared tree | `510a2df`, clean |
-| Rigid Roadrunner | `d58ca1b1` | W0 contracts part 1 (workspace, `ti-contracts`, decisions D8+) | `ti/w0-contracts` | `.lanes/w0` | 0 commits ahead. Uncommitted work in progress: `Cargo.toml` (workspace + `ti` feature), `Cargo.lock`, new `crates/ti-contracts/`, new `plan/spec/14-semantics.md`, decisions D8–D15 in `plan/spec/11-risks-decisions.md`. Cut from `baacfbd`, so it is 1 commit behind `plan/lume-ti` |
-| Romantic Pike | `90fc608c` | Search library extraction ([design/search-api.md](design/search-api.md)) | `ti/search-api` | `.lanes/search` | 1 commit ahead (`46153fa` tests: golden search output capture + baselines). Clean tree. Cut from `baacfbd`, so it is 1 commit behind `plan/lume-ti` |
-| Zygomorphic Prawn | `eccaf836` | W0 golden corpus part 1. Dependency survey done | `ti/w0-corpus` | `.lanes/corpus` | 0 commits ahead, clean tree. Survey results were relayed by mail rather than committed (they show up as D8–D15 in the W0 clone) |
+| Industrial Pike | `ee764a09` | Lead and integrator. Fetches lane branches and merges them into `plan/lume-ti` | `plan/lume-ti` | shared tree | `d8b2a88`, clean |
+| Rigid Roadrunner | `d58ca1b1` | **W0 part 2, the contracts freeze**: D17 derives, `FieldValue::Clear`, semantics gaps 2/3/6 (catalog, Arrow schemas, versioned envelopes), `ti.toml` schema, path list agreed with Prawn | `ti/w0-contracts` | `.lanes/w0` | Part 1 merged (`cdcc449`). No new commits, clean tree. Part 2 not visible in the clone yet |
+| Zygomorphic Prawn | `eccaf836` | **W0 corpus part 2**: exact geo/intervals oracles, 5 oracle-bug fixes from Roadrunner's peer review, new `crates/ti-bench` generator, determinism test, all 61 oracles executed against generated data. Expected outputs come in part 3, after the signalk-parquet layout is verified | `ti/w0-corpus` | `.lanes/corpus` | Part 1 merged (`e2fd6b4`). No new commits, clean tree. Part 2 not visible in the clone yet |
+| Romantic Pike | `90fc608c` | Search library extraction ([design/search-api.md](design/search-api.md)). Unchanged | `ti/search-api` | `.lanes/search` | 1 commit ahead (`46153fa` golden search baselines). Uncommitted work in progress: `src/hybrid.rs`, `src/lib.rs`, new `src/search.rs`. Based on `baacfbd`, so it is behind `plan/lume-ti` |
 | Regular Pheasant | `364a3fc7` | Host build pane (PowerShell 7, Windows Rust toolchain). Not an agent | — | — | Agents may split it once each |
 
-How to refresh the last column: `git -C .lanes/<x> log --oneline plan/lume-ti..HEAD` and `git -C .lanes/<x> status --short`.
+How to refresh the last column: `git -C .lanes/<x> log --oneline -5` and `git -C .lanes/<x> status --short`.
 
 ## Milestones
 
@@ -23,7 +31,7 @@ Week numbers count from kickoff. A milestone closes only when every gate test pa
 
 | Milestone | Lanes | Weeks | Gate status |
 |---|---|---|---|
-| M0 Contracts | W0 | 1 | **In progress.** Workspace + `ti-contracts` uncommitted in `.lanes/w0`. Corpus not started. 0/4 gate items done |
+| M0 Contracts | W0 | 1 | **In progress.** 0/4 gate items passed (see below) |
 | M1 Core and store | W1, W2 | 2–4 | Not started |
 | M2 Ingest | W3 | 2–5 | Not started |
 | M3 SQL and pushdown | W4 | 2–6 | Not started |
@@ -31,7 +39,16 @@ Week numbers count from kickoff. A milestone closes only when every gate test pa
 | M5 Agent surface | W7 | 7–9 | Not started |
 | M6 Fleet and benchmarks | W8, integrator | 9–12 | Not started |
 
-Pre-work outside the milestones: search library extraction is in progress (golden baselines captured). `lume sql` over plain indexes waits until after M3.
+### M0 gate detail
+
+| # | Gate item | State |
+|---|---|---|
+| 1 | `ti-contracts` merged with types, traits, doc comments | **Partial.** Merged in `06dd5c5`. The freeze (D17 derives, `FieldValue::Clear`, gaps 2/3/6) is pending in W0 part 2 |
+| 2 | `ti.toml` schema with defaults | In progress (W0 part 2) |
+| 3 | `ti-bench gen` reproduces the correctness set byte-identically from a seed | In progress (corpus part 2: `crates/ti-bench` + determinism test) |
+| 4 | ≥ 60 golden queries with oracle twins and expected output | Not passed. 61 queries merged. Oracles are being corrected (5 bugs, exact geo/intervals) in corpus part 2. Expected outputs come in part 3 |
+
+Pre-work outside the milestones: search library extraction is in progress (golden baselines committed, extraction uncommitted). `lume sql` over plain indexes waits until after M3.
 
 ## Open decisions waiting on the user
 
