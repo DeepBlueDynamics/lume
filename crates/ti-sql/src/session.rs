@@ -75,7 +75,7 @@ impl SqlSession {
         context.register_table(
             "docs",
             Arc::new(MemTable::try_new(
-                ti_contracts::docs_schema(),
+                crate::docs::sql_schema(),
                 vec![vec![]],
             )?),
         )?;
@@ -255,7 +255,7 @@ impl SqlSession {
         provider: Arc<dyn datafusion::catalog::TableProvider>,
     ) -> Result<()> {
         let expected = match name {
-            "docs" => ti_contracts::docs_schema(),
+            "docs" => crate::docs::sql_schema(),
             "vessels" => ti_contracts::vessels_schema(),
             "paths" => ti_contracts::paths_schema(),
             "shards" => ti_contracts::shards_schema(),

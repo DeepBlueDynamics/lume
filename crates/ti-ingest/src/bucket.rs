@@ -41,7 +41,7 @@ pub fn resolve_aggs_for_path(
     aggs_to_emit
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct NumericAcc {
     pub count: u64,
     pub sum: f64,
@@ -54,7 +54,7 @@ pub struct NumericAcc {
     pub sources: BTreeSet<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SetAcc {
     pub winning_value: String,
     pub winning_priority: usize,
@@ -62,19 +62,19 @@ pub struct SetAcc {
     pub sources: BTreeSet<String>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct CountAcc {
     pub count: u64,
     pub sources: BTreeSet<String>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct GeoAcc {
     pub cells: BTreeSet<u64>,
     pub sources: BTreeSet<String>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct BucketWindow {
     pub numeric: BTreeMap<String, NumericAcc>,
     pub set: BTreeMap<String, SetAcc>,

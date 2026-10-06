@@ -70,9 +70,9 @@ pub struct TransferIdentity {
 }
 
 fn urn_bytes(urn: &str) -> Result<Vec<u8>> {
-    if !urn.starts_with("vessels.urn:") {
+    if crate::validate_entity_urn(urn).is_err() {
         return Err(Error::InvalidInput(
-            "vessel_urn must be a canonical Signal K URN".into(),
+            "vessel_urn must be a canonical entity URN".into(),
         ));
     }
     let len = u32::try_from(urn.len()).map_err(|_| Error::Overflow("vessel_urn length"))?;

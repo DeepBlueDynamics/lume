@@ -18,6 +18,7 @@ pub mod mapped_parquet;
 pub mod normalize;
 pub mod notifications;
 pub mod parquet;
+mod window_journal;
 pub mod recorder;
 pub mod service;
 pub mod watermark;

@@ -58,6 +58,12 @@ impl SqlCatalog {
             ));
         }
         let schema = ti_contracts::telemetry_schema(&fields).map_err(core_error)?;
+        if schema.index_of("entity").is_ok() {
+            return Err(DataFusionError::Plan("metric name entity conflicts with the entity alias".into()));
+        }
+        let mut sql_fields = schema.fields().to_vec();
+        sql_fields.push(Arc::new(datafusion::arrow::datatypes::Field::new("entity", datafusion::arrow::datatypes::DataType::Utf8, false)));
+        let schema = Arc::new(datafusion::arrow::datatypes::Schema::new(sql_fields));
         let mut columns = BTreeMap::new();
         let mut ids = std::collections::BTreeSet::new();
         for field in &fields {
@@ -78,7 +84,7 @@ impl SqlCatalog {
         let mut vessel_map = BTreeMap::new();
         let mut urns = std::collections::BTreeSet::new();
         for vessel in vessels {
-            if !vessel.urn.starts_with("vessels.urn:")
+            if ti_contracts::validate_entity_urn(&vessel.urn).is_err()
                 || !urns.insert(vessel.urn.clone())
                 || vessel_map.insert(vessel.ord, vessel).is_some()
             {

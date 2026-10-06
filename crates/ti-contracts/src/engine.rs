@@ -68,7 +68,7 @@ impl Document {
         if self.id.is_empty() {
             return Err(crate::Error::InvalidInput("docs.id".into()));
         }
-        if !self.vessel.starts_with("vessels.urn:") {
+        if crate::validate_entity_urn(&self.vessel).is_err() {
             return Err(crate::Error::InvalidInput("docs.vessel".into()));
         }
         if !["notes", "logbook", "alerts"].contains(&self.kind.as_str()) {

@@ -172,7 +172,7 @@ mod tests {
     struct Fixture(Mutex<FixtureState>);
     impl Catalog for Fixture {
         fn register_vessel(&self, v: &VesselSpec) -> Result<u32> {
-            if !v.urn.starts_with("vessels.urn:") {
+            if crate::validate_entity_urn(&v.urn).is_err() {
                 return Err(Error::InvalidInput("vessel.urn".into()));
             }
             let mut state = self.0.lock().unwrap();

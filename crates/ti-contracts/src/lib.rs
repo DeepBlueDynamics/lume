@@ -15,6 +15,8 @@ mod catalog;
 mod config;
 mod engine;
 mod envelopes;
+mod identity;
+pub use identity::validate_entity_urn;
 mod parquet;
 mod schemas;
 pub use catalog::*;
