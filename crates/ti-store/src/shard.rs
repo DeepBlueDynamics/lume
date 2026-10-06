@@ -350,18 +350,22 @@ impl ShardData {
                         DataType::List(Arc::new(Field::new("item", DataType::Utf8, false))),
                         true,
                     ));
-                    let mut b = ListBuilder::new(StringBuilder::new());
+                    let mut b = ListBuilder::new(StringBuilder::new())
+                        .with_field(Arc::new(Field::new("item", DataType::Utf8, false)));
                     for &c in &sorted_cols {
                         if let Some(FieldData::Set(s)) = field_data {
                             let row_ids = s.values(c);
                             if row_ids.is_empty() {
                                 b.append_null();
                             } else {
-                                let values_builder = b.values();
-                                for rid in row_ids {
-                                    if let Ok(val) = catalog.set_value(fid, rid) {
-                                        values_builder.append_value(&val);
-                                    }
+                                let mut values = row_ids
+                                    .into_iter()
+                                    .map(|rid| catalog.set_value(fid, rid))
+                                    .collect::<Result<Vec<_>>>()?;
+                                values.sort();
+                                values.dedup();
+                                for value in values {
+                                    b.values().append_value(value);
                                 }
                                 b.append(true);
                             }
@@ -431,7 +435,8 @@ impl ShardData {
                         DataType::List(Arc::new(Field::new("item", DataType::UInt64, false))),
                         true,
                     ));
-                    let mut b = ListBuilder::new(UInt64Builder::new());
+                    let mut b = ListBuilder::new(UInt64Builder::new())
+                        .with_field(Arc::new(Field::new("item", DataType::UInt64, false)));
                     for &c in &sorted_cols {
                         if let Some(FieldData::Geo(g)) = field_data {
                             let cells = g.values(c);

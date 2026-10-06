@@ -2,6 +2,7 @@ use crate::catalog::{core_error, SqlCatalog};
 use crate::classifier::{PlannedPredicate, PushdownClassifier};
 use crate::materialize::BATCH_ROWS;
 use async_trait::async_trait;
+use datafusion::arrow::array::new_null_array;
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::arrow::record_batch::{RecordBatch, RecordBatchOptions};
 use datafusion::catalog::{Session, TableProvider};
@@ -28,7 +29,8 @@ pub struct ScanReport {
     pub materialized_rows: u64,
 }
 /// Any frozen ShardSource works here. read() returns the frozen telemetry schema
-/// for the selected fields, including vessel/ts and field aliases, in physical units.
+/// for canonical selected fields and vessel/ts, in physical units. This provider
+/// adds mean aliases and virtual columns to the SQL projection.
 pub struct TelemetryProvider {
     pub source: Arc<dyn ShardSource>,
     pub catalog: Arc<SqlCatalog>,
@@ -136,6 +138,7 @@ impl TableProvider for TelemetryProvider {
         ));
         Ok(Arc::new(TelemetryExec {
             source: self.source.clone(),
+            catalog: self.catalog.clone(),
             schema,
             keys,
             predicates,
@@ -149,6 +152,7 @@ impl TableProvider for TelemetryProvider {
 
 pub struct TelemetryExec {
     source: Arc<dyn ShardSource>,
+    catalog: Arc<SqlCatalog>,
     schema: SchemaRef,
     keys: Vec<ShardKey>,
     predicates: Vec<PlannedPredicate>,
@@ -228,6 +232,7 @@ impl ExecutionPlan for TelemetryExec {
             .steps
             .push((key, counts));
         let source = self.source.clone();
+        let catalog = self.catalog.clone();
         let fields = self.field_ids.clone();
         let schema = self.schema.clone();
         let reports = self.reports.clone();
@@ -235,6 +240,7 @@ impl ExecutionPlan for TelemetryExec {
         let columns = cols.iter().collect::<Vec<_>>();
         let stream = futures::stream::unfold((columns, 0usize), move |(columns, offset)| {
             let source = source.clone();
+            let catalog = catalog.clone();
             let fields = fields.clone();
             let schema = schema.clone();
             let reports = reports.clone();
@@ -250,8 +256,20 @@ impl ExecutionPlan for TelemetryExec {
                         .fields()
                         .iter()
                         .map(|f| {
-                            let index = batch.schema().index_of(f.name())?;
-                            Ok(batch.column(index).clone())
+                            if let Ok(index) = batch.schema().index_of(f.name()) {
+                                return Ok(batch.column(index).clone());
+                            }
+                            if let Some(field) = catalog.field(f.name()) {
+                                let index = batch.schema().index_of(&crate::field_name(field))?;
+                                return Ok(batch.column(index).clone());
+                            }
+                            if matches!(f.name().as_str(), "notes" | "logbook" | "alerts") {
+                                return Ok(new_null_array(f.data_type(), batch.num_rows()));
+                            }
+                            Err(DataFusionError::Execution(format!(
+                                "source read missing required column {}",
+                                f.name()
+                            )))
                         })
                         .collect::<Result<Vec<_>>>()?;
                     let out = RecordBatch::try_new_with_options(

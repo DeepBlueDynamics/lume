@@ -15,3 +15,21 @@ Codec checks: cargo tree -p ti-sql -i bzip2-sys, -i lzma-sys, and -i liblzma-sys
 zig and cargo-zigbuild are absent in the W4 container. aarch64-musl validation remains the W8 release item.
 
 The small stored-output fixture has six active checks and four explicit M4 exclusions. Its expected rows are independently hand-calculated, not claimed as DuckDB output. Main tests/golden comparison and real-store verification remain pending at this checkpoint; no full M3 completion claim.
+
+## W2 Store adapter checkpoint
+
+Verified before the container/pane replacement on 2026-10-06:
+
+- cargo test -p ti-sql: 13 passed (1 unit, 12 integration), including real Store reads, mean aliases and virtual NULL columns, all-column equality after sealing/reopening, authoritative sealed metadata, and six stored-output checks on both mutable and reopened sealed Store paths.
+- cargo clippy -p ti-sql --all-targets -- -D warnings: passed.
+- cargo clippy -p ti-store --test read_lists -- -D warnings: passed before the final frozen-schema equality assertion was added.
+- cargo fmt -p ti-sql -p ti-store --check: passed.
+
+Verified after resuming in the replacement container:
+
+- cargo test -p ti-store: 10 unit tests, the 1,000-case crash recovery test (318.54 seconds), the source/Geo frozen-schema and open/sealed regression, and all-field seal determinism passed.
+- cargo tree --features ti -i bzip2-sys/lzma-sys/liblzma-sys: each reported no matching package.
+- cargo tree -p lume --depth 1: four default direct dependencies.
+- git diff --check: passed.
+
+The replacement container has rustc 1.99.0 but no rustfmt or clippy components. The lead will run scoped formatting and strict rustc 1.96 clippy on the host at merge. The actual root CLI fixture build was interrupted; no CLI runtime pass is claimed. The generated correctness set is incomplete and its expected outputs remain pending, so full M3 acceptance is still open.

@@ -220,6 +220,7 @@ impl SqlSession {
                 "{name} adapter must use the frozen schema"
             )));
         }
+        self.context.deregister_table(name)?;
         self.context.register_table(name, provider)?;
         Ok(())
     }
