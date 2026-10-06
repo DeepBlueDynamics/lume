@@ -150,16 +150,31 @@ impl TableProvider for TelemetryProvider {
     }
 }
 
+#[derive(Clone)]
 pub struct TelemetryExec {
-    source: Arc<dyn ShardSource>,
-    catalog: Arc<SqlCatalog>,
+    pub(crate) source: Arc<dyn ShardSource>,
+    pub(crate) catalog: Arc<SqlCatalog>,
     schema: SchemaRef,
-    keys: Vec<ShardKey>,
+    pub(crate) keys: Vec<ShardKey>,
     predicates: Vec<PlannedPredicate>,
     field_ids: Vec<u32>,
     properties: Arc<PlanProperties>,
     reports: Arc<Mutex<Vec<ScanReport>>>,
     report_id: usize,
+}
+impl TelemetryExec {
+    pub(crate) fn selected_bitmap(&self, key: ShardKey) -> Result<RoaringBitmap> {
+        let mut cols = self.source.eval(key, &Predicate::All).map_err(core_error)?;
+        let mut counts = vec![cols.len()];
+        for p in &self.predicates {
+            cols &= self.source.eval(key, &p.for_shard(key)).map_err(core_error)?;
+            counts.push(cols.len());
+        }
+        self.reports.lock().map_err(|_| {
+            DataFusionError::Execution("scan report lock poisoned".into())
+        })?[self.report_id].steps.push((key, counts));
+        Ok(cols)
+    }
 }
 impl Debug for TelemetryExec {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -216,21 +231,7 @@ impl ExecutionPlan for TelemetryExec {
             }
             return Err(DataFusionError::Execution("invalid shard partition".into()));
         };
-        let mut cols = self.source.eval(key, &Predicate::All).map_err(core_error)?;
-        let mut counts = vec![cols.len()];
-        for p in &self.predicates {
-            cols &= self
-                .source
-                .eval(key, &p.for_shard(key))
-                .map_err(core_error)?;
-            counts.push(cols.len());
-        }
-        self.reports
-            .lock()
-            .map_err(|_| DataFusionError::Execution("scan report lock poisoned".into()))?
-            [self.report_id]
-            .steps
-            .push((key, counts));
+        let cols = self.selected_bitmap(key)?;
         let source = self.source.clone();
         let catalog = self.catalog.clone();
         let fields = self.field_ids.clone();

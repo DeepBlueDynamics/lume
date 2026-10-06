@@ -33,3 +33,15 @@ Verified after resuming in the replacement container:
 - git diff --check: passed.
 
 The replacement container has rustc 1.99.0 but no rustfmt or clippy components. The lead will run scoped formatting and strict rustc 1.96 clippy on the host at merge. The actual root CLI fixture build was interrupted; no CLI runtime pass is claimed. The generated correctness set is incomplete and its expected outputs remain pending, so full M3 acceptance is still open.
+
+## W4 part 2 checkpoint
+
+Verified in the replacement container on 2026-10-06:
+
+- cargo test -p ti-sql: 20 passed (4 units, 16 integration); the one performance test is ignored by default. The final run includes cross-shard interval boundaries, named arguments, exact max-gap/min-length thresholds, matching-only bucket counts, residual equivalence, actual zero telemetry materialization on the bitmap interval path, aggregate selection/fallback diagnostics, deterministic randomized comparisons to materializing DataFusion, empty/all-NULL aggregates, off-grid date_bin origins, and preservation of DataFusion's NULL-origin error.
+- cargo test -p ti-sql --test m4 synthetic_year_benchmark -- --ignored --nocapture: passed. Q4 over 50 vessel-years at W=60s (26,280,000 buckets) returned identical results on both paths. Debug-profile medians: bitmap 3.008692312s, materialized 47.869879320s, 15.91× ratio. See BENCHMARK.md for all timings, workload and limits.
+- git diff --check: passed.
+
+The aggregate comparisons use 3 vessels × 65,700 candidate buckets with a deterministic sparse universe and NULLs, 5 thresholds × 4 grouping shapes, and an all-NULL selection. They compare all count/count(column)/sum/min/max result rows against a session with the optimizer disabled. No runtime dependencies or frozen contracts changed.
+
+Formatting and strict rustc 1.96 clippy remain assigned to the lead's host because this container has neither component. The release profile is absent; an optional W=10s release measurement was not run. Full M3 generated expected-output acceptance and full M4 text/geo/reference-machine acceptance remain separate.

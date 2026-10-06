@@ -18,6 +18,7 @@ pub struct SqlSession {
     pub catalog: Arc<SqlCatalog>,
     pub source: Arc<dyn ShardSource>,
     reports: Arc<Mutex<Vec<ScanReport>>>,
+    aggregate_diagnostics: Arc<Mutex<Vec<String>>>,
 }
 fn timestamp(v: Vec<i64>) -> ArrayRef {
     Arc::new(TimestampSecondArray::from(v).with_timezone("UTC"))
@@ -27,6 +28,10 @@ fn strings(v: Vec<Option<String>>) -> ArrayRef {
 }
 impl SqlSession {
     pub async fn new(source: Arc<dyn ShardSource>, catalog: Arc<SqlCatalog>) -> Result<Self> {
+        Self::new_with_bitmap_aggregates(source, catalog, true).await
+    }
+    /// Disable the TI aggregate optimizer for correctness and performance comparisons.
+    pub async fn new_with_bitmap_aggregates(source: Arc<dyn ShardSource>, catalog: Arc<SqlCatalog>, enabled: bool) -> Result<Self> {
         let context =
             SessionContext::new_with_config(SessionConfig::new().with_target_partitions(2));
         let mut state = context.state();
@@ -34,6 +39,13 @@ impl SqlSession {
             &mut state,
             Arc::new(crate::analyzer::TimestampRewrite::default()),
         )?;
+        let aggregate_diagnostics = Arc::new(Mutex::new(vec![]));
+        if enabled {
+            let mut rules = state.physical_optimizers().to_vec();
+            rules.insert(0, Arc::new(crate::aggregate::BitmapAggregateRule { diagnostics: aggregate_diagnostics.clone() }));
+            state = datafusion::execution::SessionStateBuilder::new_from_existing(state)
+                .with_physical_optimizer_rules(rules).build();
+        }
         let context = SessionContext::new_with_state(state);
         let reports = Arc::new(Mutex::new(vec![]));
         context.register_table(
@@ -189,12 +201,14 @@ impl SqlSession {
                 vec![vec![batch]],
             )?),
         )?;
+        context.register_udtf("intervals", Arc::new(crate::intervals::IntervalsFunction { catalog: catalog.clone() }));
         register_functions(&context, source.clone(), catalog.clone());
         Ok(Self {
             context,
             catalog,
             source,
             reports,
+            aggregate_diagnostics,
         })
     }
     /// Install authoritative frozen W2 catalog batches or the W5 docs provider.
@@ -260,6 +274,7 @@ impl SqlSession {
     }
     pub async fn explain(&self, sql: &str) -> Result<String> {
         let first_report = self.reports()?.len();
+        let first_aggregate = self.aggregate_diagnostics.lock().map_err(|_| DataFusionError::Execution("aggregate diagnostics lock poisoned".into()))?.len();
         let rewritten = rewrite_sql(sql, &self.catalog)?;
         let dataframe = self.context.sql(&rewritten).await?;
         let physical = dataframe.create_physical_plan().await?;
@@ -276,8 +291,9 @@ impl SqlSession {
             .iter()
             .flat_map(|r| r.filters.clone())
             .collect::<std::collections::BTreeSet<_>>();
+        let aggregate_details = self.aggregate_diagnostics.lock().map_err(|_| DataFusionError::Execution("aggregate diagnostics lock poisoned".into()))?[first_aggregate..].join("\n");
         Ok(format!(
-            "{plan}\nLume TI execution details:\n{measured}\nConjunct classes: {classes:?}"
+            "{plan}\nLume TI execution details:\n{measured}\nConjunct classes: {classes:?}\n{aggregate_details}"
         ))
     }
     pub fn reports(&self) -> Result<Vec<ScanReport>> {
