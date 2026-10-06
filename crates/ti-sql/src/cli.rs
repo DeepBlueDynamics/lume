@@ -10,6 +10,7 @@ pub enum Command {
     Explain(String),
     Status,
     ImportDocs(PathBuf),
+    Repl,
 }
 #[derive(Debug, PartialEq, Eq)]
 pub struct Args {
@@ -18,7 +19,8 @@ pub struct Args {
     pub width: Option<u64>,
     pub json: bool,
 }
-pub const USAGE: &str = "lume ti query <sql> --store <root> [--json] [--width <seconds>]\nlume ti explain <sql> --store <root> [--json] [--width <seconds>]\nlume ti status --store <root> [--width <seconds>]\nlume ti import-docs <docs_dir> --store <root> [--width <seconds>]";
+pub const USAGE: &str = "lume ti query <sql> --store <root> [--json] [--width <seconds>]\nlume ti explain <sql> --store <root> [--json] [--width <seconds>]\nlume ti status --store <root> [--width <seconds>]\nlume ti import-docs <docs_dir> --store <root> [--width <seconds>]
+lume ti repl --store <root> [--width <seconds>]";
 fn invalid(message: impl Into<String>) -> DataFusionError {
     DataFusionError::Plan(message.into())
 }
@@ -75,6 +77,7 @@ pub fn parse(args: &[String]) -> Result<Args> {
         ("query", Some(sql)) if !sql.trim().is_empty() => Command::Query(sql),
         ("explain", Some(sql)) if !sql.trim().is_empty() => Command::Explain(sql),
         ("status", None) => Command::Status,
+        ("repl", None) => Command::Repl,
         ("import-docs", Some(path)) => Command::ImportDocs(path.into()),
         _ => return Err(invalid(USAGE)),
     };
@@ -129,6 +132,9 @@ pub fn run(args: &[String], documents: Option<&DocumentsFactory>) -> Result<()> 
     }
     let args = parse(args)?;
     let runtime = tokio::runtime::Runtime::new()?;
+    if args.command == Command::Repl {
+        return repl(&runtime, &args, documents);
+    }
     let response = runtime.block_on(async {
         // Validate before writes; an existing telemetry store is required.
         let engine = TiEngine::open(&args.store, args.width, documents).await?;
@@ -136,6 +142,7 @@ pub fn run(args: &[String], documents: Option<&DocumentsFactory>) -> Result<()> 
             Command::Query(sql) => engine.query(sql, crate::MAX_ROWS).await,
             Command::Explain(sql) => engine.explain(sql).await,
             Command::Status => engine.status().await,
+            Command::Repl => unreachable!("repl returns before the one-shot path"),
             Command::ImportDocs(dir) => {
                 let docs = ti_ingest::docs::read_docs_dir(dir).map_err(core_error)?;
                 let count = docs.len();
@@ -158,6 +165,144 @@ pub fn run(args: &[String], documents: Option<&DocumentsFactory>) -> Result<()> 
     }
     Ok(())
 }
+const REPL_HELP: &str = "SQL ends with ';' and may span lines. Results are capped at 500 rows.
+  .tables            list tables and column counts
+  .schema [prefix]   list columns (e.g. .schema environment.wind)
+  .explain <sql>     show the plan and which filters ran as bitmaps
+  .json              toggle JSON output
+  .examples          print a few queries to try
+  .help              this help
+  .quit              exit (also Ctrl-Z / Ctrl-D)";
+
+const REPL_EXAMPLES: &str = "SELECT v.name, count(*) AS buckets FROM telemetry t JOIN vessels v ON t.vessel = v.urn GROUP BY v.name ORDER BY v.name;
+
+SELECT date_bin(INTERVAL '1 day', ts) AS day, max(\"environment.wind.speedTrue@max\") AS gust_ms
+FROM telemetry WHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'
+GROUP BY day ORDER BY day LIMIT 10;
+
+SELECT ts, \"environment.depth.belowTransducer@min\" AS depth_m FROM telemetry
+WHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND \"environment.depth.belowTransducer@min\" < 3
+  AND \"navigation.state\" = 'anchored' ORDER BY ts LIMIT 20;
+
+SELECT ts, \"navigation.speedOverGround@max\" AS sog FROM telemetry
+WHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND match(notes, 'leak OR water')
+  AND ts >= TIMESTAMP '2026-05-01' ORDER BY ts LIMIT 20;
+
+SELECT kind, title, ts_start, score FROM docs WHERE match(body, 'anchorage') ORDER BY score DESC LIMIT 5;";
+
+/// Interactive SQL over one store opened once (so queries skip the store-open cost).
+fn repl(
+    runtime: &tokio::runtime::Runtime,
+    args: &Args,
+    documents: Option<&DocumentsFactory>,
+) -> Result<()> {
+    use std::io::{BufRead, Write};
+    let started = std::time::Instant::now();
+    let engine = runtime.block_on(TiEngine::open(&args.store, args.width, documents))?;
+    let width = engine.session.catalog.width_seconds;
+    println!(
+        "Lume TI: {} ({} s buckets, {} vessels, {} fields) opened in {:.2} s. Type .help or .examples.",
+        args.store.display(),
+        width,
+        engine.session.catalog.vessels.len(),
+        engine.session.catalog.fields.len(),
+        started.elapsed().as_secs_f64()
+    );
+    let mut json = args.json;
+    let mut buffer = String::new();
+    let stdin = std::io::stdin();
+    let mut lines = stdin.lock().lines();
+    loop {
+        print!("{}", if buffer.is_empty() { "ti> " } else { " -> " });
+        std::io::stdout().flush()?;
+        let Some(line) = lines.next() else {
+            println!();
+            return Ok(());
+        };
+        let line = line?;
+        let trimmed = line.trim();
+        if buffer.is_empty() && trimmed.starts_with('.') {
+            let (command, rest) = trimmed.split_once(' ').unwrap_or((trimmed, ""));
+            let outcome = match command {
+                ".quit" | ".exit" | ".q" => return Ok(()),
+                ".help" => {
+                    println!("{REPL_HELP}");
+                    Ok(())
+                }
+                ".examples" => {
+                    println!("{REPL_EXAMPLES}");
+                    Ok(())
+                }
+                ".json" => {
+                    json = !json;
+                    println!("JSON output {}", if json { "on" } else { "off" });
+                    Ok(())
+                }
+                ".tables" | ".schema" => runtime
+                    .block_on(engine.schema((!rest.is_empty()).then_some(rest.trim()), None))
+                    .map(|schema| {
+                        for table in schema["tables"].as_array().into_iter().flatten() {
+                            let columns = table["columns"].as_array().cloned().unwrap_or_default();
+                            if command == ".tables" {
+                                println!(
+                                    "{:<12} {} columns",
+                                    table["name"].as_str().unwrap_or(""),
+                                    columns.len()
+                                );
+                                continue;
+                            }
+                            for column in columns {
+                                println!(
+                                    "{:<10} {:<56} {:<28} {}",
+                                    table["name"].as_str().unwrap_or(""),
+                                    column["name"].as_str().unwrap_or(""),
+                                    column["type"].as_str().unwrap_or(""),
+                                    column["units"].as_str().unwrap_or("")
+                                );
+                            }
+                        }
+                    }),
+                ".explain" => runtime
+                    .block_on(engine.explain(rest.trim_end_matches(';')))
+                    .map(|plan| {
+                        println!("{}", plan["plan"].as_str().unwrap_or_default());
+                    }),
+                _ => Err(invalid(format!("unknown command {command}; try .help"))),
+            };
+            if let Err(e) = outcome {
+                println!("error: {e}");
+            }
+            continue;
+        }
+        if trimmed.is_empty() && buffer.is_empty() {
+            continue;
+        }
+        buffer.push_str(&line);
+        buffer.push('\n');
+        if !trimmed.ends_with(';') {
+            continue;
+        }
+        let sql = buffer.trim().trim_end_matches(';').to_string();
+        buffer.clear();
+        let started = std::time::Instant::now();
+        match runtime.block_on(engine.query(&sql, crate::MAX_ROWS)) {
+            Ok(response) if json => println!(
+                "{}",
+                serde_json::to_string_pretty(&response).unwrap_or_default()
+            ),
+            Ok(response) => {
+                print!("{}", table(&response));
+                println!(
+                    "({} rows, {:.3} s)",
+                    response["row_count"],
+                    started.elapsed().as_secs_f64()
+                );
+            }
+            Err(e) => println!("error: {e}"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

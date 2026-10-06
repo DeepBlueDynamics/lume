@@ -140,6 +140,11 @@ fn main() {
     assert!(!root.exists(), "store root {root:?} already exists");
 
     let mut config = TiConfig::default();
+    // Bucket width in seconds (default 10), e.g. TI_WIDTH=1 for a full-rate store.
+    if let Ok(width) = std::env::var("TI_WIDTH") {
+        config.width_seconds = width.parse().expect("TI_WIDTH must be whole seconds");
+    }
+    println!("bucket width   : {} s", config.width_seconds);
     let scales = catalog_scales(raw);
     println!("path scales    : {} from catalog/paths", scales.len());
     for (path, scale) in scales {
