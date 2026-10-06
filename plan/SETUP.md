@@ -9,7 +9,7 @@ Items marked *(unconfirmed)* are conventions the docs keeper has not verified. A
 
 Lume is a Rust crate (`lume` 0.12.0, edition 2021): `src/lib.rs` plus a CLI in `src/main.rs`.
 By default it has four direct dependencies (`tantivy-fst`, `ureq`, `serde`, `serde_json`) and a committed `Cargo.lock`.
-The repo is now a Cargo workspace. The root `lume` package stays at `.`, and Lume TI (the telemetry index) lives in members under `crates/ti-*` (merged so far: `crates/ti-contracts`, `crates/ti-core`, `crates/ti-store`, `crates/ti-sql`, `crates/ti-ingest` and `crates/ti-bench`). TI is compiled only behind the `ti` cargo feature, which is off by default.
+The repo is now a Cargo workspace. The root `lume` package stays at `.`, and Lume TI (the telemetry index) lives in members under `crates/ti-*` (merged so far: `crates/ti-contracts`, `crates/ti-core`, `crates/ti-store`, `crates/ti-sql`, `crates/ti-ingest`, `crates/ti-bench` and `crates/ti-geo`). TI is compiled only behind the `ti` cargo feature, which is off by default.
 
 **`ti-contracts` is frozen** (`96ac45d`). It holds the shared types and traits, the catalog, the Arrow schemas, the WAL/shard envelopes, the `TiEngine` facade and the `ti.toml` schema (`config.rs`). The first contracts PR after the freeze, the D30 `[stores.*]` multi-store config (`fe5ea3a`), shows the process. Empty `stores` means the legacy single store. Otherwise a `"default"` store is required, each width must divide 3600, and retention is typed (`s/m/h/d` or `"forever"`). The spec/10 mirror of the new `config.rs` is still pending, so read the source until it lands. [spec/10](spec/10-contracts.md) mirrors its source, and [spec/14](spec/14-semantics.md) freezes the behavioral rules. **Any change to a boundary in it needs a contracts PR approved by the lead (integrator).** Build your lane against the crate as it is, and mock other lanes behind its traits. If you think a contract is wrong, mail the lead. Don't patch it in your lane.
 
@@ -51,6 +51,7 @@ cargo test  --locked -p ti-store           # includes the 1,000-run kill -9 cras
 cargo test  --locked -p ti-sql             # DataFusion SQL layer
 cargo test  --locked -p ti-ingest          # decode, bucketer, sources, recorder/replay
 cargo test  --locked -p ti-bench           # generator, including the window pin test
+cargo test  --locked -p ti-geo             # H3 covers, in_bbox/within_nm, proptests
 ```
 
 **Data-dependent tests (M2 gate).** These need a dataset in `.lanes/data/` and run in release:
@@ -72,7 +73,7 @@ TI_Q4_WIDTH_SECONDS=10 TI_Q4_VESSELS=5 cargo test --release -p ti-sql --test m4 
 
 A plain `cargo test` only tests the root crate, because `default-members = ["."]`.
 
-**Strict checks, scoped to each TI crate.** Run both for every `crates/ti-*` crate you touch (currently `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest` and `ti-bench`):
+**Strict checks, scoped to each TI crate.** Run both for every `crates/ti-*` crate you touch (currently `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench` and `ti-geo`):
 
 ```sh
 cargo clippy -p <ti crate> -- -D warnings
@@ -160,6 +161,17 @@ Codex rejects unannotated MCP tools when its approval policy is `never`.
 - Use PowerShell syntax there (`$env:VAR = 'x'`, not `VAR=x`).
 - Some containers also have cargo locally. Either is fine; say which one you used in your report.
 
+### Disk budget
+
+The host's C: drive is shared by every clone, every `target/` and `.lanes/data/`. On 2026-10-06 it hit **0.1 GB free**, and the full-set M2 idempotence run died after 43 min with `StorageFull`. A single clone's `target/` reached 48.6 GB.
+
+- **Check free space before big builds and full-set tests**, for example `Get-PSDrive C` in PowerShell or `df -h /c` in Git Bash. If space is tight, tell the lead before you start.
+- **Build with `CARGO_INCREMENTAL=0`** (`$env:CARGO_INCREMENTAL = '0'` in PowerShell). Incremental caches are the largest part of `target/`.
+- **Delete retired clones' `target/` directories.** Ask the lead first, unless the clone is your own.
+- **Shrink your own `target/`** when you finish a lane or switch branches, with `cargo clean` or by deleting `target/debug/incremental`.
+- **Never build two full Stores at once.** Test code included: build, measure and drop one store before the next.
+- **Clean test scratch dirs**, such as `.test-tmp/` and temp Stores, when a run ends, including after a failure.
+
 ### Bulk data generation: run it on the host
 
 Writing generated data through a container's bind mount is very slow. On the host, `ti-bench` writes about 2 s per day of the correctness set. **Run bulk generation on the host**, into `.lanes/data/`, and coordinate with the lead first so two agents don't regenerate the same set.
@@ -208,7 +220,7 @@ py -3 -E tests/golden/gen_expected.py --data-dir <correctness> --output-dir <dir
   | DuckDB | Out-of-process oracle only: the CLI or the `duckdb` Python package 1.5.6 (D14, amended in `8afa646`). Never a bundled Rust crate. See §8 |
   | Release builds | `cargo-zigbuild` for musl targets |
 
-  The log also records pure-Rust Parquet codecs only, with no zstd (D11), `blake3` with `pure` (D12), and an early aarch64-musl smoke test for pgwire SCRAM, which pulls in `ring` (D13). **D27 amends D11:** `zstd-sys` (C) is accepted because DataFusion's `arrow-ipc` forces it in. That deviates from the spec's croaring-only C rule and is awaiting spec-owner confirmation. D18 (`serde`) and D19 (`toml`) cover the dependencies of `ti-contracts`. D23 is `proptest` (a `ti-core` dev-dependency). D24 (`bincode`) and D25 (`crc32fast`) are in `ti-store`. D22 (`ti-bench`: arrow/parquet 59.2 with pure-Rust codecs, chrono) is logged (`71b7fcd`). D26 (DataFusion) and D27 (`zstd-sys`) are logged. D28 (`tungstenite`) and D29 (`parquet`) are reserved for W3. D30 is the 1 s high-resolution store ([design/hi-res-store.md](design/hi-res-store.md)). D31 is reserved for W6 (`h3o` 0.11). The next free number is **D32**. Ask the lead before taking it.
+  The log also records pure-Rust Parquet codecs only, with no zstd (D11), `blake3` with `pure` (D12), and an early aarch64-musl smoke test for pgwire SCRAM, which pulls in `ring` (D13). **D27 amends D11:** `zstd-sys` (C) is accepted because DataFusion's `arrow-ipc` forces it in. That deviates from the spec's croaring-only C rule and is awaiting spec-owner confirmation. D18 (`serde`) and D19 (`toml`) cover the dependencies of `ti-contracts`. D23 is `proptest` (a `ti-core` dev-dependency). D24 (`bincode`) and D25 (`crc32fast`) are in `ti-store`. D22 (`ti-bench`: arrow/parquet 59.2 with pure-Rust codecs, chrono) is logged (`71b7fcd`). D26 (DataFusion) and D27 (`zstd-sys`) are logged. D28 (`tungstenite`) and D29 (`parquet`) are reserved for W3. D30 is the 1 s high-resolution store ([design/hi-res-store.md](design/hi-res-store.md)). D31 (`h3o` 0.11 + `geo` 0.33.1, exact-pinned) is logged for `ti-geo`. The next free number is **D32**. Ask the lead before taking it.
 - The contracts crate itself depends on `arrow-array`, `arrow-schema`, `roaring`, `serde` and `toml` only, not DataFusion.
 
 ## 10. How the lead merges
