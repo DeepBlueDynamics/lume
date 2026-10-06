@@ -45,7 +45,9 @@ pub fn parse(args: &[String]) -> Result<Args> {
                     .filter(|v| !v.starts_with("--"))
                     .ok_or_else(|| invalid(format!("{flag} requires a value")))?;
                 if flag == "--docs-index" {
-                    if docs_index.replace(PathBuf::from(value)).is_some() { return Err(invalid("duplicate --docs-index")); }
+                    if docs_index.replace(PathBuf::from(value)).is_some() {
+                        return Err(invalid("duplicate --docs-index"));
+                    }
                 } else if flag == "--store" {
                     if store.replace(PathBuf::from(value)).is_some() {
                         return Err(invalid("duplicate --store"));
@@ -135,13 +137,24 @@ pub fn run(args: &[String], documents: Option<&DocumentsFactory>) -> Result<()> 
     run_with_index(args, documents, None)
 }
 pub type IndexRegistrar = dyn Fn(&crate::SqlSession, &std::path::Path) -> Result<()>;
-fn register_index(engine: &TiEngine, args: &Args, registrar: Option<&IndexRegistrar>) -> Result<()> {
+fn register_index(
+    engine: &TiEngine,
+    args: &Args,
+    registrar: Option<&IndexRegistrar>,
+) -> Result<()> {
     if let Some(root) = &args.docs_index {
-        registrar.ok_or_else(|| invalid("--docs-index requires an ordinary-index adapter"))?(&engine.session, root)?;
+        registrar.ok_or_else(|| invalid("--docs-index requires an ordinary-index adapter"))?(
+            &engine.session,
+            root,
+        )?;
     }
     Ok(())
 }
-pub fn run_with_index(args: &[String], documents: Option<&DocumentsFactory>, registrar: Option<&IndexRegistrar>) -> Result<()> {
+pub fn run_with_index(
+    args: &[String],
+    documents: Option<&DocumentsFactory>,
+    registrar: Option<&IndexRegistrar>,
+) -> Result<()> {
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!("{USAGE}");
         return Ok(());
