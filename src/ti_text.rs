@@ -163,7 +163,8 @@ impl LumeText {
     }
 
     fn lock(&self) -> Result<MutexGuard<'_, State>> {
-        let mut state = self.state
+        let mut state = self
+            .state
             .lock()
             .map_err(|_| Error::Corrupt("text index lock poisoned".into()))?;
         state.store.refresh()?;
@@ -347,16 +348,43 @@ mod tests {
     fn external_documents_refresh_cached_matches() {
         let dir = std::env::temp_dir().join(format!("lume-doc-refresh-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let text = LumeText::new(DocStore::open(&dir).unwrap(), Arc::new(|_| Ok(URN.into())), 10);
-        assert!(text.match_buckets(0, "notes", "battery", 0, u32::MAX).unwrap().is_empty());
+        let text = LumeText::new(
+            DocStore::open(&dir).unwrap(),
+            Arc::new(|_| Ok(URN.into())),
+            10,
+        );
+        assert!(text
+            .match_buckets(0, "notes", "battery", 0, u32::MAX)
+            .unwrap()
+            .is_empty());
         let mut writer = DocStore::open(&dir).unwrap();
-        writer.upsert_all([doc("battery", T0, None, "battery low")]).unwrap();
-        assert_eq!(text.match_buckets(0, "notes", "battery", 0, u32::MAX).unwrap().len(), 1);
-        writer.upsert_all([doc("battery", T0, Some(T0 + 30), "battery low cleared")]).unwrap();
-        assert_eq!(text.match_buckets(0, "notes", "battery", 0, u32::MAX).unwrap().len(), 3);
-        assert_eq!(text.documents(None, None, Some("battery")).unwrap()[0].num_rows(), 1);
-        text.upsert(&doc("other", T0 + 40, None, "other note")).unwrap();
-        writer.upsert_all([doc("third", T0 + 50, None, "third note")]).unwrap();
+        writer
+            .upsert_all([doc("battery", T0, None, "battery low")])
+            .unwrap();
+        assert_eq!(
+            text.match_buckets(0, "notes", "battery", 0, u32::MAX)
+                .unwrap()
+                .len(),
+            1
+        );
+        writer
+            .upsert_all([doc("battery", T0, Some(T0 + 30), "battery low cleared")])
+            .unwrap();
+        assert_eq!(
+            text.match_buckets(0, "notes", "battery", 0, u32::MAX)
+                .unwrap()
+                .len(),
+            3
+        );
+        assert_eq!(
+            text.documents(None, None, Some("battery")).unwrap()[0].num_rows(),
+            1
+        );
+        text.upsert(&doc("other", T0 + 40, None, "other note"))
+            .unwrap();
+        writer
+            .upsert_all([doc("third", T0 + 50, None, "third note")])
+            .unwrap();
         assert_eq!(text.documents(None, None, None).unwrap()[0].num_rows(), 3);
         std::fs::remove_dir_all(dir).unwrap();
     }

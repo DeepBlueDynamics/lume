@@ -89,7 +89,9 @@ impl PathsResolver {
                     .unwrap_or_else(|| format!("Store telemetry column: {}", words(&field.path)));
                 let description = if field.path.ends_with("$source") {
                     format!("Reporting sources and provenance for: {description}")
-                } else { description };
+                } else {
+                    description
+                };
                 Column {
                     name: ti_sql::field_name(&field),
                     field,

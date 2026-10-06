@@ -167,7 +167,10 @@ impl TelemetryExec {
         let mut cols = self.source.eval(key, &Predicate::All).map_err(core_error)?;
         let mut counts = vec![cols.len()];
         for p in &self.predicates {
-            cols &= self.source.eval(key, &p.for_shard(key)).map_err(core_error)?;
+            cols &= self
+                .source
+                .eval(key, &p.for_shard(key))
+                .map_err(core_error)?;
             counts.push(cols.len());
         }
         Ok((cols, counts))
@@ -178,9 +181,12 @@ impl TelemetryExec {
     }
     pub(crate) fn selected_bitmap(&self, key: ShardKey) -> Result<RoaringBitmap> {
         let (cols, counts) = self.evaluate_bitmap(key)?;
-        self.reports.lock()
+        self.reports
+            .lock()
             .map_err(|_| DataFusionError::Execution("scan report lock poisoned".into()))?
-            [self.report_id].steps.push((key, counts));
+            [self.report_id]
+            .steps
+            .push((key, counts));
         Ok(cols)
     }
 }

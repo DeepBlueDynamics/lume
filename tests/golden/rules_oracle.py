@@ -52,7 +52,7 @@ def main():
     ti = json.loads(reports[0])
     raw_root = args.data_dir / "tier=raw"
     files = sorted(str(path.resolve()) for path in raw_root.rglob("*.parquet")
-                   if f"path={PATH}" in path.parts)
+                   if f"path={PATH.replace('.', '__')}" in path.parts)
     if not files:
         raise RuntimeError(f"no raw {PATH} files below {raw_root}")
     scratch = project / "target" / "tmp"
@@ -85,7 +85,7 @@ def main():
                    ? + (max(bucket) + 1) * ? AS ts_end
             FROM matched
             GROUP BY vessel, island
-            HAVING (max(bucket) - min(bucket) + 1) * ? >= 300
+            HAVING (max(bucket) - min(bucket) + 1) * ? >= 30
             ORDER BY vessel, ts_start
         """, [EPOCH, ti["width"], EPOCH, ti["width"], ti["width"]]).fetchall()
         oracle = [dict(zip(["vessel", "ts_start", "ts_end"], row)) for row in result]

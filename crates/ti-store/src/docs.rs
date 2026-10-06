@@ -106,10 +106,16 @@ impl DocStore {
 
     /// Reload externally published documents and invalidate readers' caches.
     pub fn refresh(&mut self) -> Result<bool> {
-        let Some(path) = &self.path else { return Ok(false) };
+        let Some(path) = &self.path else {
+            return Ok(false);
+        };
         let stamp = Self::file_stamp(path)?;
-        if stamp == self.stamp { return Ok(false) }
-        let root = path.parent().and_then(Path::parent)
+        if stamp == self.stamp {
+            return Ok(false);
+        }
+        let root = path
+            .parent()
+            .and_then(Path::parent)
             .ok_or_else(|| Error::Corrupt("invalid document store path".into()))?;
         let fresh = Self::open(root)?;
         let changed = fresh.docs != self.docs;
