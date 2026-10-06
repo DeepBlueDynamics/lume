@@ -1,0 +1,26 @@
+[
+  {
+    "id": "robot-0-battery-0",
+    "n": 60
+  },
+  {
+    "id": "robot-0-battery-1",
+    "n": 60
+  },
+  {
+    "id": "robot-1-battery-0",
+    "n": 60
+  },
+  {
+    "id": "robot-1-battery-1",
+    "n": 60
+  },
+  {
+    "id": "robot-2-battery-0",
+    "n": 60
+  },
+  {
+    "id": "robot-2-battery-1",
+    "n": 60
+  }
+]

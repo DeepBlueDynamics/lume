@@ -67,6 +67,8 @@ fn main() {
                 lume::ti_rules::run_cli(&args[3..])
             } else if args.get(2).is_some_and(|name| name == "backfill") {
                 lume::ti_parquet::run_cli(&args[3..])
+            } else if args.get(2).is_some_and(|name| name == "import-docs") && args[3..].iter().any(|flag| flag == "--parquet") {
+                lume::ti_parquet::run_docs_cli(&args[3..])
             } else {
                 ti_sql::run_cli_with(&args[2..], Some(&documents))
             };

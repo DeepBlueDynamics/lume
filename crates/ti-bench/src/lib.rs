@@ -3,6 +3,7 @@ pub mod harness;
 pub mod layout;
 pub mod model;
 pub mod rng;
+pub mod robots;
 pub mod write;
 
 /// Default master seed for the correctness set.

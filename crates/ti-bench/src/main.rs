@@ -35,6 +35,17 @@ fn gen(args: &[String]) {
     let seed = arg(args, "--seed")
         .map(|s| s.parse::<u64>().unwrap_or(ti_bench::DEFAULT_SEED))
         .unwrap_or(ti_bench::DEFAULT_SEED);
+    if let Some(profile) = arg(args, "--profile") {
+        match profile.as_str() {
+            "robots" => {
+                let (raw, docs) = ti_bench::robots::generate(Path::new(&root), seed);
+                eprintln!("wrote {raw} robot telemetry files and {docs} document files to {root}");
+                return;
+            }
+            "signalk" => {}
+            _ => { eprintln!("unknown profile: {profile}"); std::process::exit(2); }
+        }
+    }
     let perf = args.iter().any(|a| a == "--perf");
 
     let start = arg(args, "--start")

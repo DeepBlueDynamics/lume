@@ -242,6 +242,8 @@ fn timestamp_date_integer_and_naive_text_are_explicit() {
         time_seconds(&integer, 0, TimeUnit::Milliseconds, None).unwrap(),
         Some(-1)
     );
+    let dictionary = DictionaryArray::<Int8Type>::try_new(Int8Array::from(vec![0]), Arc::new(StringArray::from(vec![None::<&str>]))).unwrap();
+    assert_eq!(time_seconds(&dictionary,0,TimeUnit::Rfc3339,None).unwrap(),None);
     let date = Date32Array::from(vec![1]);
     assert_eq!(
         time_seconds(&date, 0, TimeUnit::Seconds, Some("+02:00")).unwrap(),

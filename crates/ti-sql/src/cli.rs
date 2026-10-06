@@ -20,6 +20,7 @@ pub struct Args {
     pub json: bool,
 }
 pub const USAGE: &str = "lume ti query <sql> --store <root> [--json] [--width <seconds>]\nlume ti explain <sql> --store <root> [--json] [--width <seconds>]\nlume ti status --store <root> [--width <seconds>]\nlume ti import-docs <docs_dir> --store <root> [--width <seconds>]
+lume ti import-docs --parquet <glob> --entity <column> --time <column> [--time-end <column>] --title <column> --body <column> --store <root>
 lume ti repl --store <root> [--width <seconds>]";
 fn invalid(message: impl Into<String>) -> DataFusionError {
     DataFusionError::Plan(message.into())

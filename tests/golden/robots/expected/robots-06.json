@@ -1,0 +1,14 @@
+[
+  {
+    "vessel": "robots.urn:robot:1",
+    "n": 8640
+  },
+  {
+    "vessel": "robots.urn:robot:2",
+    "n": 8640
+  },
+  {
+    "vessel": "robots.urn:robot:3",
+    "n": 8640
+  }
+]

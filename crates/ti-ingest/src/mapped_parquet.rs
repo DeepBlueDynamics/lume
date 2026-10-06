@@ -209,7 +209,7 @@ pub fn time_seconds(
         }
         DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View | DataType::Dictionary(_, _) => {
             use chrono::TimeZone;
-            let value = text(column, row)?.ok_or_else(|| invalid("missing timestamp"))?;
+            let Some(value) = text(column, row)? else { return Ok(None); };
             if let Ok(time) = chrono::DateTime::parse_from_rfc3339(&value) {
                 return Ok(Some(time.timestamp()));
             }
@@ -255,6 +255,7 @@ pub fn time_seconds(
     Ok(Some(seconds))
 }
 fn supported(data_type: &DataType) -> bool {
+    if let DataType::Dictionary(_, value) = data_type { return supported(value); }
     matches!(
         data_type,
         DataType::Int8
@@ -276,7 +277,6 @@ fn supported(data_type: &DataType) -> bool {
             | DataType::Utf8
             | DataType::LargeUtf8
             | DataType::Utf8View
-            | DataType::Dictionary(_, _)
     )
 }
 /// Stream projected batches, returning a bounded vector of points for each Arrow batch.
@@ -329,9 +329,10 @@ pub fn read_file(
         })
         .collect::<Result<Vec<_>>>()?;
     let mask = ProjectionMask::roots(builder.parquet_schema(), projection);
+    let batch_rows = (65_536 / names.len().max(1)).clamp(1, 8192);
     let reader = builder
         .with_projection(mask)
-        .with_batch_size(8192)
+        .with_batch_size(batch_rows)
         .build()
         .map_err(|e| Error::Corrupt(e.to_string()))?;
     report.files += 1;
@@ -385,6 +386,7 @@ pub fn read_file(
                     value,
                 });
                 report.points_read += 1;
+                if points.len() == 8192 { consume(std::mem::take(&mut points))?; }
             }
         }
         consume(points)?;

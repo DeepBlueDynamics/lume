@@ -1,0 +1,18 @@
+[
+  {
+    "vessel": "robots.urn:robot:1",
+    "n": 17280
+  },
+  {
+    "vessel": "robots.urn:robot:2",
+    "n": 17280
+  },
+  {
+    "vessel": "robots.urn:robot:3",
+    "n": 17280
+  },
+  {
+    "vessel": "vessels.urn:mrn:signalk:uuid:robot-oracle-boat",
+    "n": 6
+  }
+]

@@ -1,0 +1,32 @@
+[
+  {
+    "entity": "robots.urn:robot:1",
+    "day": "2026-05-01",
+    "current": 1.5
+  },
+  {
+    "entity": "robots.urn:robot:1",
+    "day": "2026-05-02",
+    "current": 1.5
+  },
+  {
+    "entity": "robots.urn:robot:2",
+    "day": "2026-05-01",
+    "current": 1.5
+  },
+  {
+    "entity": "robots.urn:robot:2",
+    "day": "2026-05-02",
+    "current": 1.5
+  },
+  {
+    "entity": "robots.urn:robot:3",
+    "day": "2026-05-01",
+    "current": 1.5
+  },
+  {
+    "entity": "robots.urn:robot:3",
+    "day": "2026-05-02",
+    "current": 1.5
+  }
+]
