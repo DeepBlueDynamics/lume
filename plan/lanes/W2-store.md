@@ -33,7 +33,7 @@ WAL, shard files, manifest, seal, versioning, repair, mmap/read cache. Implement
 
 ### Read path
 - [x] `ShardSource::shards` prune by vessel + bucket range from the manifest.
-- [x] mmap read of sealed `.rbm` files; read cache. Only `unsafe` allowed in the workspace lives here, with a justifying comment.
+- [x] Plain-read of sealed `.rbm` files (no mmap, no `unsafe`; mmap deferred until a measured need — the only place `unsafe` would be allowed).
 - [x] Shard-at-a-time streaming to keep Pi RSS bounded (risk: memory pressure).
 - [x] Retention: drop shards older than 2 y locally (shore keeps them).
 

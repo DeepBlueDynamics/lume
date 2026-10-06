@@ -302,7 +302,7 @@ impl ShardSource for Store {
             }
             let base = key.shard << 16;
             let end = base | 0xffff;
-            if !(base > to || end < from) && !keys.contains(key) {
+            if !(base > to || end < from || keys.contains(key)) {
                 keys.push(*key);
             }
         }
