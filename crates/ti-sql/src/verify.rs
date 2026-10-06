@@ -21,6 +21,9 @@ pub struct GoldenEntry {
     pub oracle_sql: String,
     pub expected_path: String,
     pub tolerance: Tolerance,
+    /// Reason this entry is not yet verifiable (an open contract question), if any.
+    #[serde(default)]
+    pub exclude: Option<String>,
 }
 #[derive(Debug, Default, Deserialize)]
 pub struct Tolerance {
@@ -196,7 +199,11 @@ pub async fn verify(
     }
     let mut report = VerifyReport::default();
     for entry in corpus.entries {
-        if let Some(reason) = m3_exclusion(&entry.ti_sql) {
+        if let Some(reason) = entry
+            .exclude
+            .clone()
+            .or_else(|| m3_exclusion(&entry.ti_sql))
+        {
             report.excluded += 1;
             report.entries.push(VerifyEntry {
                 id: entry.id,

@@ -15,16 +15,17 @@ async fn stored_expected_fixture_and_explicit_m4_exclusions() {
         .all(|e| e.reason.is_some()));
 }
 #[test]
-fn comparator_requires_exact_keys_and_half_unit_tolerance() {
+fn comparator_requires_exact_keys_and_one_unit_tolerance() {
+    // D34: BSI columns agree within one unit in the last place (1 x 10^-scale).
     let tolerance: Tolerance =
         serde_json::from_str(r#"{"sort":["ts"],"exact":["ts","n"],"bsi":{"x":2}}"#).unwrap();
     let actual =
-        serde_json::from_str(r#"[{"ts":"2020-01-01T00:00:00Z","n":1,"x":1.254}]"#).unwrap();
+        serde_json::from_str(r#"[{"ts":"2020-01-01T00:00:00Z","n":1,"x":1.259}]"#).unwrap();
     let expected =
         serde_json::from_str(r#"[{"ts":"2020-01-01 00:00:00","n":1,"x":1.25}]"#).unwrap();
     diff_rows(actual, expected, &tolerance).unwrap();
     let actual =
-        serde_json::from_str(r#"[{"ts":"2020-01-01T00:00:00Z","n":1,"x":1.256}]"#).unwrap();
+        serde_json::from_str(r#"[{"ts":"2020-01-01T00:00:00Z","n":1,"x":1.261}]"#).unwrap();
     let expected =
         serde_json::from_str(r#"[{"ts":"2020-01-01 00:00:00","n":1,"x":1.25}]"#).unwrap();
     assert!(diff_rows(actual, expected, &tolerance).is_err());

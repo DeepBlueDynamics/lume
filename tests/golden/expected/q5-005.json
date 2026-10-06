@@ -1,123 +1,9 @@
 [
   {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000004",
-    "start": "2026-04-10 12:00:00",
-    "end": "2026-04-20 12:00:00",
-    "buckets": 77761
-  },
-  {
     "vessel": "vessels.urn:mrn:imo:mmsi:367000002",
-    "start": "2026-04-11 12:00:00",
-    "end": "2026-04-21 12:00:00",
-    "buckets": 77652
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000002",
-    "start": "2026-04-23 00:00:00",
-    "end": "2026-04-25 00:00:00",
-    "buckets": 15560
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000001",
-    "start": "2026-04-06 00:00:00",
-    "end": "2026-04-07 00:00:00",
-    "buckets": 7786
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000004",
-    "start": "2026-04-22 00:00:00",
-    "end": "2026-04-24 00:00:00",
-    "buckets": 15573
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
-    "start": "2026-05-20 00:00:00",
-    "end": "2026-05-20 23:59:50",
-    "buckets": 7793
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
-    "start": "2026-04-10 12:00:00",
-    "end": "2026-04-12 12:00:00",
-    "buckets": 15530
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000001",
-    "start": "2026-04-26 12:00:00",
-    "end": "2026-04-27 12:00:00",
-    "buckets": 7774
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000002",
-    "start": "2026-05-05 00:00:00",
-    "end": "2026-05-08 00:00:00",
-    "buckets": 23352
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000004",
-    "start": "2026-05-04 00:00:00",
-    "end": "2026-05-07 00:00:00",
-    "buckets": 23336
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
     "start": "2026-03-25 12:00:00",
-    "end": "2026-03-26 12:00:00",
-    "buckets": 7827
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000001",
-    "start": "2026-05-29 12:00:00",
-    "end": "2026-05-31 12:00:00",
-    "buckets": 15625
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000001",
-    "start": "2026-04-07 12:00:00",
-    "end": "2026-04-08 12:00:00",
-    "buckets": 7787
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
-    "start": "2026-03-27 12:00:00",
-    "end": "2026-04-03 12:00:00",
-    "buckets": 54293
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000001",
-    "start": "2026-05-06 00:00:00",
-    "end": "2026-05-12 00:00:00",
-    "buckets": 46638
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000003",
-    "start": "2026-04-11 00:00:00",
-    "end": "2026-04-12 00:00:00",
-    "buckets": 7704
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000003",
-    "start": "2026-05-05 00:00:00",
-    "end": "2026-05-11 00:00:00",
-    "buckets": 46664
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000001",
-    "start": "2026-04-12 00:00:00",
-    "end": "2026-04-13 00:00:00",
-    "buckets": 7757
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000003",
-    "start": "2026-04-27 12:00:00",
-    "end": "2026-04-30 12:00:00",
-    "buckets": 23274
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000001",
-    "start": "2026-05-13 00:00:00",
-    "end": "2026-05-21 00:00:00",
-    "buckets": 62108
+    "end": "2026-04-01 12:00:00",
+    "buckets": 54367
   },
   {
     "vessel": "vessels.urn:mrn:imo:mmsi:367000004",
@@ -132,88 +18,34 @@
     "buckets": 15494
   },
   {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000002",
-    "start": "2026-03-25 12:00:00",
-    "end": "2026-04-01 12:00:00",
-    "buckets": 54367
-  },
-  {
     "vessel": "vessels.urn:mrn:imo:mmsi:367000001",
     "start": "2026-05-26 12:00:00",
     "end": "2026-05-28 12:00:00",
     "buckets": 15552
   },
   {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
-    "start": "2026-04-29 00:00:00",
-    "end": "2026-05-01 00:00:00",
-    "buckets": 15586
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000001",
-    "start": "2026-04-10 12:00:00",
-    "end": "2026-04-11 11:59:50",
-    "buckets": 7732
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
-    "start": "2026-04-04 00:00:20",
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000003",
+    "start": "2026-04-05 00:00:00",
     "end": "2026-04-06 00:00:00",
-    "buckets": 15593
+    "buckets": 7795
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "start": "2026-04-13 12:00:00",
+    "end": "2026-04-23 12:00:00",
+    "buckets": 77863
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000003",
+    "start": "2026-04-27 12:00:00",
+    "end": "2026-04-30 12:00:00",
+    "buckets": 23274
   },
   {
     "vessel": "vessels.urn:mrn:imo:mmsi:367000001",
-    "start": "2026-04-04 00:00:10",
-    "end": "2026-04-04 23:59:50",
-    "buckets": 7834
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000004",
-    "start": "2026-03-01 00:00:00",
-    "end": "2026-03-04 00:00:00",
-    "buckets": 23320
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000002",
-    "start": "2026-03-02 00:00:00",
-    "end": "2026-03-05 00:00:00",
-    "buckets": 23297
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000003",
-    "start": "2026-03-19 00:00:00",
-    "end": "2026-03-21 00:00:00",
-    "buckets": 15536
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000001",
-    "start": "2026-03-20 00:00:00",
-    "end": "2026-03-22 00:00:00",
-    "buckets": 15565
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000003",
-    "start": "2026-04-09 12:00:10",
-    "end": "2026-04-10 12:00:00",
-    "buckets": 7811
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000003",
-    "start": "2026-04-03 00:00:00",
-    "end": "2026-04-04 00:00:00",
-    "buckets": 7830
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000003",
-    "start": "2026-05-25 12:00:00",
-    "end": "2026-05-27 12:00:00",
-    "buckets": 15570
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000003",
-    "start": "2026-04-22 00:00:20",
-    "end": "2026-04-23 23:59:50",
-    "buckets": 15559
+    "start": "2026-05-13 00:00:00",
+    "end": "2026-05-21 00:00:00",
+    "buckets": 62108
   },
   {
     "vessel": "vessels.urn:mrn:imo:mmsi:367000004",
@@ -240,28 +72,130 @@
     "buckets": 3894
   },
   {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000002",
+    "start": "2026-04-23 00:00:00",
+    "end": "2026-04-25 00:00:00",
+    "buckets": 15560
+  },
+  {
     "vessel": "vessels.urn:mrn:imo:mmsi:367000004",
-    "start": "2026-03-22 12:00:00",
-    "end": "2026-03-23 12:00:00",
-    "buckets": 7781
+    "start": "2026-04-22 00:00:00",
+    "end": "2026-04-24 00:00:00",
+    "buckets": 15573
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000001",
+    "start": "2026-04-06 00:00:00",
+    "end": "2026-04-07 00:00:00",
+    "buckets": 7786
   },
   {
     "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
-    "start": "2026-05-07 00:00:10",
-    "end": "2026-05-10 00:00:00",
-    "buckets": 23280
+    "start": "2026-05-20 00:00:00",
+    "end": "2026-05-20 23:59:50",
+    "buckets": 7793
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000003",
+    "start": "2026-04-06 12:00:00",
+    "end": "2026-04-07 12:00:00",
+    "buckets": 7846
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000004",
+    "start": "2026-05-28 12:00:00",
+    "end": "2026-06-01 00:00:00",
+    "buckets": 27184
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000002",
+    "start": "2026-05-29 12:00:00",
+    "end": "2026-06-01 00:00:00",
+    "buckets": 19407
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000003",
+    "start": "2026-05-28 12:00:00",
+    "end": "2026-05-30 12:00:00",
+    "buckets": 15534
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "start": "2026-03-17 00:00:00",
+    "end": "2026-03-22 00:00:00",
+    "buckets": 38864
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000003",
+    "start": "2026-04-25 12:00:00",
+    "end": "2026-04-26 12:00:00",
+    "buckets": 7745
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "start": "2026-04-25 00:00:10",
+    "end": "2026-04-27 00:00:00",
+    "buckets": 15658
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000002",
+    "start": "2026-05-18 00:00:00",
+    "end": "2026-05-19 00:00:00",
+    "buckets": 7759
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000004",
+    "start": "2026-05-17 00:00:00",
+    "end": "2026-05-18 00:00:00",
+    "buckets": 7770
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000003",
+    "start": "2026-03-19 00:00:00",
+    "end": "2026-03-21 00:00:00",
+    "buckets": 15536
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000001",
+    "start": "2026-04-04 00:00:10",
+    "end": "2026-04-04 23:59:50",
+    "buckets": 7834
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000004",
+    "start": "2026-03-01 00:00:00",
+    "end": "2026-03-04 00:00:00",
+    "buckets": 23320
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000001",
+    "start": "2026-04-10 12:00:00",
+    "end": "2026-04-11 11:59:50",
+    "buckets": 7732
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "start": "2026-04-04 00:00:20",
+    "end": "2026-04-06 00:00:00",
+    "buckets": 15593
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000002",
+    "start": "2026-03-02 00:00:00",
+    "end": "2026-03-05 00:00:00",
+    "buckets": 23297
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "start": "2026-04-29 00:00:00",
+    "end": "2026-05-01 00:00:00",
+    "buckets": 15586
   },
   {
     "vessel": "vessels.urn:mrn:imo:mmsi:367000004",
     "start": "2026-04-07 12:00:10",
     "end": "2026-04-09 12:00:00",
     "buckets": 15526
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000001",
-    "start": "2026-03-11 00:00:00",
-    "end": "2026-03-13 00:00:00",
-    "buckets": 15562
   },
   {
     "vessel": "vessels.urn:mrn:imo:mmsi:367000002",
@@ -274,6 +208,24 @@
     "start": "2026-03-23 12:00:00",
     "end": "2026-03-24 12:00:00",
     "buckets": 7800
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000001",
+    "start": "2026-03-11 00:00:00",
+    "end": "2026-03-13 00:00:00",
+    "buckets": 15562
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "start": "2026-05-07 00:00:10",
+    "end": "2026-05-10 00:00:00",
+    "buckets": 23280
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000004",
+    "start": "2026-03-22 12:00:00",
+    "end": "2026-03-23 12:00:00",
+    "buckets": 7781
   },
   {
     "vessel": "vessels.urn:mrn:imo:mmsi:367000004",
@@ -289,9 +241,9 @@
   },
   {
     "vessel": "vessels.urn:mrn:imo:mmsi:367000002",
-    "start": "2026-04-27 00:00:00",
-    "end": "2026-04-29 00:00:00",
-    "buckets": 15510
+    "start": "2026-04-02 00:00:00",
+    "end": "2026-04-04 00:00:00",
+    "buckets": 15604
   },
   {
     "vessel": "vessels.urn:mrn:imo:mmsi:367000003",
@@ -300,16 +252,16 @@
     "buckets": 62097
   },
   {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000002",
+    "start": "2026-04-27 00:00:00",
+    "end": "2026-04-29 00:00:00",
+    "buckets": 15510
+  },
+  {
     "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
     "start": "2026-03-04 00:00:00",
     "end": "2026-03-07 00:00:00",
     "buckets": 23295
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000002",
-    "start": "2026-04-02 00:00:00",
-    "end": "2026-04-04 00:00:00",
-    "buckets": 15604
   },
   {
     "vessel": "vessels.urn:mrn:imo:mmsi:367000004",
@@ -318,69 +270,117 @@
     "buckets": 15575
   },
   {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
-    "start": "2026-04-13 12:00:00",
-    "end": "2026-04-23 12:00:00",
-    "buckets": 77863
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000003",
-    "start": "2026-04-05 00:00:00",
-    "end": "2026-04-06 00:00:00",
-    "buckets": 7795
-  },
-  {
     "vessel": "vessels.urn:mrn:imo:mmsi:367000002",
-    "start": "2026-05-29 12:00:00",
-    "end": "2026-06-01 00:00:00",
-    "buckets": 19407
+    "start": "2026-04-11 12:00:00",
+    "end": "2026-04-21 12:00:00",
+    "buckets": 77652
   },
   {
     "vessel": "vessels.urn:mrn:imo:mmsi:367000004",
-    "start": "2026-05-28 12:00:00",
-    "end": "2026-06-01 00:00:00",
-    "buckets": 27184
+    "start": "2026-04-10 12:00:00",
+    "end": "2026-04-20 12:00:00",
+    "buckets": 77761
   },
   {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
-    "start": "2026-03-17 00:00:00",
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000003",
+    "start": "2026-04-22 00:00:20",
+    "end": "2026-04-23 23:59:50",
+    "buckets": 15559
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000003",
+    "start": "2026-05-25 12:00:00",
+    "end": "2026-05-27 12:00:00",
+    "buckets": 15570
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000003",
+    "start": "2026-04-03 00:00:00",
+    "end": "2026-04-04 00:00:00",
+    "buckets": 7830
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000003",
+    "start": "2026-04-09 12:00:10",
+    "end": "2026-04-10 12:00:00",
+    "buckets": 7811
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000001",
+    "start": "2026-03-20 00:00:00",
     "end": "2026-03-22 00:00:00",
-    "buckets": 38864
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000003",
-    "start": "2026-05-28 12:00:00",
-    "end": "2026-05-30 12:00:00",
-    "buckets": 15534
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000003",
-    "start": "2026-04-06 12:00:00",
-    "end": "2026-04-07 12:00:00",
-    "buckets": 7846
-  },
-  {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000003",
-    "start": "2026-04-25 12:00:00",
-    "end": "2026-04-26 12:00:00",
-    "buckets": 7745
+    "buckets": 15565
   },
   {
     "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
-    "start": "2026-04-25 00:00:10",
-    "end": "2026-04-27 00:00:00",
-    "buckets": 15658
+    "start": "2026-04-10 12:00:00",
+    "end": "2026-04-12 12:00:00",
+    "buckets": 15530
   },
   {
-    "vessel": "vessels.urn:mrn:imo:mmsi:367000004",
-    "start": "2026-05-17 00:00:00",
-    "end": "2026-05-18 00:00:00",
-    "buckets": 7770
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000001",
+    "start": "2026-04-26 12:00:00",
+    "end": "2026-04-27 12:00:00",
+    "buckets": 7774
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000001",
+    "start": "2026-04-07 12:00:00",
+    "end": "2026-04-08 12:00:00",
+    "buckets": 7787
   },
   {
     "vessel": "vessels.urn:mrn:imo:mmsi:367000002",
-    "start": "2026-05-18 00:00:00",
-    "end": "2026-05-19 00:00:00",
-    "buckets": 7759
+    "start": "2026-05-05 00:00:00",
+    "end": "2026-05-08 00:00:00",
+    "buckets": 23352
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000004",
+    "start": "2026-05-04 00:00:00",
+    "end": "2026-05-07 00:00:00",
+    "buckets": 23336
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000001",
+    "start": "2026-05-29 12:00:00",
+    "end": "2026-05-31 12:00:00",
+    "buckets": 15625
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "start": "2026-03-25 12:00:00",
+    "end": "2026-03-26 12:00:00",
+    "buckets": 7827
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000003",
+    "start": "2026-05-05 00:00:00",
+    "end": "2026-05-11 00:00:00",
+    "buckets": 46664
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000001",
+    "start": "2026-04-12 00:00:00",
+    "end": "2026-04-13 00:00:00",
+    "buckets": 7757
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000001",
+    "start": "2026-05-06 00:00:00",
+    "end": "2026-05-12 00:00:00",
+    "buckets": 46638
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "start": "2026-03-27 12:00:00",
+    "end": "2026-04-03 12:00:00",
+    "buckets": 54293
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000003",
+    "start": "2026-04-11 00:00:00",
+    "end": "2026-04-12 00:00:00",
+    "buckets": 7704
   }
 ]

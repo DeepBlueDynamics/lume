@@ -40,6 +40,7 @@ Each `Entry`:
 | `oracle_sql` | string | The DuckDB twin over the signalk-parquet `raw`/`docs`/catalog tables. Must parse and bind in DuckDB. |
 | `expected_path` | string | Where part 2 writes the expected output (`expected/<id>.json`). |
 | `tolerance` | object | Diff rules, see below. |
+| `exclude` | string, optional | Why `ti verify` skips this entry for now (an open contract question). Reported as `excluded`. |
 
 ### `tolerance` object
 
@@ -47,13 +48,13 @@ Each `Entry`:
 |---|---|---|
 | `sort` | string[] | Columns to sort by before diffing (stable row order). |
 | `exact` | string[] | Columns that must match **exactly**: keys (vessel, ts, title, name), set/string values, and integer counts. |
-| `bsi` | object | `column → scale`. Fixed-point columns compared within ±0.5 × 10^−scale. |
+| `bsi` | object | `column → scale`. Fixed-point columns compared within ±1 × 10^−scale (D34). |
 
 `ti verify` must:
 1. Run `ti_sql` and `oracle_sql`, collect rows.
 2. Sort each by `sort` columns.
 3. For each row and column: if in `exact`, require byte/value equality; if in `bsi`,
-   require `|ti - oracle| ≤ 0.5 × 10^−scale`; otherwise ignore (oracle-only columns like
+   require `|ti - oracle| ≤ 1 × 10^−scale` (D34); otherwise ignore (oracle-only columns like
    a placeholder `score` are non-authoritative).
 
 ## Oracle conventions
@@ -63,7 +64,9 @@ Each `Entry`:
   Buckets are half-open `[start, start + W)` (spec 14).
 - Numeric buckets use the **same aggregate** the TI `@agg` column implies, then
   `round(value, scale)` to match ingest's fixed-point.
-- `bsi` predicates become `min/max/avg(value)` bucketed then compared.
+- `bsi` predicates become `round(min/max/avg(value), scale)` bucketed, **then** compared (D35):
+  TI filters on the stored fixed-point value, so the oracle must round before the filter,
+  join or roll-up, not only in the final projection.
 - **Set fields are single-valued per bucket** (last value from the preferred source):
   the oracle filters on `arg_max(value_str, ts)` per `(context, path, bucket)`, not on
   "any sample in the bucket". Negation of a set field uses `IS DISTINCT FROM` with a
