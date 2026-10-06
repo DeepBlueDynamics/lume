@@ -7,6 +7,7 @@ use std::{
     collections::BTreeMap,
     io::Read,
     path::{Path, PathBuf},
+    sync::Arc,
     time::Instant,
 };
 
@@ -111,6 +112,36 @@ impl TiEngine {
             Some(factory) => crate::open_store_with_documents(root, width, factory).await?,
             None => crate::open_store(root, width).await?,
         };
+        let config_path = root.join("ti.toml");
+        if config_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&config_path) {
+                if let Ok(cfg) = ti_contracts::TiConfig::from_toml(&content) {
+                    for (name, store_cfg) in &cfg.stores {
+                        if name == "default" {
+                            continue;
+                        }
+                        let store_dir = if let Some(r) = &store_cfg.root {
+                            PathBuf::from(r)
+                        } else {
+                            root.join("stores").join(name)
+                        };
+                        if store_dir.join("catalog").is_dir() {
+                            let width = store_cfg.width_seconds().unwrap_or(1);
+                            if let Ok(store) = ti_store::Store::open_or_create(&store_dir, width) {
+                                let table_name = crate::table_name_for_store(name);
+                                if let Ok(catalog) = crate::build_sql_catalog(&store, width) {
+                                    let _ = session.register_store_table(
+                                        &table_name,
+                                        Arc::new(store),
+                                        catalog,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         Ok(Self {
             session,
             root: root.into(),
@@ -120,12 +151,22 @@ impl TiEngine {
         Self { session, root }
     }
     pub fn units(&self) -> BTreeMap<String, Option<String>> {
-        self.session
+        let mut u: BTreeMap<String, Option<String>> = self
+            .session
             .catalog
             .fields
             .iter()
             .map(|f| (crate::field_name(f), f.units.clone()))
-            .collect()
+            .collect();
+        if let Ok(extras) = self.session.extra_catalogs.lock() {
+            for cat in extras.values() {
+                for f in &cat.fields {
+                    u.entry(crate::field_name(f))
+                        .or_insert_with(|| f.units.clone());
+                }
+            }
+        }
+        u
     }
     /// Streaming result admission: collect at most max_rows+1 rows and 64 KiB
     /// including metadata. Stop reading once either cap is reached.
@@ -164,14 +205,32 @@ impl TiEngine {
         let limit = max_rows.clamp(1, MAX_ROWS);
         let first = self.session.reports()?.len();
         let frame = self.session.prepare(sql).await?;
+        let field_lookup = |col_name: &str| -> Option<ti_contracts::FieldSpec> {
+            if let Some(f) = self.session.catalog.field(col_name) {
+                return Some(f.clone());
+            }
+            if let Ok(extras) = self.session.extra_catalogs.lock() {
+                for cat in extras.values() {
+                    if let Some(f) = cat.field(col_name) {
+                        return Some(f.clone());
+                    }
+                }
+            }
+            None
+        };
+        let specs: Vec<_> = frame
+            .schema()
+            .fields()
+            .iter()
+            .map(|f| field_lookup(f.name()))
+            .collect();
         let names: Vec<_> = frame
             .schema()
             .fields()
             .iter()
-            .map(|f| {
-                self.session
-                    .catalog
-                    .field(f.name())
+            .zip(&specs)
+            .map(|(f, spec)| {
+                spec.as_ref()
                     .map(crate::field_name)
                     .unwrap_or_else(|| f.name().clone())
             })
@@ -186,20 +245,29 @@ impl TiEngine {
                 "duplicate output columns after @agg resolution; use distinct SQL aliases",
             ));
         }
-        let columns: Vec<_> = frame.schema().fields().iter().zip(&names).map(|(f,name)| json!({"name":name,"type":f.data_type().to_string(), "units":self.session.catalog.field(f.name()).and_then(|spec|spec.units.as_deref())})).collect();
+        let columns: Vec<_> = frame
+            .schema()
+            .fields()
+            .iter()
+            .zip(&names)
+            .zip(&specs)
+            .map(|((f, name), spec)| {
+                json!({
+                    "name": name,
+                    "type": f.data_type().to_string(),
+                    "units": spec.as_ref().and_then(|spec| spec.units.as_deref())
+                })
+            })
+            .collect();
         let fields: Vec<_> = frame
             .schema()
             .fields()
             .iter()
             .zip(&names)
-            .map(|(f, name)| {
+            .zip(&specs)
+            .map(|((f, name), spec)| {
                 let mut metadata = f.metadata().clone();
-                if let Some(units) = self
-                    .session
-                    .catalog
-                    .field(f.name())
-                    .and_then(|s| s.units.as_ref())
-                {
+                if let Some(units) = spec.as_ref().and_then(|s| s.units.as_ref()) {
                     metadata.insert("units".into(), units.clone());
                 }
                 datafusion::arrow::datatypes::Field::new(
@@ -304,27 +372,65 @@ impl TiEngine {
     }
     pub async fn schema(&self, prefix: Option<&str>, kind: Option<&str>) -> Result<Value> {
         let mut tables = Vec::new();
-        for name in ["telemetry", "docs", "paths", "vessels", "shards"] {
+        let mut table_names = vec![
+            "telemetry".to_string(),
+            "docs".to_string(),
+            "paths".to_string(),
+            "vessels".to_string(),
+            "shards".to_string(),
+        ];
+        if let Ok(extras) = self.session.extra_catalogs.lock() {
+            for extra_name in extras.keys() {
+                if !table_names.contains(extra_name) {
+                    table_names.push(extra_name.clone());
+                }
+            }
+        }
+        for name in &table_names {
             let frame = self
                 .session
                 .prepare(&format!("SELECT * FROM {name} LIMIT 0"))
                 .await?;
-            let columns: Vec<_> = frame.schema().fields().iter().filter(|f| prefix.is_none_or(|p|f.name().starts_with(p)) && kind.is_none_or(|k|f.data_type().to_string().eq_ignore_ascii_case(k))).map(|f| {
-                let spec = self.session.catalog.field(f.name());
-                json!({"name":f.name(),"type":f.data_type().to_string(),"nullable":f.is_nullable(),
-                    "units":spec.and_then(|s|s.units.as_deref()),"scale":spec.and_then(|s|match s.kind{ti_contracts::FieldKind::Bsi{scale}=>Some(scale),_=>None})})
-            }).collect();
-            tables.push(json!({"name":name,"columns":columns}));
+            let extra_cat = self
+                .session
+                .extra_catalogs
+                .lock()
+                .ok()
+                .and_then(|m| m.get(name).cloned());
+            let cat = extra_cat.as_deref().unwrap_or(&self.session.catalog);
+            let columns: Vec<_> = frame
+                .schema()
+                .fields()
+                .iter()
+                .filter(|f| {
+                    prefix.is_none_or(|p| f.name().starts_with(p))
+                        && kind.is_none_or(|k| f.data_type().to_string().eq_ignore_ascii_case(k))
+                })
+                .map(|f| {
+                    let spec = cat.field(f.name());
+                    json!({
+                        "name": f.name(),
+                        "type": f.data_type().to_string(),
+                        "nullable": f.is_nullable(),
+                        "units": spec.and_then(|s| s.units.as_deref()),
+                        "scale": spec.and_then(|s| match s.kind {
+                            ti_contracts::FieldKind::Bsi { scale } => Some(scale),
+                            _ => None,
+                        })
+                    })
+                })
+                .collect();
+            tables.push(json!({"name": name, "columns": columns}));
         }
         let coverage: Vec<_> = self
             .session
             .catalog
             .vessels
             .values()
-            .map(|v| json!({"vessel":v.urn,"from":v.first_seen,"to":v.last_seen}))
+            .map(|v| json!({"vessel": v.urn, "from": v.first_seen, "to": v.last_seen}))
             .collect();
         Ok(
-            json!({"tables":tables,"width_seconds":self.session.catalog.width_seconds,"time_coverage":coverage,"units":self.units()}),
+            json!({"tables": tables, "width_seconds": self.session.catalog.width_seconds, "time_coverage": coverage, "units": self.units()}),
         )
     }
     pub async fn status(&self) -> Result<Value> {
@@ -348,13 +454,13 @@ impl TiEngine {
             .catalog
             .vessels
             .values()
-            .map(|v| json!({"vessel":v.urn,"last_seen":v.last_seen,"last_sync":null}))
+            .map(|v| json!({"vessel": v.urn, "last_seen": v.last_seen, "last_sync": null}))
             .collect();
         Ok(
-            json!({"store":self.root,"width_seconds":self.session.catalog.width_seconds,
-            "wal_bytes":wal_bytes,"shards":{"open":shards.len()-sealed,"sealed":sealed},
-            "ingest_lag_seconds":null,"vessels":vessels,"units":self.units(),
-            "unavailable":["ingest_lag_seconds: no ingest supervisor attached","last_sync: sync is not implemented"]}),
+            json!({"store": self.root, "width_seconds": self.session.catalog.width_seconds,
+            "wal_bytes": wal_bytes, "shards": {"open": shards.len() - sealed, "sealed": sealed},
+            "ingest_lag_seconds": null, "vessels": vessels, "units": self.units(),
+            "unavailable": ["ingest_lag_seconds: no ingest supervisor attached", "last_sync: sync is not implemented"]}),
         )
     }
 }

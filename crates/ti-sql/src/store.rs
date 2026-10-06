@@ -56,8 +56,8 @@ pub async fn open_store_with_documents(
     Ok(session)
 }
 
-/// Create an immutable planning snapshot while retaining the Store as the read source.
-pub async fn session_from_store(store: Arc<Store>, width_seconds: u64) -> Result<SqlSession> {
+/// Build a SqlCatalog from an opened store and width.
+pub fn build_sql_catalog(store: &Store, width_seconds: u64) -> Result<Arc<SqlCatalog>> {
     let disk = store.catalog();
     let fields = disk.fields().map_err(core_error)?;
     let vessels_batch = disk.vessels_record_batch().map_err(core_error)?;
@@ -98,7 +98,14 @@ pub async fn session_from_store(store: Arc<Store>, width_seconds: u64) -> Result
         }
         dictionaries.insert(field.id, rows);
     }
-    let catalog = SqlCatalog::new(width_seconds, fields, vessels, dictionaries)?;
+    SqlCatalog::new(width_seconds, fields, vessels, dictionaries)
+}
+
+/// Create an immutable planning snapshot while retaining the Store as the read source.
+pub async fn session_from_store(store: Arc<Store>, width_seconds: u64) -> Result<SqlSession> {
+    let disk = store.catalog();
+    let vessels_batch = disk.vessels_record_batch().map_err(core_error)?;
+    let catalog = build_sql_catalog(&store, width_seconds)?;
     let session = SqlSession::new(store.clone(), catalog).await?;
     for (name, batch) in [
         ("vessels", vessels_batch),
@@ -150,5 +157,33 @@ pub async fn session_from_store(store: Arc<Store>, width_seconds: u64) -> Result
             vec![batches],
         )?),
     )?;
+    Ok(session)
+}
+
+/// Helper to determine SQL table name for a store.
+/// "default" or "telemetry" maps to "telemetry". Non-default names like "hr" map to "telemetry_hr".
+pub fn table_name_for_store(name: &str) -> String {
+    if name == "default" || name == "telemetry" {
+        "telemetry".to_string()
+    } else if name.starts_with("telemetry_") {
+        name.to_string()
+    } else {
+        format!("telemetry_{name}")
+    }
+}
+
+/// Create an immutable planning snapshot from a default store and any extra stores.
+/// Non-default stores are registered as their own tables (`telemetry_<store_name>`).
+pub async fn session_from_stores(
+    default_store: Arc<Store>,
+    default_width_seconds: u64,
+    extra_stores: Vec<(String, Arc<Store>, u64)>,
+) -> Result<SqlSession> {
+    let session = session_from_store(default_store, default_width_seconds).await?;
+    for (name, store, width) in extra_stores {
+        let table_name = table_name_for_store(&name);
+        let catalog = build_sql_catalog(&store, width)?;
+        session.register_store_table(&table_name, store.clone(), catalog)?;
+    }
     Ok(session)
 }

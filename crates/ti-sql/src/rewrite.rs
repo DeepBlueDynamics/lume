@@ -71,24 +71,29 @@ fn args(f: &datafusion::sql::sqlparser::ast::Function) -> Option<Vec<&Expr>> {
     }
 }
 struct Rewriter<'a> {
-    catalog: &'a SqlCatalog,
+    catalogs: &'a [&'a SqlCatalog],
 }
 impl Rewriter<'_> {
+    fn source_column(&self, name: &str) -> bool {
+        self.catalogs.iter().any(|c| c.source_column(name))
+    }
+    fn field(&self, name: &str) -> Option<&ti_contracts::FieldSpec> {
+        self.catalogs.iter().find_map(|c| c.field(name))
+    }
     fn rewrite(&self, e: &mut Expr) -> Result<()> {
         match e {
             Expr::BinaryOp { left, op, right } => {
                 let l = name(left).map(str::to_owned);
                 let r = name(right).map(str::to_owned);
                 if matches!(op, BinaryOperator::Eq | BinaryOperator::NotEq) {
-                    let source = l.as_ref().is_some_and(|n| self.catalog.source_column(n))
-                        || r.as_ref().is_some_and(|n| self.catalog.source_column(n));
+                    let source = l.as_ref().is_some_and(|n| self.source_column(n))
+                        || r.as_ref().is_some_and(|n| self.source_column(n));
                     if source {
-                        let (array, value) =
-                            if l.as_ref().is_some_and(|n| self.catalog.source_column(n)) {
-                                (&**left, &**right)
-                            } else {
-                                (&**right, &**left)
-                            };
+                        let (array, value) = if l.as_ref().is_some_and(|n| self.source_column(n)) {
+                            (&**left, &**right)
+                        } else {
+                            (&**right, &**left)
+                        };
                         // Only scalar literal equality is special; list-vs-list SQL stays standard.
                         if matches!(value, Expr::Value(_)) {
                             let sql = format!("array_has({array}, {value})");
@@ -110,17 +115,13 @@ impl Rewriter<'_> {
                         | BinaryOperator::Gt
                         | BinaryOperator::GtEq
                 ) {
-                    if let Some(ti_contracts::FieldKind::Bsi { scale }) = l
-                        .as_deref()
-                        .and_then(|n| self.catalog.field(n))
-                        .map(|f| &f.kind)
+                    if let Some(ti_contracts::FieldKind::Bsi { scale }) =
+                        l.as_deref().and_then(|n| self.field(n)).map(|f| &f.kind)
                     {
                         quantize(right, *scale)?;
                     }
-                    if let Some(ti_contracts::FieldKind::Bsi { scale }) = r
-                        .as_deref()
-                        .and_then(|n| self.catalog.field(n))
-                        .map(|f| &f.kind)
+                    if let Some(ti_contracts::FieldKind::Bsi { scale }) =
+                        r.as_deref().and_then(|n| self.field(n)).map(|f| &f.kind)
                     {
                         quantize(left, *scale)?;
                     }
@@ -131,7 +132,7 @@ impl Rewriter<'_> {
                 list,
                 negated,
             } => {
-                if name(expr).is_some_and(|n| self.catalog.source_column(n)) {
+                if name(expr).is_some_and(|n| self.source_column(n)) {
                     let terms = list
                         .iter()
                         .map(|value| {
@@ -152,9 +153,8 @@ impl Rewriter<'_> {
                     } else {
                         format!("({sql})")
                     })?;
-                } else if let Some(ti_contracts::FieldKind::Bsi { scale }) = name(expr)
-                    .and_then(|n| self.catalog.field(n))
-                    .map(|f| &f.kind)
+                } else if let Some(ti_contracts::FieldKind::Bsi { scale }) =
+                    name(expr).and_then(|n| self.field(n)).map(|f| &f.kind)
                 {
                     for value in list {
                         quantize(value, *scale)?;
@@ -164,9 +164,8 @@ impl Rewriter<'_> {
             Expr::Between {
                 expr, low, high, ..
             } => {
-                if let Some(ti_contracts::FieldKind::Bsi { scale }) = name(expr)
-                    .and_then(|n| self.catalog.field(n))
-                    .map(|f| &f.kind)
+                if let Some(ti_contracts::FieldKind::Bsi { scale }) =
+                    name(expr).and_then(|n| self.field(n)).map(|f| &f.kind)
                 {
                     quantize(low, *scale)?;
                     quantize(high, *scale)?;
@@ -383,6 +382,10 @@ fn read_only(statement: &Statement) -> bool {
     }
 }
 pub fn rewrite_sql(sql: &str, catalog: &SqlCatalog) -> Result<String> {
+    rewrite_sql_with_catalogs(sql, &[catalog])
+}
+
+pub fn rewrite_sql_with_catalogs(sql: &str, catalogs: &[&SqlCatalog]) -> Result<String> {
     let mut statements = Parser::parse_sql(&GenericDialect {}, sql)
         .map_err(|e| DataFusionError::Plan(e.to_string()))?;
     if statements.len() != 1 {
@@ -414,11 +417,11 @@ pub fn rewrite_sql(sql: &str, catalog: &SqlCatalog) -> Result<String> {
     // This also avoids treating an unrelated CTE's string alias "ts" as time.
     if !tables.0.iter().any(|name| {
         let name = name.rsplit('.').next().unwrap_or(name).trim_matches('"');
-        name.eq_ignore_ascii_case("telemetry") || name.eq_ignore_ascii_case("raw")
+        name.to_ascii_lowercase().starts_with("telemetry") || name.eq_ignore_ascii_case("raw")
     }) {
         return Ok(statement.to_string());
     }
-    if let ControlFlow::Break(e) = statement.visit(&mut Rewriter { catalog }) {
+    if let ControlFlow::Break(e) = statement.visit(&mut Rewriter { catalogs }) {
         return Err(e);
     }
     Ok(statement.to_string())

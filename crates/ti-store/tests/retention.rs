@@ -253,3 +253,93 @@ fn test_store_set_multi_store_retention() {
         .get(k_default0)
         .is_some());
 }
+
+#[test]
+fn test_retention_only_drops_sealed_shards_and_reopen() {
+    let tmp = tempdir().unwrap();
+    let mut store = Store::open_or_create(tmp.path(), 10).unwrap();
+
+    let v0 = store
+        .catalog()
+        .register_vessel(&VesselSpec {
+            urn: "vessels.urn:mrn:signalk:uuid:boat-test-wal".into(),
+            name: Some("WAL Boat".into()),
+            mmsi: None,
+        })
+        .unwrap();
+
+    let f0 = store
+        .catalog()
+        .register_field(&FieldSpec {
+            id: 0,
+            path: "navigation.speedOverGround".into(),
+            agg: Some(Agg::Last),
+            kind: FieldKind::Bsi { scale: 3 },
+            units: Some("m/s".into()),
+        })
+        .unwrap();
+
+    // Shard 0: bucket 0 (timestamp 0). Apply and leave OPEN.
+    let key0 = ShardKey {
+        vessel: v0,
+        shard: 0,
+    };
+    store
+        .apply(&[BucketRecord {
+            vessel: v0,
+            bucket: 0,
+            field: f0,
+            value: FieldValue::Int(1234),
+            rewrite: false,
+        }])
+        .unwrap();
+
+    // Shard 1: bucket 65536. Apply and SEAL.
+    let key1 = ShardKey {
+        vessel: v0,
+        shard: 1,
+    };
+    store
+        .apply(&[BucketRecord {
+            vessel: v0,
+            bucket: 65536,
+            field: f0,
+            value: FieldValue::Int(5678),
+            rewrite: false,
+        }])
+        .unwrap();
+    store.seal(key1).unwrap();
+
+    // Shard 0 is in open_shards, not manifest.
+    assert!(store.manifest().get(key0).is_none());
+    assert!(store.manifest().get(key1).is_some());
+
+    // Both shards have timestamps older than cutoff.
+    let now_ts = EPOCH + 2_000_000;
+    let dropped = store.enforce_retention(now_ts, 500).unwrap();
+    // Only sealed shard (shard 1) must be dropped!
+    assert_eq!(dropped, 1, "Only sealed shard 1 should be dropped");
+    assert!(
+        store.manifest().get(key1).is_none(),
+        "Sealed shard 1 was dropped"
+    );
+
+    // Open shard 0 must NOT be dropped:
+    let active = store.shards(None, 0, 100);
+    assert_eq!(active, vec![key0], "Open shard 0 must remain active");
+
+    // Drop store and reopen to test WAL replay behavior
+    drop(store);
+
+    let store2 = Store::open_or_create(tmp.path(), 10).unwrap();
+    // Shard 0 must still exist from WAL replay / open shard recovery:
+    let active2 = store2.shards(None, 0, 100);
+    assert_eq!(active2, vec![key0], "Open shard 0 must survive reopen");
+    // Shard 1 must NOT be resurrected by WAL replay:
+    assert!(
+        store2.manifest().get(key1).is_none(),
+        "Dropped sealed shard 1 must not resurrect"
+    );
+    let matching = store2.eval(key0, &ti_contracts::Predicate::All).unwrap();
+    assert_eq!(matching.iter().collect::<Vec<_>>(), vec![0]);
+}

@@ -19,14 +19,10 @@ use arrow_array::{
 };
 use arrow_schema::DataType;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-use ti_contracts::{
-    bucket_of, BucketRecord, Catalog, Error, Result, ShardSink, TiConfig, VesselOrd, VesselSpec,
-};
+use ti_contracts::{Catalog, Error, Result, ShardSink, TiConfig};
 
-use crate::bucket::BucketWindow;
-use crate::classify::Classifier;
 use crate::decode::RawDataPoint;
-use crate::normalize::{normalize_point, NormalizedValue};
+use crate::watermark::MultiStoreBucketer;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum BackfillStatus {
@@ -268,20 +264,60 @@ pub fn backfill_parquet_file(
     catalog: &dyn Catalog,
     sink: &mut dyn ShardSink,
 ) -> Result<BackfillStatus> {
-    let status =
-        backfill_parquet_file_unflushed(path, self_urn, manifest_hashes, config, catalog, sink)?;
-    sink.flush()?;
+    let mut catalogs = BTreeMap::new();
+    catalogs.insert("default".to_string(), catalog);
+    let mut sinks = BTreeMap::new();
+    sinks.insert("default".to_string(), sink);
+    let mut bucketer = MultiStoreBucketer::new(config)?;
+    let status = backfill_parquet_file_stores_unflushed(
+        path,
+        self_urn,
+        manifest_hashes,
+        config,
+        &catalogs,
+        &mut sinks,
+        &mut bucketer,
+    )?;
+    sinks.get_mut("default").unwrap().flush()?;
     Ok(status)
 }
 
-/// Backfill one file without flushing. Callers batch flushes; the WAL (D16) covers a crash in between.
-fn backfill_parquet_file_unflushed(
+/// Backfill one Parquet file across multiple stores without flushing.
+pub fn backfill_parquet_file_stores(
     path: &Path,
     self_urn: &str,
     manifest_hashes: Option<&HashSet<[u8; 32]>>,
     config: &TiConfig,
-    catalog: &dyn Catalog,
-    sink: &mut dyn ShardSink,
+    catalogs: &BTreeMap<String, &dyn Catalog>,
+    sinks: &mut BTreeMap<String, &mut dyn ShardSink>,
+    bucketer: &mut MultiStoreBucketer,
+) -> Result<BackfillStatus> {
+    let status = backfill_parquet_file_stores_unflushed(
+        path,
+        self_urn,
+        manifest_hashes,
+        config,
+        catalogs,
+        sinks,
+        bucketer,
+    )?;
+    for (name, sink) in sinks.iter_mut() {
+        if catalogs.contains_key(name) {
+            sink.flush()?;
+        }
+    }
+    Ok(status)
+}
+
+/// Backfill one file across multiple stores without flushing. Callers batch flushes; the WAL (D16) covers a crash in between.
+pub fn backfill_parquet_file_stores_unflushed(
+    path: &Path,
+    self_urn: &str,
+    manifest_hashes: Option<&HashSet<[u8; 32]>>,
+    config: &TiConfig,
+    catalogs: &BTreeMap<String, &dyn Catalog>,
+    sinks: &mut BTreeMap<String, &mut dyn ShardSink>,
+    bucketer: &mut MultiStoreBucketer,
 ) -> Result<BackfillStatus> {
     let hash = compute_file_hash(path)?;
 
@@ -294,89 +330,15 @@ fn backfill_parquet_file_unflushed(
     let raw_points = read_parquet_points(path, self_urn)?;
     let rows_read = raw_points.len();
 
-    let mut classifier = Classifier::new(config);
-    let mut windows: BTreeMap<(VesselOrd, u32), BucketWindow> = BTreeMap::new();
+    let emitted_map = bucketer.backfill_raw_points(
+        &raw_points,
+        config,
+        catalogs,
+        sinks,
+        BACKFILL_APPLY_CHUNK_RECORDS,
+    )?;
 
-    for raw in raw_points {
-        let norm_points = normalize_point(raw, &config.allow_paths, &config.deny_paths);
-        for p in norm_points {
-            let canonical_urn = if p.context.starts_with("vessels.urn:") {
-                p.context.clone()
-            } else if p.context.starts_with("urn:") {
-                format!("vessels.{}", p.context)
-            } else {
-                p.context.clone()
-            };
-
-            let vessel = catalog.register_vessel(&VesselSpec {
-                urn: canonical_urn,
-                name: None,
-                mmsi: None,
-            })?;
-            let bucket_ix = bucket_of(p.timestamp, config.width_seconds)?;
-
-            let (eff_path, kind) = match classifier.classify(&p.context, &p.path, &p.value) {
-                Some(res) => res,
-                None => continue,
-            };
-
-            let window = windows.entry((vessel, bucket_ix)).or_default();
-            match p.value {
-                NormalizedValue::Double(d) => {
-                    let scale = match kind {
-                        ti_contracts::FieldKind::Bsi { scale } => scale,
-                        _ => 3,
-                    };
-                    window.add_numeric(&eff_path, d, scale, &p.source, p.timestamp);
-                }
-                NormalizedValue::String(s) => {
-                    let prio = config
-                        .source_priorities
-                        .get(&eff_path)
-                        .and_then(|l| l.iter().position(|src| src == &p.source))
-                        .unwrap_or(0);
-                    window.add_set(&eff_path, &s, prio, &p.source, p.timestamp);
-                }
-                NormalizedValue::Bool(b) => {
-                    let s = if b { "true" } else { "false" };
-                    let prio = config
-                        .source_priorities
-                        .get(&eff_path)
-                        .and_then(|l| l.iter().position(|src| src == &p.source))
-                        .unwrap_or(0);
-                    window.add_set(&eff_path, s, prio, &p.source, p.timestamp);
-                }
-                NormalizedValue::Geo { lat, lon } => {
-                    for cell in ti_geo::cells_for(lat, lon)? {
-                        window.add_geo_cell(&eff_path, cell, &p.source);
-                    }
-                }
-                NormalizedValue::Null => {}
-            }
-        }
-    }
-
-    let mut buckets_emitted = 0;
-    // Emit all buckets with rewrite: true for clear-and-rewrite backfill idempotence.
-    // Records are applied in chunks rather than one apply per bucket window: a file covers
-    // one path for a day (~8,640 windows at W = 10 s), and per-window applies meant one WAL
-    // append per window. Each chunk holds whole (vessel, bucket, field) rewrite groups, so
-    // every apply remains a valid all-rewrite transaction (spec/14).
-    let mut pending: Vec<BucketRecord> = Vec::new();
-    for ((vessel, bucket_ix), window) in windows {
-        let records = window.emit_records(vessel, bucket_ix, true, config, catalog)?;
-        if !records.is_empty() {
-            pending.extend(records);
-            buckets_emitted += 1;
-            if pending.len() >= BACKFILL_APPLY_CHUNK_RECORDS {
-                sink.apply(&pending)?;
-                pending.clear();
-            }
-        }
-    }
-    if !pending.is_empty() {
-        sink.apply(&pending)?;
-    }
+    let buckets_emitted = emitted_map.values().cloned().max().unwrap_or(0);
 
     Ok(BackfillStatus::Ingested {
         hash,
@@ -393,6 +355,7 @@ const BACKFILL_APPLY_CHUNK_RECORDS: usize = 50_000;
 /// Number of files between store flushes during a directory backfill.
 const BACKFILL_FLUSH_EVERY_FILES: usize = 256;
 
+/// Recursively backfill all `.parquet` files found under `dir` into a single store.
 pub fn backfill_directory(
     dir: &Path,
     self_urn: &str,
@@ -401,27 +364,60 @@ pub fn backfill_directory(
     catalog: &dyn Catalog,
     sink: &mut dyn ShardSink,
 ) -> Result<Vec<BackfillStatus>> {
+    let mut catalogs = BTreeMap::new();
+    catalogs.insert("default".to_string(), catalog);
+    let mut sinks = BTreeMap::new();
+    sinks.insert("default".to_string(), sink);
+    backfill_directory_stores(
+        dir,
+        self_urn,
+        manifest_hashes,
+        config,
+        &catalogs,
+        &mut sinks,
+    )
+}
+
+/// Recursively backfill all `.parquet` files found under `dir` across all configured stores.
+pub fn backfill_directory_stores(
+    dir: &Path,
+    self_urn: &str,
+    manifest_hashes: Option<&HashSet<[u8; 32]>>,
+    config: &TiConfig,
+    catalogs: &BTreeMap<String, &dyn Catalog>,
+    sinks: &mut BTreeMap<String, &mut dyn ShardSink>,
+) -> Result<Vec<BackfillStatus>> {
     let mut files = Vec::new();
     find_parquet_files_recursive(dir, &mut files)?;
     files.sort();
 
+    let mut bucketer = MultiStoreBucketer::new(config)?;
     let mut results = Vec::with_capacity(files.len());
     for (i, file) in files.iter().enumerate() {
-        let status = backfill_parquet_file_unflushed(
+        let status = backfill_parquet_file_stores_unflushed(
             file,
             self_urn,
             manifest_hashes,
             config,
-            catalog,
-            sink,
+            catalogs,
+            sinks,
+            &mut bucketer,
         )?;
         results.push(status);
         // Flush in batches: a flush per file (one per path per day) dominated backfill time.
         if (i + 1) % BACKFILL_FLUSH_EVERY_FILES == 0 {
+            for (name, sink) in sinks.iter_mut() {
+                if catalogs.contains_key(name) {
+                    sink.flush()?;
+                }
+            }
+        }
+    }
+    for (name, sink) in sinks.iter_mut() {
+        if catalogs.contains_key(name) {
             sink.flush()?;
         }
     }
-    sink.flush()?;
     Ok(results)
 }
 
