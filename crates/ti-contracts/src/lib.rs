@@ -1,6 +1,6 @@
 //! Shared types and boundaries for Lume TI lanes.
 //!
-//! Proposed behavioral rules are in plan/spec/14-semantics.md.
+//! Frozen behavioral rules are in plan/spec/14-semantics.md.
 //! This crate contains contracts and checked addressing/conversion helpers only.
 
 #![forbid(unsafe_code)]
@@ -8,6 +8,19 @@
 pub use arrow_array::RecordBatch;
 pub use arrow_schema;
 pub use roaring::{RoaringBitmap, RoaringTreemap};
+
+use serde::{Deserialize, Serialize};
+
+mod catalog;
+mod config;
+mod engine;
+mod envelopes;
+mod schemas;
+pub use catalog::*;
+pub use config::*;
+pub use engine::*;
+pub use envelopes::*;
+pub use schemas::*;
 
 mod helpers;
 pub use helpers::*;
@@ -20,7 +33,7 @@ pub type BucketIx = u32; // floor((t - EPOCH) / W)
 pub type ColumnId = u64; // (vessel as u64) << 32 | bucket
 
 /// One vessel and a 65,536-bucket window.
-#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 pub struct ShardKey {
     /// Store-local vessel ordinal.
     pub vessel: VesselOrd,
@@ -29,6 +42,7 @@ pub struct ShardKey {
 } // shard = bucket >> 16
 
 /// Storage encoding for a field.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FieldKind {
     /// A single exists bitmap.
     Presence,
@@ -43,6 +57,7 @@ pub enum FieldKind {
 }
 
 /// Catalog definition of one indexed field and its physical units.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FieldSpec {
     /// Stable field ID.
     pub id: u32,
@@ -56,6 +71,7 @@ pub struct FieldSpec {
     pub units: Option<String>,
 }
 /// Ingest-time bucket aggregate or derived event counter.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Agg {
     /// Arithmetic mean.
     Mean,
@@ -74,6 +90,7 @@ pub enum Agg {
 }
 
 /// Output of the bucketer; input to the store.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BucketRecord {
     /// Store-local vessel ordinal.
     pub vessel: VesselOrd,
@@ -87,7 +104,10 @@ pub struct BucketRecord {
     pub rewrite: bool,
 }
 /// One encoded value; set dictionaries are maintained outside this record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FieldValue {
+    /// Delete this bucket/field's column. Valid only in a rewrite group with no other values.
+    Clear,
     /// Mark field presence.
     Present,
     /// Dictionary row ID.
@@ -99,6 +119,7 @@ pub enum FieldValue {
 }
 
 /// The only language between SQL and bitmaps.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Predicate {
     /// Existing bucket universe.
     All,
@@ -133,6 +154,7 @@ pub enum Predicate {
     Not(Box<Predicate>),
 }
 /// Signed fixed-point comparison; Between includes both endpoints.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CmpOp {
     /// Equal.
     Eq,
@@ -167,7 +189,7 @@ pub trait ShardSource: Send + Sync {
         a: AggOp,
     ) -> Result<AggPartial>;
 }
-/// Ordered ingest boundary; apply/flush/seal semantics are proposed in spec 14.
+/// Ordered ingest boundary; apply/flush/seal semantics are frozen in spec 14.
 pub trait ShardSink: Send {
     /// Apply one ordered record transaction through the WAL before publication.
     fn apply(&mut self, recs: &[BucketRecord]) -> Result<()>;
@@ -190,7 +212,7 @@ pub trait TextIndex: Send + Sync {
 }
 
 /// Query-time aggregation, distinct from the ingest-time `Agg` profile.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum AggOp {
     /// Count selected existing buckets; the field argument is ignored.
     CountAll,
@@ -205,7 +227,7 @@ pub enum AggOp {
 }
 
 /// Mergeable shard contribution. Sum uses i128 to accommodate u32 bucket counts.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum AggPartial {
     /// Bucket or non-null value count.
     Count(u64),
@@ -218,8 +240,8 @@ pub enum AggPartial {
 }
 
 /// Identity of one immutable, sealed shard version.
-/// Hash is the raw 32-byte BLAKE3 digest; envelope rules remain a part-2 proposal.
-#[derive(Clone, Debug, Eq, PartialEq)]
+/// Hash is the raw 32-byte BLAKE3 digest; see TransferIdentity for federation identity.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ShardManifestEntry {
     /// Vessel and shard number in this store's ordinal space.
     pub key: ShardKey,
