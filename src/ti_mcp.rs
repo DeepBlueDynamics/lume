@@ -97,7 +97,7 @@ pub(crate) async fn dispatch(
         _ => Err(format!("Unknown TI tool: {name}")),
     }
 }
-fn csv(result: &Value) -> String {
+pub(crate) fn csv(result: &Value) -> String {
     let quote = |s: &str| format!("\"{}\"", s.replace('"', "\"\""));
     let columns: Vec<_> = result["columns"]
         .as_array()

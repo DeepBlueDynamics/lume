@@ -271,6 +271,14 @@ impl SqlSession {
         self.context.register_table(name, provider)?;
         Ok(())
     }
+    /// Register read-only ordinary Lume index tables alongside telemetry.
+    pub fn register_index_table(&self, name: &str, provider: Arc<dyn datafusion::catalog::TableProvider>) -> Result<()> {
+        if !matches!(name, "sections" | "entities" | "entity_edges") {
+            return Err(DataFusionError::Plan("unknown ordinary-index table".into()));
+        }
+        self.context.register_table(name, provider)?;
+        Ok(())
+    }
     /// Register an additional store as its own telemetry table (e.g. `telemetry_hr`).
     pub fn register_store_table(
         &self,
