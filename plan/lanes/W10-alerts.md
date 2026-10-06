@@ -21,23 +21,23 @@ Acceptance: a recorded delta stream with a raise, an escalation and a clear prod
 
 ## Step 2: rules that write their own alerts
 
-- [ ] **Rules in `ti.toml`** (`[[rules]]`), each with:
+- [x] **Rules in `ti.toml`** (`[[rules]]`), each with:
   - `name`, `severity`;
   - `when`: a SQL boolean over telemetry columns, the same expression language as `WHERE`;
   - optional `for = "10m"`, the hold duration, using the `intervals()` semantics;
   - optional `vessel` filter;
   - `message`: a template that can reference columns, such as `"house battery {electrical.batteries.house.voltage@min} V"`.
-- [ ] **Evaluation:** an incremental evaluator per closed bucket, running the predicate as bitmap pushdown over just the newly closed range. A rule opens an alert document after the condition has held for `for`, and closes it when the condition clears. Backfill evaluates rules over history, so turning a rule on gives you its past alerts too.
-- [ ] **Generated alerts are documents:**
+- [x] **Evaluation:** an incremental evaluator per closed bucket, running the predicate as bitmap pushdown over just the newly closed range. A rule opens an alert document after the condition has held for `for`, and closes it when the condition clears. Backfill evaluates rules over history, so turning a rule on gives you its past alerts too.
+- [x] **Generated alerts are documents:**
   - `kind = 'alerts'`, `id = rules/<name>/<start>`;
   - the body carries the rule name, the message with values filled in, and the predicate text.
   - They are searchable and joinable like imported alerts.
-- [ ] **Loop safety:**
+- [x] **Loop safety:**
   - a rule may reference `match(alerts, ...)`, so "a second bilge alert within an hour" is expressible;
   - evaluation is one pass per closed bucket in rule order;
   - a rule never re-triggers on its own output within the same bucket;
   - each rule has a per-hour cap on alerts.
-- [ ] **Surfaces:**
+- [x] **Surfaces:**
   - `lume ti rules list|test <name> --store` (`test` dry-runs over history and prints what would fire);
   - alerts appear in `lume ti status`;
   - the MCP `ti_status` tool lists active alerts.
@@ -75,3 +75,39 @@ ignored. This includes actual mock WebSocket checks for both live loops and a fo
 parquet lifecycle replay. The root feature suite includes a recorded notification stream
 whose `match(alerts, 'battery')` hits exactly the three covered buckets.
 Default `cargo build` passed. Host rustfmt/strict clippy remain the lead's merge checks.
+
+## Step 2 implementation and checks
+
+Rules use exact bitmap predicates; predicates requiring residual row evaluation are
+rejected rather than silently scanning telemetry. Names, severity, hold duration,
+vessel filter, templates and positive caps are validated. The default `max_per_hour`
+is 60, counted per rule across vessels in UTC hours. Hold duration includes the closing
+edge of each matched bucket; the document starts at the original predicate run start.
+Gaps close episodes at the previous matched bucket's exclusive end.
+
+`ti_sql::rules::RuleRunner` evaluates each bucket once in configuration order. Earlier
+rules' output is visible to later rules; duplicate closed-bucket callbacks are skipped.
+State persists in `rules/state.json`. History evaluation uses compressed predicate
+bitmaps and reads values only for fired message templates. A historical final run closes
+at the last available bucket boundary; retained state lets adjacent live buckets continue
+the same ID. Dry-run rebuilds history in memory without changing documents or state.
+
+Root integration is `lume::ti_rules::observer(root, &config)`, returning the published
+`ClosedBucketObserver` adapter, and `lume::ti_rules::backfill_directory`, which evaluates
+rules after all raw files have been ingested and flushed. A fresh observer bootstraps
+existing history. The live CLI attaches this adapter in the ingest lane. Persistent
+DocStore readers refresh external changes; LumeText invalidates BM25 and match caches,
+so an existing query engine sees ingested alerts. Document writes assume one ingestion
+writer per store; refresh prevents sequential stale handles from discarding newer docs.
+
+Fixtures cover interval equality, searchable ranges, docs joins, idempotent history,
+hold/restart/clear behavior, ordered alert references, caps, dry-run, CLI and status.
+`tests/golden/rules_oracle.py` invokes the ignored golden-store Rust test and independently
+compares generated ranges against DuckDB over raw parquet. The lead runs this host oracle;
+its result and host strict clippy are pending at handoff.
+
+Local checks: the root feature suite passed 67 tests with two data-dependent tests
+ignored; ti-sql and ti-contracts regression suites passed. The final DocStore persistence
+and external-refresh tests passed after tightening atomic-rename metadata handling.
+Default `cargo build` passed after rebasing onto `0344835`. `git diff --check` passed.
+No new dependency was added.

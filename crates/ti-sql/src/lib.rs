@@ -14,6 +14,7 @@ mod intervals;
 mod materialize;
 mod provider;
 mod raw;
+pub mod rules;
 mod rewrite;
 mod session;
 mod store;

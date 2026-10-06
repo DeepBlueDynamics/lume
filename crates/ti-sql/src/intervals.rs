@@ -51,51 +51,7 @@ fn string_arg(e: &Expr) -> Result<Option<String>> {
 }
 /// Exact integer nanoseconds; fractional durations do not round across a bucket boundary.
 fn duration(s: &str) -> Result<i128> {
-    let s = s.trim();
-    let n = s
-        .find(|c: char| !c.is_ascii_digit() && c != '.')
-        .unwrap_or(s.len());
-    let (digits, unit) = s.split_at(n);
-    let factor: i128 = match unit.trim() {
-        "ns" => 1,
-        "us" => 1_000,
-        "ms" => 1_000_000,
-        "s" => 1_000_000_000,
-        "m" => 60_000_000_000,
-        "h" => 3_600_000_000_000,
-        "d" => 86_400_000_000_000,
-        "w" => 604_800_000_000_000,
-        _ => return Err(error("interval duration requires ns/us/ms/s/m/h/d/w")),
-    };
-    let mut parts = digits.split('.');
-    let whole = parts
-        .next()
-        .unwrap_or("")
-        .parse::<i128>()
-        .map_err(|_| error("invalid nonnegative interval duration"))?;
-    let fraction = parts.next().unwrap_or("");
-    if parts.next().is_some() || fraction.len() > 9 || !fraction.bytes().all(|c| c.is_ascii_digit())
-    {
-        return Err(error("interval duration has invalid fractional precision"));
-    }
-    let divisor = 10i128.pow(fraction.len() as u32);
-    let fractional = if fraction.is_empty() {
-        0
-    } else {
-        fraction
-            .parse::<i128>()
-            .map_err(|_| error("invalid interval duration"))?
-    };
-    let scaled = fractional
-        .checked_mul(factor)
-        .ok_or_else(|| error("interval duration overflow"))?;
-    if scaled % divisor != 0 {
-        return Err(error("interval duration is below nanosecond precision"));
-    }
-    whole
-        .checked_mul(factor)
-        .and_then(|v| v.checked_add(scaled / divisor))
-        .ok_or_else(|| error("interval duration overflow"))
+    ti_contracts::parse_interval_duration_nanoseconds(s).map_err(crate::core_error)
 }
 
 #[derive(Debug)]

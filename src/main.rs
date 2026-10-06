@@ -56,7 +56,12 @@ fn main() {
                 let index = lume::ti_text::LumeText::open(root, store.catalog().clone(), width)?;
                 Ok(std::sync::Arc::new(index) as std::sync::Arc<dyn ti_contracts::DocumentIndex>)
             };
-            if let Err(e) = ti_sql::run_cli_with(&args[2..], Some(&documents)) {
+            let result = if args.get(2).is_some_and(|name| name == "rules") {
+                lume::ti_rules::run_cli(&args[3..])
+            } else {
+                ti_sql::run_cli_with(&args[2..], Some(&documents))
+            };
+            if let Err(e) = result {
                 eprintln!("Error: {e}");
                 std::process::exit(1);
             }

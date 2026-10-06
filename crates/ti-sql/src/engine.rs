@@ -476,8 +476,12 @@ impl TiEngine {
         for s in &self.skipped_stores {
             unavailable.push(format!("store '{s}': catalog directory absent"));
         }
+        let alerts = crate::rules::alert_status(&self.root)?;
         Ok(
             json!({"store": self.root, "width_seconds": self.session.catalog.width_seconds,
+            "documents": alerts["document_count"], "alerts": alerts["alert_count"],
+            "active_alert_count": alerts["active_alert_count"], "active_alerts": alerts["active_alerts"],
+            "active_alerts_truncated": alerts["active_alerts_truncated"],
             "wal_bytes": wal_bytes, "shards": {"open": shards.len() - sealed, "sealed": sealed},
             "ingest_lag_seconds": null, "vessels": vessels, "units": self.units(),
             "skipped_stores": self.skipped_stores,

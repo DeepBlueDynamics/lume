@@ -163,22 +163,24 @@ pub struct TelemetryExec {
     report_id: usize,
 }
 impl TelemetryExec {
-    pub(crate) fn selected_bitmap(&self, key: ShardKey) -> Result<RoaringBitmap> {
+    fn evaluate_bitmap(&self, key: ShardKey) -> Result<(RoaringBitmap, Vec<u64>)> {
         let mut cols = self.source.eval(key, &Predicate::All).map_err(core_error)?;
         let mut counts = vec![cols.len()];
         for p in &self.predicates {
-            cols &= self
-                .source
-                .eval(key, &p.for_shard(key))
-                .map_err(core_error)?;
+            cols &= self.source.eval(key, &p.for_shard(key)).map_err(core_error)?;
             counts.push(cols.len());
         }
-        self.reports
-            .lock()
+        Ok((cols, counts))
+    }
+    /// Evaluate rules without accumulating a diagnostic row per closed bucket.
+    pub(crate) fn rule_bitmap(&self, key: ShardKey) -> Result<RoaringBitmap> {
+        Ok(self.evaluate_bitmap(key)?.0)
+    }
+    pub(crate) fn selected_bitmap(&self, key: ShardKey) -> Result<RoaringBitmap> {
+        let (cols, counts) = self.evaluate_bitmap(key)?;
+        self.reports.lock()
             .map_err(|_| DataFusionError::Execution("scan report lock poisoned".into()))?
-            [self.report_id]
-            .steps
-            .push((key, counts));
+            [self.report_id].steps.push((key, counts));
         Ok(cols)
     }
 }
