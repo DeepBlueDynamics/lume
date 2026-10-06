@@ -11,25 +11,25 @@ A column-mapped Parquet reader that produces `RawDataPoint`s. Also the mapping c
 
 ## Tasks
 
-- [ ] **Mapping config** (`[[sources.parquet]]` in `ti.toml`, and the same as CLI flags):
+- [x] **Mapping config** (`[[sources.parquet]]` in `ti.toml`, and the same as CLI flags):
   - `files`: a glob;
   - `entity`: a column name, or a constant for single-entity files;
   - `time`: a column, plus its unit (`s`, `ms`, `us`, `ns`, or RFC 3339 text) and timezone;
   - `format`: `long` (`metric` and `value` columns) or `wide` (every other numeric, boolean or string column is a metric, and `exclude` drops columns);
   - optional `source` column;
   - optional `prefix` prepended to metric names (`robot.`).
-- [ ] **Reader:** a streaming arrow-rs reader using the projection from the mapping. Timestamp, Date and integer-epoch time columns are supported. Rows with a null entity or time are counted and skipped, never guessed. It reuses the existing 50k-record apply chunking and the 256-file flush cadence.
-- [ ] **Classification:**
+- [x] **Reader:** a streaming arrow-rs reader using the projection from the mapping. Timestamp, Date and integer-epoch time columns are supported. Rows with a null entity or time are counted and skipped, never guessed. It reuses the existing 50k-record apply chunking and the 256-file flush cadence.
+- [x] **Classification:**
   - numeric columns map to BSI;
   - string, boolean and dictionary columns map to single-valued set fields, which keeps the D21 rule.
   - A per-metric scale and unit come from a `[units]` table (`"*.current" = { unit = "A", scale = 2 }`). Without one, the scale falls back to 3 and the miss is logged, as for unknown Signal K paths.
-- [ ] **Identity (contract change, needs a decisions-log entry):**
+- [x] **Identity (contract change, needs a decisions-log entry):**
   - generalize `vessels.urn:` to an entity URN rule, so a URN may start with any `<kind>.urn:` prefix (`vessels.`, `robots.`, `devices.`).
   - Signal K behaviour stays byte-identical, and existing seal hashes must not change.
   - The SQL column stays `vessel` for compatibility, with an `entity` alias.
-- [ ] **CLI:** `lume ti backfill --parquet "<glob>" --entity <col> --time <col> (--metric <col> --value <col> | --wide) [--units units.toml] --store <root>`. The existing `backfill_store` example becomes a thin wrapper over the same entry point.
-- [ ] **Documents beside non-Signal K data:** `lume ti import-docs` takes the same mapping (entity, time-start column, optional time-end column, kind, title and body columns). An operator log or incident table then lands in `docs` and works with `match()`.
-- [ ] **Golden corpus for generic Parquet:** generate a wide-format robot-fleet dataset (`ti-bench gen --profile robots`: 3 robots, 2 days, battery, motor current, mode and fault states, pose). Copy 10 to 15 of the existing golden queries over to it, with DuckDB oracles reading the same Parquet directly. Verify with `lume ti verify`.
+- [x] **CLI:** `lume ti backfill --parquet "<glob>" --entity <col> --time <col> (--metric <col> --value <col> | --wide) [--units units.toml] --store <root>`. The existing `backfill_store` example becomes a thin wrapper over the same entry point.
+- [x] **Documents beside non-Signal K data:** `lume ti import-docs` takes the same mapping (entity, time-start column, optional time-end column, kind, title and body columns). An operator log or incident table then lands in `docs` and works with `match()`.
+- [x] **Golden corpus for generic Parquet:** generate a wide-format robot-fleet dataset (`ti-bench gen --profile robots`: 3 robots, 2 days, battery, motor current, mode and fault states, pose). Copy 10 to 15 of the existing golden queries over to it, with DuckDB oracles reading the same Parquet directly. Verify with `lume ti verify`.
 
 ## Acceptance
 
@@ -47,3 +47,9 @@ A column-mapped Parquet reader that produces `RawDataPoint`s. Also the mapping c
 
 - **Wide files with hundreds of columns:** should there be a column allow-list by default, so a 2,000-column historian export doesn't create 2,000 × 3 bitmap fields?
 - **Multiple values for the same (entity, metric, time):** keep last-by-file-order, or use a `source` column to pick the preferred source as Signal K does?
+
+## Verification status
+
+Local: long/wide reader and CLI fixtures pass; mapped documents are idempotent; the mixed boat/robot store verifies 14/0/0, including `match()` and document joins. Root `cargo test --features ti` passes (70 tests, two ignored host gates). The 121-file bounded-window test covers exact late mean/count rewrites, all three caps, scratch cleanup, and roughly flat Linux RSS. Generator regeneration is byte-identical.
+
+Host acceptance still required: `tests/golden/robots/oracle.py` must independently check all 14 nonempty DuckDB results; the full Signal K fleet re-backfill must retain identical seal hashes and corpus 58/0/4; strict fmt/clippy checks are run by the lead. These pending gates are not covered by the checked implementation boxes above.

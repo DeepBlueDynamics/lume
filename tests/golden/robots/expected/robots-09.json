@@ -1,0 +1,14 @@
+[
+  {
+    "entity": "robots.urn:robot:1",
+    "x": 59.9
+  },
+  {
+    "entity": "robots.urn:robot:2",
+    "x": 159.9
+  },
+  {
+    "entity": "robots.urn:robot:3",
+    "x": 259.9
+  }
+]

@@ -15,6 +15,8 @@ pub mod derived;
 pub mod docs;
 pub mod influx;
 pub mod mapped_parquet;
+pub mod mapped_docs;
+pub mod backfill;
 pub mod normalize;
 pub mod notifications;
 pub mod parquet;
