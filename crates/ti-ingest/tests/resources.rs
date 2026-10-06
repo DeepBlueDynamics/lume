@@ -216,3 +216,32 @@ fn worker_fetches_without_touching_document_store() {
         .unwrap();
     assert_eq!(snapshot.kind, "notes");
 }
+
+#[test]
+fn optional_missing_sources_are_throttled_and_working_notes_keep_polling() {
+    let server = MockSignalK::new();
+    let client = ResourceClient::new(&server.url, None).unwrap();
+    for status in [404, 401] {
+        *server.logbook.lock().unwrap() = (status, json!({}));
+        for _ in 0..3 {
+            assert!(client.logbook().unwrap().is_none());
+            assert!(client.notes().unwrap().is_some());
+        }
+    }
+    assert_eq!(
+        client.take_notices(),
+        vec!["Signal K document source not present: logbook"]
+    );
+    *server.notes.lock().unwrap() = (401, json!({}));
+    assert!(client.notes().unwrap().is_none());
+    assert_eq!(
+        client.take_notices(),
+        vec!["Signal K document source not present: notes"]
+    );
+    let authenticated = ResourceClient::new(&server.url, Some("test-token".into())).unwrap();
+    assert!(authenticated.notes().is_err());
+    assert!(authenticated.take_notices().is_empty());
+    *server.notes.lock().unwrap() = (200, json!({"new":{"text":"still polling"}}));
+    assert_eq!(client.notes().unwrap().unwrap().entries.len(), 1);
+    assert!(client.take_notices().is_empty());
+}

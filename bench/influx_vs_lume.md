@@ -104,15 +104,31 @@ FIDELITY is separate from PASS and MISMATCH, and requires bounded evidence:
   are classified FIDELITY.
 - Q3, and matched Q4 rows' speed: mean differences exceeding normal tolerance
   but within --fidelity-rel (default 0.01, 1% of the larger magnitude) qualify.
-  Predicate membership/timestamp sets and Q4 minimum depth remain strict.
+  For unmatched Q4 minutes, untimed per-minute probes fetch both engines'
+  unfiltered speed/depth. A flipped predicate qualifies as "threshold edge"
+  only if both measurements are within --fidelity-rel * abs(X or Y) of
+  the crossed threshold, the other metric agrees, and every shared row matches
+  under its normal rules. Missing evidence or any unrelated discrepancy remains
+  MISMATCH. Zero thresholds have a zero-width fidelity band.
 - Q5: min-sample offset must be nonnegative, strictly less than bucket width,
   and in the exact same bucket. Minimum depth and both coordinates remain
   strict. --time-tol cannot excuse a minimum in a different bucket.
 - Q6: each shared path's Influx distinct bucket count must equal Lume exactly,
   with raw count >= bucket count. Only then may the raw-vs-bucket count
-  difference qualify. Missing paths/unmatched bucket counts remain MISMATCH.
+  difference qualify. Unmatched bucket counts remain MISMATCH. Differing
+  paths are classified from an untimed Influx field-value/type probe and the
+  Lume schema: wholly nonnumeric values missing from the numeric schema, or
+  JSON objects/arrays represented by verified numeric leaf columns (arrays'
+  .count), qualify as FIDELITY. Mixed numeric/nonnumeric types, absent leaf
+  evidence, and any unexplained difference remain MISMATCH. JSON retains each
+  classification, measurement, observed types, verified leaves and sample count.
+  Probes inspect every returned value in the window, retain typed CSV tables,
+  and are restricted to differing paths and their possible parent measurements.
+  HTTP response caps/timeouts apply; failed evidence never grants FIDELITY.
 
-Q2 maximum and Q5/Q4 minimum values never use the mean-fidelity allowance.
+Q2 maximum and Q5 minimum values never use the mean-fidelity allowance.
+Q4 matched-row minimum values stay strict; the explicit threshold-edge rule
+is the only allowance for a minimum that changes predicate membership.
 PASS still requires ordinary numeric tolerance (fixed-point quantization);
 bucket counts are exact. Fidelity is not proof of raw-sample equivalence.
 JSON reports max_observed_difference per run and the maxima across all runs
@@ -134,6 +150,8 @@ at complete output-bin boundaries, and the original partial answer is discarded.
 Counts are partitioned into batches of 100 paths. Unsplittable truncated bins
 or count batches are ERROR; partial rows never masquerade as a complete answer.
 JSON includes each run's HTTP request count, so transport overhead stays visible.
+Evidence probes are outside timed query samples and report diagnostic_ms per check;
+they can warm later runs, like discovery, and do not claim a cache-evicted comparison.
 Timeout defaults to 60 seconds **per HTTP request**, configurable with `--timeout`.
 
 Stdout contains a Markdown comparison table followed by a fenced JSON document.
@@ -168,11 +186,11 @@ ports. They cover all six pairs and headers, common-window discovery, explicit
 windows, every warm-run check, Markdown/JSON output, mismatch/error/token
 redaction, repeated annotated CSV tables, numeric/null/count/time checks
 including nanoseconds, safe quoting and full-bin truncation splitting.
-The 15-test suite includes the five reported Pi regressions and latest-full-hour
+The 19-test suite includes the five reported Pi regressions and latest-full-hour
 selection. It verifies client transport and generated query mappings; they do not execute
-Flux in a real Influx server. The lead reported a real Influx 2.9.1/Pi run of the previous revision and its
-alignment/position failures. This corrected revision still needs that real
-Flux/Pi replay; local mocks do not prove server execution or performance.
+Flux in a real Influx server. The lead reported the preceding revision passing Q2 on real Influx 2.9.1/Pi,
+with bounded Q3/Q5 fidelity and threshold/path differences. These new evidence
+probes still need that real Flux/Pi replay; local mocks do not prove server execution or performance.
 
 Primary references checked for the query/API mapping:
 [Influx query API](https://docs.influxdata.com/influxdb/v2/api/query/),

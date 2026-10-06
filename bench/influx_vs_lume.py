@@ -359,7 +359,8 @@ def compare(left, right, absolute, relative, time_tolerance=0):
             "differences": differences}
 
 
-def assess(item, left, right, args):
+def assess(item, left, right, args, evidence=None):
+    evidence = evidence or {}
     """FIDELITY requires an explicit, query-specific invariant; no blanket pardon."""
     observations = {"row_count_difference": abs(len(left) - len(right))}
     def metric(key, value):
@@ -414,8 +415,12 @@ def assess(item, left, right, args):
         b = {r["path"]: r for r in right}
         paths = {"influx_only": sorted(a.keys() - b.keys()), "lume_only": sorted(b.keys() - a.keys()),
                  "symmetric_difference": sorted(a.keys() ^ b.keys())}
-        if paths["symmetric_difference"]:
-            differences.append("Path sets differ: " + repr(paths))
+        for path in paths["symmetric_difference"]:
+            classification = evidence.get(path, {"reason": "unexplained"})
+            if classification["reason"] == "unexplained":
+                differences.append(path + ": unexplained path difference")
+            else:
+                fidelity.append(path + ": " + classification["reason"])
         bucket_checks = {}
         for key in sorted(a.keys() & b.keys()):
             raw, retained = a[key]["count"], b[key]["count"]
@@ -432,7 +437,45 @@ def assess(item, left, right, args):
             else:
                 differences.append(key + ": raw=" + str(raw) + ", buckets=" + str(bucket_count) + ", Lume=" + str(retained))
         strict = {"status": "MISMATCH" if differences else ("PASS" if left or right else "EMPTY"),
-                  "differences": differences[:20], "path_sets": paths, "strict_bucket_checks": bucket_checks}
+                  "differences": differences[:20], "path_sets": paths, "path_classifications": evidence, "strict_bucket_checks": bucket_checks}
+    elif qid == 4 and {r["time"] for r in left} != {r["time"] for r in right}:
+        a, b = ({r["time"]: r for r in rows} for rows in (left, right))
+        common = sorted(a.keys() & b.keys())
+        checked = assess(item, [a[t] for t in common], [b[t] for t in common], args)
+        failures = checked["differences"][:]
+        edges = []
+        for at in sorted(a.keys() ^ b.keys()):
+            probe = evidence.get(at, {})
+            xrows, yrows = probe.get("influx", []), probe.get("lume", [])
+            if len(xrows) != 1 or len(yrows) != 1 or xrows[0]["time"] != at or yrows[0]["time"] != at:
+                failures.append(at + ": missing threshold evidence")
+                continue
+            x, y = xrows[0], yrows[0]
+            def selected(row):
+                return row["speed"] > args.sog_gt and row["depth"] < args.depth_lt
+            valid = selected(x) == (at in a) and selected(y) == (at in b)
+            for key, threshold, predicate in (
+                    ("speed", args.sog_gt, lambda v: v > args.sog_gt),
+                    ("depth", args.depth_lt, lambda v: v < args.depth_lt)):
+                xv, yv = x[key], y[key]
+                if not all(isinstance(v, (int, float)) and math.isfinite(v) for v in (xv, yv)):
+                    valid = False
+                    continue
+                metric(key + "_absolute", abs(xv - yv))
+                if predicate(xv) != predicate(yv):
+                    offsets = [abs(v - threshold) for v in (xv, yv)]
+                    metric(key + "_threshold_relative", max(offsets) / max(abs(threshold), 1e-300))
+                    valid = valid and all(offset <= abs(threshold) * args.fidelity_rel for offset in offsets)
+                else:
+                    valid = valid and math.isclose(xv, yv, abs_tol=args.abs_tol,
+                                                  rel_tol=args.fidelity_rel if key == "speed" else args.rel_tol)
+            if valid:
+                edges.append(at + ": threshold edge")
+            else:
+                failures.append(at + ": threshold difference exceeds fidelity bound or other metric differs")
+        strict = {"status": "MISMATCH" if failures else "PASS", "differences": failures[:20],
+                  "threshold_evidence": evidence}
+        fidelity.extend(checked.get("fidelity", []) + edges)
     elif qid in (3, 4, 5) and len(left) == len(right):
         allowed = []
         for a, b in zip(left, right):
@@ -458,6 +501,75 @@ def assess(item, left, right, args):
     if strict["status"] == "PASS" and fidelity:
         strict["status"] = "FIDELITY"
     return {**strict, "fidelity": sorted(set(fidelity)), "max_observed_difference": observations}
+
+
+
+def diagnostics(client, item, left, right, args, start, stop, names, mapping, bucket, context, influx_context):
+    """Untimed evidence probes, only when native result membership differs."""
+    evidence = {}
+    if item["id"] == 4:
+        times = {r["time"] for r in left} ^ {r["time"] for r in right}
+        for at in sorted(times):
+            lo = max(start, timestamp(at))
+            hi = min(stop, timestamp(at) + dt.timedelta(minutes=1))
+            probe = plans(args, lo, hi, names, mapping, bucket, context, influx_context)[3]
+            sql = re.sub(r" HAVING .* ORDER BY 1$", " ORDER BY 1", probe["sql"])
+            flux = re.sub(r"  \|> filter\(fn: \(r\) => r\._value_s > [^\n]+\)\n", "", probe["flux"])
+            reply = client.lume(sql)
+            if reply["truncated"]:
+                raise BenchError("Threshold diagnostic truncated")
+            evidence[at] = {
+                "influx": canonical(client.influx(flux), item["columns"], True),
+                "lume": canonical(reply["rows"], item["columns"]),
+            }
+    elif item["id"] == 6:
+        differing = {r["path"] for r in left} ^ {r["path"] for r in right}
+        if differing:
+            # Preserve separate typed Flux tables. Probe every value, rather than
+            # letting a last sample conceal numeric/string type changes.
+            candidates = {path.rsplit(".", n)[0] for path in differing
+                          for n in range(path.count(".") + 1)}
+            measurement_filter = " or ".join("r._measurement == " + flux_string(path) for path in sorted(candidates))
+            flux = (flux_base(bucket, influx_context, start, stop) +
+                    "\n  |> filter(fn: (r) => " + measurement_filter + ")" +
+                    '\n  |> filter(fn: (r) => r._field == "value")'
+                    '\n  |> keep(columns: ["_measurement", "_field", "_value"])')
+            samples = client.influx(flux)
+            for path in sorted(differing):
+                parent = next((p for p in sorted({r.get("_measurement", "") for r in samples}, key=len, reverse=True)
+                               if path == p or path.startswith(p + ".")), None)
+                values = [r.get("_value") for r in samples if r.get("_measurement") == parent]
+                numeric = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+                objects = []
+                for value in values:
+                    try:
+                        parsed = json.loads(value) if isinstance(value, str) else value
+                    except (ValueError, TypeError):
+                        parsed = None
+                    objects.append(parsed if isinstance(parsed, (dict, list)) else None)
+                leaves = set()
+                def walk(value, prefix):
+                    if isinstance(value, dict):
+                        for key, child in value.items():
+                            walk(child, prefix + "." + key)
+                    elif isinstance(value, list):
+                        leaves.add(prefix + ".count")
+                    elif numeric(value):
+                        leaves.add(prefix)
+                for value in objects:
+                    if value is not None:
+                        walk(value, parent)
+                schema_leaves = sorted(p for p in mapping if p in leaves)
+                reason = None
+                if values and all(v is not None for v in objects) and schema_leaves:
+                    if path == parent or path in schema_leaves:
+                        reason = "object split into leaves"
+                elif path == parent and values and all(v is not None and not numeric(v) for v in values) and path not in mapping:
+                    reason = "non-numeric value"
+                evidence[path] = {"reason": reason or "unexplained", "measurement": parent,
+                                  "field_types": sorted({type(v).__name__ for v in values}),
+                                  "schema_leaves": schema_leaves, "samples_checked": len(values)}
+    return evidence
 
 
 def percentile(values, fraction):
@@ -551,8 +663,18 @@ def benchmark(client, args, start, stop, names, mapping, bucket, context, influx
                 except (BenchError, ValueError, KeyError, TypeError) as error:
                     run = {"ms": (time.perf_counter() - begin) * 1000, "rows": None, "error": client.redact(error)}
                 runs[engine].append(run)
-            checks.append(assess(item, answers["influx"], answers["lume"], args)
-                          if len(answers) == 2 else {"status": "ERROR", "differences": ["Backend error; value check not possible"]})
+            if len(answers) == 2:
+                begin = time.perf_counter()
+                try:
+                    evidence = diagnostics(client, item, answers["influx"], answers["lume"], args,
+                                           start, stop, names, mapping, bucket, context, influx_context)
+                    checked = assess(item, answers["influx"], answers["lume"], args, evidence)
+                    checked["diagnostic_ms"] = (time.perf_counter() - begin) * 1000
+                except (BenchError, ValueError, KeyError, TypeError) as error:
+                    checked = {"status": "MISMATCH", "differences": ["Evidence probe failed: " + client.redact(error)]}
+                checks.append(checked)
+            else:
+                checks.append({"status": "ERROR", "differences": ["Backend error; value check not possible"]})
         summaries = {}
         for engine, samples in runs.items():
             warm = [r["ms"] for r in samples[1:] if "error" not in r]
@@ -651,7 +773,7 @@ def main(argv=None, env=None):
                                 "counts": "native raw points plus strict distinct-bucket counts versus retained populated buckets; all observed paths reported",
                                 "position": "Influx minimum sample time with nearest paired lat/lon inside its bucket; Lume retained minimum bucket and bucket position",
                                 "mean": "Influx raw sample mean versus Lume mean of populated bucket means",
-                                "timing": "first request is cold-first, not cache-evicted; timed response decode + Lume pagination; discovery excluded"},
+                                "timing": "first request is cold-first, not cache-evicted; timed response decode + Lume pagination; discovery and separately reported evidence probes excluded"},
                   "queries": benchmark(client, args, start, stop, names, mapping, bucket, context, influx_context)}
         print(client.redact("| Query | Influx cold / p50 / p95 ms | Lume cold / p50 / p95 ms | Rows I / L (first) | Check |\n|---|---:|---:|---:|---|"))
         def timings(summary):
