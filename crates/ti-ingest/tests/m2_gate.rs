@@ -536,7 +536,12 @@ fn test_m2_oracle_replay_24h() {
             }
             FieldKind::Geo { .. } => {
                 if let Some(f) = find_field(&path, None) {
-                    oracle_expectations.insert((b_ix, f.id), FieldValue::Cells(vec![0]));
+                    let cells: std::collections::BTreeSet<_> = samples.iter()
+                        .filter_map(|(_, _, value)| match value {
+                            NormalizedValue::Geo { lat, lon } => Some(ti_geo::cells_for(*lat, *lon).unwrap()),
+                            _ => None,
+                        }).flatten().collect();
+                    oracle_expectations.insert((b_ix, f.id), FieldValue::Cells(cells.into_iter().collect()));
                 }
             }
         }

@@ -124,7 +124,7 @@ impl WatermarkBucketer {
                 ts,
                 &kind,
                 config,
-            );
+            )?;
             for event in derived_events {
                 populate_derived_event(&mut late_window, event, source);
             }
@@ -135,7 +135,7 @@ impl WatermarkBucketer {
         } else {
             // Open bucket
             let window = self.open_buckets.entry((vessel, bucket_ix)).or_default();
-            populate_window(window, &eff_path, &value, source, ts, &kind, config);
+            populate_window(window, &eff_path, &value, source, ts, &kind, config)?;
             for event in derived_events {
                 populate_derived_event(window, event, source);
             }
@@ -224,7 +224,7 @@ fn populate_window(
     ts: i64,
     kind: &ti_contracts::FieldKind,
     config: &TiConfig,
-) {
+) -> Result<()> {
     match value {
         NormalizedValue::Double(d) => {
             let scale = match kind {
@@ -242,12 +242,14 @@ fn populate_window(
             let prio = source_priority(path, source, config);
             window.add_set(path, s, prio, source, ts);
         }
-        NormalizedValue::Geo { lat: _, lon: _ } => {
-            // Ingest cell 0 stub until W6
-            window.add_geo_cell(path, 0, source);
+        NormalizedValue::Geo { lat, lon } => {
+            for cell in ti_geo::cells_for(*lat, *lon)? {
+                window.add_geo_cell(path, cell, source);
+            }
         }
         NormalizedValue::Null => {}
     }
+    Ok(())
 }
 
 fn populate_derived_event(window: &mut BucketWindow, event: DerivedEvent, source: &str) {

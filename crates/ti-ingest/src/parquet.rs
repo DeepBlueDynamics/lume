@@ -328,8 +328,10 @@ pub fn backfill_parquet_file(
                         .unwrap_or(0);
                     window.add_set(&eff_path, s, prio, &p.source, p.timestamp);
                 }
-                NormalizedValue::Geo { lat: _, lon: _ } => {
-                    window.add_geo_cell(&eff_path, 0, &p.source);
+                NormalizedValue::Geo { lat, lon } => {
+                    for cell in ti_geo::cells_for(lat, lon)? {
+                        window.add_geo_cell(&eff_path, cell, &p.source);
+                    }
                 }
                 NormalizedValue::Null => {}
             }

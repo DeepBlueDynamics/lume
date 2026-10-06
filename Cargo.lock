@@ -2901,6 +2901,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "ti-contracts",
+ "ti-geo",
  "ti-store",
  "tungstenite",
 ]
