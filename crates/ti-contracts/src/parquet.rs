@@ -5,8 +5,19 @@ use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
-pub struct SourcesConfig {
-    pub parquet: Vec<ParquetMapping>,
+pub struct SourcesConfig { pub parquet: Vec<ParquetMapping>, pub backfill: BackfillLimits }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct BackfillLimits {
+    pub lateness_seconds: u64,
+    pub max_active_bytes: u64,
+    pub max_index_entries: usize,
+    pub max_journal_bytes: u64,
+}
+impl Default for BackfillLimits {
+    fn default() -> Self { Self { lateness_seconds: 3600, max_active_bytes: 128 * 1024 * 1024,
+        max_index_entries: 2_000_000, max_journal_bytes: 4 * 1024 * 1024 * 1024 } }
 }
 
 /// A string means a column; { constant = 'robots.urn:...' } names one fixed entity.

@@ -375,9 +375,9 @@ impl DiskCatalog {
 
 impl Catalog for DiskCatalog {
     fn register_vessel(&self, vessel: &VesselSpec) -> Result<VesselOrd> {
-        if !vessel.urn.starts_with("vessels.urn:") {
+        if ti_contracts::validate_entity_urn(&vessel.urn).is_err() {
             return Err(Error::InvalidInput(
-                "vessel.urn must be a canonical Signal K URN".into(),
+                "vessel.urn must be a canonical entity URN".into(),
             ));
         }
 

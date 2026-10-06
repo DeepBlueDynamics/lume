@@ -287,7 +287,7 @@ impl PushdownClassifier {
                 let Some(name) = column(child) else {
                     return Ok(unsupported("null test is not a column"));
                 };
-                let p = if name == "vessel" || name == "ts" {
+                let p = if matches!(name, "vessel" | "entity") || name == "ts" {
                     Predicate::All
                 } else if let Some(f) = self.catalog.field(name) {
                     Predicate::Present(f.id)
@@ -393,7 +393,7 @@ impl PushdownClassifier {
             }
             Expr::ScalarFunction(f) if f.name() == "ti_match" => {
                 if f.args.len() != 4
-                    || column(&f.args[0]) != Some("vessel")
+                    || !matches!(column(&f.args[0]), Some("vessel" | "entity"))
                     || column(&f.args[1]) != Some("ts")
                 {
                     return Ok(unsupported("ti_match row identity"));
@@ -537,7 +537,7 @@ impl PushdownClassifier {
         if value.is_null() {
             return unsupported("null literal preserves SQL UNKNOWN in DataFusion");
         }
-        if name == "vessel" {
+        if matches!(name, "vessel" | "entity") {
             let Some(value) = string(value) else {
                 return unsupported("vessel requires string literal");
             };
