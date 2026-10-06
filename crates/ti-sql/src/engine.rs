@@ -26,6 +26,7 @@ pub const MAX_BYTES: usize = 64 * 1024;
 pub struct TiEngine {
     pub session: SqlSession,
     root: PathBuf,
+    skipped_stores: Vec<String>,
 }
 fn invalid(message: impl Into<String>) -> DataFusionError {
     DataFusionError::Plan(message.into())
@@ -113,42 +114,54 @@ impl TiEngine {
             None => crate::open_store(root, width).await?,
         };
         let config_path = root.join("ti.toml");
+        let mut skipped_stores = Vec::new();
         if config_path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&config_path) {
-                if let Ok(cfg) = ti_contracts::TiConfig::from_toml(&content) {
-                    for (name, store_cfg) in &cfg.stores {
-                        if name == "default" {
-                            continue;
-                        }
-                        let store_dir = if let Some(r) = &store_cfg.root {
-                            PathBuf::from(r)
-                        } else {
-                            root.join("stores").join(name)
-                        };
-                        if store_dir.join("catalog").is_dir() {
-                            let width = store_cfg.width_seconds().unwrap_or(1);
-                            if let Ok(store) = ti_store::Store::open_or_create(&store_dir, width) {
-                                let table_name = crate::table_name_for_store(name);
-                                if let Ok(catalog) = crate::build_sql_catalog(&store, width) {
-                                    let _ = session.register_store_table(
-                                        &table_name,
-                                        Arc::new(store),
-                                        catalog,
-                                    );
-                                }
-                            }
-                        }
-                    }
+            let content = std::fs::read_to_string(&config_path)?;
+            let cfg = ti_contracts::TiConfig::from_toml(&content).map_err(core_error)?;
+            for (name, store_cfg) in &cfg.stores {
+                if name == "default" {
+                    continue;
                 }
+                let store_dir = if let Some(r) = &store_cfg.root {
+                    PathBuf::from(r)
+                } else {
+                    root.join("stores").join(name)
+                };
+                if !store_dir.join("catalog").is_dir() {
+                    skipped_stores.push(name.clone());
+                    continue;
+                }
+                let width = store_cfg.width_seconds().map_err(|e| {
+                    invalid(format!(
+                        "configured store '{name}' has invalid width '{}': {e}",
+                        store_cfg.width
+                    ))
+                })?;
+                let store = ti_store::Store::open_or_create(&store_dir, width)
+                    .map_err(|e| invalid(format!("failed to open store '{name}': {e}")))?;
+                let table_name = crate::table_name_for_store(name);
+                let catalog = crate::build_sql_catalog(&store, width).map_err(|e| {
+                    invalid(format!("failed to build catalog for store '{name}': {e}"))
+                })?;
+                session
+                    .register_store_table(&table_name, Arc::new(store), catalog)
+                    .map_err(|e| {
+                        invalid(format!("failed to register table for store '{name}': {e}"))
+                    })?;
             }
         }
         Ok(Self {
             session,
             root: root.into(),
+            skipped_stores,
         })
     }
     pub fn from_session(session: SqlSession, root: PathBuf) -> Self {
-        Self { session, root }
+        Self {
+            session,
+            root,
+            skipped_stores: Vec::new(),
+        }
     }
     pub fn units(&self) -> BTreeMap<String, Option<String>> {
         let mut u: BTreeMap<String, Option<String>> = self
@@ -456,11 +469,19 @@ impl TiEngine {
             .values()
             .map(|v| json!({"vessel": v.urn, "last_seen": v.last_seen, "last_sync": null}))
             .collect();
+        let mut unavailable = vec![
+            "ingest_lag_seconds: no ingest supervisor attached".to_string(),
+            "last_sync: sync is not implemented".to_string(),
+        ];
+        for s in &self.skipped_stores {
+            unavailable.push(format!("store '{s}': catalog directory absent"));
+        }
         Ok(
             json!({"store": self.root, "width_seconds": self.session.catalog.width_seconds,
             "wal_bytes": wal_bytes, "shards": {"open": shards.len() - sealed, "sealed": sealed},
             "ingest_lag_seconds": null, "vessels": vessels, "units": self.units(),
-            "unavailable": ["ingest_lag_seconds: no ingest supervisor attached", "last_sync: sync is not implemented"]}),
+            "skipped_stores": self.skipped_stores,
+            "unavailable": unavailable}),
         )
     }
 }
