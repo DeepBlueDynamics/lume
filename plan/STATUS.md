@@ -230,7 +230,7 @@ Week numbers count from kickoff. A milestone closes only when every gate test pa
 | M3 SQL and pushdown | W4 | 2–6 | **✅ Closed 2026-10-06** (`711d2c4`) |
 | M4 Text, geo, intervals | W4, W5, W6 | 6–8 | **All three items met on the host** (CI not run on this branch). Item 1: corpus 61/0/1 (`a264ed2`). Item 2: 72.4×. Item 3: CRoaring rejected (D40, `f38ecb4`) |
 | M5 Agent surface | W7 | 7–9 | **In progress. Items 1 and 2 passed** (`ti_resolve` 100/100; agent `glm-5.3` 17/20 with the harness standing in for nemesis8). Item 3: plugin, History API provider (the Pi's default) and plugin-managed SCRAM pgwire deployed on the Pi (token pending). Pi pg smoke 16/20 before pg-limits, rerun pending. Store-based installs, Pi 4 and OpenPlotter not done |
-| M6 Fleet and benchmarks | W8, integrator | 9–12 | **In progress.** Item 1 **passed** (`3024cb9`, mid-shard outage resume). Item 2 **passed** (50 vessels, 67.32 s release). Item 3: Influx-vs-Lume Pi benchmark run (50 min); report not written |
+| M6 Fleet and benchmarks | W8, integrator | 9–12 | **In progress.** Item 1 **passed** (`3024cb9`, mid-shard outage resume). Item 2 **passed** (50 vessels, 67.32 s release). Item 3: [benchmark report](bench/benchmark-report.md) written; D48 proposed (GO for the single-boat pilot, NO-GO on shore scale and contention until they are measured), waiting on the user's approval. Item 3: Influx-vs-Lume Pi benchmark run (50 min); report not written |
 
 Also landed outside the original milestones: W9 generic Parquet (accepted), W10 alerts (accepted), the cruiser library (`lume crawl --list`, D43), the D44 plugin package, `lume chat`, the query cache and `IS DISTINCT FROM` pushdown. Remaining: M5 item 3, M6 item 3, and the Pi 5 deployment.
 
