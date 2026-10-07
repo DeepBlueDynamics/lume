@@ -167,7 +167,8 @@ fn test_m6_fleet_sync_fifty_vessels() {
     let n_vessels: usize = std::env::var("TI_FLEET_VESSELS")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(50);
+        // The 50-vessel gate runs in release (about 5 s); debug builds take ~20 s per vessel.
+        .unwrap_or(if cfg!(debug_assertions) { 5 } else { 50 });
     let seed = 42;
     let start = 1_772_323_200i64; // 2026-03-01 00:00:00 UTC
     let end = start + 600; // 10 minutes (short window per M6 spec)
