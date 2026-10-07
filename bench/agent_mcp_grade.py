@@ -66,20 +66,35 @@ def norm_time(value):
     return text[:19]
 
 
+def value_match(actual, expected, limit):
+    """Text and timestamps compare normalized; numbers within limit (0 = exact)."""
+    if actual is None or expected is None:
+        return actual is expected
+    if isinstance(expected, (int, float)) and not isinstance(expected, bool):
+        try:
+            return abs(float(actual) - float(expected)) <= limit + 1e-9
+        except (TypeError, ValueError):
+            return False
+    return norm_time(actual) == norm_time(expected) or str(actual) == str(expected)
+
+
 def row_match(actual, expected, grading):
-    exact = grading.get("exact", [])
+    """Match by value, not column name: the agent chooses its own aliases.
+
+    Each expected value must match a distinct value in the actual row; numeric columns
+    use their per-column tolerance, other columns compare exactly after normalization.
+    """
+    if not isinstance(actual, dict):
+        return False
     tol = grading.get("absolute", {})
-    for column in exact:
-        if column not in actual:
+    tol = tol if isinstance(tol, dict) else {}
+    available = list(actual.values())
+    for column, want in expected.items():
+        limit = tol.get(column, 0)
+        hit = next((i for i, v in enumerate(available) if value_match(v, want, limit)), None)
+        if hit is None:
             return False
-        a, e = actual[column], expected[column]
-        if norm_time(a) != norm_time(e) and str(a) != str(e):
-            return False
-    for column, limit in (tol.items() if isinstance(tol, dict) else []):
-        if column not in actual or actual[column] is None:
-            return False
-        if abs(float(actual[column]) - float(expected[column])) > limit:
-            return False
+        available.pop(hit)
     return True
 
 
