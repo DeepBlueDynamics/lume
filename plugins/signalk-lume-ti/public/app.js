@@ -301,6 +301,12 @@
   async function pollStatus() {
     try {
       const res = await fetch(`${apiBase}/api/status`);
+      const banner = document.getElementById('login-banner');
+      if (banner) banner.hidden = res.status !== 401;
+      if (res.status === 401) {
+        document.getElementById('supervisor-badge').textContent = 'Not logged in';
+        return;
+      }
       if (!res.ok) return;
       const data = await res.json();
 
