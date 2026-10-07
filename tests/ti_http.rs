@@ -551,3 +551,98 @@ fn ingest_serve_defaults_to_loopback() {
     let _ = child.wait();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn mcp_schema_guidance_and_recoverable_errors() {
+    let server = Server::start();
+    let call = |name: &str, args: Value| -> Value {
+        server
+            .post(
+                "/mcp",
+                json!({"jsonrpc":"2.0","id":1,"method":"tools/call",
+            "params":{"name":name,"arguments":args}}),
+                true,
+            )
+            .unwrap()
+            .into_json()
+            .unwrap()
+    };
+    let list: Value = server
+        .post(
+            "/mcp",
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/list"}),
+            true,
+        )
+        .unwrap()
+        .into_json()
+        .unwrap();
+    for name in ["ti_query", "ti_schema"] {
+        let tool = list["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap();
+        let text = tool["description"].as_str().unwrap();
+        assert!(text.contains("store bucket width: 10 s"));
+        assert!(text.len() <= 1200);
+    }
+    let mismatch = call(
+        "ti_query",
+        json!({"store":"","width_seconds":600,"sql":"SELECT 1"}),
+    );
+    assert_eq!(mismatch["result"]["isError"], true);
+    let text = mismatch["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(
+        text.contains("this store's width is 10 s; omit width_seconds"),
+        "{text}"
+    );
+    let missing = call(
+        "ti_query",
+        json!({"sql":"SELECT * FROM true_wind","type":"table"}),
+    );
+    let text = missing["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("available tables: telemetry, docs"), "{text}");
+    assert!(text.contains("Call ti_schema"));
+    assert!(text.contains("Ignored unknown argument type"));
+    for prefix in ["true_wind", "datafusion.public."] {
+        let reply = call("ti_schema", json!({"prefix":prefix,"type":"table"}));
+        assert_ne!(reply["result"]["isError"], true);
+        let schema: Value =
+            serde_json::from_str(reply["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert!(schema["hint"]
+            .as_str()
+            .unwrap()
+            .contains(&format!("no columns match prefix {prefix}")));
+        assert!(schema["tables"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|t| t["column_count"].as_u64().unwrap() > 0));
+        assert!(schema["notes"][0]
+            .as_str()
+            .unwrap()
+            .contains("Ignored type=table"));
+    }
+    let reply = call("ti_schema", json!({"table":"telemetry"}));
+    let schema: Value =
+        serde_json::from_str(reply["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert!(schema["tables"][0]["columns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|c| c["name"] == "navigation.speedOverGround@mean"
+            && c["units"] == "m/s"
+            && c["type"] == "Float64"));
+    let reply = call(
+        "ti_query",
+        json!({"sql":"SELECT 7 AS answer","unknown":"ignored"}),
+    );
+    let result: Value =
+        serde_json::from_str(reply["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(result["rows"][0]["answer"], 7);
+    assert!(result["notes"][0]
+        .as_str()
+        .unwrap()
+        .contains("Ignored unknown argument unknown"));
+}
