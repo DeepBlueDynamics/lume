@@ -125,10 +125,12 @@ impl TiEngine {
         };
         let config_path = root.join("ti.toml");
         let mut skipped_stores = Vec::new();
+        let mut lume_configured = false;
         if config_path.exists() {
             let content = std::fs::read_to_string(&config_path)?;
             let cfg = ti_contracts::TiConfig::from_toml(&content).map_err(core_error)?;
             for (name, store_cfg) in &cfg.stores {
+                lume_configured |= name == "lume";
                 if name == "default" {
                     continue;
                 }
@@ -159,6 +161,18 @@ impl TiEngine {
                         invalid(format!("failed to register table for store '{name}': {e}"))
                     })?;
             }
+        }
+        // Lume's own self-telemetry store, written by `lume ti ingest` without config.
+        let lume_dir = root.join("stores").join("lume");
+        let lume_table = crate::table_name_for_store("lume");
+        if lume_dir.join("catalog").is_dir() && !lume_configured {
+            let store = ti_store::Store::open_or_create(&lume_dir, 10)
+                .map_err(|e| invalid(format!("failed to open the self-telemetry store: {e}")))?;
+            let catalog = crate::build_sql_catalog(&store, 10)
+                .map_err(|e| invalid(format!("failed to build the self-telemetry catalog: {e}")))?;
+            session
+                .register_store_table(&lume_table, Arc::new(store), catalog)
+                .map_err(|e| invalid(format!("failed to register {lume_table}: {e}")))?;
         }
         Ok(Self {
             session,

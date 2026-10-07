@@ -1,28 +1,36 @@
-//! Lume's own operational metrics, ingested into the store it writes.
+//! Lume's own operational metrics, ingested into a store of their own.
 //!
 //! Every interval the live ingest service records its counters, lag, flush cost and
-//! process memory/CPU as the entity `lume.urn:host:<hostname>`, so the same SQL that
-//! answers fleet questions answers "how is Lume doing?":
+//! process memory/CPU as the entity `lume.urn:host:<hostname>` in
+//! `<store>/stores/lume`. The SQL engine serves that store as `telemetry_lume`, so
+//! `telemetry` holds only real vessels and the same SQL answers "how is Lume doing?":
 //!
 //! ```sql
 //! SELECT ts, "lume.ingest.valuesPerSecond@mean", "lume.process.rssBytes@max"
-//! FROM telemetry WHERE vessel LIKE 'lume.urn:%' ORDER BY ts DESC LIMIT 10
+//! FROM telemetry_lume ORDER BY ts DESC LIMIT 10
 //! ```
 //!
-//! Set `LUME_TI_SELF_TELEMETRY=0` (or `off`) to disable, or to a number of seconds to
-//! change the default 10 s interval.
+//! The store has its own bucketer and watermark, so wall-clock self samples never
+//! close the vessel data's buckets early. Set `LUME_TI_SELF_TELEMETRY=0` (or `off`)
+//! to disable, or to a number of seconds to change the default 10 s interval.
 
+use std::path::Path;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use ti_contracts::{Catalog, Result, ShardSink, TiConfig};
+use ti_store::Store;
+
 use crate::counters::SampleCounters;
+use crate::watermark::WatermarkBucketer;
+use crate::NormalizedValue;
+
+/// Self-telemetry store directory, relative to the default store root. The SQL
+/// engine registers it as `telemetry_lume`.
+pub const STORE_DIR: &str = "stores/lume";
 
 /// Source label on every self-telemetry sample.
 pub const SOURCE: &str = "lume.self";
-
-/// Self samples carry wall-clock time and share the event-time watermark, so they are
-/// only emitted while the incoming data is this close to the wall clock. Replaying old
-/// data must not have its buckets closed early by a "now" sample.
-pub const LIVE_WINDOW_SECONDS: i64 = 300;
 
 /// Counters the ingest service hands over for one sample.
 #[derive(Debug, Clone, Copy, Default)]
@@ -125,9 +133,51 @@ impl SelfTelemetry {
     }
 }
 
-/// True when the newest event time is within [`LIVE_WINDOW_SECONDS`] of `now_unix`.
-pub fn is_live(max_event_time: i64, now_unix: i64) -> bool {
-    max_event_time > ti_contracts::EPOCH && (now_unix - max_event_time).abs() <= LIVE_WINDOW_SECONDS
+/// The self-telemetry store with its own bucketer. Each record closes its bucket
+/// and flushes, since there is one sample per path per interval and nothing late.
+pub struct SelfStore {
+    store: Store,
+    catalog: Arc<dyn Catalog>,
+    bucketer: WatermarkBucketer,
+    config: TiConfig,
+}
+
+impl SelfStore {
+    pub fn open(default_root: &Path) -> Result<Self> {
+        let config = TiConfig::default();
+        let store = Store::open_or_create(&default_root.join(STORE_DIR), config.width_seconds)?;
+        let catalog: Arc<dyn Catalog> = store.catalog().clone();
+        let bucketer = WatermarkBucketer::new(&config);
+        Ok(Self {
+            store,
+            catalog,
+            bucketer,
+            config,
+        })
+    }
+
+    pub fn record(
+        &mut self,
+        context: &str,
+        ts: i64,
+        samples: &[(&'static str, f64)],
+    ) -> Result<()> {
+        for (path, value) in samples {
+            self.bucketer.ingest_point(
+                context,
+                path,
+                SOURCE,
+                ts,
+                NormalizedValue::Double(*value),
+                &self.config,
+                self.catalog.as_ref(),
+                &mut self.store,
+            )?;
+        }
+        self.bucketer
+            .flush_all(&self.config, self.catalog.as_ref(), &mut self.store)?;
+        self.store.flush()
+    }
 }
 
 fn hostname() -> String {
@@ -237,13 +287,5 @@ mod tests {
             .map(|(_, v)| *v)
             .unwrap();
         assert!((rate - 20_000.0).abs() < 1.0, "{rate}");
-    }
-
-    #[test]
-    fn only_live_data_admits_wall_clock_samples() {
-        let now = 1_791_380_000;
-        assert!(is_live(now - 2, now));
-        assert!(!is_live(now - 3_600, now), "replaying an hour-old stream");
-        assert!(!is_live(ti_contracts::EPOCH, now), "no data yet");
     }
 }

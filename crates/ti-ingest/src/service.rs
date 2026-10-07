@@ -366,7 +366,16 @@ impl IngestService {
         let mut last_wal_tick = self.now_timestamp();
         let mut last_flush = self.now_timestamp();
         let mut flush_cost = Duration::ZERO;
-        let mut self_telemetry = crate::self_telemetry::SelfTelemetry::from_env();
+        let mut self_telemetry =
+            crate::self_telemetry::SelfTelemetry::from_env().and_then(|telemetry| {
+                match crate::self_telemetry::SelfStore::open(Path::new(&default_root)) {
+                    Ok(store) => Some((telemetry, store)),
+                    Err(error) => {
+                        eprintln!("Lume self-telemetry disabled: {error}");
+                        None
+                    }
+                }
+            });
         let mut last_seal_check = self.now_timestamp();
         let mut last_retention_check = self.now_timestamp();
         let mut last_status_write = 0i64;
@@ -570,15 +579,10 @@ impl IngestService {
                             last_retention_check = now_sec;
                         }
 
-                        // 5. Lume's own metrics, recorded into its own store while data is live.
-                        if let Some(telemetry) = self_telemetry.as_mut() {
+                        // 5. Lume's own metrics, into their own store (`telemetry_lume`).
+                        if let Some((telemetry, store)) = self_telemetry.as_mut() {
                             let now = Instant::now();
-                            if telemetry.due(now)
-                                && crate::self_telemetry::is_live(
-                                    bucketer.max_event_time(),
-                                    now_sec,
-                                )
-                            {
+                            if telemetry.due(now) {
                                 let stats = crate::self_telemetry::SelfStats {
                                     records_ingested: self.records_ingested,
                                     reconnects: self.reconnects,
@@ -586,31 +590,11 @@ impl IngestService {
                                     last_flush: flush_cost,
                                     counters: bucketer.counters(),
                                 };
-                                let catalogs: BTreeMap<String, &dyn Catalog> = catalogs_arc
-                                    .iter()
-                                    .map(|(k, v)| (k.clone(), v.as_ref() as &dyn Catalog))
-                                    .collect();
-                                let mut sinks: BTreeMap<String, &mut dyn ShardSink> = store_set
-                                    .stores_mut()
-                                    .iter_mut()
-                                    .map(|(k, v)| (k.clone(), v as &mut dyn ShardSink))
-                                    .collect();
-                                for (path, value) in telemetry.sample(now, &stats) {
-                                    if bucketer
-                                        .ingest_point(
-                                            telemetry.context(),
-                                            path,
-                                            crate::self_telemetry::SOURCE,
-                                            now_sec,
-                                            &crate::NormalizedValue::Double(value),
-                                            &self.config,
-                                            &catalogs,
-                                            &mut sinks,
-                                        )
-                                        .is_ok()
-                                    {
-                                        self.records_since_flush += 1;
-                                    }
+                                let samples = telemetry.sample(now, &stats);
+                                if let Err(error) =
+                                    store.record(telemetry.context(), now_sec, &samples)
+                                {
+                                    eprintln!("Lume self-telemetry write failed: {error}");
                                 }
                             }
                         }
