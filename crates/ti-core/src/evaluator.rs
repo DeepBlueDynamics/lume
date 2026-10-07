@@ -391,7 +391,15 @@ impl MemoryShard {
         if op == AggOp::CountAll {
             return Ok(AggPartial::Count(cols.len()));
         }
-        let f = self.field(field)?;
+        // A shard that never recorded this path has no values for it (see ti-store).
+        let Some(f) = self.fields.get(&field) else {
+            return Ok(match op {
+                AggOp::CountAll | AggOp::Count => AggPartial::Count(0),
+                AggOp::Sum => AggPartial::Sum { sum: 0, count: 0 },
+                AggOp::Min => AggPartial::Min(None),
+                AggOp::Max => AggPartial::Max(None),
+            });
+        };
         if op == AggOp::Count {
             return Ok(AggPartial::Count((cols & f.presence()).len()));
         }

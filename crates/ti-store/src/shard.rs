@@ -277,10 +277,12 @@ impl ShardView<'_> {
             return Ok(AggPartial::Count(cols.len()));
         }
 
-        let f = self
-            .fields
-            .get(&field)
-            .ok_or_else(|| Error::NotFound(format!("field {field}")))?;
+        // A shard that never recorded this path has no values for it, as in eval_masks
+        // and materialize. Entities differ in paths (AIS targets, Lume's own lume.urn:),
+        // and fleet-wide aggregates ask every shard.
+        let Some(f) = self.fields.get(&field) else {
+            return Ok(empty_partial(op));
+        };
 
         if op == AggOp::Count {
             return Ok(AggPartial::Count((cols & f.presence()).len()));
@@ -576,6 +578,16 @@ fn syncfs(dir: &Path) -> Result<()> {
         return Err(std::io::Error::last_os_error().into());
     }
     Ok(())
+}
+
+/// The aggregate of no values: count 0, sum 0 over 0 values, no min or max.
+fn empty_partial(op: AggOp) -> AggPartial {
+    match op {
+        AggOp::CountAll | AggOp::Count => AggPartial::Count(0),
+        AggOp::Sum => AggPartial::Sum { sum: 0, count: 0 },
+        AggOp::Min => AggPartial::Min(None),
+        AggOp::Max => AggPartial::Max(None),
+    }
 }
 
 fn encode_field_file(
