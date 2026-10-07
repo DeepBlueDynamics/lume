@@ -324,6 +324,9 @@ def main() -> None:
         args.output.write_text(md, encoding="utf-8")
         sys.stderr.write(f"Wrote summary to {args.output}\n")
 
+    # Windows consoles default to cp1252; the summary contains symbols such as ≤.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     print(md)
 
 
