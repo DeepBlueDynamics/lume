@@ -656,3 +656,133 @@ fn test_inflight_transfers_bounded_and_expiry() {
         "must reject when staging byte limit exceeded"
     );
 }
+
+/// Drops the link after `cut_after` acknowledged chunks, mid-shard, until restored.
+struct MidShardOutage<T: ti_sync::transport::Transport> {
+    inner: T,
+    acknowledged: AtomicU64,
+    cut_after: u64,
+    offline: AtomicBool,
+}
+
+impl<T: ti_sync::transport::Transport> MidShardOutage<T> {
+    fn link(&self) -> ti_contracts::Result<()> {
+        if self.offline.load(Ordering::SeqCst) {
+            Err(ti_contracts::Error::Io(std::io::Error::new(
+                std::io::ErrorKind::ConnectionReset,
+                "simulated link outage",
+            )))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl<T: ti_sync::transport::Transport> ti_sync::transport::Transport for MidShardOutage<T> {
+    fn fetch_manifest(&self) -> ti_contracts::Result<Vec<ti_contracts::ShardManifestEntry>> {
+        self.link()?;
+        self.inner.fetch_manifest()
+    }
+    fn resolve_vessel_urn(&self, ord: ti_contracts::VesselOrd) -> ti_contracts::Result<String> {
+        self.link()?;
+        self.inner.resolve_vessel_urn(ord)
+    }
+    fn upload_status(
+        &self,
+        transfer: &ti_contracts::TransferIdentity,
+    ) -> ti_contracts::Result<ti_sync::UploadStatus> {
+        self.link()?;
+        self.inner.upload_status(transfer)
+    }
+    fn send_chunk(&self, chunk: &UploadChunk) -> ti_contracts::Result<ti_sync::ChunkAck> {
+        self.link()?;
+        let ack = self.inner.send_chunk(chunk)?;
+        if self.acknowledged.fetch_add(1, Ordering::SeqCst) + 1 == self.cut_after {
+            self.offline.store(true, Ordering::SeqCst);
+        }
+        Ok(ack)
+    }
+    fn commit_upload(
+        &self,
+        transfer: &ti_contracts::TransferIdentity,
+    ) -> ti_contracts::Result<ti_contracts::ShardManifestEntry> {
+        self.link()?;
+        self.inner.commit_upload(transfer)
+    }
+}
+
+/// Cut the link mid-shard, wait, restore it and sync again. Shore sessions live an
+/// hour (DEFAULT_SESSION_TTL), so a 30-minute outage must resume from the chunks the
+/// shore already holds. The outage is time-compressed at the same ratio: a 120 ms
+/// session TTL against a 60 ms outage. An outage longer than the TTL restarts the
+/// shard instead, and both converge to byte-identical hashes.
+fn sync_through_mid_shard_outage(outage: Duration) -> (u64, u64, [u8; 32], [u8; 32]) {
+    let local_scratch = Scratch::new("outage-boat");
+    let shore_scratch = Scratch::new("outage-shore");
+    let local_store = setup_populated_local_store(&local_scratch.0);
+    let local_hash = local_store.manifest().entries()[0].hash;
+    let shore_arc = Arc::new(Mutex::new(
+        Store::open_or_create(&shore_scratch.0, 10).unwrap(),
+    ));
+    let receiver = Arc::new(ShoreReceiver::new(shore_arc.clone()).with_limits(
+        16,
+        64 << 20,
+        Duration::from_millis(120),
+    ));
+    let token = "test-outage-token";
+    let server = MockHttpServer::start(receiver, token);
+    let http = HttpTransport::new(
+        format!("http://127.0.0.1:{}", server.port),
+        Some(token.into()),
+    );
+    let link = MidShardOutage {
+        inner: LossyTransport::new(http, 0.20, 7),
+        acknowledged: AtomicU64::new(0),
+        cut_after: 3,
+        offline: AtomicBool::new(false),
+    };
+    let client = SyncClient::new(Arc::new(Mutex::new(local_store)), link)
+        .with_chunk_size(512)
+        // Few retries: each costs 5 ms, and the compressed session TTL is 120 ms, so
+        // giving up quickly keeps the "outage" the only thing that ages the session.
+        .with_max_retries(6);
+
+    let missing = client.diff().unwrap();
+    let mut before = SyncReport::default();
+    assert!(
+        client.sync_shard(&missing[0], &mut before).is_err(),
+        "the link drops mid-shard"
+    );
+    assert_eq!(before.chunks_sent, 3, "three chunks landed before the cut");
+
+    std::thread::sleep(outage);
+    client.transport().offline.store(false, Ordering::SeqCst);
+
+    let mut after = SyncReport::default();
+    let entry = client.sync_shard(&missing[0], &mut after).unwrap();
+    let shore_hash = shore_arc.lock().unwrap().manifest().entries()[0].hash;
+    assert_eq!(entry.hash, local_hash);
+    (
+        before.chunks_sent,
+        after.chunks_sent,
+        local_hash,
+        shore_hash,
+    )
+}
+
+#[test]
+fn test_mid_shard_outage_resumes_within_session_ttl() {
+    let (before, resumed, local, shore) = sync_through_mid_shard_outage(Duration::from_millis(60));
+    assert_eq!(local, shore, "shard hashes must be byte-identical");
+    let (_, restarted, local2, shore2) = sync_through_mid_shard_outage(Duration::from_millis(300));
+    assert_eq!(
+        local2, shore2,
+        "shard hashes must be byte-identical after a restart"
+    );
+    assert_eq!(
+        before + resumed,
+        restarted,
+        "within the TTL only the missing chunks are resent ({resumed} of {restarted})"
+    );
+    assert!(resumed < restarted);
+}
