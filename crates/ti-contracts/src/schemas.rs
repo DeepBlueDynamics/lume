@@ -79,7 +79,9 @@ pub fn telemetry_schema(fields: &[FieldSpec]) -> Result<SchemaRef> {
 /// Explicit bare count fields override the mean alias, including old numeric shards.
 pub fn mean_alias_enabled(field: &FieldSpec, fields: &[FieldSpec]) -> bool {
     field.agg == Some(crate::Agg::Mean)
-        && !fields.iter().any(|f| f.path == field.path && f.agg.is_none() && f.kind == FieldKind::Count)
+        && !fields
+            .iter()
+            .any(|f| f.path == field.path && f.agg.is_none() && f.kind == FieldKind::Count)
 }
 
 /// Documents handoff: stable ID, vessel URN, kind, time range, title/body and query-only score.
