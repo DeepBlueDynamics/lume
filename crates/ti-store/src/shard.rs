@@ -513,10 +513,12 @@ pub struct OpenShard {
 }
 
 /// A field file written to a temporary path; `commit_staged` makes it durable and publishes it.
+///
+/// The file is closed once written: a flush can stage thousands of files, more than the
+/// default 1,024 descriptor limit.
 pub struct StagedFile {
     tmp: PathBuf,
     target: PathBuf,
-    file: File,
 }
 
 fn stage_file(dir: &Path, field_id: u32, bytes: &[u8]) -> Result<StagedFile> {
@@ -529,7 +531,10 @@ fn stage_file(dir: &Path, field_id: u32, bytes: &[u8]) -> Result<StagedFile> {
         .open(&tmp)?;
     file.write_all(bytes)?;
     file.flush()?;
-    Ok(StagedFile { tmp, target, file })
+    // Without syncfs, each file is synced before it is closed.
+    #[cfg(not(target_os = "linux"))]
+    file.sync_all()?;
+    Ok(StagedFile { tmp, target })
 }
 
 /// Sync every staged file, rename each over its target, then sync each directory once.
@@ -537,13 +542,15 @@ fn stage_file(dir: &Path, field_id: u32, bytes: &[u8]) -> Result<StagedFile> {
 /// One `syncfs` replaces two fsyncs per field file: a Pi SD card sustains only a few dozen
 /// fsyncs per second, and 21 vessels x 224 fields made each flush take minutes (D47).
 pub fn commit_staged(staged: Vec<StagedFile>) -> Result<()> {
-    if staged.is_empty() {
+    let Some(first) = staged.first() else {
         return Ok(());
-    }
-    sync_staged(&staged)?;
+    };
+    #[cfg(target_os = "linux")]
+    syncfs(first.tmp.parent().unwrap_or(Path::new(".")))?;
+    #[cfg(not(target_os = "linux"))]
+    let _ = first;
     let mut dirs = BTreeSet::new();
-    for StagedFile { tmp, target, file } in staged {
-        drop(file);
+    for StagedFile { tmp, target } in staged {
         fs::rename(&tmp, &target)?;
         if let Some(dir) = target.parent() {
             dirs.insert(dir.to_path_buf());
@@ -561,19 +568,12 @@ pub fn commit_staged(staged: Vec<StagedFile>) -> Result<()> {
 }
 
 #[cfg(target_os = "linux")]
-fn sync_staged(staged: &[StagedFile]) -> Result<()> {
+fn syncfs(dir: &Path) -> Result<()> {
     use std::os::fd::AsRawFd;
-    // SAFETY: the descriptor belongs to a `File` that outlives the call.
-    if unsafe { libc::syncfs(staged[0].file.as_raw_fd()) } != 0 {
+    let dir = File::open(dir)?;
+    // SAFETY: the descriptor belongs to `dir`, which outlives the call.
+    if unsafe { libc::syncfs(dir.as_raw_fd()) } != 0 {
         return Err(std::io::Error::last_os_error().into());
-    }
-    Ok(())
-}
-
-#[cfg(not(target_os = "linux"))]
-fn sync_staged(staged: &[StagedFile]) -> Result<()> {
-    for staged in staged {
-        staged.file.sync_all()?;
     }
     Ok(())
 }

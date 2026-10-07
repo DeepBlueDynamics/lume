@@ -98,3 +98,41 @@ fn flush_rewrites_only_changed_fields_and_reopen_keeps_all() {
     let reopened = Store::open_or_create(dir.path(), 10).unwrap();
     assert_eq!(reopened.open_shard(&key).unwrap().data.fields, expected);
 }
+
+/// One flush can stage more field files than the default 1,024 open-file limit.
+#[test]
+fn flush_stages_more_fields_than_the_descriptor_limit() {
+    let dir = tempdir().unwrap();
+    let mut store = Store::open_or_create(dir.path(), 10).unwrap();
+    let vessel = store
+        .catalog()
+        .register_vessel(&VesselSpec {
+            urn: "vessels.urn:many-fields".into(),
+            name: None,
+            mmsi: None,
+        })
+        .unwrap();
+    let mut records = Vec::new();
+    for id in 0..1_500u32 {
+        let field = store
+            .catalog()
+            .register_field(&FieldSpec {
+                id,
+                path: format!("sensors.s{id}"),
+                agg: Some(Agg::Mean),
+                kind: FieldKind::Bsi { scale: 0 },
+                units: None,
+            })
+            .unwrap();
+        records.push(record(vessel, 1, field, i64::from(id)));
+    }
+    store.apply(&records).unwrap();
+    store.flush().unwrap();
+
+    let open = dir
+        .path()
+        .join("shards")
+        .join(vessel.to_string())
+        .join("0/open");
+    assert_eq!(fs::read_dir(open).unwrap().count(), 1_500);
+}
