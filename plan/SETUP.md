@@ -73,7 +73,7 @@ Since `2c8ba1c`, the backfill-idempotence and 24 h replay tests are `#[ignore = 
 TI_Q4_WIDTH_SECONDS=10 TI_Q4_VESSELS=5 cargo test --release -p ti-sql --test m4 synthetic_year_benchmark -- --ignored --nocapture
 ```
 
-**Golden corpus verify (full store).** This closed M3 (`711d2c4`) and now covers the full corpus, including geo and `intervals()` (`cb39a4d`: 58 passed, 0 failed, 4 excluded). Since `count_paths` (`7bf038d`) it is **60 passed, 1 failed (`q2-001`, open), 1 excluded (`qx-003`)**. Build the store once, then verify the golden corpus against it:
+**Golden corpus verify (full store).** This closed M3 (`711d2c4`) and now covers the full corpus, including geo and `intervals()` (`cb39a4d`: 58 passed, 0 failed, 4 excluded). Since `a264ed2` it is **61 passed, 0 failed, 1 excluded (`qx-003`)**, which passes M4 item 1 on the host. Build the store once, then verify the golden corpus against it:
 
 ```sh
 TI_OPT_IN=last cargo run --release -p ti-ingest --example backfill_store -- .lanes/data/correctness/tier=raw .lanes/data/store-full
@@ -106,6 +106,8 @@ lume ti repl --store <root> [--width <seconds>]
 - `main` runs on a 64 MB thread (`2bbcc4b`), because the debug build overflowed the 1 MB Windows main-thread stack.
 - `import-docs --parquet` is the W9 mapped document import (`ebdb848`). See `tests/golden/robots/README.md` for a full example with `--time-unit`, `--id` and `--kind`.
 - `repl` is interactive SQL over one opened store (`f1bb15a`).
+- **`lume chat`** (`492f12b`): `lume chat --ti-store <store> [--docs-index <lume-index>] [--json]`. A model writes and runs SQL with `ti_schema`, `ti_query`, `ti_explain` and `lume_sql`: schema first, up to 3 SQL retries. Logic is in `src/chat_sql.rs`. 3 chat tests skip on Windows.
+- **MCP behaviour** (`899898b`, `2d5e681`): `ti_schema` lists columns and counts and explains unmatched prefixes. Tool descriptions carry a data-model guide with the live bucket width. Errors list available tables and say to omit `width_seconds`. Unknown arguments are ignored with a note, and `store: ""` means the served store.
 - The same engine backs the MCP tools `ti_query`, `ti_schema`, `ti_explain`, `ti_status` and `ti_resolve` (`src/ti_mcp.rs`). `ti_query` is read-only and capped at 500 rows and 64 KiB. pgwire has its own caps in `ti.toml` `[query] pg_max_rows` / `pg_max_bytes` (default 100,000 / 16 MiB; `0798966`). Lower them on small Pis or busy dashboards. pgwire streams batches with flushes, suspends portals when `max_rows > 0`, and treats `BEGIN`/`COMMIT` as no-ops. HTTP and MCP stay at 500 / 64 KiB.
 
 **`lume serve` with TI** (`bce7779`, `39c0096`; needs `--features ti`):
@@ -206,11 +208,13 @@ lume ti sync --to <shore url> --store <root> [--token <token>] [--token-file <pa
 4. **Select Lume TI as the server's default history provider.** `signalk-to-influxdb2` also registers one, so don't assume Lume is chosen.
 5. **Pin the self vessel identity.** Set a vessel UUID or MMSI in Server → Settings → Vessel Base Data. Without it, Signal K on HaLOS regenerated its self UUID on every restart, which split history in Lume and Influx. On the lead's Pi it is pinned in `data/baseDeltas.json` (`urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee`).
 6. Optional: PostgreSQL for Grafana. Use the plugin webapp's admin-only form (`enablePg`, `pgPort` 5864, `pgUser`, `pgBind`); see §11.
+7. Optional: the **Ask** tab (`lume chat`) needs an Ollama endpoint and model in the plugin options `chatOllamaUrl` and `chatModel`.
 
 The plugin supervises `lume ti ingest --signalk ws://127.0.0.1:3000 --store <dataDir>/lume-ti --serve --bind 127.0.0.1 --port 5863`, restarts it with backoff, and stops it with SIGTERM. It handles the Signal K access-request token (`<dataDir>/token.txt`) and proxies the SQL console webapp through `/plugins/signalk-lume-ti/api/*`, so nothing listens off loopback. The webapp's `apiBase` is `/plugins/signalk-lume-ti` (`530f6b1`). Plugin tests: `cd plugins/signalk-lume-ti && npm test` (17/17 at `e09bb87`).
 
-- **History API** (`e09bb87`): the plugin is a Signal K v2.31 History API provider, answering from Lume's loopback HTTP. `first`/`last` need the `@last` aggregate retained in the store. Rust side: `cargo test --features ti --test ti_http` (8/8).
-- **Webapp 401:** the webapp shows a login hint. Log in to Signal K's own admin at `/admin/#/login`; a HaLOS SSO session is not enough (`2bbcc4b`).
+- **History API** (`e09bb87`): the plugin is a Signal K v2.31 History API provider, answering from Lume's loopback HTTP. `first`/`last` (SKIP/KIP `:last` requests) need the `@last` aggregate: put `[profiles] opt_in = ["last"]` in the store's `ti.toml`, as on the lead's Pi. Making `@last` the default, with a mean fallback that reports `method_used`, is queued (Long Horse). Rust side: `cargo test --features ti --test ti_http` (8/8).
+- **Logging in on HaLOS:** Signal K on HaLOS uses OIDC (HaLOS SSO), and the login is bound to the host name. Open `https://halos.local:4430/admin/` → Login → **HaLOS SSO**, then open the Lume TI webapp and other apps from the same host. An IP-address origin can't complete the login. Admin access needs the HaLOS `admins` group. The webapp shows a not-logged-in banner and a Log in link on 401 (`9d90cf9`, `78b326e`, `472d6e6`).
+- **Webapp results:** the webapp requests JSON from `/api/query` and `/api/schema` (`3aec284`). The TI server answers Arrow by default, so before this fix the console never showed results.
 - **Native Pi 5 build:** fat LTO OOMs on the Pi (rustc about 6 GB RSS, even with 10 GB temporary swap). Use thin LTO. The resulting binary runs in the plugin container (glibc 2.39 OK):
 
   ```sh
@@ -249,6 +253,18 @@ lume serve --ti-store <store> --docs-index <lume-index>   # also on lume ti inge
 - Host timing, 7 default PDFs (8.9 MB): fetch 8.4 s, uv extraction 6.35 s, index build 51 ms for 356 sections, search 83–121 ms including process start.
 - D43 grew the release binary from 112,273,408 to 114,342,400 bytes (+1.84 %, an upper bound that includes `count_paths`).
 - Plugin **Library** tab: 7 default picks, an admin-only Index button, search, and alert references (`library/alert_references.json`). Alert rules that fire on the Pi replay data, with tested SQL, are in `docs/alert-reference-searches.md`.
+
+**M5 item 2 agent run** (`02f826a`; Python stdlib). Start a loopback `lume serve --ti-store <store>` first; the runner starts no processes.
+
+```sh
+python3 bench/agent_mcp_run.py --mcp-url http://127.0.0.1:<port>/mcp --model <model> [--llm-url http://localhost:11434/v1] [--output <run_dir>]
+python3 bench/agent_mcp_expected.py --data-dir .lanes/data/correctness --output .lanes/data/agent-mcp-run/expected.json --scratch .lanes/data/agent-mcp-run/oracle-scratch   # host only, once
+python3 bench/agent_mcp_grade.py <run_dir> --expected .lanes/data/agent-mcp-run/expected.json   # host only
+```
+
+- The runner offers only the MCP server's read-only `ti_*` tools (`--allow-tools`, default `ti_schema,ti_query,ti_explain,ti_status,ti_resolve`) to any OpenAI-compatible chat endpoint (Ollama by default). It warns if some allowed tools are missing and fails only if none are offered.
+- Questions: `tests/golden/agent_questions.json` (20). The DuckDB answers are hidden from the runner. The grader matches row sets by value, not column name. Prose-table answers need hand grading.
+- Results and all other measured numbers are in `docs/performance-comparisons.md` and [STATUS.md](STATUS.md).
 
 **Host oracles for W9 and W10** (Python DuckDB, testing only; run from the repo root on the host):
 
