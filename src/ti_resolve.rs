@@ -9,6 +9,7 @@ use ti_contracts::{FieldSpec, Predicate, RoaringBitmap};
 struct SpecPath {
     pattern: String,
     description: String,
+    units: Option<String>,
 }
 #[derive(Deserialize)]
 struct Bundle {
@@ -48,19 +49,89 @@ fn words(path: &str) -> String {
     }
     out
 }
-fn aliases(path: &str) -> &'static str {
-    match path {
-        "navigation.speedOverGround" => "SOG GPS speed",
-        "navigation.speedThroughWater" => "STW water speed",
-        "navigation.courseOverGroundTrue" => "COG true course",
-        "navigation.courseOverGroundMagnetic" => "COG magnetic course",
-        "environment.wind.speedApparent" => "AWS apparent wind speed",
-        "environment.wind.angleApparent" => "AWA apparent wind angle",
-        "environment.wind.speedTrue" => "TWS true wind speed",
-        "environment.wind.angleTrueWater" => "TWA true wind angle",
-        "environment.depth.belowKeel" => "UKC under keel clearance",
+#[derive(Deserialize)]
+struct Vocabulary {
+    entries: Vec<Alias>,
+}
+#[derive(Deserialize)]
+struct Alias {
+    pattern: String,
+    aliases: String,
+    units: Option<String>,
+}
+fn vocabulary() -> &'static [Alias] {
+    static DATA: OnceLock<Vocabulary> = OnceLock::new();
+    &DATA
+        .get_or_init(|| {
+            serde_json::from_str(include_str!("ti_resolve/vocabulary.json"))
+                .expect("bundled nautical vocabulary")
+        })
+        .entries
+}
+fn aliases(path: &str) -> String {
+    vocabulary()
+        .iter()
+        .filter(|a| matches(&a.pattern, path))
+        .map(|a| a.aliases.as_str())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+fn unit_words(unit: Option<&str>) -> &'static str {
+    match unit {
+        Some("m/s") => "speed knots knot kts metres meters second",
+        Some("m") => "metres meters depth distance fathoms feet",
+        Some("V") => "volts volt voltage",
+        Some("A") => "amps amp amperes current",
+        Some("W") => "watts watt kilowatts power",
+        Some("K") => "kelvin Celsius centigrade temperature heat hot degrees",
+        Some("Pa") => "pascals pressure millibars mbar hpa barometer",
+        Some("Hz") => "hertz frequency RPM revs revolutions",
+        Some("rad") => "radians radian degrees angle",
+        Some("ratio") | Some("%") => "percent percentage fraction",
         _ => "",
     }
+}
+fn tokens(text: &str) -> Vec<String> {
+    words(text)
+        .to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .map(String::from)
+        .collect()
+}
+/// Single edits including adjacent transpositions; no broad fuzzy expansions.
+fn near(a: &str, b: &str) -> bool {
+    let a: Vec<_> = a.chars().collect();
+    let b: Vec<_> = b.chars().collect();
+    if a.len().abs_diff(b.len()) > 1 {
+        return false;
+    }
+    if a.len() == b.len() {
+        let differing: Vec<_> = (0..a.len()).filter(|&i| a[i] != b[i]).collect();
+        return differing.len() == 1
+            || (differing.len() == 2
+                && differing[1] == differing[0] + 1
+                && a[differing[0]] == b[differing[1]]
+                && a[differing[1]] == b[differing[0]]);
+    }
+    let (short, long) = if a.len() < b.len() {
+        (&a, &b)
+    } else {
+        (&b, &a)
+    };
+    let (mut i, mut j, mut skipped) = (0, 0, false);
+    while i < short.len() && j < long.len() {
+        if short[i] == long[j] {
+            i += 1;
+            j += 1;
+        } else if skipped {
+            return false;
+        } else {
+            skipped = true;
+            j += 1;
+        }
+    }
+    true
 }
 struct Column {
     field: FieldSpec,
@@ -71,6 +142,7 @@ struct Column {
 pub struct PathsResolver {
     columns: Vec<Column>,
     index: Bm25Index,
+    lexicon: std::collections::BTreeSet<String>,
 }
 impl PathsResolver {
     pub fn new(catalog: &ti_sql::SqlCatalog) -> Self {
@@ -78,9 +150,21 @@ impl PathsResolver {
         fields.sort_by_key(ti_sql::field_name);
         let columns: Vec<_> = fields
             .into_iter()
-            .map(|field| {
+            .map(|mut field| {
                 let path = field.path.split('#').next().unwrap_or(&field.path);
                 let path = path.strip_suffix("$source").unwrap_or(path);
+                let spec = descriptions()
+                    .iter()
+                    .filter(|p| matches(&p.pattern, path))
+                    .max_by_key(|p| p.pattern.split('.').filter(|s| *s != "*").count());
+                if field.units.is_none() {
+                    field.units = spec.and_then(|p| p.units.clone()).or_else(|| {
+                        vocabulary()
+                            .iter()
+                            .find(|a| matches(&a.pattern, path))
+                            .and_then(|a| a.units.clone())
+                    });
+                }
                 let description = descriptions()
                     .iter()
                     .filter(|p| matches(&p.pattern, path))
@@ -119,7 +203,13 @@ impl PathsResolver {
                     _ => "",
                 };
                 Section {
-                    title: format!("{} {} {acronym} {aggregate}", c.name, words(&c.field.path)),
+                    title: format!(
+                        "{} {} {acronym} {aggregate} {} {}",
+                        c.name,
+                        words(&c.field.path),
+                        aliases(&c.field.path),
+                        unit_words(c.field.units.as_deref())
+                    ),
                     body: format!(
                         "{} {} {}",
                         c.description,
@@ -132,7 +222,19 @@ impl PathsResolver {
                 }
             })
             .collect();
+        let lexicon = columns
+            .iter()
+            .flat_map(|c| {
+                tokens(&format!(
+                    "{} {} {}",
+                    words(&c.field.path),
+                    aliases(&c.field.path),
+                    unit_words(c.field.units.as_deref())
+                ))
+            })
+            .collect();
         Self {
+            lexicon,
             columns,
             index: Bm25Index::build(sections, None),
         }
@@ -146,16 +248,60 @@ impl PathsResolver {
             .collect()
     }
     fn hits(&self, phrase: &str) -> Vec<(usize, f64)> {
+        let query: Vec<_> = tokens(phrase)
+            .into_iter()
+            .map(|word| {
+                let replacement = match word.as_str() {
+                    "left" => Some("port"),
+                    "right" | "stbd" => Some("starboard"),
+                    "domestic" | "service" => Some("house"),
+                    _ => None,
+                };
+                if let Some(replacement) = replacement {
+                    return replacement.to_string();
+                }
+                if word.len() >= 4 && !self.lexicon.contains(&word) {
+                    let close: Vec<_> = self
+                        .lexicon
+                        .iter()
+                        .filter(|candidate| near(&word, candidate))
+                        .collect();
+                    if close.len() == 1 {
+                        return close[0].clone();
+                    }
+                }
+                word
+            })
+            .collect();
+        let phrase = query.join(" ");
         let mut hits: Vec<_> = self
             .index
-            .search_quiet(phrase, SearchVariant::Classic, &Bm25Params::default(), None)
+            .search_quiet(
+                &phrase,
+                SearchVariant::Classic,
+                &Bm25Params::default(),
+                None,
+            )
             .into_iter()
             .map(|h| (h.section_index, h.score))
             .collect();
+        // Source metadata is useful only when explicitly requested. Normal requests
+        // should not lose their three candidate slots to aggregate/source variants.
+        for (i, score) in &mut hits {
+            if self.columns[*i].field.path.ends_with("$source")
+                && !query
+                    .iter()
+                    .any(|w| matches!(w.as_str(), "source" | "sources" | "provenance"))
+            {
+                *score *= 0.1;
+            }
+        }
         hits.sort_by(|a, b| {
             b.1.total_cmp(&a.1)
                 .then_with(|| self.columns[a.0].name.cmp(&self.columns[b.0].name))
         });
+        let mut seen = std::collections::BTreeSet::new();
+        hits.retain(|(i, _)| seen.insert(self.columns[*i].field.path.clone()));
         hits
     }
     pub async fn resolve(&self, engine: &ti_sql::TiEngine, args: &Value) -> Result<Value, String> {
@@ -182,7 +328,29 @@ impl PathsResolver {
             .get("vessel")
             .map(|v| v.as_str().ok_or("vessel must be a string"))
             .transpose()?;
-        let vessel = if let Some(vessel) = vessel {
+        // Names/MMSIs in a natural phrase qualify latest-value lookup too.
+        let qualified: Vec<_> = engine
+            .session
+            .catalog
+            .vessels
+            .values()
+            .filter(|v| {
+                [Some(v.urn.as_str()), v.name.as_deref(), v.mmsi.as_deref()]
+                    .into_iter()
+                    .flatten()
+                    .any(|name| {
+                        let needle = tokens(name);
+                        let haystack = tokens(phrase);
+                        !needle.is_empty() && haystack.windows(needle.len()).any(|w| w == needle)
+                    })
+            })
+            .collect();
+        let inferred = if qualified.len() == 1 {
+            Some(qualified[0].urn.as_str())
+        } else {
+            None
+        };
+        let vessel = if let Some(vessel) = vessel.or(inferred) {
             let exact = engine
                 .session
                 .catalog
