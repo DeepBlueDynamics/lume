@@ -53,6 +53,9 @@ path = "src/main.rs"
 
 [profile.release]
 lto = true
+opt-level = 3
+panic = "unwind"
+strip = "symbols"
 codegen-units = 1
 
 # Debug builds keep only line tables for our code and no debug info for dependencies:
