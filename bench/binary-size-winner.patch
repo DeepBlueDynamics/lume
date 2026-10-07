@@ -1,0 +1,10 @@
+diff --git a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -54,3 +54,6 @@
+ [profile.release]
+ lto = true
++opt-level = 3
++panic = "unwind"
++strip = "symbols"
+ codegen-units = 1

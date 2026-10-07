@@ -57,6 +57,29 @@ def markdown(rows):
     return "\n".join(lines) + "\n"
 
 
+def cache_on_summary(report):
+    rows = report.get("queries", [])
+    if not rows:
+        raise ValueError("Cache-on profile needs per-query results and fingerprints")
+    if len({r["id"] for r in rows}) != len(rows):
+        raise ValueError("Duplicate query IDs")
+    for row in rows:
+        if not row.get("answer_fingerprint"):
+            raise ValueError("Cache-on result is missing an answer fingerprint")
+        stats = row.get("cache_stats") or {}
+        if stats.get("used_bytes", 0) > stats.get("budget_bytes", 0):
+            raise ValueError("Cache exceeded byte budget")
+    return rows
+
+
+def cache_on_markdown(rows):
+    lines = ["| Query | Rows | Cold ms | Warm p50 ms |",
+             "|---|---:|---:|---:|"]
+    for row in rows:
+        lines.append(f"| {row['id']} | {row['rows']} | {row['cold_ms']:.2f} | {row['p50_ms']:.2f} |")
+    return "\n".join(lines) + "\n"
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--binary", type=pathlib.Path, required=True)
@@ -65,6 +88,8 @@ def main():
     p.add_argument("--out", type=pathlib.Path, required=True)
     p.add_argument("--iterations", type=int, default=7)
     p.add_argument("--cache-bytes", type=int, default=268435456)
+    p.add_argument("--cache-mode", choices=("both", "on"), default="both",
+                   help="on measures a release profile without an unnecessary cache-off run")
     p.add_argument("--ids", nargs="+", default=QUERY_IDS)
     p.add_argument("--toolchain", required=True, help="record rustc version/build profile")
     args = p.parse_args()
@@ -81,7 +106,8 @@ def main():
     selected.write_text(json.dumps({**corpus, "entries": chosen}, indent=2), encoding="utf-8")
     reports = []
     commands = []
-    for label, budget in [("off", 0), ("on", args.cache_bytes)]:
+    modes = [("on", args.cache_bytes)] if args.cache_mode == "on" else [("off", 0), ("on", args.cache_bytes)]
+    for label, budget in modes:
         folder = out / label
         folder.mkdir(exist_ok=True)
         # Isolated cwd keeps the runner from auto-starting a DuckDB baseline.
@@ -97,6 +123,17 @@ def main():
         if len(matches) != 1:
             raise RuntimeError("Use a fresh output directory; expected one report")
         reports.append(json.loads(matches[0].read_text(encoding="utf-8")))
+    if args.cache_mode == "on":
+        rows = cache_on_summary(reports[0])
+        result = {"toolchain": args.toolchain, "commands": commands,
+                  "cold_definition": "decoded application cache cleared per query; OS cache uncontrolled",
+                  "cache_bytes": args.cache_bytes, "queries": rows,
+                  "median_p50_ms": statistics.median(r["p50_ms"] for r in rows)}
+        (out / "cache-on.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+        table = cache_on_markdown(rows)
+        (out / "cache-on.md").write_text(table, encoding="utf-8")
+        print(table)
+        return
     rows = compare(*reports)
     result = {"toolchain": args.toolchain, "commands": commands,
               "cold_definition": "decoded application cache cleared per query; OS cache uncontrolled",

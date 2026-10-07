@@ -38,3 +38,16 @@ class CacheComparisonTests(unittest.TestCase):
             compare({"queries": []}, {"queries": []})
         with self.assertRaises(ValueError):
             markdown([])
+
+    def test_cache_on_report_requires_fingerprints_and_checks_budget(self):
+        from shard_cache import cache_on_summary, cache_on_markdown
+        rows = cache_on_summary(self.report())
+        self.assertIn("| q1 |", cache_on_markdown(rows))
+        with self.assertRaises(ValueError):
+            cache_on_summary({"classes": {"Q1": {"p50_ms": 1}}})
+        with self.assertRaises(ValueError):
+            cache_on_summary(self.report(answer_fingerprint=None))
+        with self.assertRaises(ValueError):
+            cache_on_summary(self.report(cache_stats={"used_bytes": 65, "budget_bytes": 64}))
+        with self.assertRaises(ValueError):
+            cache_on_summary({"queries": rows * 2})
