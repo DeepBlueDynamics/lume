@@ -21,9 +21,7 @@ Setup and workflow: [SETUP.md](SETUP.md).
 - **Grub on the Pi:** a HaLOS app in `deploy/halos/marine-grubcrawler-container` (`495cbc5`). It is installed and healthy, at `127.0.0.1:6792`, running the lite arm64 image.
 - **Ask tab:** `lume chat` takes comma-separated Ollama failover URLs and `OLLAMA_API_KEY` for ollama.com (`cc291ea`, `7dc7c48`).
 
-**What runs on the Pi:**
-- The plugin binary is the cross-built thin/16 arm64 `lume` at `0b01eff`, with `lume.prev` kept for rollback.
-- It does **not** yet have `cc291ea` (chat failover) or `ed02ff4` (`telemetry_lume`). Until it does, self-telemetry rows still land in `telemetry`; filter with `vessel NOT LIKE 'lume.urn:%'`. The existing `lume.urn:` rows stay there until retention expires them.
+**What runs on the Pi:** the plugin binary is the host cross-built arm64 `lume` at `5aa7fa0` (thin LTO, 16 codegen units, 135 MB, GLIBC_2.35), with `lume.prev` kept for rollback. It includes `telemetry_lume` and the Ask tab failover. Self samples have gone to `telemetry_lume` since 17:45:50Z. The older `lume.urn:host:halos` rows in `telemetry`, up to 17:44:20Z, stay until retention expires them.
 - The Pi's `~/lume/target` was cleared for disk space. Build arm64 on the host instead, in about 5 minutes:
   - Run `scripts/cross-arm64.sh` in `rust:1.96-bookworm`, with the `lume-cross-target` and `lume-cross-registry` volumes.
   - Copy the binary over, then `chmod 755` it (scp drops the executable bit).
@@ -31,12 +29,12 @@ Setup and workflow: [SETUP.md](SETUP.md).
 - A fan is fitted: the Pi runs at 62–66 °C with no throttling.
 
 **Next:**
-1. Cross-build and deploy `ed02ff4`, then check `SELECT ... FROM telemetry_lume`.
-2. Ollama on the Pi as a HaLOS app (`ollama/ollama` arm64, `127.0.0.1:11434`, offline model `qwen3:4b`, waiting on the user's go-ahead). Then set the Ask tab URLs to the Pi first, then the user's PC. The user runs `ollama signin` on the Pi for `:cloud` models, and sets `OLLAMA_HOST=0.0.0.0` plus a firewall rule on the PC.
-3. Library search through the running server, not a `lume sql` process per query: about 575 ms today, against 7–38 µs of pruning. Waiting on the user's OK.
-4. Rerun the 40k values/s step now that the Pi has a fan. `ti-bench` needs a cross-build, the same way as `lume`.
+1. Ollama on the Pi as a HaLOS app (`ollama/ollama` arm64, `127.0.0.1:11434`, offline model `qwen3:4b`, waiting on the user's go-ahead). Then set the Ask tab URLs to the Pi first, then the user's PC. The user runs `ollama signin` on the Pi for `:cloud` models, and sets `OLLAMA_HOST=0.0.0.0` plus a firewall rule on the PC.
+2. Library search through the running server, not a `lume sql` process per query: about 575 ms today, against 7–38 µs of pruning. Waiting on the user's OK.
+3. Rerun the 40k values/s step now that the Pi has a fan. `ti-bench` needs a cross-build, the same way as `lume`.
 
 **Agents:**
+- The Hyperia restart closed both agent panes; their sessions must be restarted.
 - Long Horse has the M6 items 1 and 3 scope (`ti/m6-report`) in its mailbox and has not started.
 - Artificial Shark has the `ti/plugin-tls` scope in its mailbox.
 - Both need a human to type "run msg_check" until Hyperia PR #311 (n8 pane detection) ships.
