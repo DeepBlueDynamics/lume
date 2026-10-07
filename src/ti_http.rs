@@ -51,6 +51,10 @@ pub struct TiServer {
 }
 
 impl TiServer {
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
     pub fn open(root: &Path) -> Result<Self, String> {
         Self::open_with_width(root, None)
     }
@@ -295,7 +299,7 @@ impl TiServer {
     /// Fail before starting ingestion when pg credentials or listener policy are invalid.
     pub fn validate_pg_auth(&self, bind: &str) -> Result<(), String> {
         let ip: std::net::IpAddr = bind.parse().map_err(|_| "Invalid pg bind address")?;
-        crate::ti_pg_auth::AuthConfig::new(self.pg_users()?, !ip.is_loopback())?;
+        crate::ti_pg_auth::AuthConfig::new(self.pg_users()?, !ip.is_loopback(), false)?;
         Ok(())
     }
     pub(crate) fn pg_users(&self) -> Result<Vec<ti_contracts::ScramUser>, String> {

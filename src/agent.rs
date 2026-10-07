@@ -774,10 +774,12 @@ pub fn serve_with_ti_pg_config(
     serve_with_ti_pg_docs_config(port, root, bind, pg, pg_bind, pg_auth_config, None)
 }
 #[cfg(feature = "ti")]
-pub fn serve_with_ti_pg_docs_config(
+#[allow(clippy::too_many_arguments)]
+pub fn serve_with_ti_pg_tls_config(
     port: u16, root: &std::path::Path, bind: &str, pg: Option<u16>,
     pg_bind: Option<&str>, pg_auth_config: Option<&std::path::Path>,
     docs_index: Option<&std::path::Path>,
+    pg_options: &crate::ti_pg::PgOptions,
 ) -> Result<(), String> {
     let mut ti = crate::ti_http::TiServer::open(root)?;
     if let Some(path) = docs_index {
@@ -786,7 +788,15 @@ pub fn serve_with_ti_pg_docs_config(
     if let Some(path) = pg_auth_config {
         ti = ti.with_pg_auth_config(path)?;
     }
-    serve_with_ti_server_pg_bind(port, std::sync::Arc::new(ti), bind, pg, pg_bind)
+    serve_with_ti_server_pg_options(port, std::sync::Arc::new(ti), bind, pg, pg_bind, pg_options)
+}
+#[cfg(feature = "ti")]
+pub fn serve_with_ti_pg_docs_config(
+    port: u16, root: &std::path::Path, bind: &str, pg: Option<u16>,
+    pg_bind: Option<&str>, pg_auth_config: Option<&std::path::Path>,
+    docs_index: Option<&std::path::Path>,
+) -> Result<(), String> {
+    serve_with_ti_pg_tls_config(port, root, bind, pg, pg_bind, pg_auth_config, docs_index, &crate::ti_pg::PgOptions::default())
 }
 #[cfg(feature = "ti")]
 pub fn serve_with_ti_server(
@@ -805,12 +815,23 @@ pub fn serve_with_ti_server_pg_bind(
     pg: Option<u16>,
     pg_bind: Option<&str>,
 ) -> Result<(), String> {
+    serve_with_ti_server_pg_options(port, ti, bind, pg, pg_bind, &crate::ti_pg::PgOptions::default())
+}
+#[cfg(feature = "ti")]
+pub fn serve_with_ti_server_pg_options(
+    port: u16,
+    ti: std::sync::Arc<crate::ti_http::TiServer>,
+    bind: &str,
+    pg: Option<u16>,
+    pg_bind: Option<&str>,
+    pg_options: &crate::ti_pg::PgOptions,
+) -> Result<(), String> {
     let http_bind = bind.parse::<std::net::IpAddr>()
         .map_err(|e| format!("Invalid bind address: {e}"))?;
     let pg_bind = pg_bind.unwrap_or(bind).parse::<std::net::IpAddr>()
         .map_err(|e| format!("Invalid pg bind address: {e}"))?;
     let _pg = pg
-        .map(|port| crate::ti_pg::start(ti.clone(), std::net::SocketAddr::new(pg_bind, port)))
+        .map(|port| crate::ti_pg::start_with_options(ti.clone(), std::net::SocketAddr::new(pg_bind, port), pg_options))
         .transpose()?;
     serve_configured(port, Some(ti), http_bind)
 }
