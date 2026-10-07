@@ -88,9 +88,11 @@ table. Artifacts are under .lanes/data/query-cache/native-{256,64}, outside git.
 
 Q5's slow warm case is q5-002 (electric-only motoring intervals using motor power
 and IS DISTINCT FROM on diesel state): 299.98 ms, versus 6.76 ms for q5-001.
-The 256 MiB run records no evictions for either query, so retained-cache capacity
-does not explain this difference. Profiling q5-002 is queued after resolve-eval;
-no cause or fix has been established. The lead verified the cache-enabled release
+The 256 MiB run records no evictions for either query. A subsequent paired lane
+profile confirms that IS DISTINCT FROM stays residual and materializes 1,545,371
+rows. Its NULL-preserving bitmap equivalent returns the same 134 intervals with
+zero materialization and a 14.25× warm p50 improvement (debug, same environment).
+See plan/design/q5-profile.md; no classifier fix or native post-fix claim is included. The lead verified the cache-enabled release
 build against the count_paths store: 61 passed / 0 failed / 1 excluded, with all
 20 A/B fingerprints matching.
 
