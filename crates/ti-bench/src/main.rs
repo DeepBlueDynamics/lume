@@ -143,13 +143,17 @@ async fn bench(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or(5);
     let class_filter = arg(args, "--class");
 
-    ti_bench::harness::run_benchmark(
+    let cache_bytes = arg(args, "--cache-bytes")
+        .map(|s| s.parse::<u64>())
+        .transpose()?;
+    ti_bench::harness::run_benchmark_with_cache(
         &store,
         &parquet,
         &corpus,
         &out_dir,
         iterations,
         class_filter.as_deref(),
+        cache_bytes,
     )
     .await?;
 

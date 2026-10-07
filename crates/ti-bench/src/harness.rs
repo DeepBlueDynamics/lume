@@ -35,6 +35,11 @@ pub struct QueryMetric {
     pub class: String,
     pub description: String,
     pub rows: usize,
+    /// Same-binary deterministic row-set fingerprint, not a cryptographic seal.
+    #[serde(default)]
+    pub answer_fingerprint: String,
+    #[serde(default)]
+    pub cache_stats: Option<serde_json::Value>,
     pub cold_ms: f64,
     pub p50_ms: f64,
     pub p95_ms: f64,
@@ -65,6 +70,8 @@ pub struct FullReport {
     pub store_path: String,
     pub parquet_path: String,
     pub iterations: usize,
+    #[serde(default)]
+    pub cache_budget_bytes: Option<u64>,
     pub total_queries_run: usize,
     pub classes: BTreeMap<String, ClassMetric>,
     pub queries: Vec<QueryMetric>,
@@ -116,6 +123,26 @@ pub async fn run_benchmark(
     iterations: usize,
     class_filter: Option<&str>,
 ) -> Result<FullReport, Box<dyn std::error::Error>> {
+    run_benchmark_with_cache(
+        store_dir,
+        parquet_dir,
+        corpus_file,
+        out_dir,
+        iterations,
+        class_filter,
+        None,
+    )
+    .await
+}
+pub async fn run_benchmark_with_cache(
+    store_dir: &str,
+    parquet_dir: &str,
+    corpus_file: &str,
+    out_dir: &str,
+    iterations: usize,
+    class_filter: Option<&str>,
+    cache_budget_bytes: Option<u64>,
+) -> Result<FullReport, Box<dyn std::error::Error>> {
     eprintln!("=== Lume TI Benchmark Runner ===");
     eprintln!("Store path   : {}", store_dir);
     eprintln!("Parquet path : {}", parquet_dir);
@@ -138,6 +165,13 @@ pub async fn run_benchmark(
     eprintln!("Initializing TiEngine on store...");
     let engine = TiEngine::open(Path::new(store_dir), None, None).await?;
 
+    let cache = if let Some(bytes) = cache_budget_bytes {
+        let control = engine.query_cache_control()?;
+        control.set_budget(bytes)?;
+        Some(control)
+    } else {
+        None
+    };
     let mut query_metrics = Vec::new();
     let mut class_warm_latencies: BTreeMap<String, Vec<f64>> = BTreeMap::new();
     let mut class_cold_latencies: BTreeMap<String, Vec<f64>> = BTreeMap::new();
@@ -158,18 +192,25 @@ pub async fn run_benchmark(
 
         eprint!("Running {} ({}) ... ", entry.id, entry.qclass);
 
-        // Cold run
+        // Application-cache cold, not an OS page-cache flush.
+        if let Some(cache) = &cache {
+            cache.clear()?;
+        }
         let t0 = Instant::now();
         let batches = engine.session.query(&entry.ti_sql).await?;
         let cold_ms = t0.elapsed().as_secs_f64() * 1000.0;
         let rows: usize = batches.iter().map(|b| b.num_rows()).sum();
+        let answer_fingerprint = fingerprint(&batches)?;
 
         // Warm runs
         let mut warm_durations = Vec::with_capacity(iterations);
         for _ in 0..iterations {
             let t1 = Instant::now();
-            let _ = engine.session.query(&entry.ti_sql).await?;
+            let batches = engine.session.query(&entry.ti_sql).await?;
             warm_durations.push(t1.elapsed().as_secs_f64() * 1000.0);
+            if fingerprint(&batches)? != answer_fingerprint {
+                return Err(format!("{} returned different cold/warm values", entry.id).into());
+            }
         }
 
         let mut sorted_warm = warm_durations.clone();
@@ -192,6 +233,12 @@ pub async fn run_benchmark(
             class: entry.qclass.clone(),
             description: entry.description.clone().unwrap_or_default(),
             rows,
+            answer_fingerprint,
+            cache_stats: cache
+                .as_ref()
+                .map(|control| control.stats().map(serde_json::to_value))
+                .transpose()?
+                .transpose()?,
             cold_ms,
             p50_ms: p50,
             p95_ms: p95,
@@ -266,6 +313,7 @@ pub async fn run_benchmark(
         store_path: store_dir.to_string(),
         parquet_path: parquet_dir.to_string(),
         iterations,
+        cache_budget_bytes,
         total_queries_run: query_metrics.len(),
         classes: class_metrics,
         queries: query_metrics,
@@ -398,4 +446,63 @@ fn generate_markdown_summary(report: &FullReport) -> String {
     }
 
     out
+}
+
+fn fingerprint(
+    batches: &[arrow::record_batch::RecordBatch],
+) -> Result<String, Box<dyn std::error::Error>> {
+    use std::hash::{Hash, Hasher};
+    let mut rows = ti_sql::rows_json(batches)?
+        .into_iter()
+        .map(|row| serde_json::to_string(&row))
+        .collect::<Result<Vec<_>, _>>()?;
+    rows.sort_unstable();
+    let mut hash = std::collections::hash_map::DefaultHasher::new();
+    rows.hash(&mut hash);
+    Ok(format!("{:016x}", hash.finish()))
+}
+
+#[cfg(test)]
+mod cache_measurement_tests {
+    use super::*;
+    use arrow::{
+        array::{Float64Array, Int64Array},
+        datatypes::{DataType, Field, Schema},
+        record_batch::RecordBatch,
+    };
+    use std::sync::Arc;
+    fn batch(values: Vec<i64>) -> RecordBatch {
+        RecordBatch::try_new(
+            Arc::new(Schema::new(vec![Field::new(
+                "value",
+                DataType::Int64,
+                false,
+            )])),
+            vec![Arc::new(Int64Array::from(values))],
+        )
+        .unwrap()
+    }
+    #[test]
+    fn answer_fingerprint_ignores_row_order_and_batch_boundaries() {
+        let a = fingerprint(&[batch(vec![1, 2, 2])]).unwrap();
+        assert_eq!(
+            a,
+            fingerprint(&[batch(vec![2]), batch(vec![2, 1])]).unwrap()
+        );
+        assert_ne!(a, fingerprint(&[batch(vec![1, 2])]).unwrap());
+        let changed = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![Field::new(
+                "value",
+                DataType::Float64,
+                true,
+            )])),
+            vec![Arc::new(Float64Array::from(vec![
+                Some(1.0),
+                None,
+                Some(2.0),
+            ]))],
+        )
+        .unwrap();
+        assert_ne!(a, fingerprint(&[changed]).unwrap());
+    }
 }

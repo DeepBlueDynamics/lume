@@ -109,7 +109,47 @@ impl ShardData {
         }
     }
 
+    pub(crate) fn view(&self) -> ShardView<'_> {
+        ShardView {
+            key: self.key,
+            fields: self.fields.iter().map(|(id, f)| (*id, f)).collect(),
+            specs: &self.specs,
+            cached_universe: None,
+        }
+    }
     pub fn universe(&self) -> RoaringBitmap {
+        self.view().universe()
+    }
+    pub fn eval_masks(&self, p: &Predicate, text: Option<&dyn TextIndex>) -> Result<TruthMasks> {
+        self.view().eval_masks(p, text)
+    }
+    pub fn aggregate(&self, cols: &RoaringBitmap, field: u32, op: AggOp) -> Result<AggPartial> {
+        self.view().aggregate(cols, field, op)
+    }
+    pub fn materialize(
+        &self,
+        vessel_urn: &str,
+        cols: &RoaringBitmap,
+        fields: &[u32],
+        width_seconds: u64,
+        catalog: &dyn Catalog,
+    ) -> Result<RecordBatch> {
+        self.view()
+            .materialize(vessel_urn, cols, fields, width_seconds, catalog)
+    }
+}
+/// Borrowed immutable fields let query snapshots share decoded cache allocations.
+pub(crate) struct ShardView<'a> {
+    pub key: ShardKey,
+    pub fields: BTreeMap<u32, &'a FieldData>,
+    pub specs: &'a BTreeMap<u32, FieldSpec>,
+    pub cached_universe: Option<&'a RoaringBitmap>,
+}
+impl ShardView<'_> {
+    pub fn universe(&self) -> RoaringBitmap {
+        if let Some(universe) = self.cached_universe {
+            return universe.clone();
+        }
         let mut out = RoaringBitmap::new();
         for f in self.fields.values() {
             out |= f.presence();
@@ -867,62 +907,7 @@ impl SealedShard {
             if path.extension().and_then(|s| s.to_str()) == Some("rbm") {
                 let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
                 if let Ok(field_id) = stem.parse::<u32>() {
-                    let mut file = File::open(&path)?;
-                    let mut magic = [0u8; 8];
-                    file.read_exact(&mut magic)?;
-                    if magic != SHARD_MAGIC {
-                        return Err(Error::Corrupt("invalid shard magic".into()));
-                    }
-
-                    let mut ver_buf = [0u8; 2];
-                    file.read_exact(&mut ver_buf)?;
-                    let ver = u16::from_le_bytes(ver_buf);
-                    if ver != FORMAT_VERSION {
-                        return Err(Error::Unsupported(format!("shard version {ver}")));
-                    }
-
-                    let mut urn_len_buf = [0u8; 4];
-                    file.read_exact(&mut urn_len_buf)?;
-                    let urn_len = u32::from_le_bytes(urn_len_buf) as usize;
-                    let mut urn_buf = vec![0u8; urn_len];
-                    file.read_exact(&mut urn_buf)?;
-
-                    let mut shard_buf = [0u8; 4];
-                    file.read_exact(&mut shard_buf)?;
-
-                    let mut field_buf = [0u8; 4];
-                    file.read_exact(&mut field_buf)?;
-
-                    let mut width_buf = [0u8; 8];
-                    file.read_exact(&mut width_buf)?;
-
-                    let mut row_count_buf = [0u8; 4];
-                    file.read_exact(&mut row_count_buf)?;
-                    let row_count = u32::from_le_bytes(row_count_buf);
-
-                    let spec = catalog.field(field_id)?;
-                    let dict = if spec.kind == FieldKind::Set {
-                        // Load dictionary from catalog
-                        let mut dict = BTreeMap::new();
-                        let mut r = 0u32;
-                        while let Ok(val) = catalog.set_value(field_id, r) {
-                            dict.insert(val, r);
-                            r += 1;
-                        }
-                        Some(dict)
-                    } else {
-                        None
-                    };
-
-                    let is_multi = spec.path.ends_with("$source");
-                    let field_data = FieldData::decode_rows(
-                        &mut file,
-                        &spec.kind,
-                        row_count,
-                        dict.as_ref(),
-                        is_multi,
-                    )?;
-
+                    let (spec, field_data) = Self::decode_field_file(&path, field_id, catalog)?;
                     data.fields.insert(field_id, field_data);
                     data.specs.insert(field_id, spec);
                 }
@@ -930,6 +915,87 @@ impl SealedShard {
         }
 
         Ok(Self { key, version, data })
+    }
+    /// Read exactly one immutable field; missing fields materialize as NULL.
+    pub(crate) fn load_field(
+        store_root: &Path,
+        key: ShardKey,
+        version: u64,
+        field_id: u32,
+        catalog: &dyn Catalog,
+    ) -> Result<Option<(FieldSpec, FieldData)>> {
+        let path = store_root
+            .join("shards")
+            .join(key.vessel.to_string())
+            .join(key.shard.to_string())
+            .join(format!("v{version}"))
+            .join(format!("{field_id}.rbm"));
+        if !path.parent().is_some_and(Path::is_dir) {
+            return Err(Error::NotFound(format!("sealed shard v{version}")));
+        }
+        match Self::decode_field_file(&path, field_id, catalog) {
+            Ok(field) => Ok(Some(field)),
+            Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+    fn decode_field_file(
+        path: &Path,
+        field_id: u32,
+        catalog: &dyn Catalog,
+    ) -> Result<(FieldSpec, FieldData)> {
+        let mut file = File::open(path)?;
+        let mut magic = [0u8; 8];
+        file.read_exact(&mut magic)?;
+        if magic != SHARD_MAGIC {
+            return Err(Error::Corrupt("invalid shard magic".into()));
+        }
+
+        let mut ver_buf = [0u8; 2];
+        file.read_exact(&mut ver_buf)?;
+        let ver = u16::from_le_bytes(ver_buf);
+        if ver != FORMAT_VERSION {
+            return Err(Error::Unsupported(format!("shard version {ver}")));
+        }
+
+        let mut urn_len_buf = [0u8; 4];
+        file.read_exact(&mut urn_len_buf)?;
+        let urn_len = u32::from_le_bytes(urn_len_buf) as usize;
+        let mut urn_buf = vec![0u8; urn_len];
+        file.read_exact(&mut urn_buf)?;
+
+        let mut shard_buf = [0u8; 4];
+        file.read_exact(&mut shard_buf)?;
+
+        let mut field_buf = [0u8; 4];
+        file.read_exact(&mut field_buf)?;
+
+        let mut width_buf = [0u8; 8];
+        file.read_exact(&mut width_buf)?;
+
+        let mut row_count_buf = [0u8; 4];
+        file.read_exact(&mut row_count_buf)?;
+        let row_count = u32::from_le_bytes(row_count_buf);
+
+        let spec = catalog.field(field_id)?;
+        let dict = if spec.kind == FieldKind::Set {
+            // Load dictionary from catalog
+            let mut dict = BTreeMap::new();
+            let mut r = 0u32;
+            while let Ok(val) = catalog.set_value(field_id, r) {
+                dict.insert(val, r);
+                r += 1;
+            }
+            Some(dict)
+        } else {
+            None
+        };
+
+        let is_multi = spec.path.ends_with("$source");
+        let field_data =
+            FieldData::decode_rows(&mut file, &spec.kind, row_count, dict.as_ref(), is_multi)?;
+
+        Ok((spec, field_data))
     }
 }
 

@@ -132,6 +132,8 @@ pub struct ScramUser {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct QueryLimits {
+    /// Retained decoded sealed-field cache bytes per store; 0 disables it. Default 256 MiB.
+    pub sealed_cache_bytes: u64,
     /// Per-query timeout.
     pub timeout_seconds: u64,
     /// Per-query memory pool bytes.
@@ -438,6 +440,7 @@ impl Default for BindConfig {
 impl Default for QueryLimits {
     fn default() -> Self {
         Self {
+            sealed_cache_bytes: 256 * 1024 * 1024,
             timeout_seconds: 30,
             memory_bytes: 1 << 30,
             unit_memory_bytes: 1536 << 20,
