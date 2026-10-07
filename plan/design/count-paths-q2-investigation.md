@@ -46,7 +46,7 @@ Reproduce the full comparison (no DuckDB required):
 ```bash
 python3 tests/golden/count_paths_q2_compare.py \
   --lume-bin /path/to/lume --store /path/to/enabled-store \
-  --unscoped --inspect-background --report /path/to/comparison.json
+  --unscoped --report /path/to/comparison.json
 ```
 
 `--reply <json>` can reuse a captured TI reply while still validating each

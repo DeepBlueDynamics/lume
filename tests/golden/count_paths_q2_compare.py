@@ -30,7 +30,6 @@ def main():
     parser.add_argument("--store", type=Path, required=True)
     parser.add_argument("--unscoped", action="store_true",
                         help="reproduce the original fleet-wide TI query")
-    parser.add_argument("--inspect-background", action="store_true")
     parser.add_argument("--report", type=Path)
     parser.add_argument("--reply", type=Path, help="reuse an already captured TI JSON reply")
     args = parser.parse_args()
@@ -68,23 +67,6 @@ def main():
               "oracle_windows": len(expected),
               "background_vessel_windows": len(rows) - len(primary),
               "windows": covered}
-    if args.inspect_background:
-        background = next(item for item in covered if item["window"]["vessel"] != PRIMARY)
-        row = background["window"]
-        start = datetime.datetime.fromtimestamp(timestamp(row["win"]), datetime.timezone.utc)
-        end = start + datetime.timedelta(minutes=10)
-        # Project the virtual notes column and the actual same-vessel document.
-        inspect = ("SELECT t.vessel, t.ts, t.notes, d.vessel AS doc_vessel, "
-                   "d.id, d.body FROM telemetry t JOIN docs d ON t.vessel = d.vessel "
-                   "AND t.ts >= d.ts_start AND t.ts < d.ts_end "
-                   "WHERE t.vessel = '" + row["vessel"] + "' AND d.kind = 'notes' "
-                   "AND match(notes, 'leak OR water') "
-                   "AND \"propulsion.port.state\" = 'started' "
-                   "AND \"electrical.bilge.pumpCycles\" >= 3 "
-                   "AND \"environment.wind.speedTrue@max\" > 4 "
-                   "AND t.ts >= TIMESTAMP '" + start.strftime("%Y-%m-%d %H:%M:%S") + "' "
-                   "AND t.ts < TIMESTAMP '" + end.strftime("%Y-%m-%d %H:%M:%S") + "'")
-        report["background_bucket_inspection"] = query(args.lume_bin, args.store, inspect)
     print("| TI vessel | TI window | TI wind_max | oracle wind_max | own note id |")
     print("|---|---|---:|---:|---|")
     for item in covered:
