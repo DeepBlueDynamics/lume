@@ -30,7 +30,8 @@ test('five methods map to retained aggregates and ordered rollups; exact envelop
   const expected = {average:['mean','avg'],min:['min','min'],max:['max','max'],first:['last','first_value'],last:['last','last_value']};
   for (const [method,[agg,fn]] of Object.entries(expected)) {
     const b=backend(sql=>{
-      assert.ok(sql.includes(fn+'("speed@'+agg+'"'));
+      assert.ok(sql.includes(fn+'('));
+      assert.ok(sql.includes('"speed@'+agg+'"'));
       if (method==='first'||method==='last') assert.ok(sql.includes(' ORDER BY ts)'));
       assert.ok(sql.includes("INTERVAL '30 seconds'"));
       assert.ok(sql.includes("vessel = '"+context+"'"));
@@ -52,15 +53,49 @@ test('position coordinates are aggregated as one paired struct', async () => {
   const reply=await b.provider.getValues(input(spec('navigation.position','first')));
   assert.deepEqual(reply.data,[[new Date(from).toISOString(),{latitude:60,longitude:24}]]);
 });
-test('HR @last rollups selected only when configured, narrow resolution; missing first/last rejected', async () => {
+test('HR @last rollups selected only when configured, narrow resolution; absent last falls back to mean', async () => {
   const calls=[];
   const hr={...catalog,tables:[...catalog.tables,{name:'telemetry_hr',columns:[{name:'speed@last'}]}]};
   const b=createHistoryProvider({app:{},request:async (path,body)=>{if(path==='/ti/schema')return hr; calls.push(body.sql);return {rows:[],truncated:false};}});
   await b.provider.getValues({...input(spec('speed')),context,resolution:1});
   assert.ok(calls[0].includes('FROM "telemetry_hr"')); assert.ok(calls[0].includes('avg("speed@last")'));
   const noLast={...catalog,tables:[{name:'telemetry',columns:[{name:'speed@mean'}]}]};
-  const a=createHistoryProvider({app:{},request:async ()=>noLast});
-  await assert.rejects(a.provider.getValues({...input(spec('speed','last')),context}),/No retained last/);
+  const a=createHistoryProvider({app:{},request:async (path,body)=>{
+    if(path==='/ti/schema')return noLast;
+    assert.ok(body.sql.includes('last_value("speed@mean" ORDER BY ts)'));
+    return {rows:[{history_ts:from,history_value:3}],truncated:false};
+  }});
+  const reply=await a.provider.getValues({...input(spec('speed','last')),context});
+  assert.equal(reply.values[0].method,'last');
+  assert.equal(reply.values[0].method_used,'mean');
+  assert.ok(reply.values[0].note.includes('@last'));
+  assert.equal(reply.data[0][1],3);
+  await assert.rejects(a.provider.getValues({...input(spec('speed','first')),context}),/No retained last/);
+});
+test('older position buckets use mean coordinates with an explicit method note', async () => {
+  const old={...catalog,tables:[{name:'telemetry',columns:[
+    'navigation.position.latitude@mean','navigation.position.longitude@mean'].map(name=>({name}))}]};
+  const b=createHistoryProvider({app:{},request:async (route,body)=>{
+    if(route==='/ti/schema')return old;
+    assert.ok(body.sql.includes(`last_value(named_struct('latitude',"navigation.position.latitude@mean",'longitude',"navigation.position.longitude@mean") ORDER BY ts)`));
+    return {rows:[{history_ts:from,history_value:{latitude:60,longitude:24}}],truncated:false};
+  }});
+  const reply=await b.provider.getValues({...input(spec('navigation.position','last')),context});
+  assert.equal(reply.values[0].method_used,'mean');
+  assert.deepEqual(reply.data[0][1],{latitude:60,longitude:24});
+});
+test('mixed old/new buckets fall back without discarding retained last or other paths', async () => {
+  const b=backend(sql=>{
+    assert.ok(sql.includes('last_value(coalesce("speed@last","speed@mean") ORDER BY ts)'));
+    assert.ok(sql.includes('"speed@last" IS NULL AND "speed@mean" IS NOT NULL'));
+    return {rows:[{history_ts:from,history_value:2,history_fallback:1},
+      {history_ts:'2020-01-01T00:00:20Z',history_value:8,history_fallback:0}],truncated:false};
+  });
+  const reply=await b.provider.getValues(input(spec('speed','last')));
+  assert.equal(reply.values[0].method_used,'mean');
+  assert.deepEqual(reply.data.map(r=>r[1]),[2,8]);
+  const retained=backend(()=>({rows:[{history_ts:from,history_value:8,history_fallback:0}],truncated:false}));
+  assert.deepEqual((await retained.provider.getValues(input(spec('speed','last')))).values,[{path:'speed',method:'last'}]);
 });
 test('truncation splits at bin boundaries; caps, unsupported methods/sources and stop reject', async () => {
   let calls=0;
@@ -98,7 +133,8 @@ test('real loopback mock validates JSON transport and backend errors', async t =
     let body='';req.on('data',c=>body+=c);req.on('end',()=>{
       assert.equal(req.headers.accept,'application/json');
       const q=JSON.parse(body);assert.equal(q.max_rows,500);assert.ok(q.sql.startsWith('SELECT'));
-      res.end(JSON.stringify({rows:[{history_ts:from,history_value:3}],truncated:false}));
+      res.end(JSON.stringify({rows:[{history_ts:from,history_value:3,
+        ...(q.sql.includes('coalesce(')? {history_fallback:1} : {})}],truncated:false}));
     });
   });
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
@@ -106,4 +142,7 @@ test('real loopback mock validates JSON transport and backend errors', async t =
   await assert.rejects(requestJson(server.address().port,'/failure'),/bad history SQL/);
   const b=createHistoryProvider({app:{},port:server.address().port});
   assert.equal((await b.provider.getValues({...input(spec('speed')),context})).data[0][1],3);
+  const fallback=await b.provider.getValues({...input(spec('speed','last')),context});
+  assert.equal(fallback.values[0].method_used,'mean');
+  assert.equal(fallback.data[0][1],3);
 });

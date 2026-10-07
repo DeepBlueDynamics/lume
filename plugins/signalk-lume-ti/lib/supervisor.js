@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const {ensureLastDefault} = require('./store-config');
 
 /**
  * Child Process Supervisor for `lume ti ingest --serve`.
@@ -112,8 +113,9 @@ class Supervisor {
     // Ensure store directory exists
     try {
       fs.mkdirSync(this.storeDir, { recursive: true });
+      ensureLastDefault(this.storeDir);
     } catch (err) {
-      this.lastError = `Failed creating store dir: ${err.message}`;
+      this.lastError = `Failed preparing store configuration: ${err.message}`;
       this.onLog(`[supervisor] ${this.lastError}`, true);
       this.onStateChange(this.getStatus());
       return false;

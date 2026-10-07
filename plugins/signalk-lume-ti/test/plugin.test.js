@@ -54,6 +54,7 @@ test('Plugin lifecycle, supervision, status, and router proxying', async () => {
   });
 
   assert.ok(registeredHistory);
+  assert.match(fs.readFileSync(path.join(tmpDir,'lume-ti','ti.toml'),'utf8'), /opt_in = \["last"\]/);
   for (const method of ['getValues','getContexts','getPaths']) assert.strictEqual(typeof registeredHistory[method], 'function');
   // Give child time to boot and start HTTP mock
   await waitFor(async () => {

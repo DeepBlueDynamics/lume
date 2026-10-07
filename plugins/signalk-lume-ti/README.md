@@ -155,8 +155,18 @@ Duration-only, from/to, from/duration, to/duration and from-until-now work.
 
 Resolution is in seconds and maps to `date_bin`. Numeric average/min/max
 roll up retained `@mean/@min/@max`; first/last select the earliest/latest
-retained `@last` bucket. A coarse store without `@last` rejects first/last
-instead of substituting means. These are bucket-level historical values:
+retained `@last` bucket. On store creation/open, the plugin atomically adds
+`[profiles] opt_in = ["last"]` only when that key is absent. Existing explicit
+lists (including an empty list), other settings and comments are preserved;
+older sealed data is not rewritten.
+
+A `:last` request uses retained `@last` where present and falls back to
+`@mean` for older buckets that lack it. If any fallback is used, that path's
+response descriptor includes `method_used: "mean"` and a note explaining
+the mixed coverage, while `method: "last"` preserves the requested method.
+The latest bucket mean in each resolution bin is used, not a raw last sample.
+This keeps SKIP/KIP charts populated while making the approximation explicit.
+A `:first` request still requires retained `@last`. These are bucket-level historical values:
 raw samples and their original timestamps cannot be recovered from a
 10-second store. If the configured 1-second HR store has the field, it is
 preferred for sub-10-second resolution; its `@last` values also support
