@@ -104,7 +104,8 @@
     try {
       const res = await fetch(`${apiBase}/api/query`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        // /ti/query answers Arrow unless JSON is requested.
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ sql }),
       });
 
@@ -246,7 +247,7 @@
     errBox.classList.add('hidden');
 
     try {
-      const res = await fetch(`${apiBase}/api/schema`);
+      const res = await fetch(`${apiBase}/api/schema`, { headers: { Accept: 'application/json' } });
       if (res.status === 401) throw new Error(loginHint);
       if (!res.ok) {
         throw new Error(`Failed loading schema: HTTP ${res.status}`);
