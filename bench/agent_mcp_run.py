@@ -249,13 +249,20 @@ def main(argv=None):
     parser.add_argument("--max-turns", type=int, default=12)
     parser.add_argument("--max-tool-calls", type=int, default=20)
     parser.add_argument("--timeout", type=float, default=180)
+    # Read-only by default: lume_index/lume_generate have side effects on the host.
+    parser.add_argument("--allow-tools", default="ti_schema,ti_query,ti_explain,ti_status,ti_resolve",
+                        help="Comma-separated MCP tool names offered to the model")
     args = parser.parse_args(argv)
     if not 1 <= args.max_turns <= 12 or not 1 <= args.max_tool_calls <= 20 or args.timeout <= 0:
         parser.error("Require positive timeout, turns <= 12 and tool calls <= 20")
     llm = endpoint(args.llm_url)
     mcp = MCP(args.mcp_url, args.timeout)
     questions = public_questions(args.questions)
-    tools = mcp.tools()
+    allowed = {name.strip() for name in args.allow_tools.split(",") if name.strip()}
+    tools = [tool for tool in mcp.tools() if tool["name"] in allowed]
+    missing = allowed - {tool["name"] for tool in tools}
+    if missing:
+        parser.error(f"MCP server does not provide: {sorted(missing)}")
     timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
     output = args.output or DATA_ROOT / ".lanes/data/agent-mcp-run" / timestamp
     output.mkdir(parents=True, exist_ok=False)
