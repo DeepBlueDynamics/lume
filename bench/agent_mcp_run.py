@@ -5,6 +5,7 @@ import datetime as dt
 import ipaddress
 import json
 import os
+import sys
 from pathlib import Path
 import re
 import time
@@ -261,8 +262,10 @@ def main(argv=None):
     allowed = {name.strip() for name in args.allow_tools.split(",") if name.strip()}
     tools = [tool for tool in mcp.tools() if tool["name"] in allowed]
     missing = allowed - {tool["name"] for tool in tools}
+    if not tools:
+        parser.error(f"MCP server provides none of --allow-tools: {sorted(allowed)}")
     if missing:
-        parser.error(f"MCP server does not provide: {sorted(missing)}")
+        print(f"warning: MCP server does not provide {sorted(missing)}", file=sys.stderr)
     timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
     output = args.output or DATA_ROOT / ".lanes/data/agent-mcp-run" / timestamp
     output.mkdir(parents=True, exist_ok=False)
