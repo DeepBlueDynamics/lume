@@ -537,6 +537,32 @@ impl TiEngine {
                 }
             }
         }
+        let mut skipped_magnitudes = BTreeMap::new();
+        for field in &self.session.catalog.fields {
+            if field.kind != ti_contracts::FieldKind::Count || field.agg.is_some() {
+                continue;
+            }
+            let Some(path) = field.path.strip_suffix("@skipped_magnitudes") else {
+                continue;
+            };
+            let mut count = 0u64;
+            for shard in self.session.source.shards(None, 0, u32::MAX) {
+                let columns = self.session.source.eval(shard, &ti_contracts::Predicate::Present(field.id))
+                    .map_err(core_error)?;
+                if columns.is_empty() {
+                    continue;
+                }
+                let partial = self.session.source.agg(shard, &columns, field.id, ti_contracts::AggOp::Sum)
+                    .map_err(core_error)?;
+                let ti_contracts::AggPartial::Sum { sum, .. } = partial else {
+                    return Err(invalid("skipped-magnitude counter returned a non-sum partial"));
+                };
+                let sum = u64::try_from(sum).map_err(|_| invalid("skipped-magnitude counter exceeds u64"))?;
+                count = count.checked_add(sum).ok_or_else(|| invalid("skipped-magnitude counter exceeds u64"))?;
+            }
+            skipped_magnitudes.insert(path.to_string(), count);
+        }
+        let skipped_magnitude_total: u64 = skipped_magnitudes.values().sum();
         let mut res = json!({
             "store": self.root, "width_seconds": self.session.catalog.width_seconds,
             "documents": alerts["document_count"], "alerts": alerts["alert_count"],
@@ -545,6 +571,7 @@ impl TiEngine {
             "wal_bytes": wal_bytes, "shards": {"open": shards.len() - sealed, "sealed": sealed},
             "ingest_lag_seconds": ingest_lag_seconds, "vessels": vessels, "units": self.units(),
             "skipped_stores": self.skipped_stores, "parquet_import": parquet_import,
+            "skipped_magnitudes": {"total": skipped_magnitude_total, "paths": skipped_magnitudes},
             "documents_rejected_pre_epoch": documents_rejected_pre_epoch,
             "unavailable": unavailable
         });

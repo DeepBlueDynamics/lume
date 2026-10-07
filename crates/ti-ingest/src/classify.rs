@@ -14,6 +14,7 @@ use crate::normalize::NormalizedValue;
 
 #[derive(Debug, Clone)]
 pub struct Classifier {
+    count_paths: std::collections::BTreeSet<String>,
     unit_scales: BTreeMap<String, u8>,
     path_scales: BTreeMap<String, u8>,
     metric_units: ti_contracts::MetricUnits,
@@ -25,12 +26,20 @@ pub struct Classifier {
 impl Classifier {
     pub fn new(config: &TiConfig) -> Self {
         Self {
+            count_paths: config.ingest.count_paths.iter().cloned().collect(),
             unit_scales: config.unit_scales.clone(),
             path_scales: config.path_scales.clone(),
             metric_units: config.units.clone(),
             meta_units: BTreeMap::new(),
             assigned: BTreeMap::new(),
             versioned_paths: BTreeMap::new(),
+        }
+    }
+
+    /// Apply the event policy captured by the bucket being classified.
+    pub fn set_count_paths(&mut self, paths: &std::collections::BTreeSet<String>) {
+        if &self.count_paths != paths {
+            self.count_paths = paths.clone();
         }
     }
 
@@ -69,6 +78,11 @@ impl Classifier {
         path: &str,
         value: &NormalizedValue,
     ) -> Option<(String, FieldKind)> {
+        if self.count_paths.contains(path)
+            && !matches!(value, NormalizedValue::Double(v) if v.is_finite())
+        {
+            return None;
+        }
         let desired_kind = match value {
             NormalizedValue::Double(_) => FieldKind::Bsi {
                 scale: self.resolve_scale(path),

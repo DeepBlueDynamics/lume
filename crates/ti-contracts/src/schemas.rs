@@ -55,7 +55,7 @@ pub fn telemetry_schema(fields: &[FieldSpec]) -> Result<SchemaRef> {
             FieldKind::Geo { .. } => list(DataType::UInt64),
         };
         out.push(Field::new(name, kind.clone(), true));
-        if f.agg == Some(crate::Agg::Mean) {
+        if mean_alias_enabled(f, fields) {
             if !names.insert(f.path.clone()) {
                 return Err(Error::InvalidInput(format!(
                     "telemetry.{}: alias collision",
@@ -74,6 +74,12 @@ pub fn telemetry_schema(fields: &[FieldSpec]) -> Result<SchemaRef> {
         out.push(Field::new(name, DataType::Utf8, true));
     }
     Ok(schema(out))
+}
+
+/// Explicit bare count fields override the mean alias, including old numeric shards.
+pub fn mean_alias_enabled(field: &FieldSpec, fields: &[FieldSpec]) -> bool {
+    field.agg == Some(crate::Agg::Mean)
+        && !fields.iter().any(|f| f.path == field.path && f.agg.is_none() && f.kind == FieldKind::Count)
 }
 
 /// Documents handoff: stable ID, vessel URN, kind, time range, title/body and query-only score.

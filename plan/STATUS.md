@@ -211,7 +211,7 @@ Spec deviations and proposals needing the user:
 - [ ] **M6 release runs** (Artificial Shark): the 5-vessel release fleet run, then the 50-vessel release run and the lossy-HTTP results to the lead. Then the benchmark report and the go/no-go. (HTTP sync merged in `ddd6398`.)
 - [x] `lume sql` and `--docs-index` (`c130bc1`).
 - [x] `croaring` evaluation (M4 item 3): rejected, D40.
-- [ ] **`count_paths` contract** (`q1-007`, `q6-006`, `q2-001`; spec/05). Approved with a magnitude amendment; Long Horse implementing. Corpus and hash checks on the host.
+- [ ] **`count_paths` host acceptance** (`ti/count-paths`): approved contract implemented; local count-path unit and engine tests pass, including finite overflow, retained value aggregates and skipped-magnitude status. The empty-list 65-hash comparison, enabled-list boat totals and unchanged DuckDB oracles are pending the lead's host run. See [the contract](design/count-paths.md) and `tests/golden/count_paths_oracle.py`.
 - [ ] **`qx-003`**: keep the join-form `qx-013`, or revisit on a DataFusion upgrade.
 - [ ] pgwire TLS. SCRAM landed (D42, `7c4cb23`); D13's aarch64 smoke: SCRAM login works on the Pi (`tests/pg_smoke.sh`, 16/20 so far).
 - [ ] **User licence decision** on `signalk_paths.json` (user item 16).

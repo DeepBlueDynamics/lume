@@ -38,6 +38,8 @@ pub struct WatermarkBucketer {
     max_event_time: i64,
     open_buckets: BTreeMap<(VesselOrd, BucketIx), BucketWindow>,
     closed_buckets: BTreeSet<(VesselOrd, BucketIx)>,
+    closed_event_windows: BTreeMap<(VesselOrd, BucketIx), BucketWindow>,
+    closed_event_buckets: BTreeSet<(VesselOrd, BucketIx)>,
     classifier: Classifier,
     derived: DerivedTracker,
     closed_observer: Option<Box<dyn ClosedBucketObserver>>,
@@ -53,6 +55,8 @@ impl WatermarkBucketer {
             max_event_time: EPOCH,
             open_buckets: BTreeMap::new(),
             closed_buckets: BTreeSet::new(),
+            closed_event_windows: BTreeMap::new(),
+            closed_event_buckets: BTreeSet::new(),
             classifier: Classifier::new(config),
             derived: DerivedTracker::new(&config.derived),
             closed_observer: None,
@@ -69,6 +73,8 @@ impl WatermarkBucketer {
             max_event_time: EPOCH,
             open_buckets: BTreeMap::new(),
             closed_buckets: BTreeSet::new(),
+            closed_event_windows: BTreeMap::new(),
+            closed_event_buckets: BTreeSet::new(),
             classifier: Classifier::new(config),
             derived: DerivedTracker::new(&config.derived),
             closed_observer: None,
@@ -89,6 +95,21 @@ impl WatermarkBucketer {
             }
         }
         Ok(())
+    }
+
+    fn remember_event_window(
+        windows: &mut BTreeMap<(VesselOrd, BucketIx), BucketWindow>,
+        buckets: &mut BTreeSet<(VesselOrd, BucketIx)>,
+        key: (VesselOrd, BucketIx),
+        window: BucketWindow,
+    ) {
+        buckets.insert(key);
+        windows.insert(key, window);
+        // Bound retained late-event state; old history must be repaired by backfill.
+        if windows.len() > 128 {
+            let oldest = *windows.keys().min_by_key(|(_, bucket)| bucket).unwrap();
+            windows.remove(&oldest);
+        }
     }
 
     pub fn width_seconds(&self) -> u64 {
@@ -167,6 +188,16 @@ impl WatermarkBucketer {
             self.max_event_time = ts;
         }
 
+        let policy = self.open_buckets.get(&(vessel, bucket_ix))
+            .or_else(|| self.closed_event_windows.get(&(vessel, bucket_ix)))
+            .and_then(|window| window.count_paths.clone())
+            .unwrap_or_else(|| if self.closed_buckets.contains(&(vessel, bucket_ix)) {
+                BTreeSet::new()
+            } else {
+                config.ingest.count_paths.iter().cloned().collect()
+            });
+        self.classifier.set_count_paths(&policy);
+
         // Check sticky classification
         let (eff_path, kind) = match self.classifier.classify(context, path, &value) {
             Some(res) => res,
@@ -200,7 +231,13 @@ impl WatermarkBucketer {
 
         if is_closed {
             // Late arrival after bucket close -> emit immediately with rewrite: true
-            let mut late_window = BucketWindow::default();
+            if self.closed_event_buckets.contains(&(vessel, bucket_ix))
+                && !self.closed_event_windows.contains_key(&(vessel, bucket_ix))
+            {
+                return Err(ti_contracts::Error::InvalidInput("late event bucket is outside the 128-window repair cache; repair with historical backfill".into()));
+            }
+            let mut late_window = self.closed_event_windows.get(&(vessel, bucket_ix)).cloned()
+                .unwrap_or_else(|| BucketWindow { count_paths: Some(BTreeSet::new()), ..BucketWindow::default() });
             populate_window(
                 &mut late_window,
                 &eff_path,
@@ -223,6 +260,9 @@ impl WatermarkBucketer {
             )?;
             if !records.is_empty() {
                 sink.apply(&records)?;
+            }
+            if !late_window.event_counts.is_empty() {
+                Self::remember_event_window(&mut self.closed_event_windows, &mut self.closed_event_buckets, (vessel, bucket_ix), late_window);
             }
         } else {
             // Open bucket
@@ -279,6 +319,9 @@ impl WatermarkBucketer {
                 if !records.is_empty() {
                     sink.apply(&records)?;
                 }
+                if !window.event_counts.is_empty() {
+                    Self::remember_event_window(&mut self.closed_event_windows, &mut self.closed_event_buckets, key, window);
+                }
                 self.closed_buckets.insert(key);
                 closed_count += 1;
                 newly_closed.push(key);
@@ -334,6 +377,9 @@ impl WatermarkBucketer {
                 if !records.is_empty() {
                     sink.apply(&records)?;
                 }
+                if !window.event_counts.is_empty() {
+                    Self::remember_event_window(&mut self.closed_event_windows, &mut self.closed_event_buckets, key, window);
+                }
                 self.closed_buckets.insert(key);
                 count += 1;
                 newly_closed.push(key);
@@ -362,13 +408,30 @@ pub(crate) fn populate_window(
     kind: &ti_contracts::FieldKind,
     config: &TiConfig,
 ) -> Result<()> {
+    let count_paths = window.count_paths.get_or_insert_with(|| config.ingest.count_paths.iter().cloned().collect());
+    let count_path = count_paths.contains(path);
+    if count_path {
+        if !matches!(value, NormalizedValue::Double(v) if v.is_finite()) {
+            return Ok(());
+        }
+        let priority = config.source_priorities.get(path)
+            .and_then(|sources| sources.iter().position(|s| s == source))
+            .unwrap_or(usize::MAX);
+        window.add_event_sample(path, source, priority)?;
+    }
     match value {
         NormalizedValue::Double(d) => {
             let scale = match kind {
                 ti_contracts::FieldKind::Bsi { scale } => *scale,
                 _ => 3,
             };
-            window.add_numeric(path, *d, scale, source, ts);
+            if count_path && ti_contracts::to_fixed(*d, scale).is_err() {
+                let skipped = window.skipped_magnitudes.entry(path.to_string()).or_default();
+                *skipped = skipped.checked_add(1).filter(|v| *v <= i64::MAX as u64)
+                    .ok_or(ti_contracts::Error::Overflow("skipped magnitudes"))?;
+            } else {
+                window.add_numeric(path, *d, scale, source, ts);
+            }
         }
         NormalizedValue::String(s) => {
             let prio = source_priority(path, source, config);
@@ -394,7 +457,9 @@ fn populate_derived_event(window: &mut BucketWindow, event: DerivedEvent, source
         DerivedEvent::Transition { output }
         | DerivedEvent::RisingEdge { output }
         | DerivedEvent::NotificationRaise { output } => {
-            window.add_count(&output, 1, source);
+            if !window.count_paths.as_ref().is_some_and(|paths| paths.contains(&output)) {
+                window.add_count(&output, 1, source);
+            }
         }
     }
 }

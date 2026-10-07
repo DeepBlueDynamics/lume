@@ -153,7 +153,7 @@ impl FixtureSource {
                 }
             };
             arrays.push(array.clone());
-            if spec.agg == Some(ti_contracts::Agg::Mean) {
+            if ti_contracts::mean_alias_enabled(spec, &ordered) {
                 arrays.push(array);
             }
         }
