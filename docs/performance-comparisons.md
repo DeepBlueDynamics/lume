@@ -34,6 +34,21 @@ Caveats:
   `3896e5c`, and re-verification on the Pi is pending.
 - A first 17-minute run (10 runs) gave the same picture: 1.9–14× faster, and 28× on per-path counts.
 
+## 1b. Live ingest capacity on the Pi (M2 item 3, PASSED)
+
+Synthetic Signal K stream from `ti-bench sk-feed`: 21 vessels × 224 paths, ingested by a separate `lume ti ingest` into a temporary store on the SD card. The production Signal K, InfluxDB and Lume plugin kept running on the same Pi throughout. Binary `6f94543`, thin LTO. Details: [docs/bench/pi5-load-20k-2026-10-07.md](bench/pi5-load-20k-2026-10-07.md).
+
+| Step | Mean rate | CPU mean / peak (one core) | Peak RSS |
+|---|---:|---:|---:|
+| **20k values/s for 60 min** (target ≥ 20k, ≤ 25 %, ≤ 400 MB) | **19,916 values/s** | **14.2 % / 24.2 %** | **65.6 MB** |
+| 25k for 5 min | 25,659 | 17.9 % / 26.0 % | 68.6 MB |
+| 30k for 5 min | 30,317 | 20.8 % / 31.5 % | 72.0 MB |
+| 40k for 5 min | 38,508 | 25.1 % / 43.4 % | 75.3 MB |
+
+- 100.4 M values in 75 minutes, with 0 rejected, 0 blocked and 0 apply failures. The store is 81 MB on disk.
+- Getting there found and fixed four ingest bugs: `7ea727d`, D47 `80c7f7e`, `50d8b15` and `6f94543`.
+- Uncooled Pi at 75–82 °C, with soft-limit frequency capping.
+
 ## 2. Ingest and storage (host)
 
 Golden boat corpus: 5 vessels, 11,500 Parquet files. Command: `lume ti backfill`, release build.
