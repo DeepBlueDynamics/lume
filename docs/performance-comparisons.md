@@ -91,7 +91,7 @@ The lossy-link test (20% drop plus a 30-minute outage) resumes and ends with ide
 | Linux arm64 (Pi native, 16 codegen units), stripped | 133.9 MB |
 | npm plugin package (both binaries) | 82.8 MB gzip, 235 MB unpacked |
 
-Size reduction is still being measured (D45).
+D45's controlled x64 measurements are in §9; the package sizes above are historical, not the same-revision A/B.
 
 ## 6. Agent answering fleet questions with only Lume MCP (M5 item 2)
 
@@ -135,7 +135,8 @@ same binary with caching disabled/enabled. Class-level timings, milliseconds:
 | Q8 | 555 | 13.5 | — |
 
 The 64 MiB run is nearly identical: Q5 warm p50 288 ms and Q8 14.0 ms.
-All measured classes meet their p95 targets except Q5: 308 ms against 150 ms.
+Before the distinct-pushdown fix, all measured classes met their p95 targets
+except Q5: 308 ms against 150 ms.
 Cold clears only the decoded application cache; the OS cache is uncontrolled.
 
 The saved native-256 report contains 20 per-query records; comparison.json
@@ -150,9 +151,39 @@ The 256 MiB run records no evictions for either query. A subsequent paired lane
 profile confirms that IS DISTINCT FROM stays residual and materializes 1,545,371
 rows. Its NULL-preserving bitmap equivalent returns the same 134 intervals with
 zero materialization and a 14.25× warm p50 improvement (debug, same environment).
-See plan/design/q5-profile.md; no classifier fix or native post-fix claim is included. The lead verified the cache-enabled release
-build against the count_paths store: 61 passed / 0 failed / 1 excluded, with all
-20 A/B fingerprints matching.
+The initial profile is in plan/design/q5-profile.md. The lead verified the
+cache-enabled release build against the count_paths store: 61 passed / 0 failed /
+1 excluded, with all 20 A/B fingerprints matching.
+
+**Distinct pushdown accepted at cebf5ea (lead-reported native gates, 2026-10-07).**
+Rust 1.96 release, store-full, exact two-valued scalar IS [NOT] DISTINCT FROM:
+
+| Q5-002 paired query | Warm p50 | Warm p95 | Rows | Materialized rows |
+|---|---:|---:|---:|---:|
+| Original DISTINCT predicate, now bitmap-pushed | 8.45 ms | 8.72 ms | 134 | 0 |
+| Explicit NULL-preserving bitmap equivalent | 9.29 ms | — | 134 | 0 |
+
+The native 20-query class A/B against the pre-change cache build had two reruns:
+
+| Class | First p50 change | Second p50 change |
+|---|---:|---:|
+| Q1 | +3% | +6% |
+| Q2 | −6% | −15% |
+| Q3 | −17% | −3% |
+| Q4 | −12% | −9% |
+| Q5 | −97% | — |
+| Q7 | +3% | +1% |
+| Q8 | +9% | +1% |
+
+Q5's −97% change was reported once, without a separate per-rerun value.
+The second run had no concurrent build. Q8's initial +9% reduced to +1%;
+Q1's +6% was 0.54→0.57 ms, classified by the lead as sub-millisecond jitter.
+All fingerprints matched, the golden corpus remained 61/0/1, and all classes
+now meet their p95 targets. These are lead-run native results, not lane reruns.
+
+The Pi is deployed on the cache build 6d7f5c1 with 64 MiB
+[query].sealed_cache_bytes; the lead reported 99 MB RSS after restart.
+That deployment is distinct from the cebf5ea host acceptance build.
 
 ## 8. Resolve accuracy through live MCP (M5 item 1)
 
@@ -177,6 +208,42 @@ the evaluator's separate exact-path split scores 18/20 and 19/20, with no errors
 The one miss returns latitude/longitude leaves for an expected position parent;
 its expectation and ranking were left unchanged after viewing results. The
 original 100-phrase set remains 99/100 top-one and 100/100 top-three.
+
+## 9. Release binary size (D45)
+
+Controlled x64 Linux rustc 1.99.0 builds at cebf5ea, stripped symbols, gzip level 9.
+Twenty fixed non-text golden queries, cache ON (256 MiB), 31 warm repeats;
+performance changes use the sum of query p50s versus an adjacent fat/1 control.
+All 20 answer fingerprints and row counts match for every profile and control.
+
+| Profile | Stripped MB | Gzip MB | Aggregate p50 change | Result |
+|---|---:|---:|---:|---|
+| Fat LTO / CGU=1 / unwind | 92.80 | 33.94 | baseline | Recommended shipped profile |
+| Thin LTO / CGU=16 / unwind | 146.33 | 48.57 | +10.65% | Fails clarified timing gate |
+| Thin LTO / CGU=1 / unwind | 101.10 | 34.88 | +4.63% | Recommended Pi candidate |
+| Fat/1 / panic=abort | 80.21 | 28.41 | +0.49% | Timing passes; unwind audit rejects |
+| Fat/1 / seven dependencies opt-level=s | 92.61 | 33.89 | +1.43% | Timing passes; only 0.2% size gain |
+
+MB is decimal. Thin/16→thin/1 saves 30.91% raw and 28.18% gzip, with a
+6.52% lower sum of p50s in the separate profile runs. The thin/1 maximum
+single-child production build RSS is 1.69 GiB on x64, versus thin/16 1.38 GiB
+and fat/1 7.62 GiB. This supports thin/1 as a Pi build candidate with one job,
+but does not prove arm64 total-memory fit with Signal K running.
+
+Retain unwind: HTTP/MCP threads, pgwire/Tokio task panic handling and
+DataFusion stream panic recovery share the ingest process. Abort would kill
+ingest and all connections on a handler/query panic. The PDF page catch runs
+inside a disposable child in production, but the other boundaries are not
+isolated. Abort's 13.56% binary saving is an opportunity after hardening,
+not a deployment recommendation.
+
+The clarified gate accepts aggregate/class p50 with a 1 ms noise floor;
+thin/1's individual Q5-002 (+1.635 ms / 21.60%) and Q8-001
+(+1.116 ms / 6.57%) flags remain explicit. Full per-query/class tables,
+feature audit, unwind audit and build recipes are in
+[plan/decisions/D45-binary-size.md](../plan/decisions/D45-binary-size.md).
+The selected-profile Rust 1.96 host corpus gate and native Pi thin/1 memory
+measurement remain pending. No new two-architecture tarball size is claimed.
 
 ## Not yet measured
 

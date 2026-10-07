@@ -1,12 +1,14 @@
 # Q5-002 residual interval profile
 
-Q5-002 is the native cache-enabled outlier: warm p50 about 300 ms, while Q5-001
+Before cebf5ea, Q5-002 was the native cache-enabled outlier: warm p50 about 300 ms, while Q5-001
 is 6.76 ms. Source inspection and a paired runtime experiment identify the cause:
-IS DISTINCT FROM is not supported by the bitmap classifier, leaving a FilterExec
+IS DISTINCT FROM was not supported by the bitmap classifier, leaving a FilterExec
 above telemetry. intervals() then materializes vessel/timestamp/state rows instead
 of extracting compressed bitmap runs.
 
-No golden SQL, oracle, classifier or store format changed in this investigation.
+The profile-only investigation (446d578) changed no golden SQL, oracle,
+classifier or store format. The subsequent exact classifier fix is described
+below, followed by its lead-reported native acceptance.
 
 ## Paired diagnostic
 
@@ -57,8 +59,8 @@ Warm p50 improves 14.25 times. Separate phase medians need not sum to the total
 median. The original physical plan explicitly reports materialization fallback
 and Unsupported for the state predicate. The equivalent plan reports bitmap runs
 with every filter Exact. Execution dominates the original cost; retained-cache
-capacity does not explain it. Native release timings and the 150 ms p95 target
-still need a host run.
+capacity does not explain it. At the profile-only stage, native release timing and the 150 ms p95 target
+were pending; post-fix native acceptance is recorded below.
 
 Artifact: .lanes/data/query-cache/q5-profile-lane.json (not committed).
 
@@ -80,17 +82,18 @@ boat_store_q5_paired_profile -- --ignored --nocapture
 
 On PowerShell set the same environment variables before cargo. A fresh output
 filename is required. The default measurement uses seven runs, with an explicit
-range of 1–100. Specific-file rustfmt passed; strict clippy was not run locally.
+range of 1–100. At profile-only commit 446d578, specific-file rustfmt passed and strict clippy
+was not run locally. The later classifier implementation's clippy passed below.
 
-## Proposed optimization
+## Proposed optimization before ad627f0
 
 Translate scalar column/literal IS DISTINCT FROM and IS NOT DISTINCT FROM into
 the existing bitmap IR, preserving their two-valued NULL behavior under NOT as
 well as AND/OR. Keep arrays, nonliteral comparisons and unsupported encodings
 residual. Test missing fields, NULL literals, unknown dictionary values, numeric
 columns and negated forms against DataFusion before changing the classifier.
-The paired diagnostic shows that avoiding materialization is useful; no production
-implementation or native target claim is included in this commit.
+The paired diagnostic shows that avoiding materialization is useful; the profile-only
+commit 446d578 contained no production implementation or native target claim.
 
 ## Exact classifier implementation
 
@@ -118,8 +121,7 @@ fixture/performance tests ignored as declared. Crate-scoped cargo fmt --check
 passed. Strict cargo clippy -p ti-sql --all-targets -- -D warnings also passed
 on Rust 1.99.
 
-Native release acceptance remains the host's 61/0/1 corpus gate, Q5-002 p50 below
-150 ms, and no other class regressing by more than 5%.
+The lead accepted the native corpus/timing gates at cebf5ea; details follow below.
 
 ### Post-change store-full profile
 
@@ -141,11 +143,42 @@ The measured integration binary was built by the targeted cargo test command,
 then run directly after the full suite finished, with no compiler running:
 
 ```sh
-TI_Q5_STORE=<read-only-store-full> TI_Q5_OUTPUT=<fresh-output.json> TI_Q5_RUNS=7 \\
-target/debug/deps/q5_profile-<cargo-hash> \\
+TI_Q5_STORE=<read-only-store-full> TI_Q5_OUTPUT=<fresh-output.json> TI_Q5_RUNS=7 \
+target/debug/deps/q5_profile-<cargo-hash> \
 boat_store_q5_paired_profile --ignored --nocapture
 ```
 
 The release cargo command above remains the native host reproduction. The
 61/0/1 corpus result, native Q5-002 p50 target and other-class regression gate
 have not been run locally for this change.
+
+## Native acceptance at cebf5ea
+
+Lead-reported on 2026-10-07, Rust 1.96 release on the Windows host:
+
+| Paired Q5-002 query | Warm p50 | Warm p95 | Intervals | Materialized rows |
+|---|---:|---:|---:|---:|
+| DISTINCT, exact bitmap pushdown | 8.45 ms | 8.72 ms | 134 | 0 |
+| Explicit NULL-preserving bitmap equivalent | 9.29 ms | — | 134 | 0 |
+
+This is below the 150 ms target, from about 300 ms before the classifier fix.
+The unchanged golden corpus passes 61/0/1. All 20 answer fingerprints match.
+The class A/B had two reruns, with no concurrent build in the second:
+
+| Class | First p50 change | Second p50 change |
+|---|---:|---:|
+| Q1 | +3% | +6% |
+| Q2 | −6% | −15% |
+| Q3 | −17% | −3% |
+| Q4 | −12% | −9% |
+| Q5 | −97% | — |
+| Q7 | +3% | +1% |
+| Q8 | +9% | +1% |
+
+Q5's −97% change was reported once, without a separate per-rerun value.
+The lead attributed Q8's first +9% (then +1%) to noise and Q1's +6%
+(0.54→0.57 ms) to sub-millisecond jitter, and explicitly accepted the gates.
+All classes now meet their p95 targets. These native results were run by the
+lead, not re-run in the lane. The Pi currently runs cache build 6d7f5c1 with
+64 MiB [query].sealed_cache_bytes and lead-reported 99 MB RSS after restart;
+it is not yet the distinct-pushdown acceptance build.
