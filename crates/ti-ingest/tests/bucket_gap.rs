@@ -764,6 +764,38 @@ fn high_rate_repeated_samples_do_not_block_ingest() {
     assert_eq!(bucketer.counters().samples_rejected_blocked, 0);
 }
 
+/// A healthy fleet keeps more than 64 windows open at once (vessels x watermark lag);
+/// only a failing sink is held to 64. Regression for the Pi 21-vessel load run, which
+/// rejected 1,000 samples at `retained_windows=64` with 4.7 MB reserved.
+#[test]
+fn healthy_fleet_keeps_more_than_64_windows_open() {
+    let root = tempfile::tempdir().unwrap();
+    let mut store = Store::open_or_create(root.path(), 10).unwrap();
+    let catalog = Arc::clone(store.catalog());
+    let config = TiConfig::default();
+    let mut bucketer = WatermarkBucketer::new(&config);
+    for vessel in 0..40 {
+        let context = format!("vessels.urn:mrn:signalk:uuid:fleet-{vessel}");
+        for bucket in 0..3 {
+            bucketer
+                .ingest_point(
+                    &context,
+                    "navigation.speedOverGround",
+                    "n2k.feed",
+                    EPOCH + 1 + bucket * 10,
+                    ti_ingest::NormalizedValue::Double(1.0),
+                    &config,
+                    catalog.as_ref(),
+                    &mut store,
+                )
+                .unwrap_or_else(|e| panic!("vessel {vessel} bucket {bucket} rejected: {e}"));
+        }
+    }
+    assert_eq!(bucketer.open_bucket_count(), 120);
+    assert!(!bucketer.counters().ingest_blocked);
+    assert_eq!(bucketer.counters().samples_rejected_blocked, 0);
+}
+
 #[test]
 fn a_failed_store_does_not_skip_other_stores() {
     let roots = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];

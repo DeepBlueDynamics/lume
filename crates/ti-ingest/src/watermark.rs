@@ -126,8 +126,18 @@ impl WatermarkBucketer {
         source: &str,
         value: &NormalizedValue,
     ) -> Result<()> {
-        const MAX_WINDOWS: usize = 64;
+        // While the sink is failing, at most 64 windows are retained for retry. Healthy
+        // ingest keeps vessels x (watermark lag + flush gap) windows open (about 126 for
+        // 21 vessels at 20k values/s), so only the byte cap bounds it, with a 4,096
+        // window backstop (D47).
+        const MAX_FAILING_WINDOWS: usize = 64;
+        const MAX_HEALTHY_WINDOWS: usize = 4096;
         const MAX_BYTES: usize = 64 * 1024 * 1024;
+        let max_windows = if self.retries.is_empty() {
+            MAX_HEALTHY_WINDOWS
+        } else {
+            MAX_FAILING_WINDOWS
+        };
         let text = match value {
             NormalizedValue::String(s) => s.len(),
             _ => 0,
@@ -155,7 +165,7 @@ impl WatermarkBucketer {
             .saturating_add(source.len().saturating_mul(8))
             .saturating_add(text.saturating_mul(4));
         let full = (!self.open_buckets.contains_key(&key)
-            && self.open_buckets.len() >= MAX_WINDOWS)
+            && self.open_buckets.len() >= max_windows)
             || self.retained_bytes.saturating_add(bytes) > MAX_BYTES;
         if self.counters.ingest_blocked || full {
             if !self.counters.ingest_blocked {
