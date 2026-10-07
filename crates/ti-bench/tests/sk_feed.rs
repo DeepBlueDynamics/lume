@@ -256,3 +256,61 @@ fn test_rate_accuracy() {
         );
     });
 }
+
+/// Lume ingest subscribes to `*` and then `notifications.*` on the same socket.
+/// Signal K subscriptions are additive, so the second must not narrow the first.
+#[test]
+fn test_additive_subscriptions_like_lume_ingest() {
+    run_with_timeout(Duration::from_secs(40), || {
+        let config = FeedConfig {
+            bind: "127.0.0.1".into(),
+            port: 0,
+            values_per_sec: 2000,
+            batch_size: 20,
+            vessels: 3,
+            seed: 7,
+            duration_sec: Some(20),
+            max_values: Some(10_000),
+            ramp: None,
+            self_urn: "urn:mrn:imo:mmsi:367000000".into(),
+        };
+        let feed =
+            ti_bench::sk_feed::start_test_feed(config).expect("Failed to start synthetic feed");
+        let url = format!("ws://{}/signalk/v1/stream?subscribe=none", feed.addr);
+        let (mut ws, _) = connect(&url).expect("Failed to connect websocket");
+        if let tungstenite::stream::MaybeTlsStream::Plain(ref s) = *ws.get_ref() {
+            s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        }
+        let _hello = ws.read().expect("hello");
+        for path in ["*", "notifications.*"] {
+            let sub = serde_json::json!({
+                "context": "vessels.*",
+                "subscribe": [{"path": path, "policy": "instant"}]
+            });
+            ws.send(Message::Text(sub.to_string())).unwrap();
+        }
+        let mut saw_paths = std::collections::HashSet::new();
+        let started = Instant::now();
+        while saw_paths.len() < 5 && started.elapsed() < Duration::from_secs(10) {
+            let msg = ws
+                .read()
+                .expect("deltas must keep flowing after the second subscribe");
+            if let Message::Text(txt) = msg {
+                let val: serde_json::Value = serde_json::from_str(&txt).unwrap();
+                for u in val["updates"].as_array().into_iter().flatten() {
+                    for v in u["values"].as_array().into_iter().flatten() {
+                        if let Some(p) = v["path"].as_str() {
+                            saw_paths.insert(p.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            saw_paths.len() >= 5,
+            "expected the `*` subscription to survive `notifications.*`, saw {saw_paths:?}"
+        );
+        let _ = ws.close(None);
+        let _ = feed.join();
+    });
+}

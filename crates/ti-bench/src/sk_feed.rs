@@ -691,6 +691,7 @@ fn handle_client<S: std::io::Read + std::io::Write>(
     let mut subscribed = !subscribe_none;
     let mut subscribed_paths: HashSet<String> = HashSet::new();
     let mut subscribe_all_paths = true;
+    let mut star_subscribed = false;
     let mut target_vessel_context: Option<String> = None;
 
     // Ramp state
@@ -742,16 +743,18 @@ fn handle_client<S: std::io::Read + std::io::Write>(
                                 }
                             }
 
+                            // Signal K subscriptions are additive: a later
+                            // `notifications.*` must not cancel an earlier `*`.
                             for item in sub_list {
                                 if let Some(path_str) = item.get("path").and_then(|p| p.as_str()) {
                                     if path_str == "*" {
-                                        subscribe_all_paths = true;
+                                        star_subscribed = true;
                                     } else {
-                                        subscribe_all_paths = false;
                                         subscribed_paths.insert(path_str.to_string());
                                     }
                                 }
                             }
+                            subscribe_all_paths = star_subscribed || subscribed_paths.is_empty();
                         }
                     }
                 }
