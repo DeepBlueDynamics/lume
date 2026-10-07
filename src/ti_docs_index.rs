@@ -48,7 +48,6 @@ impl DocsIndex {
             self.published = candidate;
         }
     }
-
 }
 
 fn stamp(root: &Path) -> Option<Stamp> {

@@ -25,7 +25,8 @@ impl Extraction {
     fn skip(&mut self, reason: impl Into<String>) {
         self.skipped_units += 1;
         if self.warnings.len() < 8 {
-            self.warnings.push(reason.into().chars().take(300).collect());
+            self.warnings
+                .push(reason.into().chars().take(300).collect());
         }
     }
 }
@@ -37,7 +38,9 @@ pub fn extract(path: &Path, script: Option<&Path>) -> Result<Extraction, String>
         return Err(format!("input exceeds {} MiB limit", INPUT_LIMIT >> 20));
     }
     let deadline = Instant::now() + FILE_TIMEOUT;
-    let pdf = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf"));
+    let pdf = path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("pdf"));
     if pdf {
         if let Some(script) = script.filter(|p| p.is_file()) {
             let mut command = Command::new("uv");
@@ -45,7 +48,9 @@ pub fn extract(path: &Path, script: Option<&Path>) -> Result<Extraction, String>
             match bounded_output(command, deadline, RSS_LIMIT) {
                 Ok(output) => match uv_result(path, &output) {
                     Ok(result) => return Ok(result),
-                    Err(error) => eprintln!("PDF Python extractor unavailable: {error}; trying Rust"),
+                    Err(error) => {
+                        eprintln!("PDF Python extractor unavailable: {error}; trying Rust")
+                    }
                 },
                 Err(error) => eprintln!("PDF Python extractor unavailable: {error}; trying Rust"),
             }
@@ -82,7 +87,12 @@ fn uv_result(path: &Path, output: &[u8]) -> Result<Extraction, String> {
         if total > TEXT_LIMIT {
             return Err("total extracted text limit exceeded".into());
         }
-        result.sections.push(section(path, format!("Page {number}"), number as usize, text.into()));
+        result.sections.push(section(
+            path,
+            format!("Page {number}"),
+            number as usize,
+            text.into(),
+        ));
     }
     // The Python extractor omits empty pages from pages[].
     if let Some(count) = value["total_pages"].as_u64() {
@@ -92,21 +102,34 @@ fn uv_result(path: &Path, output: &[u8]) -> Result<Extraction, String> {
 }
 
 fn section(path: &Path, title: String, line_number: usize, body: String) -> Section {
-    Section { title, body, line_number, filename: Some(path.to_string_lossy().into()), entities: vec![] }
+    Section {
+        title,
+        body,
+        line_number,
+        filename: Some(path.to_string_lossy().into()),
+        entities: vec![],
+    }
 }
 
 fn stop(child: &mut std::process::Child) {
     #[cfg(unix)]
     {
         // Each extractor has its own process group; terminate UV's Python descendants too.
-        let _ = Command::new("kill").args(["-KILL", "--", &format!("-{}", child.id())])
-            .stdout(Stdio::null()).stderr(Stdio::null()).status();
+        let _ = Command::new("kill")
+            .args(["-KILL", "--", &format!("-{}", child.id())])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
     }
     let _ = child.kill();
     let _ = child.wait();
 }
 
-fn bounded_output(mut command: Command, deadline: Instant, rss_limit: u64) -> Result<Vec<u8>, String> {
+fn bounded_output(
+    mut command: Command,
+    deadline: Instant,
+    rss_limit: u64,
+) -> Result<Vec<u8>, String> {
     if Instant::now() >= deadline {
         return Err("per-file extraction timeout".into());
     }
@@ -115,16 +138,26 @@ fn bounded_output(mut command: Command, deadline: Instant, rss_limit: u64) -> Re
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
-    let mut child = command.stdin(Stdio::null()).stdout(Stdio::piped())
-        .stderr(Stdio::null()).spawn().map_err(|e| e.to_string())?;
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| e.to_string())?;
     let stdout = child.stdout.take().ok_or("missing extractor stdout")?;
     let (sender, receiver) = std::sync::mpsc::channel();
     let reader = std::thread::spawn(move || {
         let mut output = Vec::new();
-        let result = stdout.take(OUTPUT_LIMIT + 1).read_to_end(&mut output)
-            .map_err(|e| e.to_string()).and_then(|_| {
-                if output.len() as u64 > OUTPUT_LIMIT { Err("extractor output limit exceeded".into()) }
-                else { Ok(output) }
+        let result = stdout
+            .take(OUTPUT_LIMIT + 1)
+            .read_to_end(&mut output)
+            .map_err(|e| e.to_string())
+            .and_then(|_| {
+                if output.len() as u64 > OUTPUT_LIMIT {
+                    Err("extractor output limit exceeded".into())
+                } else {
+                    Ok(output)
+                }
             });
         let _ = sender.send(result);
     });
@@ -173,14 +206,25 @@ fn bounded_output(mut command: Command, deadline: Instant, rss_limit: u64) -> Re
 #[cfg(target_os = "linux")]
 fn rss_bytes(pid: u32) -> u64 {
     let status = std::fs::read_to_string(format!("/proc/{pid}/status")).unwrap_or_default();
-    let own = status.lines().find_map(|line| line.strip_prefix("VmRSS:"))
+    let own = status
+        .lines()
+        .find_map(|line| line.strip_prefix("VmRSS:"))
         .and_then(|line| line.split_whitespace().next())
-        .and_then(|value| value.parse::<u64>().ok()).unwrap_or(0) * 1024;
-    let children = std::fs::read_to_string(format!("/proc/{pid}/task/{pid}/children")).unwrap_or_default();
-    own + children.split_whitespace().filter_map(|p| p.parse::<u32>().ok()).map(rss_bytes).sum::<u64>()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(0)
+        * 1024;
+    let children =
+        std::fs::read_to_string(format!("/proc/{pid}/task/{pid}/children")).unwrap_or_default();
+    own + children
+        .split_whitespace()
+        .filter_map(|p| p.parse::<u32>().ok())
+        .map(rss_bytes)
+        .sum::<u64>()
 }
 #[cfg(not(target_os = "linux"))]
-fn rss_bytes(_: u32) -> u64 { 0 }
+fn rss_bytes(_: u32) -> u64 {
+    0
+}
 
 /// Worker entrypoint: parser panics and resource limits cannot stop the parent indexer.
 #[cfg(feature = "pdf")]
@@ -188,7 +232,10 @@ pub fn worker(path: &Path) -> Result<Extraction, String> {
     if std::fs::metadata(path).map_err(|e| e.to_string())?.len() > INPUT_LIMIT {
         return Err("input limit exceeded".into());
     }
-    if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("epub")) {
+    if path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("epub"))
+    {
         epub(path)
     } else {
         pdf(path)
@@ -198,8 +245,10 @@ pub fn worker(path: &Path) -> Result<Extraction, String> {
 #[cfg(feature = "pdf")]
 fn pdf(path: &Path) -> Result<Extraction, String> {
     let document = lopdf::Document::load_with_options(
-        path, lopdf::LoadOptions::with_max_decompressed_size(UNIT_LIMIT),
-    ).map_err(|e| format!("PDF cannot be read (possibly encrypted): {e}"))?;
+        path,
+        lopdf::LoadOptions::with_max_decompressed_size(UNIT_LIMIT),
+    )
+    .map_err(|e| format!("PDF cannot be read (possibly encrypted): {e}"))?;
     let pages = document.get_pages();
     let mut result = Extraction::default();
     if document.was_encrypted() || document.is_encrypted() {
@@ -211,12 +260,21 @@ fn pdf(path: &Path) -> Result<Extraction, String> {
     for number in pages.keys() {
         let extracted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             document.extract_text_with_limit(&[*number], UNIT_LIMIT)
-        })).map_err(|_| "page decoder panicked".to_string()).and_then(|r| r.map_err(|e| e.to_string()));
+        }))
+        .map_err(|_| "page decoder panicked".to_string())
+        .and_then(|r| r.map_err(|e| e.to_string()));
         match extracted {
             Ok(text) if !text.trim().is_empty() && text.len() <= UNIT_LIMIT => {
                 total += text.len();
-                if total > TEXT_LIMIT { return Err("total extracted text limit exceeded".into()); }
-                result.sections.push(section(path, format!("Page {number}"), *number as usize, text));
+                if total > TEXT_LIMIT {
+                    return Err("total extracted text limit exceeded".into());
+                }
+                result.sections.push(section(
+                    path,
+                    format!("Page {number}"),
+                    *number as usize,
+                    text,
+                ));
             }
             Ok(_) => result.skip(format!("Page {number}: image-only, empty or oversized")),
             Err(error) => result.skip(format!("Page {number}: {error}")),
@@ -233,7 +291,8 @@ mod tests {
         let mut command = Command::new("sh");
         command.args(["-c", "sleep 10"]);
         let started = Instant::now();
-        let error = bounded_output(command, started + Duration::from_millis(40), RSS_LIMIT).unwrap_err();
+        let error =
+            bounded_output(command, started + Duration::from_millis(40), RSS_LIMIT).unwrap_err();
         assert!(error.contains("timeout"), "{error}");
         assert!(started.elapsed() < Duration::from_secs(3));
     }
@@ -242,7 +301,8 @@ mod tests {
     fn watchdog_reports_memory_budget() {
         let mut command = Command::new("sh");
         command.args(["-c", "sleep 10"]);
-        let error = bounded_output(command, Instant::now() + Duration::from_secs(3), 1).unwrap_err();
+        let error =
+            bounded_output(command, Instant::now() + Duration::from_secs(3), 1).unwrap_err();
         assert!(error.contains("memory"), "{error}");
     }
 }
@@ -250,15 +310,24 @@ mod tests {
 #[cfg(feature = "pdf")]
 fn zip_text(archive: &mut zip::ZipArchive<std::fs::File>, name: &str) -> Result<String, String> {
     let entry = archive.by_name(name).map_err(|e| e.to_string())?;
-    if entry.size() > UNIT_LIMIT as u64 { return Err(format!("{name}: chapter/metadata limit exceeded")); }
+    if entry.size() > UNIT_LIMIT as u64 {
+        return Err(format!("{name}: chapter/metadata limit exceeded"));
+    }
     let mut text = String::new();
-    entry.take(UNIT_LIMIT as u64 + 1).read_to_string(&mut text).map_err(|e| e.to_string())?;
-    if text.len() > UNIT_LIMIT { return Err(format!("{name}: decompression limit exceeded")); }
+    entry
+        .take(UNIT_LIMIT as u64 + 1)
+        .read_to_string(&mut text)
+        .map_err(|e| e.to_string())?;
+    if text.len() > UNIT_LIMIT {
+        return Err(format!("{name}: decompression limit exceeded"));
+    }
     Ok(text)
 }
 
 #[cfg(feature = "pdf")]
-fn xml_elements(text: &str) -> Result<Vec<(String, std::collections::BTreeMap<String,String>)>, String> {
+fn xml_elements(
+    text: &str,
+) -> Result<Vec<(String, std::collections::BTreeMap<String, String>)>, String> {
     use quick_xml::events::Event;
     let mut reader = quick_xml::Reader::from_str(text);
     let mut elements = Vec::new();
@@ -270,11 +339,16 @@ fn xml_elements(text: &str) -> Result<Vec<(String, std::collections::BTreeMap<St
                     let attribute = attribute.map_err(|e| e.to_string())?;
                     attributes.insert(
                         attribute.key.local_name().as_ref().to_string(),
-                        attribute.normalized_value(quick_xml::XmlVersion::Explicit1_0).map_err(|e| e.to_string())?.into_owned(),
+                        attribute
+                            .normalized_value(quick_xml::XmlVersion::Explicit1_0)
+                            .map_err(|e| e.to_string())?
+                            .into_owned(),
                     );
                 }
                 elements.push((element.local_name().as_ref().to_string(), attributes));
-                if elements.len() > 10000 { return Err("EPUB element count limit exceeded".into()); }
+                if elements.len() > 10000 {
+                    return Err("EPUB element count limit exceeded".into());
+                }
             }
             Event::Eof => break,
             _ => {}
@@ -294,11 +368,16 @@ fn chapter_name(base: &Path, href: &str) -> Result<String, String> {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' {
-            let encoded = bytes.get(i + 1..i + 3).ok_or("invalid EPUB percent escape")?;
+            let encoded = bytes
+                .get(i + 1..i + 3)
+                .ok_or("invalid EPUB percent escape")?;
             let encoded = std::str::from_utf8(encoded).map_err(|e| e.to_string())?;
             decoded.push(u8::from_str_radix(encoded, 16).map_err(|e| e.to_string())?);
             i += 3;
-        } else { decoded.push(bytes[i]); i += 1; }
+        } else {
+            decoded.push(bytes[i]);
+            i += 1;
+        }
     }
     let decoded = String::from_utf8(decoded).map_err(|e| e.to_string())?;
     let joined = base.join(decoded).to_string_lossy().replace('\\', "/");
@@ -306,7 +385,11 @@ fn chapter_name(base: &Path, href: &str) -> Result<String, String> {
     for part in joined.split('/') {
         match part {
             "" | "." => {}
-            ".." => { if parts.pop().is_none() { return Err("EPUB chapter escapes archive root".into()); } }
+            ".." => {
+                if parts.pop().is_none() {
+                    return Err("EPUB chapter escapes archive root".into());
+                }
+            }
             other => parts.push(other),
         }
     }
@@ -317,52 +400,90 @@ fn chapter_name(base: &Path, href: &str) -> Result<String, String> {
 fn epub(path: &Path) -> Result<Extraction, String> {
     let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
-    if archive.len() > 10000 { return Err("EPUB entry count limit exceeded".into()); }
+    if archive.len() > 10000 {
+        return Err("EPUB entry count limit exceeded".into());
+    }
     let container = xml_elements(&zip_text(&mut archive, "META-INF/container.xml")?)?;
-    let package = container.iter().find(|(name, _)| name == "rootfile")
-        .and_then(|(_, attrs)| attrs.get("full-path")).ok_or("missing EPUB package")?.clone();
+    let package = container
+        .iter()
+        .find(|(name, _)| name == "rootfile")
+        .and_then(|(_, attrs)| attrs.get("full-path"))
+        .ok_or("missing EPUB package")?
+        .clone();
     let elements = xml_elements(&zip_text(&mut archive, &package)?)?;
     let mut items = std::collections::BTreeMap::new();
     for (name, attrs) in &elements {
-        if name == "item" && attrs.get("media-type").is_some_and(|t| t == "application/xhtml+xml" || t == "text/html") {
+        if name == "item"
+            && attrs
+                .get("media-type")
+                .is_some_and(|t| t == "application/xhtml+xml" || t == "text/html")
+        {
             if let (Some(id), Some(href)) = (attrs.get("id"), attrs.get("href")) {
                 items.insert(id.clone(), href.clone());
             }
         }
     }
-    let encrypted: std::collections::BTreeSet<_> =
-        if archive.file_names().any(|name| name == "META-INF/encryption.xml") {
-            xml_elements(&zip_text(&mut archive, "META-INF/encryption.xml")?)?
-                .into_iter().filter(|(name,_)| name == "CipherReference")
-                .filter_map(|(_, attrs)| attrs.get("URI").cloned()).collect()
-        } else { Default::default() };
+    let encrypted: std::collections::BTreeSet<_> = if archive
+        .file_names()
+        .any(|name| name == "META-INF/encryption.xml")
+    {
+        xml_elements(&zip_text(&mut archive, "META-INF/encryption.xml")?)?
+            .into_iter()
+            .filter(|(name, _)| name == "CipherReference")
+            .filter_map(|(_, attrs)| attrs.get("URI").cloned())
+            .collect()
+    } else {
+        Default::default()
+    };
     let base = Path::new(&package).parent().unwrap_or(Path::new(""));
     let mut result = Extraction::default();
     let mut total = 0usize;
     for (name, attrs) in &elements {
-        if name != "itemref" { continue; }
+        if name != "itemref" {
+            continue;
+        }
         let Some(href) = attrs.get("idref").and_then(|id| items.get(id)) else {
-            result.skip("unsupported EPUB spine item"); continue;
+            result.skip("unsupported EPUB spine item");
+            continue;
         };
         let chapter = match chapter_name(base, href) {
             Ok(chapter) => chapter,
-            Err(error) => { result.skip(error); continue; }
+            Err(error) => {
+                result.skip(error);
+                continue;
+            }
         };
         if encrypted.contains(&chapter) {
-            result.skip(format!("{chapter}: encrypted chapter")); continue;
+            result.skip(format!("{chapter}: encrypted chapter"));
+            continue;
         }
         let html = match zip_text(&mut archive, &chapter) {
             Ok(html) => html,
-            Err(error) => { result.skip(error); continue; }
+            Err(error) => {
+                result.skip(error);
+                continue;
+            }
         };
         let (title, body) = crate::crawl::clean_html_to_markdown(&html);
-        if body.trim().is_empty() { result.skip(format!("{chapter}: empty chapter")); continue; }
+        if body.trim().is_empty() {
+            result.skip(format!("{chapter}: empty chapter"));
+            continue;
+        }
         total += body.len();
-        if total > TEXT_LIMIT { return Err("total extracted text limit exceeded".into()); }
+        if total > TEXT_LIMIT {
+            return Err("total extracted text limit exceeded".into());
+        }
         let number = result.sections.len() + result.skipped_units + 1;
-        result.sections.push(section(path,
-            if title.trim().is_empty() { format!("Chapter {number}") } else { title },
-            number, body));
+        result.sections.push(section(
+            path,
+            if title.trim().is_empty() {
+                format!("Chapter {number}")
+            } else {
+                title
+            },
+            number,
+            body,
+        ));
     }
     Ok(result)
 }

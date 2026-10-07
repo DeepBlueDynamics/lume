@@ -126,9 +126,15 @@ impl TiServer {
     }
 
     fn refresh_docs_index(&self) {
-        let Some(index) = &self.docs_index else { return };
-        let Ok(_reload) = self.docs_reload.try_lock() else { return };
-        let Ok(mut index) = index.try_lock() else { return };
+        let Some(index) = &self.docs_index else {
+            return;
+        };
+        let Ok(_reload) = self.docs_reload.try_lock() else {
+            return;
+        };
+        let Ok(mut index) = index.try_lock() else {
+            return;
+        };
         if !index.ready(Instant::now()) {
             return;
         }
