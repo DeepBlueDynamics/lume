@@ -113,7 +113,10 @@
       if (res.status === 401) throw new Error(loginHint);
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({ error: res.statusText }));
-        throw new Error(errJson.error || `HTTP ${res.status}: ${res.statusText}`);
+        let message = errJson.error || `HTTP ${res.status}: ${res.statusText}`;
+        // DataFusion lists every valid column; keep the hint, drop the wall of names.
+        message = message.replace(/ Valid fields are .*$/s, ' (open Schema Browser for the column list)');
+        throw new Error(message);
       }
 
       const data = await res.json();
