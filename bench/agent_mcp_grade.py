@@ -63,6 +63,8 @@ def tool_rows(record):
 
 def norm_time(value):
     text = str(value).replace("T", " ").replace("Z", "")
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        text += " 00:00:00"  # a DATE equals the midnight bucket start
     return text[:19]
 
 
@@ -78,7 +80,18 @@ def value_match(actual, expected, limit):
     return norm_time(actual) == norm_time(expected) or str(actual) == str(expected)
 
 
-def row_match(actual, expected, grading):
+def constant_columns(expected_rows):
+    """Columns with one value across every expected row (e.g. the vessel the question names).
+
+    The question already fixes them, so an answer may omit them.
+    """
+    if len(expected_rows) < 2:
+        return set()
+    first = expected_rows[0]
+    return {c for c in first if all(r.get(c) == first[c] for r in expected_rows)}
+
+
+def row_match(actual, expected, grading, optional=frozenset()):
     """Match by value, not column name: the agent chooses its own aliases.
 
     Each expected value must match a distinct value in the actual row; numeric columns
@@ -93,6 +106,8 @@ def row_match(actual, expected, grading):
         limit = tol.get(column, 0)
         hit = next((i for i, v in enumerate(available) if value_match(v, want, limit)), None)
         if hit is None:
+            if column in optional:
+                continue
             return False
         available.pop(hit)
     return True
@@ -102,8 +117,10 @@ def grade_rows(rows, expected, grading):
     if not isinstance(rows, list) or len(rows) != len(expected):
         return False, f"row count {len(rows) if isinstance(rows, list) else None} vs {len(expected)}"
     remaining = list(rows)
+    optional = constant_columns(expected)
     for want in expected:
-        hit = next((r for r in remaining if isinstance(r, dict) and row_match(r, want, grading)), None)
+        hit = next((r for r in remaining
+                    if isinstance(r, dict) and row_match(r, want, grading, optional)), None)
         if hit is None:
             return False, f"no row matching {want}"
         remaining.remove(hit)
