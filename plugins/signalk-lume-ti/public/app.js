@@ -6,7 +6,7 @@
   // /plugins/signalk-lume-ti/. Requests need the user's Signal K login (same-origin cookie).
   const apiBase = '/plugins/signalk-lume-ti';
   // Signal K guards plugin routes; a 401 means this browser has no Signal K session yet.
-  const loginHint = 'Not logged in to Signal K. Log in at /admin/#/login (top-right Login), then reload this page.';
+  const loginHint = 'Not logged in to Signal K. Open Signal K Admin by its host name (on HaLOS: https://halos.local:4430/admin/), choose Login, sign in (HaLOS SSO if offered), then reload this page from that same address.';
 
   let lastQueryRows = [];
   let lastQueryColumns = [];

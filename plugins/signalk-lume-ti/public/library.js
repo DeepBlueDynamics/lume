@@ -20,7 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
   async function getJson(url, options) {
     const res = await fetch(url, {credentials: 'same-origin', cache: 'no-store', ...options});
     const body = await res.json().catch(() => ({}));
-    if (res.status === 401) throw new Error('Log in to Signal K (Admin → Login), then reload.');
+    if (res.status === 401) throw new Error('Not logged in to Signal K. Log in via Signal K Admin (on HaLOS: https://halos.local:4430/admin/, HaLOS SSO), then reload from that address.');
     if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
     return body;
   }
