@@ -1,2 +1,5 @@
 # Keep the Pi smoke runner executable by bash on every checkout.
 tests/pg_smoke.sh text eol=lf
+
+# Shell scripts run on Linux (Pi, CI); keep LF on Windows checkouts.
+*.sh text eol=lf
