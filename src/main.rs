@@ -153,6 +153,21 @@ fn lume_main() {
                 print_crawl_help();
                 return;
             }
+            if args.iter().any(|a| a == "--list") {
+                match lume::crawl_list::parse_args(&args[2..]).and_then(|o| lume::crawl_list::run_list(&o)) {
+                    Ok((ok, failed, skipped)) => {
+                        println!("Fetched {ok}, failed {failed}, already present {skipped}");
+                        if failed > 0 {
+                            std::process::exit(1);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error: {e}");
+                        std::process::exit(2);
+                    }
+                }
+                return;
+            }
             lume::crawl::run(args[2..].to_vec());
         }
         "serve" | "--serve" => {
@@ -2504,11 +2519,23 @@ Stealth crawl webpage content and save it to the personal search collection.
 
 USAGE:
   lume crawl [FLAGS] <URL>
+  lume crawl --list <CSV> [--out <DIR>] [--only <ID,...>] [--formats pdf,epub,txt,html]
+             [--category <NAME>] [--limit <N>] [--max-mb <MB>] [--timeout <SECS>] [--force] [--dry-run]
 
 FLAGS:
   -h, --help             Prints help information
 
 ARGS:
   <URL>                  The webpage URL (or Hacker News story URL) to crawl
+
+LIST MODE:
+  Fetches every row of a reading-list CSV (header with title, format, url; category,
+  subcategory and publisher optional; see docs/cruiser_library.csv) into --out
+  [default: library], then `lume index <DIR>` indexes it. Each row's id is derived
+  from its URL; <DIR>/library.json maps files back to title, publisher and URL, and
+  reruns skip rows already fetched. Documents download as files and HTML pages become
+  Markdown. A local Grub (GRUB_BASE_URL, default http://localhost:6792) handles HTML and
+  retries blocked downloads when it is reachable; otherwise rows are fetched directly.
+  ZIM archives are skipped unless --formats names zim. --max-mb defaults to 200.
 "#);
 }

@@ -34,6 +34,7 @@ pub mod inversion;
 pub mod hybrid;
 pub mod agent;
 pub mod crawl;
+pub mod crawl_list;
 pub mod search;
 #[cfg(feature = "ti")]
 pub mod ti_text;
