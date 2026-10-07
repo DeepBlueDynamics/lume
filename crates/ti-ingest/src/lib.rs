@@ -11,6 +11,7 @@
 pub mod backfill;
 pub mod bucket;
 pub mod classify;
+pub mod counters;
 pub mod decode;
 pub mod derived;
 pub mod docs;

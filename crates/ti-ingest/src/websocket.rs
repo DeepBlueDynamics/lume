@@ -128,10 +128,11 @@ pub fn process_message(
     }
 
     let mut points_ingested = 0;
+    let mut first_error = None;
     for raw in raw_points {
         let norm_points = normalize_point(raw, &config.allow_paths, &config.deny_paths);
         for p in norm_points {
-            bucketer.ingest_point(
+            let result = bucketer.ingest_point(
                 &p.context,
                 &p.path,
                 &p.source,
@@ -140,12 +141,16 @@ pub fn process_message(
                 config,
                 catalog,
                 sink,
-            )?;
-            points_ingested += 1;
+            );
+            if let Err(error) = result {
+                if first_error.is_none() { first_error = Some(error); }
+            } else {
+                points_ingested += 1;
+            }
         }
     }
 
-    Ok(points_ingested)
+    first_error.map_or(Ok(points_ingested), Err)
 }
 
 /// Run the blocking Signal K stream loop with reconnect and exponential backoff.
@@ -176,6 +181,9 @@ pub fn run_stream_loop(
                     continue;
                 }
 
+                if let tungstenite::stream::MaybeTlsStream::Plain(stream) = socket.get_ref() {
+                    stream.set_read_timeout(Some(Duration::from_millis(200)))?;
+                }
                 while running.load(Ordering::Relaxed) {
                     match socket.read() {
                         Ok(Message::Text(text)) => {
@@ -189,6 +197,7 @@ pub fn run_stream_loop(
                             {
                                 eprintln!("Error ingesting notification document: {e}");
                             }
+                            let prior_failures = bucketer.counters().apply_failures;
                             if let Err(e) = process_message(
                                 &text,
                                 self_urn,
@@ -199,7 +208,9 @@ pub fn run_stream_loop(
                                 sink,
                                 &mut recorder,
                             ) {
-                                eprintln!("Error processing Signal K message: {e}");
+                                if bucketer.counters().apply_failures == prior_failures && !bucketer.counters().ingest_blocked {
+                                    eprintln!("Error processing Signal K message: {e}");
+                                }
                             }
                         }
                         Ok(Message::Ping(payload)) => {
@@ -209,11 +220,20 @@ pub fn run_stream_loop(
                             break;
                         }
                         Ok(_) => {}
+                        Err(tungstenite::Error::Io(ref error))
+                            if error.kind() == std::io::ErrorKind::WouldBlock
+                                || error.kind() == std::io::ErrorKind::TimedOut => {}
                         Err(e) => {
                             if running.load(Ordering::Relaxed) {
                                 eprintln!("Signal K stream read error: {e}");
                             }
                             break;
+                        }
+                    }
+                    let prior_failures = bucketer.counters().apply_failures;
+                    if let Err(error) = bucketer.retry_pending(std::time::Instant::now(), config, catalog, sink) {
+                        if bucketer.counters().apply_failures == prior_failures && !bucketer.counters().ingest_blocked {
+                            eprintln!("Ingest retry publication failed: {error}");
                         }
                     }
                 }
@@ -228,7 +248,15 @@ pub fn run_stream_loop(
         }
     }
 
-    bucketer.flush_all(config, catalog, sink)?;
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let result = bucketer.flush_all(config, catalog, sink);
+        if bucketer.pending_retry_count() == 0 { result?; break; }
+        if std::time::Instant::now() >= deadline {
+            return Err(Error::InvalidInput("shutdown has unpublished ingest windows".into()));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
     Ok(())
 }
 
@@ -271,10 +299,11 @@ pub fn process_message_multi(
     }
 
     let mut points_ingested = 0;
+    let mut first_error = None;
     for raw in raw_points {
         let norm_points = normalize_point(raw, &config.allow_paths, &config.deny_paths);
         for p in norm_points {
-            bucketer.ingest_point(
+            let result = bucketer.ingest_point(
                 &p.context,
                 &p.path,
                 &p.source,
@@ -283,12 +312,16 @@ pub fn process_message_multi(
                 config,
                 catalogs,
                 sinks,
-            )?;
-            points_ingested += 1;
+            );
+            if let Err(error) = result {
+                if first_error.is_none() { first_error = Some(error); }
+            } else {
+                points_ingested += 1;
+            }
         }
     }
 
-    Ok(points_ingested)
+    first_error.map_or(Ok(points_ingested), Err)
 }
 
 /// Run the blocking Signal K stream loop with reconnect and exponential backoff across multiple stores.
@@ -319,6 +352,9 @@ pub fn run_stream_loop_multi(
                     continue;
                 }
 
+                if let tungstenite::stream::MaybeTlsStream::Plain(stream) = socket.get_ref() {
+                    stream.set_read_timeout(Some(Duration::from_millis(200)))?;
+                }
                 while running.load(Ordering::Relaxed) {
                     match socket.read() {
                         Ok(Message::Text(text)) => {
@@ -332,6 +368,7 @@ pub fn run_stream_loop_multi(
                             {
                                 eprintln!("Error ingesting notification document: {e}");
                             }
+                            let prior_failures = bucketer.counters().apply_failures;
                             if let Err(e) = process_message_multi(
                                 &text,
                                 self_urn,
@@ -342,7 +379,9 @@ pub fn run_stream_loop_multi(
                                 sinks,
                                 &mut recorder,
                             ) {
-                                eprintln!("Error processing Signal K message: {e}");
+                                if bucketer.counters().apply_failures == prior_failures && !bucketer.counters().ingest_blocked {
+                                    eprintln!("Error processing Signal K message: {e}");
+                                }
                             }
                         }
                         Ok(Message::Ping(payload)) => {
@@ -352,11 +391,20 @@ pub fn run_stream_loop_multi(
                             break;
                         }
                         Ok(_) => {}
+                        Err(tungstenite::Error::Io(ref error))
+                            if error.kind() == std::io::ErrorKind::WouldBlock
+                                || error.kind() == std::io::ErrorKind::TimedOut => {}
                         Err(e) => {
                             if running.load(Ordering::Relaxed) {
                                 eprintln!("Signal K stream read error: {e}");
                             }
                             break;
+                        }
+                    }
+                    let prior_failures = bucketer.counters().apply_failures;
+                    if let Err(error) = bucketer.retry_pending(std::time::Instant::now(), config, catalogs, sinks) {
+                        if bucketer.counters().apply_failures == prior_failures && !bucketer.counters().ingest_blocked {
+                            eprintln!("Ingest retry publication failed: {error}");
                         }
                     }
                 }
@@ -371,7 +419,15 @@ pub fn run_stream_loop_multi(
         }
     }
 
-    bucketer.flush_all(config, catalogs, sinks)?;
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let result = bucketer.flush_all(config, catalogs, sinks);
+        if bucketer.pending_retry_count() == 0 { result?; break; }
+        if std::time::Instant::now() >= deadline {
+            return Err(Error::InvalidInput("shutdown has unpublished ingest windows".into()));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
     Ok(())
 }
 

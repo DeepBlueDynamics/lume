@@ -434,6 +434,20 @@ fn http_shared_engine_arrow_json_schema_explain_status_and_read_only() {
     let status = server.get("/ti/status");
     assert_eq!(status["width_seconds"], 10);
     assert!(status["shards"].is_object());
+    let counters = json!({
+        "samples_dropped_late": 1, "samples_dropped_nonfinite": 2,
+        "samples_skipped_magnitude": 3, "samples_rejected_source": 4,
+        "apply_failures": 5, "apply_retries": 6,
+        "samples_rejected_blocked": 7, "ingest_blocked": true
+    });
+    std::fs::write(
+        server.root.join("store/ingest_status.json"),
+        serde_json::to_vec(&counters).unwrap(),
+    ).unwrap();
+    let status = server.get("/ti/status");
+    for (name, value) in counters.as_object().unwrap() {
+        assert_eq!(&status[name], value, "{name}");
+    }
     match server.post("/ti/query", json!({"sql":"DELETE FROM telemetry"}), true) {
         Err(error) => match *error {
             ureq::Error::Status(400, response) => {

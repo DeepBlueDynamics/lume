@@ -19,5 +19,6 @@ fn evicted_late_event_requires_explicit_history_repair() {
     let error = bucketer.ingest_point("robots.urn:fleet:late", "cycles", "a",
         EPOCH + 2, NormalizedValue::Double(99.0), &config, catalog.as_ref(), &mut store).unwrap_err();
     assert!(error.to_string().contains("repair with historical backfill"));
+    assert_eq!(bucketer.counters().samples_dropped_late, 1);
     assert_eq!(store.manifest().get(before.key).unwrap().hash, before.hash);
 }

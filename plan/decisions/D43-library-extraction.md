@@ -58,8 +58,10 @@ median was 1.26x faster and its standalone executable 228,904 bytes smaller.
 Together with bounded decompression and fewer font parsers, this supports the
 approved direct-lopdf choice. Both top-level crates are MIT; source links above.
 
-These executable sizes exclude Lume, EPUB and TI. Actual Lume release binary
-growth is pending the lead's post-merge host build. The verified pre-D43 Windows
+These executable sizes exclude Lume, EPUB and TI. The lead reports the Windows
+host release --features ti binary at 7bf038d is 114,342,400 bytes: +2,068,992 bytes
+(+1.84%) against 925fa8c. This is an upper bound for D43 alone because the same
+build includes count_paths. The verified pre-D43 Windows
 host release `--features ti` baseline at 925fa8c (including crawl --list) is
 112,273,408 bytes, reported by the lead. It matches b3cce8b because of PE section
 alignment. Compare the post-merge build against 925fa8c. No real 900-page book was benchmarked, and generated
