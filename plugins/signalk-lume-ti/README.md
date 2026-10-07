@@ -29,50 +29,89 @@ Supervises `lume ti ingest --serve` as a managed child process inside the Signal
 
 ---
 
-## Installation into Signal K Docker Container
+## Install on HaLOS or OpenPlotter
 
-Signal K server plugins and webapps are installed inside the Signal K data directory, which is host-mounted at `/home/node/.signalk`:
+Release packages contain Linux arm64 and x64 binaries. Installation needs no
+Rust compiler, Python extractor, Grub, download hook or install-time script.
+Node 18+ and Signal K 2.31+ are required. 32-bit ARM and musl Linux are not
+supported. Each bundled binary's exact glibc requirement is recorded in
+`bin/manifest.json`; the packaging ceiling is 2.39.
 
-### 1. Install Plugin Package
-Inside the container (or on the host at the mounted volume directory `/home/node/.signalk`):
+On HaLOS, install **Lume TI** from Signal K's App Store after a release has
+been published there, then enable it in **Server → Plugin Config**.
+For a local release tarball, open a shell inside the running Signal K
+container, as its usual user, and run:
 
 ```bash
-cd /home/node/.signalk
-npm install /path/to/signalk-lume-ti
+cd ~/.signalk
+npm install --save --ignore-scripts /path/to/signalk-lume-ti-0.1.0.tgz
 ```
 
-Or copy the plugin directory into `node_modules`:
+Restart Signal K if the new plugin is not listed. Install inside the container,
+where the runtime architecture and libc match the package, rather than copying
+an unpacked source checkout into node_modules. On 64-bit OpenPlotter, use the
+same App Store flow or npm command in the Signal K user's ~/.signalk directory.
+
+Before enabling ingestion, pin the vessel UUID or MMSI in **Server → Settings →
+Vessel Base Data**. Record the `self` context from `GET /signalk`, restart the
+server, and verify it is unchanged; changing identity splits historical data.
+Enable **Lume TI**, leave the custom binary path empty, and keep the default
+WebSocket URL `ws://127.0.0.1:3000` and query port 5863.
+In **Security → Access Requests**, approve the Lume TI device's read-only
+request. The plugin retains its client identity and token across restarts.
+Anonymous telemetry can start sooner when enabled, but protected document
+sources still need an approved token. Open **Webapps → Lume TI** and check
+ingest status and the recorded vessel context.
+
+### Build a release package
+
+Both architectures must be built from the same reviewed revision before
+publication. Build arm64 natively inside the Pi's Ubuntu 24.04 Signal K
+container, or a matching build container, rather than on the Pi's Debian 13
+host (glibc 2.41). Thin LTO and symbol stripping reduce release size:
+
 ```bash
-cp -r /path/to/plugins/signalk-lume-ti /home/node/.signalk/node_modules/
+CARGO_INCREMENTAL=0 CARGO_PROFILE_RELEASE_LTO=thin \
+CARGO_PROFILE_RELEASE_STRIP=symbols cargo build --locked --release --features ti
 ```
 
-### 2. Install Lume Binary
-Place the native `aarch64` `lume` binary in either:
+The same command builds x64 natively on glibc 2.36 Linux. A cross-build
+alternative is [cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild)
+with `--target aarch64-unknown-linux-gnu.2.36`; install the Rust target and
+Zig toolchain first, and inspect the resulting binary's actual requirements.
 
-1. **Plugin bundled location**:
-   ```bash
-   mkdir -p /home/node/.signalk/node_modules/signalk-lume-ti/bin/linux-arm64
-   cp /path/to/lume /home/node/.signalk/node_modules/signalk-lume-ti/bin/linux-arm64/lume
-   chmod +x /home/node/.signalk/node_modules/signalk-lume-ti/bin/linux-arm64/lume
-   ```
+From the repository root:
 
-2. **Or system PATH inside the container**:
-   ```bash
-   cp /path/to/lume /usr/local/bin/lume
-   chmod +x /usr/local/bin/lume
-   ```
+```bash
+bash scripts/package-plugin.sh \
+  --arm64 /path/to/arm64/lume --x64 /path/to/x64/lume \
+  --output /path/to/release-output
+```
 
-3. **Or custom path**: Set `lumePath` in the plugin configuration UI.
+The builder requires Node, npm and readelf. Strip binaries on their build host
+with native `strip --strip-all`, or use release profile `strip = "symbols"`.
+Already-stripped inputs are accepted only when `.symtab` and `.debug_*`
+sections are absent. Unstripped inputs additionally require llvm-strip or GNU
+strip for each target architecture. `--strip-tool /path/to/llvm-strip` selects a
+cross-architecture tool explicitly. It strips staged copies, preserving the
+input artifacts, checks ELF architecture and Linux interpreter before and
+after stripping, and rejects any GLIBC requirement above 2.39. It also runs
+`file` when available; ELF headers and readelf remain authoritative when
+that command is absent. It never uses architecture-changing generic objcopy.
 
-### 3. Enable in Admin UI
-1. Navigate to Signal K Server Admin UI: `http://<pi-ip>:3000/admin/`.
-2. Go to **Server** -> **Plugin Config** -> **Lume TI**.
-3. Toggle the plugin to **Enabled**.
-4. Configure optional settings:
-   - **Signal K WebSocket URL**: `ws://127.0.0.1:3000` (default)
-   - **Query Server Port**: `5863` (default)
-   - **Custom binary path**: leave empty to auto-detect bundled binary or PATH
-5. Click **Submit**.
+The output contains the npm tarball and `package-report.json`, recording
+input/output sizes, SHA-256 checksums, glibc requirements and the packed file
+list. Packing is offline. A prepack check verifies both bundled binaries
+against the manifest; an unassembled source checkout cannot be packed as a
+release. Installation works with Signal K's
+[`--ignore-scripts` policy](https://github.com/SignalK/signalk-server/blob/v2.31.0/src/modules.ts).
+
+The included 128×128 SVG is a placeholder. Replace `public/icon.png` and set
+`signalk.appIcon` to `./icon.png` in package.json for the public icon.
+The builder mirrors it at the package root because Signal K's
+[plugin publishing](https://github.com/SignalK/signalk-server/blob/v2.31.0/docs/develop/plugins/publishing.md)
+and [webapp](https://github.com/SignalK/signalk-server/blob/v2.31.0/docs/develop/webapps.md)
+icon paths differ.
 
 ---
 

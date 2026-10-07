@@ -102,7 +102,9 @@ Reserved, and written by the owning lane at merge (agreed among the lanes on 202
 
 | D43 | Root optional `lopdf =0.44.0` (defaults off), `zip =8.6.0` (defaults off, `deflate-flate2` only), `quick-xml =0.42.0` (defaults off), MIT; `pdf` feature included by `ti`, default features unchanged | Lead approved 2026-10-07 for offline cruiser-library extraction. Existing UV remains preferred when available; bounded isolated Rust fallback and EPUB chapter extraction never require Grub. 128 MiB input, 120 s deadline, 512 MiB Linux RSS, 8 MiB page/chapter, 64 MiB text. [Decision and evaluation](../decisions/D43-library-extraction.md) |
 
-The next free number is **D44**. Ask the lead before taking one. Every new runtime dependency needs a line here
+D44 approves bundled Linux arm64 and x64 plugin binaries, with no install-time scripts; see [the packaging decision](../decisions/D44-plugin-package.md).
+
+The next free number is **D45**. Ask the lead before taking one. Every new runtime dependency needs a line here
 (PR rule, [10-contracts](10-contracts.md)).
 
 ## Sources (from spec)
