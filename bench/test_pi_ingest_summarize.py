@@ -190,6 +190,34 @@ class TestPiIngestSummarize(unittest.TestCase):
         md = summarizer.generate_markdown(m)
         self.assertIn("Error", md)
 
+    def test_spec06_evaluation(self):
+        rows = summarizer.parse_benchmark_csv(self.fixture_csv)
+        m = summarizer.summarize_rows(rows)
+        # Fixture has mean CPU ~2.0% (<= 25%) and max RSS ~50.8 MiB (<= 400 MB)
+        self.assertTrue(m["spec06_cpu_pass"])
+        self.assertTrue(m["spec06_rss_pass"])
+        self.assertTrue(m["spec06_pass"])
+
+        md = summarizer.generate_markdown(m)
+        self.assertIn("## Spec/06 Verification", md)
+        self.assertIn("**PASS**", md)
+
+        # Test failure case when CPU > 25%
+        high_cpu_rows = [dict(r) for r in rows]
+        for r in high_cpu_rows:
+            r["cpu_pct"] = 35.0
+        m_fail_cpu = summarizer.summarize_rows(high_cpu_rows)
+        self.assertFalse(m_fail_cpu["spec06_cpu_pass"])
+        self.assertFalse(m_fail_cpu["spec06_pass"])
+
+        # Test failure case when RSS > 400 MB
+        high_rss_rows = [dict(r) for r in rows]
+        for r in high_rss_rows:
+            r["rss_kb"] = 500_000.0  # ~488 MiB
+        m_fail_rss = summarizer.summarize_rows(high_rss_rows)
+        self.assertFalse(m_fail_rss["spec06_rss_pass"])
+        self.assertFalse(m_fail_rss["spec06_pass"])
+
 
 if __name__ == "__main__":
     unittest.main()

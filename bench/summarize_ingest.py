@@ -196,6 +196,10 @@ def summarize_rows(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     end_failures = last["apply_failures"]
     delta_failures = end_failures - start_failures
 
+    cpu_pass = mean_cpu <= 25.0
+    rss_pass = (max_rss_kb / 1024.0) <= 400.0
+    spec06_pass = cpu_pass and rss_pass
+
     return {
         "samples": len(rows),
         "duration_sec": duration_sec,
@@ -232,6 +236,9 @@ def summarize_rows(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "apply_failures_start": start_failures,
         "apply_failures_end": end_failures,
         "apply_failures_delta": delta_failures,
+        "spec06_cpu_pass": cpu_pass,
+        "spec06_rss_pass": rss_pass,
+        "spec06_pass": spec06_pass,
     }
 
 
@@ -253,6 +260,10 @@ def generate_markdown(metrics: Dict[str, Any]) -> str:
         if metrics["temp_max_c"] > 0 else "N/A"
     )
 
+    cpu_verdict = "PASS" if metrics.get("spec06_cpu_pass", False) else "FAIL"
+    rss_verdict = "PASS" if metrics.get("spec06_rss_pass", False) else "FAIL"
+    spec06_verdict = "PASS" if metrics.get("spec06_pass", False) else "FAIL"
+
     lines = [
         f"# Pi Ingest Benchmark Summary ({duration_min:.1f} min)",
         "",
@@ -261,12 +272,20 @@ def generate_markdown(metrics: Dict[str, Any]) -> str:
         f"- **Duration:** `{metrics['duration_sec']:.1f}s` ({duration_min:.2f} min)",
         f"- **Samples Collected:** `{metrics['samples']}`",
         "",
+        "## Spec/06 Verification (Sustained Ingest Limits)",
+        "",
+        "| Requirement | Target Limit | Measured | Verdict |",
+        "| :--- | :--- | :--- | :--- |",
+        f"| **CPU Usage (1-core)** | ≤ 25.0% of one core | {metrics['cpu_mean_pct']:.1f}% mean | **{cpu_verdict}** |",
+        f"| **Process Memory** | ≤ 400.0 MB RSS | {metrics['rss_max_mib']:.1f} MiB max | **{rss_verdict}** |",
+        f"| **Overall Spec/06 Verdict** | — | — | **{spec06_verdict}** |",
+        "",
         "## Key Performance Indicators",
         "",
         "| Metric | Value | Reference / Notes |",
         "| :--- | :--- | :--- |",
-        f"| **Throughput (Mean)** | **{metrics['rows_per_sec_mean']:.1f} rows/s** | Sustained rate over benchmark |",
-        f"| **Throughput (p95)** | **{metrics['rows_per_sec_p95']:.1f} rows/s** | 95th percentile 10s rate |",
+        f"| **Throughput (Mean)** | **{metrics['rows_per_sec_mean']:.1f} rows/s** ({metrics['rows_per_sec_mean']:.1f} values/s) | Sustained rate over benchmark |",
+        f"| **Throughput (p95)** | **{metrics['rows_per_sec_p95']:.1f} rows/s** ({metrics['rows_per_sec_p95']:.1f} values/s) | 95th percentile 10s rate |",
         f"| **Process RSS (Max)** | **{metrics['rss_max_mib']:.1f} MiB** ({metrics['rss_max_kb']:,.0f} KiB) | Memory peak |",
         f"| **CPU Usage (Mean)** | **{metrics['cpu_mean_pct']:.1f}%** | Peak: {metrics['cpu_max_pct']:.1f}%, p95: {metrics['cpu_p95_pct']:.1f}% |",
         f"| **CPU Temperature (Max)** | **{metrics['temp_max_c']:.1f}°C** | {temp_str} |",
@@ -276,7 +295,7 @@ def generate_markdown(metrics: Dict[str, Any]) -> str:
         "",
         "## Ingest & Storage Details",
         "",
-        f"- **Records Ingested:** {metrics['records_ingested_total']:,} total (from {metrics['records_start']:,} to {metrics['records_end']:,})",
+        f"- **Records Ingested:** {metrics['records_ingested_total']:,} total values (from {metrics['records_start']:,} to {metrics['records_end']:,})",
         f"- **Rate Range:** Min: {metrics['rows_per_sec_min']:.1f} rows/s, Max: {metrics['rows_per_sec_max']:.1f} rows/s",
         f"- **RSS Range:** Start: {metrics['rss_start_mib']:.1f} MiB, End: {metrics['rss_end_mib']:.1f} MiB, Max: {metrics['rss_max_mib']:.1f} MiB",
         f"- **WAL Storage:** Start: {format_bytes(metrics['wal_bytes_start'])}, End: {format_bytes(metrics['wal_bytes_end'])}",
