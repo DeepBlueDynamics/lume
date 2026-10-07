@@ -134,3 +134,35 @@ async fn streamed_batches_and_zero_column_projection() {
         .unwrap();
     assert_eq!(explain.iter().map(RecordBatch::num_rows).sum::<usize>(), 1);
 }
+
+/// String functions an analyst or an LLM reaches for. Without DataFusion's
+/// `unicode_expressions` and `regex_expressions` features these failed to plan
+/// ("Substring could not be planned by registered expr planner").
+#[tokio::test]
+async fn unicode_and_regex_string_functions_plan_and_run() {
+    let s = fixture(&[1, 2]).await;
+    let batches = s
+        .query(
+            "SELECT substring(vessel, 1, 8) AS head, substr(vessel, 9) AS tail, \
+             left(vessel, 7) AS l, right(vessel, 6) AS r, strpos(vessel, 'urn') AS at, \
+             lpad('7', 3, '0') AS padded, regexp_like(vessel, 'test:[0-9]') AS matches, \
+             regexp_replace(vessel, '^vessels[.]', '') AS bare \
+             FROM telemetry LIMIT 1",
+        )
+        .await
+        .unwrap();
+    let text = datafusion::arrow::util::pretty::pretty_format_batches(&batches)
+        .unwrap()
+        .to_string();
+    for expected in [
+        "| vessels. ",
+        "urn:test:0",
+        "| vessels ",
+        "test:0",
+        "| 9 ",
+        "| 007 ",
+        "| true ",
+    ] {
+        assert!(text.contains(expected), "missing {expected:?} in\n{text}");
+    }
+}
