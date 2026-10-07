@@ -12,13 +12,23 @@ pub struct SampleCounters {
 }
 impl SampleCounters {
     pub fn add(&mut self, other: Self) {
-        self.samples_dropped_late = self.samples_dropped_late.saturating_add(other.samples_dropped_late);
-        self.samples_dropped_nonfinite = self.samples_dropped_nonfinite.saturating_add(other.samples_dropped_nonfinite);
-        self.samples_skipped_magnitude = self.samples_skipped_magnitude.saturating_add(other.samples_skipped_magnitude);
-        self.samples_rejected_source = self.samples_rejected_source.saturating_add(other.samples_rejected_source);
+        self.samples_dropped_late = self
+            .samples_dropped_late
+            .saturating_add(other.samples_dropped_late);
+        self.samples_dropped_nonfinite = self
+            .samples_dropped_nonfinite
+            .saturating_add(other.samples_dropped_nonfinite);
+        self.samples_skipped_magnitude = self
+            .samples_skipped_magnitude
+            .saturating_add(other.samples_skipped_magnitude);
+        self.samples_rejected_source = self
+            .samples_rejected_source
+            .saturating_add(other.samples_rejected_source);
         self.apply_failures = self.apply_failures.saturating_add(other.apply_failures);
         self.apply_retries = self.apply_retries.saturating_add(other.apply_retries);
-        self.samples_rejected_blocked = self.samples_rejected_blocked.saturating_add(other.samples_rejected_blocked);
+        self.samples_rejected_blocked = self
+            .samples_rejected_blocked
+            .saturating_add(other.samples_rejected_blocked);
         self.ingest_blocked |= other.ingest_blocked;
     }
 }

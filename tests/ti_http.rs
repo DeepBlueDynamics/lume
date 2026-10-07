@@ -443,7 +443,8 @@ fn http_shared_engine_arrow_json_schema_explain_status_and_read_only() {
     std::fs::write(
         server.root.join("store/ingest_status.json"),
         serde_json::to_vec(&counters).unwrap(),
-    ).unwrap();
+    )
+    .unwrap();
     let status = server.get("/ti/status");
     for (name, value) in counters.as_object().unwrap() {
         assert_eq!(&status[name], value, "{name}");

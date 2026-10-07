@@ -6,9 +6,9 @@
 //! - Late data arriving after bucket close emits with `rewrite: true`
 //! - Complete coordination with Catalog and ShardSink
 
+use crate::counters::SampleCounters;
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
-use crate::counters::SampleCounters;
 use ti_contracts::{
     bucket_of, BucketIx, Catalog, Result, ShardSink, StoreConfig, TiConfig, VesselOrd, VesselSpec,
     EPOCH,
@@ -113,14 +113,25 @@ impl WatermarkBucketer {
 
     // Conservative reservation charges every contribution, including repeated
     // samples, rather than undercounting allocator/tree/string overhead.
-    fn reserve_sample(&mut self, key: (VesselOrd, BucketIx), path: &str,
-        source: &str, value: &NormalizedValue) -> Result<()> {
+    fn reserve_sample(
+        &mut self,
+        key: (VesselOrd, BucketIx),
+        path: &str,
+        source: &str,
+        value: &NormalizedValue,
+    ) -> Result<()> {
         const MAX_WINDOWS: usize = 64;
         const MAX_BYTES: usize = 64 * 1024 * 1024;
-        let text = match value { NormalizedValue::String(s) => s.len(), _ => 0 };
-        let bytes = 1024usize.saturating_add(path.len().saturating_mul(8))
-            .saturating_add(source.len().saturating_mul(8)).saturating_add(text.saturating_mul(4));
-        let full = (!self.open_buckets.contains_key(&key) && self.open_buckets.len() >= MAX_WINDOWS)
+        let text = match value {
+            NormalizedValue::String(s) => s.len(),
+            _ => 0,
+        };
+        let bytes = 1024usize
+            .saturating_add(path.len().saturating_mul(8))
+            .saturating_add(source.len().saturating_mul(8))
+            .saturating_add(text.saturating_mul(4));
+        let full = (!self.open_buckets.contains_key(&key)
+            && self.open_buckets.len() >= MAX_WINDOWS)
             || self.retained_bytes.saturating_add(bytes) > MAX_BYTES;
         if self.counters.ingest_blocked || full {
             if !self.counters.ingest_blocked {
@@ -128,17 +139,24 @@ impl WatermarkBucketer {
                     self.store_name, self.open_buckets.len(), self.retained_bytes);
             }
             self.counters.ingest_blocked = true;
-            self.counters.samples_rejected_blocked = self.counters.samples_rejected_blocked.saturating_add(1);
+            self.counters.samples_rejected_blocked =
+                self.counters.samples_rejected_blocked.saturating_add(1);
             return Err(ti_contracts::Error::InvalidInput(format!(
-                "ingest blocked for store {}: retained window limit reached", self.store_name)));
+                "ingest blocked for store {}: retained window limit reached",
+                self.store_name
+            )));
         }
         self.retained_bytes += bytes;
         *self.window_bytes.entry(key).or_default() += bytes;
         Ok(())
     }
 
-    pub fn counters(&self) -> SampleCounters { self.counters }
-    pub fn pending_retry_count(&self) -> usize { self.retries.len() }
+    pub fn counters(&self) -> SampleCounters {
+        self.counters
+    }
+    pub fn pending_retry_count(&self) -> usize {
+        self.retries.len()
+    }
 
     fn publish_closes(&mut self, sink: &mut dyn ShardSink, force_flush: bool) -> Result<()> {
         if force_flush || (self.closed_observer.is_some() && !self.pending_closes.is_empty()) {
@@ -154,27 +172,60 @@ impl WatermarkBucketer {
         Ok(())
     }
 
-    fn close_window(&mut self, key: (VesselOrd, BucketIx), now: Instant,
-        config: &TiConfig, catalog: &dyn Catalog, sink: &mut dyn ShardSink) -> Result<bool> {
-        if self.retries.get(&key).is_some_and(|retry| now < retry.next_attempt) {
+    fn close_window(
+        &mut self,
+        key: (VesselOrd, BucketIx),
+        now: Instant,
+        config: &TiConfig,
+        catalog: &dyn Catalog,
+        sink: &mut dyn ShardSink,
+    ) -> Result<bool> {
+        if self
+            .retries
+            .get(&key)
+            .is_some_and(|retry| now < retry.next_attempt)
+        {
             return Ok(false);
         }
-        let Some(window) = self.open_buckets.get(&key) else { return Ok(false) };
+        let Some(window) = self.open_buckets.get(&key) else {
+            return Ok(false);
+        };
         let retry = self.retries.contains_key(&key);
-        if retry { self.counters.apply_retries = self.counters.apply_retries.saturating_add(1); }
+        if retry {
+            self.counters.apply_retries = self.counters.apply_retries.saturating_add(1);
+        }
         let was_closed = self.closed_buckets.contains(&key);
         // A failed transaction may have published a prefix before returning an error.
         // Reinstall the complete accumulated snapshot, including counts, on retry.
-        let result = window.emit_records_with_aggs(key.0, key.1, was_closed || retry,
-            if self.store_aggs.is_empty() { None } else { Some(&self.store_aggs) },
-            config, catalog).and_then(|records| {
-                if records.is_empty() { Ok(()) } else { sink.apply(&records) }
+        let result = window
+            .emit_records_with_aggs(
+                key.0,
+                key.1,
+                was_closed || retry,
+                if self.store_aggs.is_empty() {
+                    None
+                } else {
+                    Some(&self.store_aggs)
+                },
+                config,
+                catalog,
+            )
+            .and_then(|records| {
+                if records.is_empty() {
+                    Ok(())
+                } else {
+                    sink.apply(&records)
+                }
             });
         if let Err(error) = result {
             self.counters.apply_failures = self.counters.apply_failures.saturating_add(1);
-            let state = self.retries.entry(key).or_insert(RetryState { failures:0, next_attempt:now });
+            let state = self.retries.entry(key).or_insert(RetryState {
+                failures: 0,
+                next_attempt: now,
+            });
             state.failures = state.failures.saturating_add(1);
-            state.next_attempt = now + Duration::from_secs(1u64 << state.failures.saturating_sub(1).min(5));
+            state.next_attempt =
+                now + Duration::from_secs(1u64 << state.failures.saturating_sub(1).min(5));
             // Cap at 30 seconds; the first cause is logged exactly once for this window.
             state.next_attempt = state.next_attempt.min(now + Duration::from_secs(30));
             if self.logged_failures.insert(key) {
@@ -185,32 +236,54 @@ impl WatermarkBucketer {
         }
         // Only the sink acknowledgement permits removal.
         let window = self.open_buckets.remove(&key).expect("acknowledged window");
-        self.retained_bytes = self.retained_bytes.saturating_sub(self.window_bytes.remove(&key).unwrap_or(0));
+        self.retained_bytes = self
+            .retained_bytes
+            .saturating_sub(self.window_bytes.remove(&key).unwrap_or(0));
         if !window.event_counts.is_empty() {
-            Self::remember_event_window(&mut self.closed_event_windows, &mut self.closed_event_buckets, key, window);
+            Self::remember_event_window(
+                &mut self.closed_event_windows,
+                &mut self.closed_event_buckets,
+                key,
+                window,
+            );
         }
         self.retries.remove(&key);
         self.closed_buckets.insert(key);
-        if !was_closed && self.closed_observer.is_some() { self.pending_closes.insert(key); }
+        if !was_closed && self.closed_observer.is_some() {
+            self.pending_closes.insert(key);
+        }
         Ok(true)
     }
 
     /// Retry failed windows whose exponential (1..30 second) delay has elapsed.
     /// An explicit monotonic time makes the maintenance schedule deterministic in tests.
-    pub fn retry_pending(&mut self, now: Instant, config: &TiConfig,
-        catalog: &dyn Catalog, sink: &mut dyn ShardSink) -> Result<usize> {
-        let keys: Vec<_> = self.open_buckets.keys().filter(|key| {
-            self.retries.contains_key(key) || self.counters.ingest_blocked
-        }).copied().collect();
+    pub fn retry_pending(
+        &mut self,
+        now: Instant,
+        config: &TiConfig,
+        catalog: &dyn Catalog,
+        sink: &mut dyn ShardSink,
+    ) -> Result<usize> {
+        let keys: Vec<_> = self
+            .open_buckets
+            .keys()
+            .filter(|key| self.retries.contains_key(key) || self.counters.ingest_blocked)
+            .copied()
+            .collect();
         let mut count = 0;
         for key in keys {
-            if !self.close_window(key, now, config, catalog, sink)? { break; }
+            if !self.close_window(key, now, config, catalog, sink)? {
+                break;
+            }
             count += 1;
         }
         self.publish_closes(sink, false)?;
         if self.counters.ingest_blocked && self.open_buckets.is_empty() {
             self.counters.ingest_blocked = false;
-            eprintln!("Ingest resumed: store={} retained windows drained", self.store_name);
+            eprintln!(
+                "Ingest resumed: store={} retained windows drained",
+                self.store_name
+            );
         }
         Ok(count)
     }
@@ -288,9 +361,12 @@ impl WatermarkBucketer {
         sink: &mut dyn ShardSink,
     ) -> Result<()> {
         if self.counters.ingest_blocked {
-            self.counters.samples_rejected_blocked = self.counters.samples_rejected_blocked.saturating_add(1);
+            self.counters.samples_rejected_blocked =
+                self.counters.samples_rejected_blocked.saturating_add(1);
             return Err(ti_contracts::Error::InvalidInput(format!(
-                "ingest blocked for store {}: retained window limit reached", self.store_name)));
+                "ingest blocked for store {}: retained window limit reached",
+                self.store_name
+            )));
         }
         let canonical_urn = if context.starts_with("vessels.urn:") {
             context.to_string()
@@ -307,13 +383,15 @@ impl WatermarkBucketer {
         })?;
 
         if crate::counters::nonfinite(&value) {
-            self.counters.samples_dropped_nonfinite = self.counters.samples_dropped_nonfinite.saturating_add(1);
+            self.counters.samples_dropped_nonfinite =
+                self.counters.samples_dropped_nonfinite.saturating_add(1);
             return Ok(());
         }
         let bucket_ix = match bucket_of(ts, self.width_seconds) {
             Ok(bucket) => bucket,
             Err(error) => {
-                self.counters.samples_dropped_late = self.counters.samples_dropped_late.saturating_add(1);
+                self.counters.samples_dropped_late =
+                    self.counters.samples_dropped_late.saturating_add(1);
                 return Err(error);
             }
         };
@@ -321,13 +399,17 @@ impl WatermarkBucketer {
             self.max_event_time = ts;
         }
 
-        let policy = self.open_buckets.get(&(vessel, bucket_ix))
+        let policy = self
+            .open_buckets
+            .get(&(vessel, bucket_ix))
             .or_else(|| self.closed_event_windows.get(&(vessel, bucket_ix)))
             .and_then(|window| window.count_paths.clone())
-            .unwrap_or_else(|| if self.closed_buckets.contains(&(vessel, bucket_ix)) {
-                BTreeSet::new()
-            } else {
-                config.ingest.count_paths.iter().cloned().collect()
+            .unwrap_or_else(|| {
+                if self.closed_buckets.contains(&(vessel, bucket_ix)) {
+                    BTreeSet::new()
+                } else {
+                    config.ingest.count_paths.iter().cloned().collect()
+                }
             });
         self.classifier.set_count_paths(&policy);
 
@@ -339,8 +421,10 @@ impl WatermarkBucketer {
 
         if self.closed_event_buckets.contains(&(vessel, bucket_ix))
             && !self.closed_event_windows.contains_key(&(vessel, bucket_ix))
-            && !self.open_buckets.contains_key(&(vessel, bucket_ix)) {
-            self.counters.samples_dropped_late = self.counters.samples_dropped_late.saturating_add(1);
+            && !self.open_buckets.contains_key(&(vessel, bucket_ix))
+        {
+            self.counters.samples_dropped_late =
+                self.counters.samples_dropped_late.saturating_add(1);
             return Err(ti_contracts::Error::InvalidInput("late event bucket is outside the 128-window repair cache; repair with historical backfill".into()));
         }
         self.reserve_sample((vessel, bucket_ix), &eff_path, source, &value)?;
@@ -365,18 +449,38 @@ impl WatermarkBucketer {
 
         let is_closed = self.closed_buckets.contains(&(vessel, bucket_ix));
         if is_closed {
-            let mut late_window = self.open_buckets.get(&(vessel, bucket_ix)).cloned()
+            let mut late_window = self
+                .open_buckets
+                .get(&(vessel, bucket_ix))
+                .cloned()
                 .or_else(|| self.closed_event_windows.get(&(vessel, bucket_ix)).cloned())
-                .unwrap_or_else(|| BucketWindow { count_paths: Some(BTreeSet::new()), ..BucketWindow::default() });
-            self.counters.add(populate_window(&mut late_window, &eff_path, &value, source, ts, &kind, config)?);
-            for event in derived_events { populate_derived_event(&mut late_window, event, source); }
+                .unwrap_or_else(|| BucketWindow {
+                    count_paths: Some(BTreeSet::new()),
+                    ..BucketWindow::default()
+                });
+            self.counters.add(populate_window(
+                &mut late_window,
+                &eff_path,
+                &value,
+                source,
+                ts,
+                &kind,
+                config,
+            )?);
+            for event in derived_events {
+                populate_derived_event(&mut late_window, event, source);
+            }
             // Retain late repairs too: an apply failure must not lose this new sample.
             self.open_buckets.insert((vessel, bucket_ix), late_window);
             self.close_window((vessel, bucket_ix), Instant::now(), config, catalog, sink)?;
         } else {
             let window = self.open_buckets.entry((vessel, bucket_ix)).or_default();
-            self.counters.add(populate_window(window, &eff_path, &value, source, ts, &kind, config)?);
-            for event in derived_events { populate_derived_event(window, event, source); }
+            self.counters.add(populate_window(
+                window, &eff_path, &value, source, ts, &kind, config,
+            )?);
+            for event in derived_events {
+                populate_derived_event(window, event, source);
+            }
             self.close_ready_buckets(config, catalog, sink)?;
         }
 
@@ -384,40 +488,61 @@ impl WatermarkBucketer {
     }
 
     /// Close aged buckets. Failed windows remain intact until an acknowledged retry.
-    pub fn advance_watermark(&mut self, watermark: i64, config: &TiConfig,
-        catalog: &dyn Catalog, sink: &mut dyn ShardSink) -> Result<usize> {
-        let keys: Vec<_> = self.open_buckets.keys().filter(|(_, bucket)| {
-            EPOCH + (i64::from(*bucket) + 1) * self.width_seconds as i64 <= watermark
-        }).copied().collect();
+    pub fn advance_watermark(
+        &mut self,
+        watermark: i64,
+        config: &TiConfig,
+        catalog: &dyn Catalog,
+        sink: &mut dyn ShardSink,
+    ) -> Result<usize> {
+        let keys: Vec<_> = self
+            .open_buckets
+            .keys()
+            .filter(|(_, bucket)| {
+                EPOCH + (i64::from(*bucket) + 1) * self.width_seconds as i64 <= watermark
+            })
+            .copied()
+            .collect();
         let now = Instant::now();
         let mut count = 0;
         for key in keys {
-            if !self.close_window(key, now, config, catalog, sink)? { break; }
+            if !self.close_window(key, now, config, catalog, sink)? {
+                break;
+            }
             count += 1;
         }
         self.publish_closes(sink, false)?;
         Ok(count)
     }
 
-    pub fn close_ready_buckets(&mut self, config: &TiConfig,
-        catalog: &dyn Catalog, sink: &mut dyn ShardSink) -> Result<usize> {
+    pub fn close_ready_buckets(
+        &mut self,
+        config: &TiConfig,
+        catalog: &dyn Catalog,
+        sink: &mut dyn ShardSink,
+    ) -> Result<usize> {
         self.advance_watermark(self.watermark(), config, catalog, sink)
     }
 
     /// Explicit flush respects pending backoff; callers check pending_retry_count.
-    pub fn flush_all(&mut self, config: &TiConfig,
-        catalog: &dyn Catalog, sink: &mut dyn ShardSink) -> Result<usize> {
+    pub fn flush_all(
+        &mut self,
+        config: &TiConfig,
+        catalog: &dyn Catalog,
+        sink: &mut dyn ShardSink,
+    ) -> Result<usize> {
         let keys: Vec<_> = self.open_buckets.keys().copied().collect();
         let now = Instant::now();
         let mut count = 0;
         for key in keys {
-            if !self.close_window(key, now, config, catalog, sink)? { break; }
+            if !self.close_window(key, now, config, catalog, sink)? {
+                break;
+            }
             count += 1;
         }
         self.publish_closes(sink, true)?;
         Ok(count)
     }
-
 }
 
 fn source_priority(path: &str, source: &str, config: &TiConfig) -> usize {
@@ -442,19 +567,29 @@ pub(crate) fn populate_window(
         counters.samples_dropped_nonfinite = 1;
         return Ok(counters);
     }
-    let count_paths = window.count_paths.get_or_insert_with(|| config.ingest.count_paths.iter().cloned().collect());
+    let count_paths = window
+        .count_paths
+        .get_or_insert_with(|| config.ingest.count_paths.iter().cloned().collect());
     let count_path = count_paths.contains(path);
     if count_path {
         if !matches!(value, NormalizedValue::Double(v) if v.is_finite()) {
             return Ok(counters);
         }
-        let priority = config.source_priorities.get(path)
+        let priority = config
+            .source_priorities
+            .get(path)
             .and_then(|sources| sources.iter().position(|s| s == source))
             .unwrap_or(usize::MAX);
-        let before = window.event_samples.get(path).map_or(0, |acc| acc.count)
+        let before = window
+            .event_samples
+            .get(path)
+            .map_or(0, |acc| acc.count)
             .saturating_sub(window.event_counts.get(path).map_or(0, |acc| acc.count));
         window.add_event_sample(path, source, priority)?;
-        let after = window.event_samples.get(path).map_or(0, |acc| acc.count)
+        let after = window
+            .event_samples
+            .get(path)
+            .map_or(0, |acc| acc.count)
             .saturating_sub(window.event_counts.get(path).map_or(0, |acc| acc.count));
         counters.samples_rejected_source = after.saturating_sub(before);
     }
@@ -466,8 +601,13 @@ pub(crate) fn populate_window(
             };
             if ti_contracts::to_fixed(*d, scale).is_err() {
                 counters.samples_skipped_magnitude = 1;
-                let skipped = window.skipped_magnitudes.entry(path.to_string()).or_default();
-                *skipped = skipped.checked_add(1).filter(|v| *v <= i64::MAX as u64)
+                let skipped = window
+                    .skipped_magnitudes
+                    .entry(path.to_string())
+                    .or_default();
+                *skipped = skipped
+                    .checked_add(1)
+                    .filter(|v| *v <= i64::MAX as u64)
                     .ok_or(ti_contracts::Error::Overflow("skipped magnitudes"))?;
             } else {
                 window.add_numeric(path, *d, scale, source, ts);
@@ -497,7 +637,11 @@ fn populate_derived_event(window: &mut BucketWindow, event: DerivedEvent, source
         DerivedEvent::Transition { output }
         | DerivedEvent::RisingEdge { output }
         | DerivedEvent::NotificationRaise { output } => {
-            if !window.count_paths.as_ref().is_some_and(|paths| paths.contains(&output)) {
+            if !window
+                .count_paths
+                .as_ref()
+                .is_some_and(|paths| paths.contains(&output))
+            {
                 window.add_count(&output, 1, source);
             }
         }
@@ -525,21 +669,35 @@ impl MultiStoreBucketer {
     /// Counts store-local sample contributions; fanout may count a sample in several stores.
     pub fn counters(&self) -> SampleCounters {
         let mut counters = SampleCounters::default();
-        for bucketer in self.bucketers.values() { counters.add(bucketer.counters()); }
+        for bucketer in self.bucketers.values() {
+            counters.add(bucketer.counters());
+        }
         counters
     }
     pub fn pending_retry_count(&self) -> usize {
-        self.bucketers.values().map(WatermarkBucketer::pending_retry_count).sum()
+        self.bucketers
+            .values()
+            .map(WatermarkBucketer::pending_retry_count)
+            .sum()
     }
-    pub fn retry_pending(&mut self, now: Instant, config: &TiConfig,
-        catalogs: &BTreeMap<String, &dyn Catalog>, sinks: &mut BTreeMap<String, &mut dyn ShardSink>) -> Result<usize> {
+    pub fn retry_pending(
+        &mut self,
+        now: Instant,
+        config: &TiConfig,
+        catalogs: &BTreeMap<String, &dyn Catalog>,
+        sinks: &mut BTreeMap<String, &mut dyn ShardSink>,
+    ) -> Result<usize> {
         let mut total = 0;
         let mut first_error = None;
         for (name, bucketer) in &mut self.bucketers {
             if let (Some(catalog), Some(sink)) = (catalogs.get(name), sinks.get_mut(name)) {
                 match bucketer.retry_pending(now, config, *catalog, *sink) {
                     Ok(count) => total += count,
-                    Err(error) => { if first_error.is_none() { first_error = Some(error); } }
+                    Err(error) => {
+                        if first_error.is_none() {
+                            first_error = Some(error);
+                        }
+                    }
                 }
             }
         }
@@ -618,7 +776,11 @@ impl MultiStoreBucketer {
                     );
                     match result {
                         Ok(()) => matched += 1,
-                        Err(error) => { if first_error.is_none() { first_error = Some(error); } }
+                        Err(error) => {
+                            if first_error.is_none() {
+                                first_error = Some(error);
+                            }
+                        }
                     }
                 }
             }
@@ -665,7 +827,11 @@ impl MultiStoreBucketer {
             if let (Some(catalog), Some(sink)) = (catalogs.get(name), sinks.get_mut(name)) {
                 match bucketer.flush_all(config, *catalog, *sink) {
                     Ok(count) => total += count,
-                    Err(error) => { if first_error.is_none() { first_error = Some(error); } }
+                    Err(error) => {
+                        if first_error.is_none() {
+                            first_error = Some(error);
+                        }
+                    }
                 }
             }
         }
@@ -686,7 +852,11 @@ impl MultiStoreBucketer {
             if let (Some(catalog), Some(sink)) = (catalogs.get(name), sinks.get_mut(name)) {
                 match bucketer.advance_watermark(watermark, config, *catalog, *sink) {
                     Ok(count) => total += count,
-                    Err(error) => { if first_error.is_none() { first_error = Some(error); } }
+                    Err(error) => {
+                        if first_error.is_none() {
+                            first_error = Some(error);
+                        }
+                    }
                 }
             }
         }
@@ -706,7 +876,11 @@ impl MultiStoreBucketer {
             if let (Some(catalog), Some(sink)) = (catalogs.get(name), sinks.get_mut(name)) {
                 match bucketer.close_ready_buckets(config, *catalog, *sink) {
                     Ok(count) => total += count,
-                    Err(error) => { if first_error.is_none() { first_error = Some(error); } }
+                    Err(error) => {
+                        if first_error.is_none() {
+                            first_error = Some(error);
+                        }
+                    }
                 }
             }
         }

@@ -109,19 +109,30 @@ impl BucketWindow {
     /// First source wins ties; a more preferred source replaces the prior count.
     pub fn add_event_sample(&mut self, path: &str, source: &str, priority: usize) -> Result<()> {
         let samples = self.event_samples.entry(path.to_string()).or_default();
-        samples.count = samples.count.checked_add(1).filter(|v| *v <= i64::MAX as u64)
+        samples.count = samples
+            .count
+            .checked_add(1)
+            .filter(|v| *v <= i64::MAX as u64)
             .ok_or(ti_contracts::Error::Overflow("sample count"))?;
         samples.sources.insert(source.to_string());
-        let acc = self.event_counts.entry(path.to_string()).or_insert(EventCountAcc {
-            count: 0, source: source.to_string(), priority,
-        });
+        let acc = self
+            .event_counts
+            .entry(path.to_string())
+            .or_insert(EventCountAcc {
+                count: 0,
+                source: source.to_string(),
+                priority,
+            });
         if priority < acc.priority {
             acc.count = 0;
             acc.source = source.to_string();
             acc.priority = priority;
         }
         if source == acc.source {
-            acc.count = acc.count.checked_add(1).filter(|v| *v <= i64::MAX as u64)
+            acc.count = acc
+                .count
+                .checked_add(1)
+                .filter(|v| *v <= i64::MAX as u64)
                 .ok_or(ti_contracts::Error::Overflow("event count"))?;
         }
         Ok(())
@@ -394,41 +405,76 @@ impl BucketWindow {
         // Explicit event paths have their own stable bare field; numeric aggregates remain.
         for (path, acc) in &self.event_counts {
             let field = catalog.register_field(&FieldSpec {
-                id: 0, path: path.clone(), agg: None, kind: FieldKind::Count, units: None,
+                id: 0,
+                path: path.clone(),
+                agg: None,
+                kind: FieldKind::Count,
+                units: None,
             })?;
             records.push(BucketRecord {
-                vessel, bucket, field, value: FieldValue::Int(acc.count as i64), rewrite,
+                vessel,
+                bucket,
+                field,
+                value: FieldValue::Int(acc.count as i64),
+                rewrite,
             });
         }
 
         // Sample counts and source sets include finite magnitudes outside the BSI range.
         for (path, acc) in &self.event_samples {
-            let aggs = resolve_aggs_for_path(path, store_aggs.unwrap_or(&BTreeMap::new()), &config.profiles);
+            let aggs = resolve_aggs_for_path(
+                path,
+                store_aggs.unwrap_or(&BTreeMap::new()),
+                &config.profiles,
+            );
             if aggs.iter().any(|agg| agg == "count") {
                 let field = catalog.register_field(&FieldSpec {
-                    id: 0, path: path.clone(), agg: Some(Agg::Count), kind: FieldKind::Count, units: None,
+                    id: 0,
+                    path: path.clone(),
+                    agg: Some(Agg::Count),
+                    kind: FieldKind::Count,
+                    units: None,
                 })?;
                 records.push(BucketRecord {
-                    vessel, bucket, field, value: FieldValue::Int(acc.count as i64), rewrite,
+                    vessel,
+                    bucket,
+                    field,
+                    value: FieldValue::Int(acc.count as i64),
+                    rewrite,
                 });
             }
             let field = catalog.register_field(&FieldSpec {
-                id: 0, path: format!("{path}$source"), agg: None, kind: FieldKind::Set, units: None,
+                id: 0,
+                path: format!("{path}$source"),
+                agg: None,
+                kind: FieldKind::Set,
+                units: None,
             })?;
             for source in &acc.sources {
                 let row = catalog.register_set_value(field, source)?;
                 records.push(BucketRecord {
-                    vessel, bucket, field, value: FieldValue::SetValue(row), rewrite,
+                    vessel,
+                    bucket,
+                    field,
+                    value: FieldValue::SetValue(row),
+                    rewrite,
                 });
             }
         }
         for (path, count) in &self.skipped_magnitudes {
             let field = catalog.register_field(&FieldSpec {
-                id: 0, path: format!("{path}@skipped_magnitudes"), agg: None,
-                kind: FieldKind::Count, units: None,
+                id: 0,
+                path: format!("{path}@skipped_magnitudes"),
+                agg: None,
+                kind: FieldKind::Count,
+                units: None,
             })?;
             records.push(BucketRecord {
-                vessel, bucket, field, value: FieldValue::Int(*count as i64), rewrite,
+                vessel,
+                bucket,
+                field,
+                value: FieldValue::Int(*count as i64),
+                rewrite,
             });
         }
 

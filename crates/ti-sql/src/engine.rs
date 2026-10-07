@@ -519,8 +519,16 @@ impl TiEngine {
         let mut last_delta = Value::Null;
         let mut reconnects = Value::Null;
         let mut documents_rejected_pre_epoch = Value::Null;
-        let counter_names = ["samples_dropped_late", "samples_dropped_nonfinite",
-            "samples_skipped_magnitude", "samples_rejected_source", "apply_failures", "apply_retries", "samples_rejected_blocked", "ingest_blocked"];
+        let counter_names = [
+            "samples_dropped_late",
+            "samples_dropped_nonfinite",
+            "samples_skipped_magnitude",
+            "samples_rejected_source",
+            "apply_failures",
+            "apply_retries",
+            "samples_rejected_blocked",
+            "ingest_blocked",
+        ];
         let mut ingest_counters = std::collections::BTreeMap::new();
         let ingest_status_file = self.root.join("ingest_status.json");
         if let Ok(content) = std::fs::read_to_string(&ingest_status_file) {
@@ -536,7 +544,9 @@ impl TiEngine {
                     documents_rejected_pre_epoch = count.clone();
                 }
                 for name in counter_names {
-                    if let Some(value) = val.get(name) { ingest_counters.insert(name, value.clone()); }
+                    if let Some(value) = val.get(name) {
+                        ingest_counters.insert(name, value.clone());
+                    }
                 }
                 if let Some(rc) = val.get("reconnects") {
                     reconnects = rc.clone();
@@ -553,18 +563,29 @@ impl TiEngine {
             };
             let mut count = 0u64;
             for shard in self.session.source.shards(None, 0, u32::MAX) {
-                let columns = self.session.source.eval(shard, &ti_contracts::Predicate::Present(field.id))
+                let columns = self
+                    .session
+                    .source
+                    .eval(shard, &ti_contracts::Predicate::Present(field.id))
                     .map_err(core_error)?;
                 if columns.is_empty() {
                     continue;
                 }
-                let partial = self.session.source.agg(shard, &columns, field.id, ti_contracts::AggOp::Sum)
+                let partial = self
+                    .session
+                    .source
+                    .agg(shard, &columns, field.id, ti_contracts::AggOp::Sum)
                     .map_err(core_error)?;
                 let ti_contracts::AggPartial::Sum { sum, .. } = partial else {
-                    return Err(invalid("skipped-magnitude counter returned a non-sum partial"));
+                    return Err(invalid(
+                        "skipped-magnitude counter returned a non-sum partial",
+                    ));
                 };
-                let sum = u64::try_from(sum).map_err(|_| invalid("skipped-magnitude counter exceeds u64"))?;
-                count = count.checked_add(sum).ok_or_else(|| invalid("skipped-magnitude counter exceeds u64"))?;
+                let sum = u64::try_from(sum)
+                    .map_err(|_| invalid("skipped-magnitude counter exceeds u64"))?;
+                count = count
+                    .checked_add(sum)
+                    .ok_or_else(|| invalid("skipped-magnitude counter exceeds u64"))?;
             }
             skipped_magnitudes.insert(path.to_string(), count);
         }

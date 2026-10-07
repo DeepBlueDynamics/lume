@@ -613,11 +613,11 @@ pub fn backfill(
                                 .entry((name.clone(), vessel))
                                 .or_insert(point.timestamp);
                             *max_seen = (*max_seen).max(point.timestamp);
-                            let Some((path, kind)) = classifiers
-                                .get_mut(name)
-                                .unwrap()
-                                .classify(&point.context, &point.path, &point.value)
-                            else {
+                            let Some((path, kind)) = classifiers.get_mut(name).unwrap().classify(
+                                &point.context,
+                                &point.path,
+                                &point.value,
+                            ) else {
                                 if config.ingest.count_paths.contains(&point.path) {
                                     continue;
                                 }

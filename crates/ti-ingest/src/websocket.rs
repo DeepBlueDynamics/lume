@@ -143,7 +143,9 @@ pub fn process_message(
                 sink,
             );
             if let Err(error) = result {
-                if first_error.is_none() { first_error = Some(error); }
+                if first_error.is_none() {
+                    first_error = Some(error);
+                }
             } else {
                 points_ingested += 1;
             }
@@ -208,7 +210,9 @@ pub fn run_stream_loop(
                                 sink,
                                 &mut recorder,
                             ) {
-                                if bucketer.counters().apply_failures == prior_failures && !bucketer.counters().ingest_blocked {
+                                if bucketer.counters().apply_failures == prior_failures
+                                    && !bucketer.counters().ingest_blocked
+                                {
                                     eprintln!("Error processing Signal K message: {e}");
                                 }
                             }
@@ -231,8 +235,12 @@ pub fn run_stream_loop(
                         }
                     }
                     let prior_failures = bucketer.counters().apply_failures;
-                    if let Err(error) = bucketer.retry_pending(std::time::Instant::now(), config, catalog, sink) {
-                        if bucketer.counters().apply_failures == prior_failures && !bucketer.counters().ingest_blocked {
+                    if let Err(error) =
+                        bucketer.retry_pending(std::time::Instant::now(), config, catalog, sink)
+                    {
+                        if bucketer.counters().apply_failures == prior_failures
+                            && !bucketer.counters().ingest_blocked
+                        {
                             eprintln!("Ingest retry publication failed: {error}");
                         }
                     }
@@ -251,9 +259,14 @@ pub fn run_stream_loop(
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     loop {
         let result = bucketer.flush_all(config, catalog, sink);
-        if bucketer.pending_retry_count() == 0 { result?; break; }
+        if bucketer.pending_retry_count() == 0 {
+            result?;
+            break;
+        }
         if std::time::Instant::now() >= deadline {
-            return Err(Error::InvalidInput("shutdown has unpublished ingest windows".into()));
+            return Err(Error::InvalidInput(
+                "shutdown has unpublished ingest windows".into(),
+            ));
         }
         std::thread::sleep(Duration::from_millis(50));
     }
@@ -314,7 +327,9 @@ pub fn process_message_multi(
                 sinks,
             );
             if let Err(error) = result {
-                if first_error.is_none() { first_error = Some(error); }
+                if first_error.is_none() {
+                    first_error = Some(error);
+                }
             } else {
                 points_ingested += 1;
             }
@@ -379,7 +394,9 @@ pub fn run_stream_loop_multi(
                                 sinks,
                                 &mut recorder,
                             ) {
-                                if bucketer.counters().apply_failures == prior_failures && !bucketer.counters().ingest_blocked {
+                                if bucketer.counters().apply_failures == prior_failures
+                                    && !bucketer.counters().ingest_blocked
+                                {
                                     eprintln!("Error processing Signal K message: {e}");
                                 }
                             }
@@ -402,8 +419,12 @@ pub fn run_stream_loop_multi(
                         }
                     }
                     let prior_failures = bucketer.counters().apply_failures;
-                    if let Err(error) = bucketer.retry_pending(std::time::Instant::now(), config, catalogs, sinks) {
-                        if bucketer.counters().apply_failures == prior_failures && !bucketer.counters().ingest_blocked {
+                    if let Err(error) =
+                        bucketer.retry_pending(std::time::Instant::now(), config, catalogs, sinks)
+                    {
+                        if bucketer.counters().apply_failures == prior_failures
+                            && !bucketer.counters().ingest_blocked
+                        {
                             eprintln!("Ingest retry publication failed: {error}");
                         }
                     }
@@ -422,9 +443,14 @@ pub fn run_stream_loop_multi(
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     loop {
         let result = bucketer.flush_all(config, catalogs, sinks);
-        if bucketer.pending_retry_count() == 0 { result?; break; }
+        if bucketer.pending_retry_count() == 0 {
+            result?;
+            break;
+        }
         if std::time::Instant::now() >= deadline {
-            return Err(Error::InvalidInput("shutdown has unpublished ingest windows".into()));
+            return Err(Error::InvalidInput(
+                "shutdown has unpublished ingest windows".into(),
+            ));
         }
         std::thread::sleep(Duration::from_millis(50));
     }

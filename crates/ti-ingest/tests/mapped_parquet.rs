@@ -402,20 +402,36 @@ fn mapped_count_paths_span_batches_ignore_non_numeric_and_replay() {
     let scratch = Scratch::new();
     let path = scratch.0.join("events.parquet");
     let count = 8200;
-    write(&path, vec![
-        ("id", Arc::new(StringArray::from(vec![URN; count]))),
-        ("time", Arc::new(Int64Array::from(vec![ti_contracts::EPOCH * 1000 + 1000; count]))),
-        ("current", Arc::new(Float64Array::from(vec![99.0; count]))),
-        ("mode", Arc::new(StringArray::from(vec!["moving"; count]))),
-        ("enabled", Arc::new(BooleanArray::from(vec![true; count]))),
-    ]);
+    write(
+        &path,
+        vec![
+            ("id", Arc::new(StringArray::from(vec![URN; count]))),
+            (
+                "time",
+                Arc::new(Int64Array::from(vec![
+                    ti_contracts::EPOCH * 1000 + 1000;
+                    count
+                ])),
+            ),
+            ("current", Arc::new(Float64Array::from(vec![99.0; count]))),
+            ("mode", Arc::new(StringArray::from(vec!["moving"; count]))),
+            ("enabled", Arc::new(BooleanArray::from(vec![true; count]))),
+        ],
+    );
     let mapping = mapping(path.to_string_lossy().into_owned(), ParquetFormat::Wide);
     let config = TiConfig {
         store_root: scratch.0.join("counted").to_string_lossy().into_owned(),
         ingest: ti_contracts::IngestConfig {
-            count_paths: vec!["robot.current".into(), "robot.mode".into(), "robot.enabled".into()],
+            count_paths: vec![
+                "robot.current".into(),
+                "robot.mode".into(),
+                "robot.enabled".into(),
+            ],
         },
-        profiles: ti_contracts::AggregateProfiles { opt_in: vec!["count".into()], ..Default::default() },
+        profiles: ti_contracts::AggregateProfiles {
+            opt_in: vec!["count".into()],
+            ..Default::default()
+        },
         ..Default::default()
     };
     let mut store = ti_store::Store::open_or_create(Path::new(&config.store_root), 10).unwrap();
@@ -423,17 +439,36 @@ fn mapped_count_paths_span_batches_ignore_non_numeric_and_replay() {
     let catalogs = BTreeMap::from([("default".into(), catalog.as_ref() as &dyn Catalog)]);
     let import = |store: &mut ti_store::Store| {
         let mut sinks = BTreeMap::from([("default".into(), store as &mut dyn ShardSink)]);
-        mapped_parquet::backfill(std::slice::from_ref(&mapping), &config, &catalogs, &mut sinks).unwrap();
+        mapped_parquet::backfill(
+            std::slice::from_ref(&mapping),
+            &config,
+            &catalogs,
+            &mut sinks,
+        )
+        .unwrap();
     };
     import(&mut store);
     let fields = catalog.fields().unwrap();
-    assert!(!fields.iter().any(|f| matches!(f.path.as_str(), "robot.mode" | "robot.enabled")));
-    let bare = fields.iter().find(|f| f.path == "robot.current" && f.agg.is_none()).unwrap();
+    assert!(!fields
+        .iter()
+        .any(|f| matches!(f.path.as_str(), "robot.mode" | "robot.enabled")));
+    let bare = fields
+        .iter()
+        .find(|f| f.path == "robot.current" && f.agg.is_none())
+        .unwrap();
     assert_eq!(bare.kind, ti_contracts::FieldKind::Count);
     let key = store.shards(None, 0, u32::MAX)[0];
     let mask = store.eval(key, &ti_contracts::Predicate::All).unwrap();
     let rows = store.read(key, &mask, &[bare.id]).unwrap();
-    assert_eq!(rows.column_by_name("robot.current").unwrap().as_any().downcast_ref::<UInt64Array>().unwrap().value(0), count as u64);
+    assert_eq!(
+        rows.column_by_name("robot.current")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .unwrap()
+            .value(0),
+        count as u64
+    );
     let before = store.seal(key).unwrap().hash;
     import(&mut store);
     assert_eq!(store.seal(key).unwrap().hash, before);

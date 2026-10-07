@@ -457,7 +457,9 @@ impl IngestService {
                                         }
                                     }
                                     Err(e) => {
-                                        if bucketer.counters().apply_failures == prior_failures && !bucketer.counters().ingest_blocked {
+                                        if bucketer.counters().apply_failures == prior_failures
+                                            && !bucketer.counters().ingest_blocked
+                                        {
                                             eprintln!("Error processing Signal K message: {e}");
                                         }
                                     }
@@ -519,8 +521,15 @@ impl IngestService {
                                 .map(|(k, v)| (k.clone(), v as &mut dyn ShardSink))
                                 .collect();
                             let prior_failures = bucketer.counters().apply_failures;
-                            if let Err(error) = bucketer.advance_watermark(watermark, &self.config, &catalogs, &mut sinks) {
-                                if bucketer.counters().apply_failures == prior_failures && !bucketer.counters().ingest_blocked {
+                            if let Err(error) = bucketer.advance_watermark(
+                                watermark,
+                                &self.config,
+                                &catalogs,
+                                &mut sinks,
+                            ) {
+                                if bucketer.counters().apply_failures == prior_failures
+                                    && !bucketer.counters().ingest_blocked
+                                {
                                     eprintln!("Ingest bucket publication failed: {error}");
                                 }
                             }
@@ -550,13 +559,27 @@ impl IngestService {
 
                         // Retry retained windows independently of incoming traffic or dirty-row flush.
                         {
-                            let catalogs = catalogs_arc.iter().map(|(name, catalog)|
-                                (name.clone(), catalog.as_ref() as &dyn Catalog)).collect();
-                            let mut sinks = store_set.stores_mut().iter_mut().map(|(name, store)|
-                                (name.clone(), store as &mut dyn ShardSink)).collect();
+                            let catalogs = catalogs_arc
+                                .iter()
+                                .map(|(name, catalog)| {
+                                    (name.clone(), catalog.as_ref() as &dyn Catalog)
+                                })
+                                .collect();
+                            let mut sinks = store_set
+                                .stores_mut()
+                                .iter_mut()
+                                .map(|(name, store)| (name.clone(), store as &mut dyn ShardSink))
+                                .collect();
                             let prior_failures = bucketer.counters().apply_failures;
-                            if let Err(error) = bucketer.retry_pending(Instant::now(), &self.config, &catalogs, &mut sinks) {
-                                if bucketer.counters().apply_failures == prior_failures && !bucketer.counters().ingest_blocked {
+                            if let Err(error) = bucketer.retry_pending(
+                                Instant::now(),
+                                &self.config,
+                                &catalogs,
+                                &mut sinks,
+                            ) {
+                                if bucketer.counters().apply_failures == prior_failures
+                                    && !bucketer.counters().ingest_blocked
+                                {
                                     eprintln!("Ingest retry publication failed: {error}");
                                 }
                             }
@@ -611,8 +634,11 @@ impl IngestService {
             }
             if Instant::now() >= shutdown_deadline {
                 self.write_status(&store_root_path, false);
-                return result.and_then(|_| Err(ti_contracts::Error::InvalidInput(
-                    "shutdown has unpublished ingest windows after retry grace period".into())));
+                return result.and_then(|_| {
+                    Err(ti_contracts::Error::InvalidInput(
+                        "shutdown has unpublished ingest windows after retry grace period".into(),
+                    ))
+                });
             }
             std::thread::sleep(Duration::from_millis(50));
         }
