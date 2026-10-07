@@ -253,12 +253,17 @@ impl IngestService {
     }
 
     /// Write operational status to `<store_root>/ingest_status.json`.
-    pub fn write_status(&self, store_root: &Path, is_running: bool) {
-        let lag_seconds = self.last_delta_received.and_then(|rec| {
+    /// Seconds between receiving the newest delta and its event time.
+    fn lag_seconds(&self) -> Option<f64> {
+        self.last_delta_received.and_then(|rec| {
             let rec_sec = rec.duration_since(UNIX_EPOCH).ok()?.as_secs() as i64;
             self.last_delta_ts
                 .map(|d_ts| (rec_sec - d_ts).max(0) as f64)
-        });
+        })
+    }
+
+    pub fn write_status(&self, store_root: &Path, is_running: bool) {
+        let lag_seconds = self.lag_seconds();
         let last_delta_rfc = self
             .last_delta_ts
             .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0).map(|dt| dt.to_rfc3339()));
@@ -361,6 +366,7 @@ impl IngestService {
         let mut last_wal_tick = self.now_timestamp();
         let mut last_flush = self.now_timestamp();
         let mut flush_cost = Duration::ZERO;
+        let mut self_telemetry = crate::self_telemetry::SelfTelemetry::from_env();
         let mut last_seal_check = self.now_timestamp();
         let mut last_retention_check = self.now_timestamp();
         let mut last_status_write = 0i64;
@@ -562,6 +568,51 @@ impl IngestService {
                         if now_sec.saturating_sub(last_retention_check) >= 60 {
                             let _ = store_set.enforce_retention(now_sec, &self.config);
                             last_retention_check = now_sec;
+                        }
+
+                        // 5. Lume's own metrics, recorded into its own store while data is live.
+                        if let Some(telemetry) = self_telemetry.as_mut() {
+                            let now = Instant::now();
+                            if telemetry.due(now)
+                                && crate::self_telemetry::is_live(
+                                    bucketer.max_event_time(),
+                                    now_sec,
+                                )
+                            {
+                                let stats = crate::self_telemetry::SelfStats {
+                                    records_ingested: self.records_ingested,
+                                    reconnects: self.reconnects,
+                                    lag_seconds: self.lag_seconds(),
+                                    last_flush: flush_cost,
+                                    counters: bucketer.counters(),
+                                };
+                                let catalogs: BTreeMap<String, &dyn Catalog> = catalogs_arc
+                                    .iter()
+                                    .map(|(k, v)| (k.clone(), v.as_ref() as &dyn Catalog))
+                                    .collect();
+                                let mut sinks: BTreeMap<String, &mut dyn ShardSink> = store_set
+                                    .stores_mut()
+                                    .iter_mut()
+                                    .map(|(k, v)| (k.clone(), v as &mut dyn ShardSink))
+                                    .collect();
+                                for (path, value) in telemetry.sample(now, &stats) {
+                                    if bucketer
+                                        .ingest_point(
+                                            telemetry.context(),
+                                            path,
+                                            crate::self_telemetry::SOURCE,
+                                            now_sec,
+                                            &crate::NormalizedValue::Double(value),
+                                            &self.config,
+                                            &catalogs,
+                                            &mut sinks,
+                                        )
+                                        .is_ok()
+                                    {
+                                        self.records_since_flush += 1;
+                                    }
+                                }
+                            }
                         }
 
                         // Retry retained windows independently of incoming traffic or dirty-row flush.
