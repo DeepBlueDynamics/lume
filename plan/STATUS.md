@@ -6,6 +6,47 @@ Integration branch `plan/lume-ti` is at `78c913d`. **PR #4** (`plan/lume-ti` to 
 Workspace members: `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench`, `ti-geo`, `ti-sync`. Signal K plugin: `plugins/signalk-lume-ti/`. Next free decision: **D48**. D45 (binary size) is merged and recorded in [decisions/D45-binary-size.md](decisions/D45-binary-size.md). D46 (pgwire TLS, Option 2) is merged (`45ae6ff`, Artificial Shark, `ti/pg-tls` `66e2bbb`). D47 (open-shard flush) is in [spec/11](spec/11-risks-decisions.md). All measured numbers: [docs/performance-comparisons.md](../docs/performance-comparisons.md).
 Setup and workflow: [SETUP.md](SETUP.md).
 
+## Handoff (2026-10-07, lead session, before a Hyperia restart)
+
+`plan/lume-ti` is at `ed02ff4` and pushed. PR #4 is open, with CI green through `7dc7c48`.
+
+**Done since `78c913d`:**
+- **Self-telemetry:** `6e84992`, then its own store and table `telemetry_lume` (`ed02ff4`).
+- **SQL fixes:**
+  - Aggregates over shards without the field return no values, not "not found" (`b8bca61`).
+  - DataFusion unicode and regex functions are enabled: SUBSTRING, LEFT/RIGHT and `regexp_*` (`b33532a`).
+  - Query responses carry units for their own columns only (`0b01eff`).
+- **CI fix:** `AuthConfig::new` tests and the live-serve test (`2282261`).
+- **Release pipeline:** `release.yml` and `bump-version.yml` with installers (`2a456bb`).
+- **Grub on the Pi:** a HaLOS app in `deploy/halos/marine-grubcrawler-container` (`495cbc5`). It is installed and healthy, at `127.0.0.1:6792`, running the lite arm64 image.
+- **Ask tab:** `lume chat` takes comma-separated Ollama failover URLs and `OLLAMA_API_KEY` for ollama.com (`cc291ea`, `7dc7c48`).
+
+**What runs on the Pi:**
+- The plugin binary is the cross-built thin/16 arm64 `lume` at `0b01eff`, with `lume.prev` kept for rollback.
+- It does **not** yet have `cc291ea` (chat failover) or `ed02ff4` (`telemetry_lume`). Until it does, self-telemetry rows still land in `telemetry`; filter with `vessel NOT LIKE 'lume.urn:%'`. The existing `lume.urn:` rows stay there until retention expires them.
+- The Pi's `~/lume/target` was cleared for disk space. Build arm64 on the host instead, in about 5 minutes:
+  - Run `scripts/cross-arm64.sh` in `rust:1.96-bookworm`, with the `lume-cross-target` and `lume-cross-registry` volumes.
+  - Copy the binary over, then `chmod 755` it (scp drops the executable bit).
+  - Swap it into the plugin's `bin/linux-arm64` and run `docker restart signalk-server`.
+- A fan is fitted: the Pi runs at 62–66 °C with no throttling.
+
+**Next:**
+1. Cross-build and deploy `ed02ff4`, then check `SELECT ... FROM telemetry_lume`.
+2. Ollama on the Pi as a HaLOS app (`ollama/ollama` arm64, `127.0.0.1:11434`, offline model `qwen3:4b`, waiting on the user's go-ahead). Then set the Ask tab URLs to the Pi first, then the user's PC. The user runs `ollama signin` on the Pi for `:cloud` models, and sets `OLLAMA_HOST=0.0.0.0` plus a firewall rule on the PC.
+3. Library search through the running server, not a `lume sql` process per query: about 575 ms today, against 7–38 µs of pruning. Waiting on the user's OK.
+4. Rerun the 40k values/s step now that the Pi has a fan. `ti-bench` needs a cross-build, the same way as `lume`.
+
+**Agents:**
+- Long Horse has the M6 items 1 and 3 scope (`ti/m6-report`) in its mailbox and has not started.
+- Artificial Shark has the `ti/plugin-tls` scope in its mailbox.
+- Both need a human to type "run msg_check" until Hyperia PR #311 (n8 pane detection) ships.
+
+**Waiting on the user:**
+- Tag Grub `v0.16.1` to publish `deepbluedynamics/grubcrawler:latest-lite`.
+- Approve the Signal K access request.
+- Enter the PG password for the pg smoke rerun and Grafana Save & Test.
+- Provide `icon.png`.
+
 ## Critical path right now
 
 - **🚢 Deploying to the user's Raspberry Pi 5** (HaLOS Marine RPI, no HAT, Signal K v2.31.1 in a container, Ubuntu 24.04 with glibc 2.39).
