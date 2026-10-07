@@ -121,6 +121,11 @@ async fn query_echoes_canonical_aggregates_units_and_open_shards() {
         "navigation.speedOverGround@mean"
     );
     assert_eq!(result["columns"][0]["units"], "m/s");
+    // Only the result's columns: the catalog-wide map belongs to /ti/schema.
+    assert_eq!(
+        result["units"],
+        serde_json::json!({"navigation.speedOverGround@mean": "m/s"})
+    );
     assert_eq!(result["rows"][0]["navigation.speedOverGround@mean"], 5.0);
     assert_eq!(engine.status().await.unwrap()["shards"]["open"], 1);
     assert!(engine.query("DELETE FROM telemetry", 500).await.is_err());

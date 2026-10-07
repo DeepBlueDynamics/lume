@@ -318,9 +318,16 @@ impl TiEngine {
                 .with_metadata(metadata)
             })
             .collect();
+        // Units for the result's own columns. The whole catalog's map belongs to
+        // /ti/schema and /ti/status; here it grew every response by every stored path.
+        let result_units: BTreeMap<String, Option<String>> = names
+            .iter()
+            .zip(&specs)
+            .map(|(name, spec)| (name.clone(), spec.as_ref().and_then(|s| s.units.clone())))
+            .collect();
         let metadata = std::collections::HashMap::from([(
             "lume.units".into(),
-            serde_json::to_string(&self.units())
+            serde_json::to_string(&result_units)
                 .map_err(|e| DataFusionError::External(Box::new(e)))?,
         )]);
         let schema = std::sync::Arc::new(
@@ -329,7 +336,7 @@ impl TiEngine {
         let mut batches = Vec::new();
         let mut stream = frame.limit(0, Some(limit + 1))?.execute_stream().await?;
         let mut response = json!({"columns":columns, "rows":[], "row_count":0, "truncated":false,
-            "elapsed_ms":0, "pushdown":"", "units":self.units(), "hint":null});
+            "elapsed_ms":0, "pushdown":"", "units":result_units, "hint":null});
         let mut rows = Vec::new();
         while let Some(batch) = stream.next().await {
             let batch = batch?;
