@@ -889,7 +889,23 @@ pub fn run_agent_loop(
     ollama_model: &str,
     db_dir: &str,
     verbose: bool,
+    ti_store: Option<&str>,
+    docs_index: Option<&str>,
+    json_output: bool,
 ) -> Result<(), String> {
+    #[cfg(feature = "ti")]
+    if ti_store.is_some() || docs_index.is_some() || json_output {
+        return crate::chat_sql::run_chat_loop(
+            question,
+            ollama_url,
+            ollama_model,
+            db_dir,
+            verbose,
+            ti_store,
+            docs_index,
+            json_output,
+        );
+    }
     let url = format!("{}/api/chat", resolve_ollama_url(ollama_url));
 
     let mut messages = vec![

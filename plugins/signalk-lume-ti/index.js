@@ -11,6 +11,7 @@ const { collectStoreStatus } = require('./lib/status');
 const { createHistoryProvider } = require('./lib/history');
 const {pgOptions, writePgConfig, registerPgRoutes, adminStatus, readJson} = require('./lib/pg');
 const {Library} = require('./lib/library');
+const {ChatManager, registerChatRoutes} = require('./lib/chat');
 
 /**
  * Signal K Plugin Factory Function.
@@ -27,6 +28,7 @@ module.exports = function (app) {
   let restartWithConfig = null;
   let currentBinaryInfo = null;
   let library = null;
+  let chatManager = null;
 
   const libraryUnavailable = res => res.status(503).json({error: 'Library unavailable: lume binary not resolved'});
   /** Library API: list, admin-only indexing job, search, and alert references. */
@@ -108,6 +110,18 @@ module.exports = function (app) {
           default: true,
           description: 'Initiate device access-request flow if anonymous read-only access is disabled',
         },
+        chatOllamaUrl: {
+          type: 'string',
+          title: 'Chat Ollama API URL',
+          default: 'http://127.0.0.1:11434',
+          description: 'Ollama API endpoint URL for the Ask tab chat assistant (default http://127.0.0.1:11434)',
+        },
+        chatModel: {
+          type: 'string',
+          title: 'Chat Ollama Model',
+          default: 'qwen2.5:7b',
+          description: 'Model name on Ollama for chat Q&A and SQL analytics (default qwen2.5:7b)',
+        },
       },
     }),
 
@@ -158,6 +172,12 @@ module.exports = function (app) {
       }
       log(`Resolved lume executable: ${currentBinaryInfo.path} (${currentBinaryInfo.source})`);
       library = new Library({binary: currentBinaryInfo.path, dataDir, log: line => log(line)});
+      chatManager = new ChatManager({
+        binary: currentBinaryInfo.path,
+        dataDir,
+        getOptions: () => pluginConfig,
+        log: line => log(line),
+      });
 
       // 2. Setup Token Manager
       const autoAuth = pluginConfig.autoRequestToken !== false;
@@ -232,6 +252,11 @@ module.exports = function (app) {
         tokenManager = null;
       }
 
+      if (chatManager) {
+        chatManager.stop();
+        chatManager = null;
+      }
+
       if (supervisor) {
         const sup = supervisor;
         supervisor = null;
@@ -259,6 +284,7 @@ module.exports = function (app) {
       router.get('/pg.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'pg.js')));
       router.get('/library.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'library.js')));
       registerLibraryRoutes(router);
+      registerChatRoutes(router, app, () => chatManager);
       // 1. Status API
       router.get('/api/status', (req, res) => {
         const dataDir = typeof app.getDataDirPath === 'function' ? app.getDataDirPath() : '';

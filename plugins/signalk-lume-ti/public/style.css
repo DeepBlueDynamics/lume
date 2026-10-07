@@ -440,3 +440,48 @@ td.empty-state {
 .login-banner { background: var(--accent-amber); color: #111; padding: 10px 16px; font-weight: 500; }
 .login-banner a { color: #111; font-weight: 700; text-decoration: underline; }
 .login-link { color: var(--primary) !important; border: 1px solid var(--primary); border-radius: 6px; }
+/* Ask tab */
+.chat-answer-box {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  margin: 0.5rem 0 1rem;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+.chat-sql-card {
+  margin-bottom: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.chat-sql-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+.chat-sql-title {
+  font-weight: 600;
+  color: var(--primary);
+  font-size: 0.9em;
+}
+.chat-sql-code {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+  overflow-x: auto;
+  font-size: 0.85em;
+  margin-bottom: 0.4rem;
+}
+.chat-sql-meta {
+  font-size: 0.8em;
+  color: var(--text-dim);
+}
+.chat-sql-meta-error {
+  color: var(--accent-red);
+}
+
