@@ -73,7 +73,7 @@ Since `2c8ba1c`, the backfill-idempotence and 24 h replay tests are `#[ignore = 
 TI_Q4_WIDTH_SECONDS=10 TI_Q4_VESSELS=5 cargo test --release -p ti-sql --test m4 synthetic_year_benchmark -- --ignored --nocapture
 ```
 
-**Golden corpus verify (full store).** This closed M3 (`711d2c4`) and now covers the full corpus, including geo and `intervals()` (`cb39a4d`: **58 passed, 0 failed, 4 excluded**). Build the store once, then verify the golden corpus against it:
+**Golden corpus verify (full store).** This closed M3 (`711d2c4`) and now covers the full corpus, including geo and `intervals()` (`cb39a4d`: 58 passed, 0 failed, 4 excluded). Since `count_paths` (`7bf038d`) it is **60 passed, 1 failed (`q2-001`, open), 1 excluded (`qx-003`)**. Build the store once, then verify the golden corpus against it:
 
 ```sh
 TI_OPT_IN=last cargo run --release -p ti-ingest --example backfill_store -- .lanes/data/correctness/tier=raw .lanes/data/store-full
@@ -81,7 +81,8 @@ cargo build --release --features ti --bin lume
 target/release/lume.exe ti verify --store .lanes/data/store-full --corpus tests/golden
 ```
 
-- In PowerShell, set `$env:TI_OPT_IN = 'last'` first. `TI_OPT_IN=last` adds the `@last` opt-in aggregate the corpus needs. `backfill_store` also pre-registers vessels from `catalog/vessels` and path scales from `catalog/paths`, then reports raw vs index bytes. On the host: 436.5 s backfill (219,779 rows/s), 65 shards sealed in 11.6 s, index 729.3 MB vs 1,892.7 MB raw (0.39×). The store needs about 0.7 GB of disk.
+- In PowerShell, set `$env:TI_OPT_IN = 'last'` first. `TI_OPT_IN=last` adds the `@last` opt-in aggregate the corpus needs. `backfill_store` also pre-registers vessels from `catalog/vessels` and path scales from `catalog/paths`, then reports raw vs index bytes. On the host: 436.5 s backfill (219,779 rows/s), 65 shards sealed in 11.6 s, index 729.3 MB vs 1,892.7 MB raw (0.39×). The `count_paths` host run (`7bf038d`): 95.9 M rows in 744.5 s (128,847 rows/s), index 731 MB (0.39× raw), and the 65 empty-list shard hashes match. The store needs about 0.7 GB of disk.
+- **`count_paths`** ([design/count-paths.md](design/count-paths.md)): `[ingest] count_paths = ['<path>', ...]` in `ti.toml` selects paths that count every finite sample. Representable values still feed mean/min/max/last, and `path@skipped_magnitudes` is reported. Oracle: `tests/golden/count_paths_oracle.py`.
 - **The `ti` feature is required.** Without `--features ti`, `lume` reports `Unknown subcommand: ti`.
 - Verify tolerance is ±1 × 10^−scale (D34). A corpus entry with an `exclude` reason in `tests/golden/corpus.json` is skipped and counted as excluded. Geo and `intervals()` always run. Text entries are skipped only when the store has no document index.
 - On the host, opening `store-full` is fast: `Store::open` 0.07 s, `session_from_store` 1.78 s, `lume ti status` 2.17 s wall. Through a container bind mount it can take about 70 s. The `ti-sql` example `open_timing` prints per-stage timings.
@@ -105,7 +106,7 @@ lume ti repl --store <root> [--width <seconds>]
 - `main` runs on a 64 MB thread (`2bbcc4b`), because the debug build overflowed the 1 MB Windows main-thread stack.
 - `import-docs --parquet` is the W9 mapped document import (`ebdb848`). See `tests/golden/robots/README.md` for a full example with `--time-unit`, `--id` and `--kind`.
 - `repl` is interactive SQL over one opened store (`f1bb15a`).
-- The same engine backs the MCP tools `ti_query`, `ti_schema`, `ti_explain`, `ti_status` and `ti_resolve` (`src/ti_mcp.rs`). `ti_query` is read-only and capped at 500 rows and 64 KiB. pgwire currently has the same cap; `ti/pg-limits` (in progress) adds configurable `pg_max_rows`/`pg_max_bytes` (default 100,000 / 16 MiB, streaming) for pgwire only. HTTP and MCP stay at 500 / 64 KiB.
+- The same engine backs the MCP tools `ti_query`, `ti_schema`, `ti_explain`, `ti_status` and `ti_resolve` (`src/ti_mcp.rs`). `ti_query` is read-only and capped at 500 rows and 64 KiB. pgwire has its own caps in `ti.toml` `[query] pg_max_rows` / `pg_max_bytes` (default 100,000 / 16 MiB; `0798966`). Lower them on small Pis or busy dashboards. pgwire streams batches with flushes, suspends portals when `max_rows > 0`, and treats `BEGIN`/`COMMIT` as no-ops. HTTP and MCP stay at 500 / 64 KiB.
 
 **`lume serve` with TI** (`bce7779`, `39c0096`; needs `--features ti`):
 
@@ -136,6 +137,7 @@ lume ti ingest --signalk ws://<host>:3000 --store <root> [--config <path>] [--to
 - It connects to the Signal K WebSocket, subscribes per spec/06 and commits under the D16 group-commit WAL. It reconnects with exponential backoff. Live timestamps use the receive time (`8d232ca`). Notification errors are not fatal; notifications become `alerts` documents (`d656dd4`).
 - **Timers:** WAL group-commit fsync every 1 s. Flush and close mature buckets every 60 s or 50,000 records. Seal shards whose span ended more than 1 h ago. Retention sweep across the configured stores (`StoreSet`). Alert rules run on closed buckets (W10).
 - **Status:** `<store>/ingest_status.json` reports lag, the last delta timestamp, reconnects and `running`.
+- **No silent loss** (`3896e5c`): bucket windows are kept until the sink acknowledges them, retried at 1/2/4/8/16/30 s, and capped at 64 windows / 64 MiB per store. Past the cap, ingest reports `ingest_blocked` instead of dropping. Six drop counters appear in `ingest_status.json` and `/ti/status`; check them if counts look short. Window granularity is vessel-wide per bucket.
 - **Token:** pass a file path or a literal with `--token`, or set `[signal_k] token` in `ti.toml`. Without `--config`, `<store>/ti.toml` is used if it exists.
 - **`--serve`** runs the query server in the **same process**, because two processes must not open one live store. It binds loopback `127.0.0.1:5863` by default (`--bind`, `--port`), with the same `/ti` and `/mcp` surface as `lume serve --ti-store`. `--pg <port>` adds the read-only Postgres listener.
 - **Shutdown:** SIGTERM or Ctrl-C flushes open buckets and dirty shards, syncs the WALs, sets `"running": false` and exits.
@@ -194,7 +196,7 @@ lume ti sync --to <shore url> --store <root> [--token <token>] [--token-file <pa
 - The shore is a `lume serve --ti-store` / `ingest --serve` node. It exposes `/ti/manifest` and `/ti/shards/...` (chunks, status, commit) behind a shared bearer token, compared in constant time. Vessel URNs are validated.
 - Staging is capped at 64 concurrent transfers and 256 MB, with a TTL. **Sync is disabled without a token.**
 - Config: `[sync]` in `ti.toml` (`token_file`, `token`, `link_budget_bytes`, `idle_priority`). Prefer `token_file`; an inline `token` is accepted only if `ti.toml` is mode 0600. A set but unreadable or empty `token_file` is an error, with no fallback to the inline token.
-- Tests: `cargo test --locked -p ti-sync --test two_node_sync_http` (20 % loss, 30 min outage over loopback HTTP) and `cargo test --locked --features ti --test fleet_sync_m6`. `TI_FLEET_VESSELS` (default 50) sizes the fleet test. In debug, 5 vessels take 107 s and 10 take 243 s, so run 50 vessels in `--release` only.
+- Tests: `cargo test --locked -p ti-sync --test two_node_sync_http` (20 % loss, 30 min outage over loopback HTTP) and `cargo test --locked --features ti --test fleet_sync_m6`. The fleet test runs 5 vessels in debug and 50 in release (`4400327`); `TI_FLEET_VESSELS` overrides. Debug: 5 vessels 107 s, 10 vessels 243 s. Release: 50 vessels in 67.32 s (M6 item 2 passed).
 
 **Signal K plugin `signalk-lume-ti`** (`31841c3`). Full instructions are in [plugins/signalk-lume-ti/README.md](../plugins/signalk-lume-ti/README.md). In short:
 
@@ -229,7 +231,24 @@ The plugin supervises `lume ti ingest --signalk ws://127.0.0.1:3000 --store <dat
   - The 50-min Pi results (23:00–23:50Z, 20 runs) are in [STATUS.md](STATUS.md).
 - **Absent document sources:** the notes/logbook poller treats 404, or 401 for an anonymous request, on an optional source as absent. It logs once, then hourly (`0c4cdf6`).
 - **Grafana on HaLOS** shares the `influxdb` container's network namespace, so it reaches the host as `halos.local` = docker0 `172.17.0.1`, not loopback. Plugin-managed pgwire and the Grafana provisioning merged in `1bbbac2`; see §11. The admin form exists because Signal K 2.31 persists plugin config before start and has no validate hook, so a password can't go through Plugin Config.
+- **Offline package (D44, `af79926`):** `bash scripts/package-plugin.sh --arm64 <lume> --x64 <lume> --output <dir>` builds one npm tarball with stripped linux-arm64 (glibc ≤ 2.39) and linux-x64 binaries and no install scripts, plus `package-report.json`. The measured tarball was 82.77 MB gzip / 235 MB unpacked (arm64 133.9 MB, x64 100.8 MB at glibc 2.35). **Build both binaries from one revision before publishing**; the measured one mixed revisions. Size-reduction options are listed in [decisions/D44](decisions/D44-plugin-package.md) but not implemented. Install steps for HaLOS and OpenPlotter are in the plugin README.
 - **Access request:** on first start the plugin files a Signal K access request. It has no token until an admin approves it under Security → Access Requests. With `allow_readonly` true, live ingest works without the token, but the notes/logbook poller needs it.
+
+**Cruiser library: `lume crawl --list` and PDF/EPUB indexing** (`0ad839c`, D43 `ac8c6d8`). Details and guards: [design/library-index.md](design/library-index.md).
+
+```sh
+lume crawl --list docs/cruiser_library.csv [--out <dir>] [--only <id,...>] [--formats pdf,epub,txt,html] [--category <name>] [--limit <n>] [--max-mb 128] [--force] [--dry-run]
+lume index <dir>                                   # then attach it with --docs-index
+lume serve --ti-store <store> --docs-index <lume-index>   # also on lume ti ingest --serve
+```
+
+- `docs/cruiser_library.csv` has 471 rows. `--out` defaults to `library`. `<dir>/library.json` maps files back to title, publisher and URL, and reruns skip fetched rows.
+- A local Grub (`GRUB_BASE_URL`) handles HTML and retries blocked downloads when reachable; otherwise rows are fetched directly. `--max-mb` defaults to 128.
+- PDF (lopdf) and EPUB extraction is pure Rust, behind the `pdf` feature, which `ti` includes. It runs in an isolated worker with 128 MiB input, 120 s and 512 MiB RSS limits.
+- `--docs-index` tables on `serve` and `ingest --serve` hot-reload when the index changes.
+- Host timing, 7 default PDFs (8.9 MB): fetch 8.4 s, uv extraction 6.35 s, index build 51 ms for 356 sections, search 83–121 ms including process start.
+- D43 grew the release binary from 112,273,408 to 114,342,400 bytes (+1.84 %, an upper bound that includes `count_paths`).
+- Plugin **Library** tab: 7 default picks, an admin-only Index button, search, and alert references (`library/alert_references.json`). Alert rules that fire on the Pi replay data, with tested SQL, are in `docs/alert-reference-searches.md`.
 
 **Host oracles for W9 and W10** (Python DuckDB, testing only; run from the repo root on the host):
 
@@ -448,7 +467,7 @@ sslmode disable is for loopback/local Docker-host transport only.
 Run bash tests/pg_smoke.sh host:port grafana ti on the Pi with PGPASSWORD or
 PGPASSFILE configured (`postgresql-client` is installed on the lead's Pi). First Pi
 run, against a throwaway loopback instance: SCRAM login OK, 16/20 pass, stopped at
-case 17 (raw 24 h series) on the 500-row/64 KiB cap until `ti/pg-limits` lands.
+case 17 (raw 24 h series) on the old 500-row/64 KiB cap. pg-limits (`0798966`) fixes that; the rerun is pending.
 The Python harness test for it (`bench/grafana/test_pg_smoke.py`) skips on Windows. It executes twenty Grafana/psql SQL cases, actual
 \\d telemetry, and SCRAM rejection. The loopback Rust test independently
 authenticates a Node-derived verifier and decodes typed timestamp/double rows.
