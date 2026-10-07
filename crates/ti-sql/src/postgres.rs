@@ -443,3 +443,90 @@ pub async fn query(engine: &TiEngine, sql: &str, parameters: Vec<ScalarValue>) -
         .await?
         .0)
 }
+
+/// Execute a read-only query returning column descriptors, resolved output names,
+/// and an asynchronous RecordBatch stream bounded by at most `max_rows + 1`.
+pub async fn query_stream(
+    engine: &TiEngine,
+    sql: &str,
+    parameters: Vec<ScalarValue>,
+    max_rows: usize,
+) -> Result<(
+    Vec<(String, String)>,
+    Vec<String>,
+    datafusion::physical_plan::SendableRecordBatchStream,
+)> {
+    let sql = normalize(sql, &[])?;
+    let frame = engine.session.prepare(&sql).await?;
+    let frame = if parameters.is_empty() {
+        frame
+    } else {
+        frame.with_param_values(parameters)?
+    };
+
+    let field_lookup = |col_name: &str| -> Option<ti_contracts::FieldSpec> {
+        if let Some(f) = engine.session.catalog.field(col_name) {
+            return Some(f.clone());
+        }
+        if let Ok(extras) = engine.session.extra_catalogs.lock() {
+            for cat in extras.values() {
+                if let Some(f) = cat.field(col_name) {
+                    return Some(f.clone());
+                }
+            }
+        }
+        None
+    };
+
+    let specs: Vec<_> = frame
+        .schema()
+        .fields()
+        .iter()
+        .map(|f| field_lookup(f.name()))
+        .collect();
+
+    let names: Vec<String> = frame
+        .schema()
+        .fields()
+        .iter()
+        .zip(&specs)
+        .map(|(f, spec)| {
+            spec.as_ref()
+                .map(crate::field_name)
+                .unwrap_or_else(|| f.name().clone())
+        })
+        .collect();
+
+    if names
+        .iter()
+        .collect::<std::collections::BTreeSet<_>>()
+        .len()
+        != names.len()
+    {
+        return Err(invalid(
+            "duplicate output columns after @agg resolution; use distinct SQL aliases",
+        ));
+    }
+
+    let columns: Vec<(String, String)> = frame
+        .schema()
+        .fields()
+        .iter()
+        .zip(&names)
+        .map(|(f, name)| (name.clone(), f.data_type().to_string()))
+        .collect();
+
+    let limit = if max_rows < usize::MAX {
+        Some(max_rows.saturating_add(1))
+    } else {
+        None
+    };
+    let frame = if let Some(lim) = limit {
+        frame.limit(0, Some(lim))?
+    } else {
+        frame
+    };
+    let stream = frame.execute_stream().await?;
+
+    Ok((columns, names, stream))
+}

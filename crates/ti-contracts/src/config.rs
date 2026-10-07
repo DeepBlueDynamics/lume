@@ -121,7 +121,14 @@ pub struct ScramUser {
     pub verifier: String,
 }
 
-/// Boat resource/admission defaults; lower memory_bytes to 512 MiB on Pi 4.
+/// Query resource and admission limits in `ti.toml [query]`.
+///
+/// Streaming execution keeps pgwire memory usage bounded to one record batch plus the
+/// encoder buffer, so the defaults (100,000 rows / 16 MiB) are safe on aarch64 SBCs
+/// (e.g. Raspberry Pi 4 / 5) with <= 8 GB RAM. For heavily constrained systems (e.g.
+/// 2 GB RAM or dense multi-client dashboards), `pg_max_rows` (e.g. 10000) and `pg_max_bytes`
+/// (e.g. 4194304 for 4 MiB) can be lowered in `[query]`.
+/// HTTP `/ti/query` and MCP tools keep fixed agent-facing limits of 500 rows / 64 KiB.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct QueryLimits {
@@ -137,6 +144,10 @@ pub struct QueryLimits {
     pub heavy_queries: usize,
     /// Pause background work above this temperature.
     pub thermal_celsius: u16,
+    /// Maximum rows returned by a pgwire query (default: 100,000 for Grafana).
+    pub pg_max_rows: usize,
+    /// Maximum result bytes returned by a pgwire query (default: 16 MiB for Grafana).
+    pub pg_max_bytes: usize,
 }
 
 /// Fleet synchronization configuration (W8).
@@ -433,6 +444,8 @@ impl Default for QueryLimits {
             target_partitions: 2,
             heavy_queries: 1,
             thermal_celsius: 75,
+            pg_max_rows: 100_000,
+            pg_max_bytes: 16 * 1024 * 1024,
         }
     }
 }
@@ -571,11 +584,16 @@ impl TiConfig {
         let mut count_paths = BTreeSet::new();
         for path in &self.ingest.count_paths {
             if path.is_empty()
-                || path.chars().any(|c| c.is_whitespace() || "*@#$[]".contains(c))
+                || path
+                    .chars()
+                    .any(|c| c.is_whitespace() || "*@#$[]".contains(c))
                 || path.split('.').any(str::is_empty)
                 || !count_paths.insert(path)
             {
-                return Err(invalid("ingest.count_paths", "requires unique exact leaf paths without globs or aggregate suffixes"));
+                return Err(invalid(
+                    "ingest.count_paths",
+                    "requires unique exact leaf paths without globs or aggregate suffixes",
+                ));
             }
         }
         for (key, values) in [

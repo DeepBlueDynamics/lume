@@ -66,9 +66,13 @@ fn postgres_simple_query_caps_read_only_and_shared_snapshot() {
             ] {
                 assert!(client.simple_query(sql).await.is_err(), "{sql}");
             }
+            assert!(client
+                .simple_query("SELECT * FROM generate_series(1, 501)")
+                .await
+                .is_ok());
             for sql in [
-                "SELECT * FROM generate_series(1, 501)",
-                "SELECT repeat('é', 40000) AS huge",
+                "SELECT * FROM generate_series(1, 100001)",
+                "SELECT repeat('é', 9000000) AS huge",
             ] {
                 let error = client.simple_query(sql).await.unwrap_err();
                 assert_eq!(error.code().unwrap().code(), "54000");

@@ -32,10 +32,10 @@ impl<'a> RequestHeaders<'a> {
 }
 
 pub struct TiServer {
-    engine: RwLock<Arc<ti_sql::TiEngine>>,
-    runtime: ti_sql::SurfaceRuntime,
+    pub(crate) engine: RwLock<Arc<ti_sql::TiEngine>>,
+    pub(crate) runtime: ti_sql::SurfaceRuntime,
     root: PathBuf,
-    gate: Mutex<()>,
+    pub(crate) gate: Mutex<()>,
     resolver: RwLock<Arc<crate::ti_resolve::PathsResolver>>,
     width: Option<u64>,
     last_reload: Mutex<Option<Instant>>,
@@ -45,6 +45,9 @@ pub struct TiServer {
     sync_token: Option<String>,
     docs_index: Option<Mutex<crate::ti_docs_index::DocsIndex>>,
     docs_reload: Mutex<()>,
+    query_limits: RwLock<ti_contracts::QueryLimits>,
+    pg_batches_yielded: Arc<std::sync::atomic::AtomicUsize>,
+    pg_query_completed: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl TiServer {
@@ -80,7 +83,7 @@ impl TiServer {
         let receiver = Arc::new(ti_sync::ShoreReceiver::new(store.clone()));
 
         let ti_toml = root.join("ti.toml");
-        let sync_token = if ti_toml.exists() {
+        let (sync_token, query_limits) = if ti_toml.exists() {
             let content = std::fs::read_to_string(&ti_toml)
                 .map_err(|e| format!("failed to read ti.toml: {e}"))?;
             let cfg = ti_contracts::TiConfig::from_toml(&content)
@@ -96,9 +99,9 @@ impl TiServer {
                     }
                 }
             }
-            cfg.sync.resolved_token()?
+            (cfg.sync.resolved_token()?, cfg.query)
         } else {
-            None
+            (None, ti_contracts::QueryLimits::default())
         };
 
         Ok(Self {
@@ -115,6 +118,9 @@ impl TiServer {
             sync_token,
             docs_index: None,
             docs_reload: Mutex::new(()),
+            query_limits: RwLock::new(query_limits),
+            pg_batches_yielded: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            pg_query_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         })
     }
 
@@ -125,7 +131,7 @@ impl TiServer {
         Ok(self)
     }
 
-    fn refresh_docs_index(&self) {
+    pub(crate) fn refresh_docs_index(&self) {
         let Some(index) = &self.docs_index else {
             return;
         };
@@ -165,6 +171,42 @@ impl TiServer {
     pub fn with_sync_token(mut self, token: impl Into<String>) -> Self {
         self.sync_token = Some(token.into());
         self
+    }
+
+    pub fn query_limits(&self) -> ti_contracts::QueryLimits {
+        self.query_limits.read().unwrap().clone()
+    }
+
+    pub fn with_query_limits(self, limits: ti_contracts::QueryLimits) -> Self {
+        *self.query_limits.write().unwrap() = limits;
+        self
+    }
+
+    pub fn pg_batches_yielded(&self) -> usize {
+        self.pg_batches_yielded
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    pub fn pg_query_completed(&self) -> bool {
+        self.pg_query_completed
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    pub(crate) fn pg_query_started(&self) {
+        self.pg_query_completed
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        self.pg_batches_yielded
+            .store(0, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    pub(crate) fn pg_batch_produced(&self) {
+        self.pg_batches_yielded
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    pub(crate) fn pg_query_finished(&self) {
+        self.pg_query_completed
+            .store(true, std::sync::atomic::Ordering::SeqCst);
     }
     pub fn reload_engine(&self) -> Result<(), String> {
         let now = Instant::now();
@@ -209,6 +251,16 @@ impl TiServer {
         *engine_guard = Arc::new(engine);
         let mut resolver_guard = self.resolver.write().map_err(|e| e.to_string())?;
         *resolver_guard = Arc::new(resolver);
+        let path = self.root.join("ti.toml");
+        if path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                if let Ok(cfg) = ti_contracts::TiConfig::from_toml(&content) {
+                    if let Ok(mut ql) = self.query_limits.write() {
+                        *ql = cfg.query;
+                    }
+                }
+            }
+        }
         Ok(())
     }
     pub(crate) fn pg_describe(&self, sql: &str, hints: &[String]) -> Result<Value, String> {
@@ -223,6 +275,7 @@ impl TiServer {
             .block_on(ti_sql::postgres::describe(&engine, sql, hints))
             .map_err(|e| e.to_string())
     }
+    #[allow(dead_code)]
     pub(crate) fn pg_query(
         &self,
         sql: &str,
