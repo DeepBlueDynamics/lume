@@ -17,10 +17,10 @@ impl Drop for Fixture {
 
 #[test]
 fn match_notes_never_crosses_vessel_even_at_the_same_bucket() {
-    let fixture = Fixture(PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!(
-        "text-vessels-{}",
-        std::process::id()
-    )));
+    let fixture = Fixture(
+        PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("text-vessels-{}", std::process::id())),
+    );
     std::fs::create_dir_all(&fixture.0).unwrap();
     let owner = "vessels.urn:mrn:imo:mmsi:367000000";
     let other = "vessels.urn:mrn:imo:mmsi:367000001";
