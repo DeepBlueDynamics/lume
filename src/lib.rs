@@ -57,6 +57,8 @@ pub mod ti_pg;
 mod ti_pg_auth;
 #[cfg(feature = "ti")]
 pub mod ti_resolve;
+#[cfg(feature = "ti")]
+pub mod chat_sql;
 pub use search::{search, LoadedIndex, SearchOptions, SearchResults, SearchResultHit, SearchMode, BlendMode};
 // pub mod cli;
 

@@ -251,7 +251,10 @@ fn lume_main() {
             let mut ollama_url = String::from("http://localhost:11434");
             let mut ollama_model = String::from("gemma4:31b-cloud");
             let mut verbose = false;
+            let mut json_output = false;
             let mut db_dir = String::from(".lume-index");
+            let mut ti_store: Option<String> = None;
+            let mut docs_index: Option<String> = None;
             let mut question_parts = Vec::new();
             
             let mut idx = 2;
@@ -266,6 +269,15 @@ fn lume_main() {
                 } else if arg == "--db" && idx + 1 < args.len() {
                     db_dir = args[idx + 1].clone();
                     idx += 2;
+                } else if arg == "--ti-store" && idx + 1 < args.len() {
+                    ti_store = Some(args[idx + 1].clone());
+                    idx += 2;
+                } else if arg == "--docs-index" && idx + 1 < args.len() {
+                    docs_index = Some(args[idx + 1].clone());
+                    idx += 2;
+                } else if arg == "--json" {
+                    json_output = true;
+                    idx += 1;
                 } else if arg == "-v" || arg == "-V" || arg == "--verbose" {
                     verbose = true;
                     idx += 1;
@@ -281,7 +293,16 @@ fn lume_main() {
                 std::process::exit(1);
             }
             
-            if let Err(e) = lume::agent::run_agent_loop(&question, &ollama_url, &ollama_model, &db_dir, verbose) {
+            if let Err(e) = lume::agent::run_agent_loop(
+                &question,
+                &ollama_url,
+                &ollama_model,
+                &db_dir,
+                verbose,
+                ti_store.as_deref(),
+                docs_index.as_deref(),
+                json_output,
+            ) {
                 eprintln!("Error running agent: {}", e);
                 std::process::exit(1);
             }
@@ -2509,6 +2530,9 @@ USAGE:
 
 OPTIONS:
   --db <DIR>                Path to the persisted index database [default: .lume-index]
+  --ti-store <ROOT>         Path to the TI store root directory
+  --docs-index <INDEX>      Path to documentation index for lume_sql
+  --json                    Emit structured JSON output
   --ollama-url <URL>        Ollama API URL [default: http://localhost:11434]
   --ollama-model <MODEL>    Ollama model name [default: gemma4:31b-cloud]
   -v, --verbose             Print verbose reasoning and tool logs

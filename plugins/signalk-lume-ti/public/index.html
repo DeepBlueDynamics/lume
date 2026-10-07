@@ -27,6 +27,7 @@
       <button class="tab-btn" data-tab="tab-schema">Schema Browser</button>
       <button class="tab-btn" data-tab="tab-status">Status & Diagnostics</button>
       <button class="tab-btn" data-tab="tab-library">Library</button>
+      <button class="tab-btn" data-tab="tab-ask">Ask</button>
       <button class="tab-btn" data-tab="tab-pg">PostgreSQL / Grafana</button>
     </nav>
 
@@ -57,6 +58,27 @@
         </div>
         <pre id="lib-job" class="alert-box" hidden></pre>
         <div id="lib-list"><div class="loading-state">Loading library…</div></div>
+      </section>
+      <!-- Ask Tab -->
+      <section id="tab-ask" class="tab-panel">
+        <div class="schema-header">
+          <h3>Ask Lume Assistant</h3>
+        </div>
+        <p class="lib-meta">Ask questions in plain English. The assistant inspects schema and telemetry data using SQL to answer your questions.</p>
+        <form id="chat-form" class="lib-searchbar">
+          <input id="chat-question" type="search" placeholder="e.g. What was our maximum speed over ground yesterday?" maxlength="500" required>
+          <button id="chat-submit-btn" type="submit" class="primary-btn">Ask</button>
+        </form>
+        <div id="chat-loading" class="loading-state hidden">Thinking, inspecting schema and executing queries…</div>
+        <div id="chat-error" class="alert-box error hidden"></div>
+        <div id="chat-response-container" class="hidden">
+          <h3>Answer</h3>
+          <div id="chat-answer" class="chat-answer-box"></div>
+          <div id="chat-sql-section" class="hidden">
+            <h3 style="margin-top: 1rem;">Executed SQL Queries</h3>
+            <div id="chat-sql-list"></div>
+          </div>
+        </div>
       </section>
       <section id="tab-pg" class="tab-panel">
         <h2>PostgreSQL / Grafana</h2>
@@ -175,5 +197,6 @@
   <script src="app.js"></script>
   <script src="pg.js"></script>
   <script src="library.js"></script>
+  <script src="chat.js"></script>
 </body>
 </html>
