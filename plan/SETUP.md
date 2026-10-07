@@ -31,8 +31,9 @@ cargo clippy --all-targets || true   # informational only; the existing crate ha
 
 - At `8e87a11` the root crate has **46 tests**. The 10 search golden outputs in `tests/search_golden/` must stay byte-identical. Check them with `tests/search_golden/capture.sh [lume-binary]`, which defaults to `./target/debug/lume` and verify mode, so build first.
 - Always pass `--locked`. CI fails if `Cargo.lock` would change.
-- There is no `rust-toolchain` file yet. The host build pane runs rustc **1.96.1** and the containers run **1.99**, and their clippy lints differ. A pinned `rust-toolchain.toml` has been proposed to the user (unconfirmed until accepted).
+- There is no `rust-toolchain` file yet. The host build pane runs rustc **1.96.1** and the containers run **1.99**, and their clippy lints differ. A pinned `rust-toolchain.toml` has been proposed to the user (unconfirmed until accepted). The strict TI CI job pins Rust **1.96.0** for itself only.
 - CI runs only on pushes and PRs to `main`. Lane branches and `plan/lume-ti` get **no CI**, so run the commands above yourself before you report a commit.
+- **Strict TI CI job** (`ti` in `ci.yml`, `ec48673`; legacy jobs unchanged), on Ubuntu with Rust 1.96.0: `cargo fmt --check` on the 8 TI crates plus the root TI files, `clippy -D warnings` on the TI crates, `cargo test --features ti`, plugin `npm test` on Node 20, and the bench Python tests. It has **not run on GitHub yet**, because `plan/lume-ti` is local only. Run its steps yourself.
 - `release.yml` builds release binaries on `v*` tags for five gnu/darwin/msvc targets. It has no musl targets and no `--features ti` build yet ([repo-fit §4](repo-fit.md)).
 
 ## 3. The `--features ti` build
@@ -104,7 +105,7 @@ lume ti repl --store <root> [--width <seconds>]
 - `main` runs on a 64 MB thread (`2bbcc4b`), because the debug build overflowed the 1 MB Windows main-thread stack.
 - `import-docs --parquet` is the W9 mapped document import (`ebdb848`). See `tests/golden/robots/README.md` for a full example with `--time-unit`, `--id` and `--kind`.
 - `repl` is interactive SQL over one opened store (`f1bb15a`).
-- The same engine backs the MCP tools `ti_query`, `ti_schema`, `ti_explain`, `ti_status` and `ti_resolve` (`src/ti_mcp.rs`). `ti_query` is read-only and capped at 500 rows and 64 KiB.
+- The same engine backs the MCP tools `ti_query`, `ti_schema`, `ti_explain`, `ti_status` and `ti_resolve` (`src/ti_mcp.rs`). `ti_query` is read-only and capped at 500 rows and 64 KiB. pgwire currently has the same cap; `ti/pg-limits` (in progress) adds configurable `pg_max_rows`/`pg_max_bytes` (default 100,000 / 16 MiB, streaming) for pgwire only. HTTP and MCP stay at 500 / 64 KiB.
 
 **`lume serve` with TI** (`bce7779`, `39c0096`; needs `--features ti`):
 
@@ -123,7 +124,8 @@ lume serve --ti-store <store> [--bind <IP>] [--port <PORT>] [--pg <port>]
   | `GET /ti/status` | Store status |
   | `GET /ti/resolve?q=<phrase>` | `ti_resolve`: phrase to column (93/100 top-3 on `tests/golden/resolve.json`) |
 
-- **Postgres wire** (`451bfc7`, D37): `--pg <port>` adds a read-only Postgres listener on the same bind address. It is off by default and needs `--ti-store`. Since `7c4cb23` it is typed and Grafana-compatible: extended protocol, `pg_catalog`, and Grafana macros. Auth is verifier-only SCRAM-SHA-256 (D42: no plaintext password storage). TLS is not offered, so keep it on loopback.
+- **Postgres wire** (`451bfc7`, D37): `--pg <port>` adds a read-only Postgres listener on the same bind address. It is off by default and needs `--ti-store`. Since `7c4cb23` it is typed and Grafana-compatible: extended protocol, `pg_catalog`, and Grafana macros. Auth is verifier-only SCRAM-SHA-256 (D42: no plaintext password storage). TLS is not offered, so keep it on loopback (or on the docker0 address for HaLOS Grafana, §11).
+- **`--pg-bind <IP>`** moves only the PG listener (default: `--bind`). **`--pg-auth-config <path>`** reads only the `auth` section of a private `ti.toml`, replaces the store's users entirely (no merging), and on Unix needs mode 0600 (`1bbbac2`). Details in §11.
 
 **`lume ti ingest`: the live service** (`75a1a4f`; needs `--features ti`):
 
@@ -183,12 +185,25 @@ lume ti rules list --store <root> [--json]
 lume ti rules test <name> --store <root> [--json]   # dry run: alerts the rule would write, nothing stored
 ```
 
+**`lume ti sync`: M6 fleet sync over HTTP** (`ddd6398`; needs `--features ti`):
+
+```sh
+lume ti sync --to <shore url> --store <root> [--token <token>] [--token-file <path>] [--chunk-size <bytes>] [--link-budget <bytes>] [--idle]
+```
+
+- The shore is a `lume serve --ti-store` / `ingest --serve` node. It exposes `/ti/manifest` and `/ti/shards/...` (chunks, status, commit) behind a shared bearer token, compared in constant time. Vessel URNs are validated.
+- Staging is capped at 64 concurrent transfers and 256 MB, with a TTL. **Sync is disabled without a token.**
+- Config: `[sync]` in `ti.toml` (`token_file`, `token`, `link_budget_bytes`, `idle_priority`). Prefer `token_file`; an inline `token` is accepted only if `ti.toml` is mode 0600. A set but unreadable or empty `token_file` is an error, with no fallback to the inline token.
+- Tests: `cargo test --locked -p ti-sync --test two_node_sync_http` (20 % loss, 30 min outage over loopback HTTP) and `cargo test --locked --features ti --test fleet_sync_m6`. `TI_FLEET_VESSELS` (default 50) sizes the fleet test. In debug, 5 vessels take 107 s and 10 take 243 s, so run 50 vessels in `--release` only.
+
 **Signal K plugin `signalk-lume-ti`** (`31841c3`). Full instructions are in [plugins/signalk-lume-ti/README.md](../plugins/signalk-lume-ti/README.md). In short:
 
 1. Install the plugin into the Signal K data dir: `cd /home/node/.signalk && npm install /path/to/plugins/signalk-lume-ti`, or copy the folder into `node_modules/`.
 2. Put an `aarch64` `lume` binary (built with `--features ti`) at `node_modules/signalk-lume-ti/bin/linux-arm64/lume` (`chmod +x`), or on `PATH`, or set `lumePath` in the plugin config. The `signalk-server-docker` container is Ubuntu 24.04 with glibc 2.39, so a glibc `aarch64-unknown-linux-gnu` build linked against glibc ≤ 2.39 works; musl is not needed.
 3. Enable **Lume TI** under Server → Plugin Config in the Signal K admin UI.
 4. **Select Lume TI as the server's default history provider.** `signalk-to-influxdb2` also registers one, so don't assume Lume is chosen.
+5. **Pin the self vessel identity.** Set a vessel UUID or MMSI in Server → Settings → Vessel Base Data. Without it, Signal K on HaLOS regenerated its self UUID on every restart, which split history in Lume and Influx. On the lead's Pi it is pinned in `data/baseDeltas.json` (`urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee`).
+6. Optional: PostgreSQL for Grafana. Use the plugin webapp's admin-only form (`enablePg`, `pgPort` 5864, `pgUser`, `pgBind`); see §11.
 
 The plugin supervises `lume ti ingest --signalk ws://127.0.0.1:3000 --store <dataDir>/lume-ti --serve --bind 127.0.0.1 --port 5863`, restarts it with backoff, and stops it with SIGTERM. It handles the Signal K access-request token (`<dataDir>/token.txt`) and proxies the SQL console webapp through `/plugins/signalk-lume-ti/api/*`, so nothing listens off loopback. The webapp's `apiBase` is `/plugins/signalk-lume-ti` (`530f6b1`). Plugin tests: `cd plugins/signalk-lume-ti && npm test` (17/17 at `e09bb87`).
 
@@ -211,15 +226,10 @@ The plugin supervises `lume ti ingest --signalk ws://127.0.0.1:3000 --store <dat
 
   - Statuses: **PASS** (exact within `--abs-tol`/`--rel-tol`), **FIDELITY** (mean deviation within `--fidelity-rel`, default 1 %), **MISMATCH**, **EMPTY**. Windows are bucket-aligned. Results also flag threshold-edge cases and path-type differences.
   - The Influx writer's 1 s resolution drops samples, so raw bucket means can differ by up to about 2 %. Expect FIDELITY, not PASS, on mean-type queries.
-  - First results (about 17 min, preliminary) are in [STATUS.md](STATUS.md). The full-hour run is pending.
+  - The 50-min Pi results (23:00–23:50Z, 20 runs) are in [STATUS.md](STATUS.md).
 - **Absent document sources:** the notes/logbook poller treats 404, or 401 for an anonymous request, on an optional source as absent. It logs once, then hourly (`0c4cdf6`).
-- **Grafana on HaLOS** shares the `influxdb` container's network namespace, so it reaches the host as `halos.local` = docker0 `172.17.0.1`, not loopback. Plugin-side pgwire for Grafana is in progress on `ti/plugin-pg` (Long Horse):
-  - new `--pg-bind` and `--pg-auth-config` flags;
-  - a webapp-only admin form that stores only the SCRAM verifier. Signal K 2.31 persists plugin config before start and has no validate hook, so a password can't go through Plugin Config;
-  - a Grafana datasource YAML and a 20-query pg smoke set.
-
-  Not merged yet; check the branch before relying on the flag names.
-- **Access request:** on first start the plugin files a Signal K access request. Ingest has no token until an admin approves it under Security → Access Requests.
+- **Grafana on HaLOS** shares the `influxdb` container's network namespace, so it reaches the host as `halos.local` = docker0 `172.17.0.1`, not loopback. Plugin-managed pgwire and the Grafana provisioning merged in `1bbbac2`; see §11. The admin form exists because Signal K 2.31 persists plugin config before start and has no validate hook, so a password can't go through Plugin Config.
+- **Access request:** on first start the plugin files a Signal K access request. It has no token until an admin approves it under Security → Access Requests. With `allow_readonly` true, live ingest works without the token, but the notes/logbook poller needs it.
 
 **Host oracles for W9 and W10** (Python DuckDB, testing only; run from the repo root on the host):
 
@@ -436,7 +446,10 @@ secret to Grafana with the same password entered in the plugin.
 sslmode disable is for loopback/local Docker-host transport only.
 
 Run bash tests/pg_smoke.sh host:port grafana ti on the Pi with PGPASSWORD or
-PGPASSFILE configured. It executes twenty Grafana/psql SQL cases, actual
+PGPASSFILE configured (`postgresql-client` is installed on the lead's Pi). First Pi
+run, against a throwaway loopback instance: SCRAM login OK, 16/20 pass, stopped at
+case 17 (raw 24 h series) on the 500-row/64 KiB cap until `ti/pg-limits` lands.
+The Python harness test for it (`bench/grafana/test_pg_smoke.py`) skips on Windows. It executes twenty Grafana/psql SQL cases, actual
 \\d telemetry, and SCRAM rejection. The loopback Rust test independently
 authenticates a Node-derived verifier and decodes typed timestamp/double rows.
 Pi Save & Test and the actual psql run are deployment checks, not claimed by

@@ -1,8 +1,8 @@
 # Lume TI — Status board
 
-Last updated: **2026-10-06** (docs keeper, after `ebd96a4`: Influx-vs-Lume benchmark merged and first Pi run (preliminary); quiet absent document sources; earlier: pgwire + SCRAM (D42), History API provider, `lume sql`, CRoaring (D39/D40), notes/logbook (D41))
+Last updated: **2026-10-06** (docs keeper, after `ddd6398`: **M6 HTTP sync merged**, plugin-managed SCRAM pgwire + Grafana provisioning, strict TI CI job, 50-min Pi benchmark; earlier: Influx-vs-Lume harness, History API provider, `lume sql`, CRoaring (D39/D40), notes/logbook (D41), pgwire SCRAM (D42))
 
-Integration branch `plan/lume-ti` is at `ebd96a4`. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46 at `8e87a11`; `cargo test --features ti` was 55 at `39c0096` (not recounted since). Plugin `npm test` 17/17 and `cargo test` `ti_http` 8/8 at `e09bb87`.
+Integration branch `plan/lume-ti` is at `ddd6398`. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46 at `8e87a11`; `cargo test --features ti` was 55 at `39c0096` (not recounted since). Plugin `npm test` 17/17 and `cargo test` `ti_http` 8/8 at `e09bb87`.
 Workspace members: `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench`, `ti-geo`, `ti-sync`. Signal K plugin: `plugins/signalk-lume-ti/`. Next free decision: **D43** (ask the lead before taking it).
 Setup and workflow: [SETUP.md](SETUP.md).
 
@@ -11,25 +11,28 @@ Setup and workflow: [SETUP.md](SETUP.md).
 - **🚢 Deploying to the user's Raspberry Pi 5** (HaLOS Marine RPI, no HAT, Signal K v2.31.1 in a container, Ubuntu 24.04 with glibc 2.39).
   - KIP and Freeboard-SK are installed. Grafana, QuestDB and OpenCPN are installed. Grafana shares the `influxdb` container's network namespace and reaches the host as `halos.local` = docker0 `172.17.0.1`.
   - `signalk-to-influxdb2` 2.3.0 writes InfluxDB bucket `marine` at 1 s resolution (self vessel only).
-  - **Deployed:** the thin-LTO native arm64 binary (`CARGO_PROFILE_RELEASE_LTO=thin`, `CODEGEN_UNITS=16`, `BUILD_JOBS=2`; fat LTO OOMs) runs in the plugin (glibc 2.39 OK), and the plugin JS with the History provider is deployed.
-  - **Blocked on the user:** the plugin's Signal K access request awaits approval. The plugin has never had a token.
-  - A rebuild with the quiet-poller change (`0c4cdf6`) is in progress.
-  - **Next:** the user approves the access request; select Lume as the default history provider; full-hour benchmark run ([SETUP §3](SETUP.md)).
+  - **Deployed:** the thin-LTO native arm64 binary at `1bbbac2` (`CARGO_PROFILE_RELEASE_LTO=thin`, `CODEGEN_UNITS=16`, `BUILD_JOBS=2`; fat LTO OOMs) runs in the plugin (glibc 2.39 OK), with the plugin JS and History provider. `postgresql-client` is installed on the Pi.
+  - **Vessel UUID pinned.** Signal K on HaLOS regenerated its self UUID on every restart, which split history in both Lume and Influx. The lead pinned it in `data/baseDeltas.json` (`urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee`). Now a deployment step ([SETUP §3](SETUP.md)).
+  - **pg smoke on the Pi** (throwaway loopback instance): SCRAM login OK, **16/20 pass**. It stopped at case 17 (raw 24 h series) on the 500-row / 64 KiB cap. Fix in flight on `ti/pg-limits` (Artificial Shark).
+  - **Access request still pending the user's approval.** Live ingest isn't blocked (`allow_readonly` is true), but the notes/logbook poller needs the token.
+  - **Next:** `ti/pg-limits`, then rerun the pg smoke and Grafana Save & Test; the user approves the access request; select Lume as the default history provider.
   - **The Pi runs hot without an Active Cooler** (82–86 °C under load).
-- **🟡 First Pi benchmark run, PRELIMINARY** (`bench/influx_vs_lume.py`, about 17 min common window, 10 runs, warm p50, InfluxDB vs Lume):
+- **📊 Pi benchmark, 50-min window** (`bench/influx_vs_lume.py`, 23:00–23:50Z, 20 runs, warm p50, InfluxDB vs Lume). Replaces the earlier 17-min preliminary table:
 
-  | Query | InfluxDB | Lume | Status |
+  | Query | InfluxDB | Lume | Result |
   |---|---|---|---|
-  | Raw depth | 19.4 ms | 10.4 ms | |
-  | Hourly max | 15.3 ms | 5.7 ms | PASS (exact) |
-  | Minute mean SOG | 12.3 ms | 6.6 ms | FIDELITY (≤ 0.15 %) |
-  | Multi-condition | 28.7 ms | 7.2 ms | Threshold edge |
-  | Min depth + position | 61.5 ms | 4.5 ms | FIDELITY |
-  | Point counts per path | 1,342 ms | 47 ms | |
+  | Raw depth | 42.9 ms | 43.7 ms | |
+  | Hourly max | 21.4 ms | 6.1 ms | PASS |
+  | Minute mean SOG | 15.2 ms | 9.3 ms | FIDELITY 0.44 % |
+  | Multi-condition | 53.2 ms | 9.5 ms | 40/40 minutes; minute minimums differ (Influx drops samples) |
+  | Min depth + position | 156.8 ms | 5.6 ms | Same depth; Influx's first occurrence is 10 min later (drops) |
+  | Per-path counts | 4,080 ms | 57 ms | One-bucket gap on 3 constant battery paths (290 Influx vs 289 Lume), **open** |
 
-  Caveat: the HaLOS Influx writer's 1 s resolution drops samples, so raw bucket means differ by up to about 2 %. **The full-hour run is still pending.**
+  Caveat: the HaLOS Influx writer's 1 s resolution drops samples, so raw bucket means and minimums differ from Lume's.
 - **✅ Signal K History API provider** (`e09bb87`, merge of `64cbc0d`). `plugins/signalk-lume-ti` registers as a Signal K v2.31 History API provider backed by Lume's loopback HTTP. Plugin tests 17/17, `ti_http` 8/8. `first`/`last` need the `@last` aggregate retained. **It must be selected as the server's default history provider**, because `signalk-to-influxdb2` also registers one.
-- **✅ Grafana-compatible pgwire + SCRAM** (`7c4cb23`, post-merge fixes `2bbcc4b`). Typed results, extended protocol, `pg_catalog`, Grafana macros, and verifier-only SCRAM-SHA-256 (**D42**). TLS is still not offered.
+- **✅ M6 HTTP sync merged** (`ddd6398`, `c99b66a`, Artificial Shark). See the M6 gate detail. **Pending:** the release 5-vessel run, then the 50-vessel release run and lossy-HTTP results go to the lead.
+- **✅ Grafana-compatible pgwire + SCRAM** (`7c4cb23`, post-merge fixes `2bbcc4b`). Typed results, extended protocol, `pg_catalog`, Grafana macros, and verifier-only SCRAM-SHA-256 (**D42**). TLS is still not offered. **Plugin-managed** since `1bbbac2` (see Merged surfaces).
+- **✅ Strict TI CI job** (`ec48673`, fmt fix `329d8a1`). Rust 1.96 pinned; fmt on 8 crates plus the root TI files; clippy `-D warnings` on the TI crates; `cargo test --features ti`; plugin npm on Node 20; bench Python. **Not exercised in GitHub yet**, because `plan/lume-ti` is local only.
 - **✅ W10 alerts ACCEPTED** (`a8f32bd` + `6d51df5`). Signal K notifications become `alerts` documents (`d656dd4`). Bitmap alert rules run on closed buckets, with history, hold, caps and live document refresh. Host DuckDB oracle: **118/118/118** ranges, and `match(alerts, 'battery')` covers 357 buckets.
 - **✅ W9 generic Parquet ACCEPTED** (`167f391` + `dd2db2f`). Mapped long/wide Parquet and document import, common backfill drivers, D38 entity identity, and a robot-fleet golden set. Robot DuckDB oracle: **14/14** non-empty and matching. `lume ti verify` on robots: **14/0/0**. Boat regression on the new backfill path: **65/65 seal hashes identical**, corpus **58/0/4**. Backfill ran at 174,769 rows/s.
 - **✅ Sealed-data repair fixed** (`b23514a`). An append to a sealed shard used to lose data. Now the shard is restored and resealed as a new version, and identical content keeps the same hash. The host suite passes, including the 1,000-run kill -9 test.
@@ -39,6 +42,7 @@ Setup and workflow: [SETUP.md](SETUP.md).
   - Signal K notes and optional logbook polled into owned documents (D41), chart pins in the plugin (`db2e777`).
   - Pi 5 fixes (`042d681`): live serve reopens read-only on flush/seal (5 s debounce), so it sees new data; applied-timestamp ingest status; plugin UUID access request.
   - `bench/influx_vs_lume.py` (`e9d95fc`, `9e823ea`, `0c4cdf6`): stdlib-only paired Influx-vs-Lume harness, 19 unit tests, statuses PASS/FIDELITY/MISMATCH/EMPTY.
+  - Plugin-managed SCRAM pgwire (`1bbbac2` + `495d836`): plugin options `enablePg`, `pgPort` (5864), `pgUser`, `pgBind`; an admin-only webapp form stores only the verifier. `--pg-bind` and `--pg-auth-config` (auth section only, replaces the store's users, mode 0600 required on Unix). Grafana provisioning `bench/grafana/lume-ti-datasource.yaml` (`halos.local:5864`, password from `$__env{LUME_PG_PASSWORD}`). 20-query `tests/pg_smoke.sh`; its Python harness test skips on Windows.
   - The notes/logbook poller treats 404 or anonymous 401 on optional sources as absent; it logs once, then hourly (`0c4cdf6`).
   - Top-level `lume --help` lists `ti query|repl|ingest|status` (`b3cce8b`; only in `--features ti` builds).
   - `lume ti ingest` live service (`75a1a4f`).
@@ -46,10 +50,9 @@ Setup and workflow: [SETUP.md](SETUP.md).
   - `lume ti rules list|test`.
   - `lume ti repl` (`f1bb15a`).
   - The `signalk-lume-ti` plugin (`31841c3`).
-- **M6 in progress:** ti-sync merged (`13c58c0`), with the lossy two-node test (20 % chunk loss, 30 min outage) passing in process. HTTP transport and the 50-vessel shore test are in flight. The fleet test overran (over 50 min in debug); Artificial Shark is adding `TI_FLEET_VESSELS` to size it.
 - **In flight:**
-  - Long Horse: `ti/plugin-pg`, pgwire from the plugin. New `--pg-bind` and `--pg-auth-config` flags; a webapp-only admin form that stores only the SCRAM verifier (Signal K 2.31 persists plugin config before start and has no validate hook); a Grafana datasource YAML; a 20-query pg smoke set.
-  - Artificial Shark: M6 HTTP sync transport with bearer auth, the 50-vessel shore fleet test (adding `TI_FLEET_VESSELS`), and the lossy test over HTTP.
+  - Long Horse: **`count_paths`** (approved contract plus a magnitude amendment: count every finite sample; representable values still feed mean/min/max/last; `path@skipped_magnitudes` is reported). Unblocks `q1-007`, `q6-006`, `q2-001`. Corpus and hash checks are moving to the host.
+  - Artificial Shark: **`ti/pg-limits`**: configurable `pg_max_rows` / `pg_max_bytes` (default 100,000 / 16 MiB) with streaming. HTTP and MCP stay at 500 rows / 64 KiB. Then the M6 release runs.
 - **🟡 User decisions:** item 16, the CC-BY-SA licence on `src/ti_resolve/signalk_paths.json`, is still needed before publishing.
 - **Disk policy (lead):**
   - Keep at least **25 GB free** on the host.
@@ -73,6 +76,9 @@ Commit messages, the decisions log and older docs use the former names. Re-check
 
 | Commit | What |
 |---|---|
+| `ddd6398` | **M6** (`c99b66a`, Artificial Shark): `ti-sync` HTTP transport, shore endpoints `/ti/manifest` and `/ti/shards/...` with bearer auth, `lume ti sync --to`, `[sync]` in `ti.toml`, lossy-HTTP two-node test, fleet equality test (`TI_FLEET_VESSELS`). Host fmt, clippy and sync tests green |
+| `ec48673` + `329d8a1` | Strict TI CI job (`8c603dc`), legacy jobs unchanged; `329d8a1` rustfmts `src/ti_parquet.rs` for the new root-format check |
+| `1bbbac2` + `495d836` | **Plugin-managed SCRAM pgwire** (`7aa42b5`, Long Horse): `--pg-bind`, `--pg-auth-config`, admin-only verifier form, HaLOS Grafana provisioning, 20-query `tests/pg_smoke.sh`, `tests/golden/grafana-smoke.json`. `495d836`: rustfmt root TI files; pg_smoke harness test skips on Windows |
 | `ebd96a4` | rustfmt `ti-ingest` after the pi-polish merge |
 | `0c4cdf6` | `ti/pi-polish` (`3788614`): benchmark threshold-edge and path-type classification; the notes/logbook poller treats 404 or anonymous 401 on optional sources as absent, logs once then hourly |
 | `9e823ea` | `ti/bench-influx` (`21546f1`): bucket-aligned windows, lat/lon position, FIDELITY status, path-set diff |
@@ -108,9 +114,9 @@ Earlier: `39c0096` `ti_resolve` 93/100 + `--bind`, `0b3a17a` fmt, `400557c` READ
 
 | Agent (pane name) | Pane | Lane/scope | Branch | Clone | Last known state |
 |---|---|---|---|---|---|
-| Industrial Pike | `ee764a09` | Lead and integrator. Host runs and oracles (DuckDB, `lume ti verify`, rules and robots oracles, D38 regression), host fmt/clippy at merge, disk policy. **Pi 5 deployment** and the Influx-vs-Lume benchmark runs. Owns the M5 item 2 agent run | `plan/lume-ti` | shared tree | `ebd96a4` |
-| Long Horse (formerly Rigid Roadrunner) | `888bff45` | **Plugin pgwire** (`ti/plugin-pg`): `--pg-bind`, `--pg-auth-config`, verifier-only admin form, Grafana datasource YAML, 20-query pg smoke set. Delivered the Influx-vs-Lume bench, pgwire + SCRAM, the History API provider, `lume sql`, the CRoaring evaluation, W9 and W10 | `ti/plugin-pg` | `.lanes/w4` | In progress, not merged |
-| Artificial Shark (formerly Romantic Pike) | `fd91f4b1` | **M6**: HTTP sync transport with bearer auth, the 50-vessel shore fleet test, the lossy test over HTTP. Delivered ti-sync, the live ingest service, the plugin, `--hz` and the bench harness | `ti/m6-fleet-sync` | `.lanes/w3` | `08c82e7` "Remap local field IDs to shore field IDs on shore receive", not merged |
+| Industrial Pike | `ee764a09` | Lead and integrator. Host runs and oracles (DuckDB, `lume ti verify`, rules and robots oracles, D38 regression), host fmt/clippy at merge, disk policy. **Pi 5 deployment** and the Influx-vs-Lume benchmark runs. Owns the M5 item 2 agent run | `plan/lume-ti` | shared tree | `ddd6398` |
+| Long Horse (formerly Rigid Roadrunner) | `888bff45` | **`count_paths`** contract with the magnitude amendment. Delivered plugin-managed pgwire, the Influx-vs-Lume bench, pgwire + SCRAM, the History API provider, `lume sql`, the CRoaring evaluation, W9 and W10 | `ti/count-paths` | `.lanes/w4` | In progress; `ti/plugin-pg` merged in `1bbbac2` |
+| Artificial Shark (formerly Romantic Pike) | `fd91f4b1` | **`ti/pg-limits`** (configurable pg row/byte caps, streaming), then the M6 release runs. Delivered M6 HTTP sync, ti-sync, the live ingest service, the plugin, `--hz` and the bench harness | `ti/pg-limits` | `.lanes/w3` | In progress; `ti/m6-fleet-sync` merged in `ddd6398` |
 | Zygomorphic Prawn | `eccaf836` | — | — | `.lanes/corpus` (retired) | **Retired.** Its `target/` has been deleted |
 | Compact Echidna (formerly Regular Pheasant) | `6914c38e` | Host build pane (PowerShell 7, rustc 1.96.1). Not an agent | — | — | Bulk data and DuckDB jobs run here. **Check free disk before big builds** |
 
@@ -127,10 +133,10 @@ Week numbers count from kickoff. A milestone closes only when every gate test pa
 | M2 Ingest | W3 | 2–5 | **In progress.** Items 1 and 2 passed. Item 3 (Pi 5 throughput/RSS) is open; the Pi 5 is now being set up |
 | M3 SQL and pushdown | W4 | 2–6 | **✅ Closed 2026-10-06** (`711d2c4`) |
 | M4 Text, geo, intervals | W4, W5, W6 | 6–8 | **In progress.** Item 1 met except 4 contract exclusions (58/0/4). Item 2 met (72.4×). Item 3 met: CRoaring evaluated and rejected for M4 (D40, `f38ecb4`) |
-| M5 Agent surface | W7 | 7–9 | **In progress.** Item 1 met (93/100). Item 2: scripted questions pass as a regression (20/20), but **the agent run is still open** (lead). Item 3: plugin, History API provider and Grafana-compatible pgwire + SCRAM merged; plugin deployed on the Pi (token pending); plugin pgwire and the psql/Grafana smoke set in progress (`ti/plugin-pg`) |
-| M6 Fleet and benchmarks | W8, integrator | 9–12 | **In progress.** ti-sync and the lossy two-node test merged (`13c58c0`); HTTP transport and the 50-vessel shore test in flight; benchmark harness merged (`2159fa6`), report not written |
+| M5 Agent surface | W7 | 7–9 | **In progress.** Item 1 met (93/100). Item 2: scripted questions pass as a regression (20/20), but **the agent run is still open** (lead). Item 3: plugin, History API provider and plugin-managed SCRAM pgwire merged and deployed on the Pi (token pending). Pi pg smoke 16/20, blocked by the pg row/byte cap (`ti/pg-limits`) |
+| M6 Fleet and benchmarks | W8, integrator | 9–12 | **In progress.** HTTP sync, the lossy-HTTP test and the fleet test merged (`ddd6398`). Release runs (5, then 50 vessels) pending. Influx-vs-Lume Pi benchmark run (50 min); report not written |
 
-Also landed outside the original milestones: W9 generic Parquet (accepted) and W10 alerts (accepted). Remaining: M6, the full-hour Influx-vs-Lume run, plugin pgwire/Grafana and the Pi 5 deployment.
+Also landed outside the original milestones: W9 generic Parquet (accepted) and W10 alerts (accepted). Remaining: M6 release runs and report, `ti/pg-limits` plus the Pi pg/Grafana smoke, `count_paths`, and the Pi 5 deployment.
 
 ### M2 gate detail
 
@@ -154,15 +160,15 @@ Also landed outside the original milestones: W9 generic Parquet (accepted) and W
 |---|---|---|
 | 1 | MCP tools live in `lume serve`, and `ti_resolve` returns the right column in the top 3 for ≥ 90 % of a 100-phrase test set | **✅ Met** (`39c0096`): 93/100 (fixture accuracy) |
 | 2 | A nemesis8 agent with only Lume MCP answers 20 scripted fleet questions; integrator grades against oracle results | **Open.** The 20 questions exist (`tests/golden/fleet_questions.json`) and pass as a regression (20/20, `451bfc7`). The agent-only run and grading are still to do (lead) |
-| 3 | Signal K plugin installs on a HALPI2 from the HaLOS Marine container store, and on OpenPlotter from the Signal K App Store (Pi 4 4 GB and Pi 5), obtains a token and supervises ingest. psql and Grafana pass a 20-query smoke set | **Open.** Plugin merged (`31841c3`) with access-request auth and supervision, plus the History API provider (`e09bb87`). pgwire merged (`451bfc7`), Grafana-compatible with verifier-only SCRAM since `7c4cb23` (D42; TLS not offered). Pi 5 install is next. Store-based installs, Pi 4, OpenPlotter and the psql/Grafana smoke set are not done |
+| 3 | Signal K plugin installs on a HALPI2 from the HaLOS Marine container store, and on OpenPlotter from the Signal K App Store (Pi 4 4 GB and Pi 5), obtains a token and supervises ingest. psql and Grafana pass a 20-query smoke set | **Open.** Plugin merged (`31841c3`) with access-request auth and supervision, plus the History API provider (`e09bb87`). pgwire merged (`451bfc7`), Grafana-compatible with verifier-only SCRAM since `7c4cb23` (D42; TLS not offered), plugin-managed with Grafana provisioning since `1bbbac2`. **Installed on the Pi 5** by hand (binary at `1bbbac2`); the token is still pending the user's approval. **psql smoke on the Pi: 16/20**, stopped at case 17 on the 500-row/64 KiB cap (`ti/pg-limits`). Grafana Save & Test, store-based installs, Pi 4 and OpenPlotter are not done |
 
 ### M6 gate detail
 
 | # | Gate item | State |
 |---|---|---|
-| 1 | Two-node sync converges with 20 % chunk loss and a 30-minute link outage | **In progress.** Passes in the in-process lossy two-node test (`13c58c0`). The rerun over the HTTP transport with bearer auth is in flight (Artificial Shark) |
-| 2 | Shore node answers fleet queries across 50 synthetic vessels | **In progress** (Artificial Shark) |
-| 3 | Benchmark report against every target; go/no-go in the decisions log | **Open.** W8 bench harness and `ti-bench --hz` merged (`2159fa6`); no report yet |
+| 1 | Two-node sync converges with 20 % chunk loss and a 30-minute link outage | **In progress.** Passes in process (`13c58c0`). The HTTP version (`two_node_sync_http.rs`, bearer auth) merged in `ddd6398`; the lossy-HTTP results go to the lead |
+| 2 | Shore node answers fleet queries across 50 synthetic vessels | **In progress.** Fleet equality test merged (`ddd6398`, `TI_FLEET_VESSELS`, default 50). Debug: 5 vessels 107 s, 10 vessels 243 s. Release 5-vessel run pending, then the 50-vessel release run (results to the lead) |
+| 3 | Benchmark report against every target; go/no-go in the decisions log | **Open.** W8 bench harness (`2159fa6`) and the Influx-vs-Lume harness merged; a 50-min Pi run exists (Critical path). No report yet |
 
 M0, M1 and M3 gate details are unchanged since they closed; see `git show d3ce0f0:plan/STATUS.md`.
 
@@ -196,16 +202,18 @@ Spec deviations and proposals needing the user:
 
 ## Open items (team, not user)
 
-- [ ] **Pi 5 deployment** (lead): the binary and plugin JS are deployed. Still to do: the user approves the plugin's access request (no token yet), deploy the quiet-poller rebuild, and select Lume as the default history provider (over `signalk-to-influxdb2`'s).
-- [ ] **Influx-vs-Lume full-hour run** on the Pi. The first run (about 17 min) is preliminary; the harness is merged (`e9d95fc`).
-- [ ] **Plugin pgwire + Grafana** (Long Horse, `ti/plugin-pg`), then the psql/Grafana 20-query smoke set for M5 item 3.
+- [ ] **Pi 5 deployment** (lead): binary at `1bbbac2` and plugin JS deployed, vessel UUID pinned. Still to do: the user approves the plugin's access request (needed by the notes/logbook poller), and select Lume as the default history provider (over `signalk-to-influxdb2`'s).
+- [ ] **`ti/pg-limits`** (Artificial Shark): configurable `pg_max_rows`/`pg_max_bytes` (100,000 / 16 MiB default, streaming). Then rerun the Pi pg smoke (16/20 now) and Grafana Save & Test for M5 item 3.
+- [ ] **Benchmark per-path counts gap:** 3 constant battery paths show 290 Influx buckets vs 289 Lume. Explain or fix.
+- [x] Influx-vs-Lume 50-min Pi run (20 runs; see Critical path).
+- [x] Plugin-managed SCRAM pgwire + Grafana provisioning (`1bbbac2`).
 - [ ] **M5 item 2 agent run** (lead): a Lume-MCP-only agent answers the 20 scripted questions; grade against oracle results.
-- [ ] **M6**: HTTP sync transport with bearer auth, 50-vessel shore fleet test, lossy test over HTTP (Artificial Shark, `ti/m6-fleet-sync`). The fleet test needs `TI_FLEET_VESSELS`, since it overran 50 min in debug. Then the benchmark report and the go/no-go.
+- [ ] **M6 release runs** (Artificial Shark): the 5-vessel release fleet run, then the 50-vessel release run and the lossy-HTTP results to the lead. Then the benchmark report and the go/no-go. (HTTP sync merged in `ddd6398`.)
 - [x] `lume sql` and `--docs-index` (`c130bc1`).
 - [x] `croaring` evaluation (M4 item 3): rejected, D40.
-- [ ] **`count_paths` contract** (`q1-007`, `q6-006`, `q2-001`; spec/05).
+- [ ] **`count_paths` contract** (`q1-007`, `q6-006`, `q2-001`; spec/05). Approved with a magnitude amendment; Long Horse implementing. Corpus and hash checks on the host.
 - [ ] **`qx-003`**: keep the join-form `qx-013`, or revisit on a DataFusion upgrade.
-- [ ] pgwire TLS. SCRAM landed (D42, `7c4cb23`); D13's aarch64 smoke (`tests/pg_smoke.sh`) is to be run by the lead on the Pi.
+- [ ] pgwire TLS. SCRAM landed (D42, `7c4cb23`); D13's aarch64 smoke: SCRAM login works on the Pi (`tests/pg_smoke.sh`, 16/20 so far).
 - [ ] **User licence decision** on `signalk_paths.json` (user item 16).
 - [ ] Meridian VHF transcripts. Not done. (Notes and logbook polling landed in `db2e777`, D41.)
 - [ ] Pi 5 throughput/RSS run for M2 item 3.
@@ -216,7 +224,7 @@ Spec deviations and proposals needing the user:
 - [x] Live ingest service, plugin, pgwire, ti-sync, D30 end to end.
 - [x] Grafana-compatible pgwire + SCRAM (D42), History API provider (`e09bb87`), loopback-only tests (`0c169c2`).
 - [ ] Verify [signalk-formats §1.3](design/signalk-formats.md) against a **real** signalk-parquet `.parquet` file with DuckDB `DESCRIBE`.
-- [ ] Strict TI checks are not in `ci.yml` yet. Containers lacking rustfmt or clippy rely on the lead's host run.
+- [ ] Strict TI CI job is in `ci.yml` (`ec48673`) but has **never run on GitHub**: `plan/lume-ti` is local only, and CI triggers on `main`. Containers lacking rustfmt or clippy still rely on the lead's host run.
 - [ ] Toolchain drift between the host and the containers (item 15).
 
 Also undecided: the repo-fit items in [repo-fit.md](repo-fit.md), such as the W7a/W7b split (§6). These are lead decisions unless escalated (unconfirmed).
