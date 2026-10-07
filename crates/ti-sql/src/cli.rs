@@ -155,6 +155,9 @@ pub fn run_with_index(
     documents: Option<&DocumentsFactory>,
     registrar: Option<&IndexRegistrar>,
 ) -> Result<()> {
+    if args.first().map(String::as_str) == Some("verify") {
+        return crate::fixture::run_cli_with(args, documents);
+    }
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!("{USAGE}");
         return Ok(());

@@ -74,8 +74,23 @@ pub struct GeoAcc {
     pub sources: BTreeSet<String>,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct EventCountAcc {
+    pub count: u64,
+    pub source: String,
+    pub priority: usize,
+}
+
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct BucketWindow {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count_paths: Option<BTreeSet<String>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub event_counts: BTreeMap<String, EventCountAcc>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub event_samples: BTreeMap<String, CountAcc>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub skipped_magnitudes: BTreeMap<String, u64>,
     pub numeric: BTreeMap<String, NumericAcc>,
     pub set: BTreeMap<String, SetAcc>,
     pub count: BTreeMap<String, CountAcc>,
@@ -84,10 +99,32 @@ pub struct BucketWindow {
 
 impl BucketWindow {
     pub fn is_empty(&self) -> bool {
-        self.numeric.is_empty()
+        self.event_counts.is_empty()
+            && self.numeric.is_empty()
             && self.set.is_empty()
             && self.count.is_empty()
             && self.geo.is_empty()
+    }
+
+    /// First source wins ties; a more preferred source replaces the prior count.
+    pub fn add_event_sample(&mut self, path: &str, source: &str, priority: usize) -> Result<()> {
+        let samples = self.event_samples.entry(path.to_string()).or_default();
+        samples.count = samples.count.checked_add(1).filter(|v| *v <= i64::MAX as u64)
+            .ok_or(ti_contracts::Error::Overflow("sample count"))?;
+        samples.sources.insert(source.to_string());
+        let acc = self.event_counts.entry(path.to_string()).or_insert(EventCountAcc {
+            count: 0, source: source.to_string(), priority,
+        });
+        if priority < acc.priority {
+            acc.count = 0;
+            acc.source = source.to_string();
+            acc.priority = priority;
+        }
+        if source == acc.source {
+            acc.count = acc.count.checked_add(1).filter(|v| *v <= i64::MAX as u64)
+                .ok_or(ti_contracts::Error::Overflow("event count"))?;
+        }
+        Ok(())
     }
 
     pub fn add_numeric(&mut self, path: &str, value: f64, scale: u8, source: &str, ts: i64) {
@@ -269,6 +306,9 @@ impl BucketWindow {
                         });
                     }
                     "count" => {
+                        if self.event_samples.contains_key(path) {
+                            continue;
+                        }
                         let field_id = catalog.register_field(&FieldSpec {
                             id: 0,
                             path: path.clone(),
@@ -288,6 +328,9 @@ impl BucketWindow {
                 }
             }
 
+            if self.event_samples.contains_key(path) {
+                continue;
+            }
             // Emit path$source multi-valued set
             let source_path = format!("{path}$source");
             let source_field = catalog.register_field(&FieldSpec {
@@ -346,6 +389,47 @@ impl BucketWindow {
                     rewrite,
                 });
             }
+        }
+
+        // Explicit event paths have their own stable bare field; numeric aggregates remain.
+        for (path, acc) in &self.event_counts {
+            let field = catalog.register_field(&FieldSpec {
+                id: 0, path: path.clone(), agg: None, kind: FieldKind::Count, units: None,
+            })?;
+            records.push(BucketRecord {
+                vessel, bucket, field, value: FieldValue::Int(acc.count as i64), rewrite,
+            });
+        }
+
+        // Sample counts and source sets include finite magnitudes outside the BSI range.
+        for (path, acc) in &self.event_samples {
+            let aggs = resolve_aggs_for_path(path, store_aggs.unwrap_or(&BTreeMap::new()), &config.profiles);
+            if aggs.iter().any(|agg| agg == "count") {
+                let field = catalog.register_field(&FieldSpec {
+                    id: 0, path: path.clone(), agg: Some(Agg::Count), kind: FieldKind::Count, units: None,
+                })?;
+                records.push(BucketRecord {
+                    vessel, bucket, field, value: FieldValue::Int(acc.count as i64), rewrite,
+                });
+            }
+            let field = catalog.register_field(&FieldSpec {
+                id: 0, path: format!("{path}$source"), agg: None, kind: FieldKind::Set, units: None,
+            })?;
+            for source in &acc.sources {
+                let row = catalog.register_set_value(field, source)?;
+                records.push(BucketRecord {
+                    vessel, bucket, field, value: FieldValue::SetValue(row), rewrite,
+                });
+            }
+        }
+        for (path, count) in &self.skipped_magnitudes {
+            let field = catalog.register_field(&FieldSpec {
+                id: 0, path: format!("{path}@skipped_magnitudes"), agg: None,
+                kind: FieldKind::Count, units: None,
+            })?;
+            records.push(BucketRecord {
+                vessel, bucket, field, value: FieldValue::Int(*count as i64), rewrite,
+            });
         }
 
         // 3. Count accumulators

@@ -17,6 +17,8 @@ pub struct TiConfig {
     pub field_cap: u32,
     /// Signal K connection.
     pub signal_k: SignalKConfig,
+    /// Explicit finite numeric event paths counted per bucket.
+    pub ingest: IngestConfig,
     /// Allow/deny glob patterns, deny takes precedence.
     pub allow_paths: Vec<String>,
     /// Default deny patterns.
@@ -49,6 +51,14 @@ pub struct TiConfig {
     /// Fleet synchronization configuration (W8).
     #[serde(default)]
     pub sync: SyncConfig,
+}
+
+/// Ingest-time event-count policy; changes apply to newly opened buckets only.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct IngestConfig {
+    /// Exact numeric leaf paths; bare columns count preferred-source samples.
+    pub count_paths: Vec<String>,
 }
 
 /// Device token comes from a one-time Signal K access request.
@@ -434,6 +444,7 @@ impl Default for TiConfig {
             retention_years: 2,
             field_cap: 2000,
             signal_k: SignalKConfig::default(),
+            ingest: IngestConfig::default(),
             allow_paths: vec![],
             deny_paths: vec!["*.ais.*".into(), "design.*".into()],
             profiles: AggregateProfiles::default(),
@@ -556,6 +567,16 @@ impl TiConfig {
             .is_some_and(|x| x.trim().is_empty())
         {
             return Err(invalid("signal_k.access_request_href", "must not be empty"));
+        }
+        let mut count_paths = BTreeSet::new();
+        for path in &self.ingest.count_paths {
+            if path.is_empty()
+                || path.chars().any(|c| c.is_whitespace() || "*@#$[]".contains(c))
+                || path.split('.').any(str::is_empty)
+                || !count_paths.insert(path)
+            {
+                return Err(invalid("ingest.count_paths", "requires unique exact leaf paths without globs or aggregate suffixes"));
+            }
         }
         for (key, values) in [
             ("allow_paths", &self.allow_paths),

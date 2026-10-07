@@ -61,6 +61,22 @@ The bucket closes into BSI fields named `path@agg`. The bare path is an alias fo
 - **`slow` profile:** `@last` only — for paths with median sample interval ≥ `W` (e.g. tank levels).
 - **Opt-in:** `@last` and `@count` on any path.
 
+## Explicit event-count paths
+
+`[ingest] count_paths = ['electrical.bilge.pumpCycles']` selects exact numeric
+leaves whose bare columns count finite preferred-source samples per closed
+entity/bucket. Missing samples remain NULL; strings, booleans, object parents,
+non-finite values, edge inference and counter deltas do not contribute.
+Value aggregates retain representable samples; finite magnitudes outside the BSI
+range still increment counts and are recorded in per-bucket
+`path@skipped_magnitudes` counters, summed in ingest status. Non-finite values
+contribute to neither. Opt-in `@count` keeps its numeric-sample semantics. Catalog kind is
+`count` (unsigned scale zero; PostgreSQL bigint). Each bucket snapshots the list
+on its first sample; changes affect newly opened buckets. Existing sealed
+numeric data remain under `@mean`, and the separate bare count is NULL before
+activation. See [the full contract](../design/count-paths.md) for source ties,
+late-event repair and configuration changes.
+
 ## Derived fields (rules in `ti.toml`, computed at bucket close)
 
 - **Transitions:** e.g. `propulsion.*.state` changing to `started` → `count` field `…@starts`.

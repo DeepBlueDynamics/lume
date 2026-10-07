@@ -613,11 +613,16 @@ pub fn backfill(
                                 .entry((name.clone(), vessel))
                                 .or_insert(point.timestamp);
                             *max_seen = (*max_seen).max(point.timestamp);
-                            let (path, kind) = classifiers
+                            let Some((path, kind)) = classifiers
                                 .get_mut(name)
                                 .unwrap()
                                 .classify(&point.context, &point.path, &point.value)
-                                .ok_or_else(|| invalid("unclassifiable mapped value"))?;
+                            else {
+                                if config.ingest.count_paths.contains(&point.path) {
+                                    continue;
+                                }
+                                return Err(invalid("unclassifiable mapped value"));
+                            };
                             if path != point.path {
                                 report
                                     .classification_misses

@@ -80,7 +80,7 @@ impl SqlCatalog {
                 return Err(DataFusionError::Plan("duplicate field ID".into()));
             }
             columns.insert(field_name(field), field.id);
-            if field.agg == Some(Agg::Mean) {
+            if ti_contracts::mean_alias_enabled(field, &fields) {
                 columns.insert(field.path.clone(), field.id);
             }
             if matches!(field.kind,FieldKind::Bsi{scale} if scale>18) {

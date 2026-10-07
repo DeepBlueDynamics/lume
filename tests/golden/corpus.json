@@ -132,8 +132,7 @@
      "wind_max": 3
     }
    },
-   "expected_path": "expected/q2-001.json",
-   "exclude": "count-path semantics: oracle counts raw samples per bucket, TI stores the sample value; needs a count_paths contract (spec/05) (filters electrical.bilge.pumpCycles >= 3)"
+   "expected_path": "expected/q2-001.json"
   },
   {
    "id": "q2-002",
@@ -1103,8 +1102,7 @@
     ],
     "bsi": {}
    },
-   "expected_path": "expected/q6-006.json",
-   "exclude": "count-path semantics: oracle counts raw samples per bucket, TI stores the sample value; needs a count_paths contract (spec/05)"
+   "expected_path": "expected/q6-006.json"
   },
   {
    "id": "qx-008",
@@ -1218,8 +1216,7 @@
     ],
     "bsi": {}
    },
-   "expected_path": "expected/q1-007.json",
-   "exclude": "count-path semantics: oracle counts raw samples per bucket, TI stores the sample value; needs a count_paths contract (spec/05)"
+   "expected_path": "expected/q1-007.json"
   },
   {
    "id": "qx-013",
