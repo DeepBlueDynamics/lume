@@ -6,26 +6,41 @@
   "keywords": [
     "signalk-node-server-plugin",
     "signalk-webapp",
-    "signalk-category-utility"
+    "signalk-category-utility",
+    "signalk-category-database"
   ],
   "signalk": {
     "appPath": "/signalk-lume-ti",
-    "displayName": "Lume TI"
+    "displayName": "Lume TI",
+    "appIcon": "./icon.svg",
+    "compatibility": ">=2.31.0"
   },
   "author": "Lume Authors",
   "license": "BSD-3-Clause",
   "scripts": {
-    "test": "node test/run-tests.cjs"
+    "test": "node test/run-tests.cjs",
+    "prepack": "node lib/package-check.js"
   },
   "files": [
     "index.js",
     "lib/",
     "public/",
     "library/",
-    "bin/",
-    "README.md"
+    "bin/linux-arm64/lume",
+    "bin/linux-x64/lume",
+    "bin/manifest.json",
+    "icon.*",
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=18.0.0"
-  }
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64",
+    "x64"
+  ]
 }
