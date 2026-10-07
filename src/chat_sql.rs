@@ -141,14 +141,17 @@ CRITICAL RULES:\n\
     let mut tools = Vec::new();
 
     if ti_store.is_some() {
-        for def in crate::ti_mcp::definitions() {
+        // Shared MCP definitions carry the data-model guide; chat adds its schema-first rule.
+        for def in crate::ti_mcp::definitions(None) {
             let name = def["name"].as_str().unwrap_or("");
             if matches!(name, "ti_schema" | "ti_query" | "ti_explain") {
-                let desc = match name {
-                    "ti_schema" => "TI tables and columns with types, units, scales and time coverage. Always call this first before writing or executing any SQL query.",
-                    "ti_query" => "Read-only TI SQL, capped at 500 rows and 64 KiB; returns columns, rows, truncation and timing details.",
-                    "ti_explain" => "Read-only TI plan and measured pushdown report.",
-                    _ => def["description"].as_str().unwrap_or(""),
+                let base = def["description"].as_str().unwrap_or("");
+                let desc = if name == "ti_schema" {
+                    format!(
+                        "{base} Always call this first before writing or executing any SQL query."
+                    )
+                } else {
+                    base.to_string()
                 };
                 tools.push(Tool {
                     tool_type: "function".to_string(),
