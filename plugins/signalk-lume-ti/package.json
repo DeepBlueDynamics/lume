@@ -21,6 +21,7 @@
     "index.js",
     "lib/",
     "public/",
+    "library/",
     "bin/",
     "README.md"
   ],

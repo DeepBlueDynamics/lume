@@ -2536,6 +2536,6 @@ LIST MODE:
   reruns skip rows already fetched. Documents download as files and HTML pages become
   Markdown. A local Grub (GRUB_BASE_URL, default http://localhost:6792) handles HTML and
   retries blocked downloads when it is reachable; otherwise rows are fetched directly.
-  ZIM archives are skipped unless --formats names zim. --max-mb defaults to 200.
+  ZIM archives are skipped unless --formats names zim. --max-mb defaults to 128.
 "#);
 }

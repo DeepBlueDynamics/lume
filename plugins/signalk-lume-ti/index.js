@@ -9,7 +9,8 @@ const { TokenManager } = require('./lib/auth');
 const { Supervisor } = require('./lib/supervisor');
 const { collectStoreStatus } = require('./lib/status');
 const { createHistoryProvider } = require('./lib/history');
-const {pgOptions, writePgConfig, registerPgRoutes} = require('./lib/pg');
+const {pgOptions, writePgConfig, registerPgRoutes, adminStatus, readJson} = require('./lib/pg');
+const {Library} = require('./lib/library');
 
 /**
  * Signal K Plugin Factory Function.
@@ -25,6 +26,48 @@ module.exports = function (app) {
   let pluginConfig = {};
   let restartWithConfig = null;
   let currentBinaryInfo = null;
+  let library = null;
+
+  const libraryUnavailable = res => res.status(503).json({error: 'Library unavailable: lume binary not resolved'});
+  /** Library API: list, admin-only indexing job, search, and alert references. */
+  function registerLibraryRoutes(router) {
+    router.get('/api/library', (req, res) => {
+      if (!library) return libraryUnavailable(res);
+      res.json({items: library.items(), ...library.status()});
+    });
+    router.post('/api/library/index', async (req, res) => {
+      const status = adminStatus(app, req);
+      if (status !== 200) return res.status(status).json({error: 'Signal K administrator required'});
+      if (!library) return libraryUnavailable(res);
+      try {
+        const body = await readJson(req);
+        if (!Array.isArray(body.ids) || body.ids.length > 500) throw Object.assign(new Error('ids must be an array'), {status: 400});
+        res.json(await library.index(body.ids));
+      } catch (error) {
+        res.status(error.status || 400).json({error: error.message});
+      }
+    });
+    router.get('/api/library/search', async (req, res) => {
+      if (!library) return libraryUnavailable(res);
+      try { res.json(await library.search(String(req.query.q || ''), Number(req.query.limit) || 8)); }
+      catch (error) { res.status(500).json({error: error.message}); }
+    });
+    router.get('/api/library/references', async (req, res) => {
+      if (!library) return libraryUnavailable(res);
+      const servePort = pluginConfig.servePort || 5863;
+      http.get({host: '127.0.0.1', port: servePort, path: '/ti/status', timeout: 5000}, upstream => {
+        let text = '';
+        upstream.on('data', c => { text += c; });
+        upstream.on('end', async () => {
+          try {
+            const alerts = (JSON.parse(text).active_alerts || [])
+              .filter(a => !/notifications\.security\.accessRequest/.test(String(a.id || '')));
+            res.json({alerts: alerts.length, references: await library.references(alerts)});
+          } catch (error) { res.status(502).json({error: `Lume status unavailable: ${error.message}`}); }
+        });
+      }).on('error', error => res.status(502).json({error: `Lume status unavailable: ${error.message}`}));
+    });
+  }
 
   const plugin = {
     id: 'signalk-lume-ti',
@@ -114,6 +157,7 @@ module.exports = function (app) {
         return;
       }
       log(`Resolved lume executable: ${currentBinaryInfo.path} (${currentBinaryInfo.source})`);
+      library = new Library({binary: currentBinaryInfo.path, dataDir, log: line => log(line)});
 
       // 2. Setup Token Manager
       const autoAuth = pluginConfig.autoRequestToken !== false;
@@ -213,6 +257,8 @@ module.exports = function (app) {
         if (typeof restartWithConfig === 'function') restartWithConfig(safe);
       });
       router.get('/pg.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'pg.js')));
+      router.get('/library.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'library.js')));
+      registerLibraryRoutes(router);
       // 1. Status API
       router.get('/api/status', (req, res) => {
         const dataDir = typeof app.getDataDirPath === 'function' ? app.getDataDirPath() : '';

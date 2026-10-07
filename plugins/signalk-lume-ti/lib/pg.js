@@ -147,4 +147,4 @@ function registerPgRoutes(router, app, getConfig, restart) {
     } finally { saving = false; }
   });
 }
-module.exports = {deriveVerifier, verifierValid, pgOptions, writePgConfig, registerPgRoutes};
+module.exports = {deriveVerifier, verifierValid, pgOptions, writePgConfig, registerPgRoutes, adminStatus, readJson};

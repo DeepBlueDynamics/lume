@@ -489,7 +489,7 @@ pub fn parse_args(args: &[String]) -> Result<ListOptions, String> {
         formats: DEFAULT_FORMATS.iter().map(|s| s.to_string()).collect(),
         category: None,
         limit: None,
-        max_bytes: 200 << 20,
+        max_bytes: 128 << 20,
         force: false,
         dry_run: false,
         timeout: Duration::from_secs(120),

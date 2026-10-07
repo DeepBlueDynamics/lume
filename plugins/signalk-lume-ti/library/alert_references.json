@@ -1,0 +1,20 @@
+{
+  "description": "Maps active Lume/Signal K alerts to library searches. 'match' is a case-insensitive regular expression tested against the alert path and title; the first matching rule supplies the BM25 query. Queries use plain words (no operators).",
+  "rules": [
+    {"match": "depth|grounding|aground|shoal", "query": "shallow water grounding aground refloat kedge anchor", "why": "Shallow water or grounding"},
+    {"match": "anchor", "query": "anchor dragging scope holding ground reset anchor", "why": "Anchor watch"},
+    {"match": "\\bmob\\b|overboard", "query": "man overboard recovery williamson turn lifesling", "why": "Person overboard"},
+    {"match": "fire|smoke", "query": "fire on board extinguisher engine room fire fighting", "why": "Fire"},
+    {"match": "flood|bilge|sinking|water.?ingress", "query": "flooding bilge pump leak damage control sinking", "why": "Flooding or bilge"},
+    {"match": "abandon|liferaft", "query": "abandon ship liferaft grab bag epirb", "why": "Abandon ship"},
+    {"match": "collision|closestapproach|cpa|ais", "query": "collision risk give way stand on vessel restricted visibility", "why": "Collision avoidance (COLREGs)"},
+    {"match": "wind|gust|gale|storm|pressure|barometer", "query": "gale warning heavy weather storm reef heave to forecast", "why": "Weather"},
+    {"match": "batter|voltage|charging|alternator|electrical", "query": "battery voltage low charging alternator state of charge", "why": "Electrical"},
+    {"match": "overtemperature|coolant|oil.?pressure|propulsion|engine|exhaust", "query": "engine overheating coolant raw water pump impeller oil pressure", "why": "Engine"},
+    {"match": "\\bco\\b|carbon.?monoxide|gas|propane|lpg", "query": "carbon monoxide propane gas leak ventilation", "why": "Gas or CO"},
+    {"match": "medical|injur|hypotherm", "query": "first aid casualty hypothermia bleeding", "why": "Medical"},
+    {"match": "distress|mayday|dsc|vhf|radio|gmdss", "query": "distress call mayday dsc vhf channel 16 procedure", "why": "Distress communications"},
+    {"match": "buoy|light|mark|aton", "query": "buoyage lateral cardinal marks lights", "why": "Aids to navigation"}
+  ],
+  "fallback": {"query": "emergency procedure checklist", "why": "General emergency reference"}
+}

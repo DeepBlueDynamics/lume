@@ -26,10 +26,38 @@
       <button class="tab-btn active" data-tab="tab-console">SQL Console</button>
       <button class="tab-btn" data-tab="tab-schema">Schema Browser</button>
       <button class="tab-btn" data-tab="tab-status">Status & Diagnostics</button>
+      <button class="tab-btn" data-tab="tab-library">Library</button>
       <button class="tab-btn" data-tab="tab-pg">PostgreSQL / Grafana</button>
     </nav>
 
     <main class="app-content">
+      <section id="tab-library" class="tab-panel">
+        <div class="schema-header">
+          <h3>Alert references</h3>
+          <button id="lib-refresh-refs" class="secondary-btn">↻ Refresh</button>
+        </div>
+        <p class="lib-meta">Each active alert runs a library search and shows the most relevant pages.</p>
+        <div id="lib-references"></div>
+
+        <h3>Search the library</h3>
+        <form id="lib-search" class="lib-searchbar">
+          <input id="lib-q" type="search" placeholder="e.g. engine overheating raw water impeller" maxlength="200">
+          <button type="submit" class="primary-btn">Search</button>
+        </form>
+        <div id="lib-results"></div>
+
+        <div class="schema-header">
+          <h3>Cruiser library</h3>
+          <span id="lib-counts" class="lib-meta"></span>
+        </div>
+        <p class="lib-meta">A few references are selected by default. Indexing downloads the selected items to this server and makes them searchable offline. Administrator login required.</p>
+        <div class="lib-toolbar">
+          <input id="lib-filter" type="search" placeholder="Filter by title, category or publisher">
+          <button id="lib-index-btn" class="primary-btn" hidden>Index selected</button>
+        </div>
+        <pre id="lib-job" class="alert-box" hidden></pre>
+        <div id="lib-list"><div class="loading-state">Loading library…</div></div>
+      </section>
       <section id="tab-pg" class="tab-panel">
         <h2>PostgreSQL / Grafana</h2>
         <p>Administrator login required. Save restarts Lume. Blank password keeps the existing credential.</p>
@@ -146,5 +174,6 @@
   <script src="pin.js"></script>
   <script src="app.js"></script>
   <script src="pg.js"></script>
+  <script src="library.js"></script>
 </body>
 </html>
