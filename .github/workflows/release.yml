@@ -1,8 +1,14 @@
 name: Release
 
-# Build optimized `lume` binaries for all major platforms and attach them to a
-# GitHub Release. Triggers on a pushed version tag (e.g. `v0.12.0`), or manually
-# against an existing tag via the Actions tab.
+# Build `lume` (with the `ti` feature) for every supported platform, package the
+# Signal K plugin from the same run's Linux binaries, and publish one GitHub
+# Release with SHA256SUMS and the install scripts.
+#
+# Triggers:
+# - a pushed `v*` tag (the tag must match the root Cargo.toml version);
+# - manually, against an existing tag;
+# - from bump-version.yml, which bumps, commits, tags and then calls this
+#   workflow (a tag pushed with GITHUB_TOKEN does not start other workflows).
 on:
   push:
     tags:
@@ -10,36 +16,88 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to build and release (e.g. v0.12.0)"
+        description: "Existing tag to build and release (e.g. v0.12.1)"
         required: true
+  workflow_call:
+    inputs:
+      tag:
+        description: "Tag to build and release"
+        required: true
+        type: string
 
 permissions:
   contents: write
 
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  TAG: ${{ inputs.tag || github.ref_name }}
+
 jobs:
+  check:
+    name: Check tag matches Cargo.toml
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Compare versions
+        id: version
+        run: |
+          cargo_version="$(cargo pkgid -p lume | sed 's/.*[#@]//')"
+          plugin_version="$(node -p "require('./plugins/signalk-lume-ti/package.json').version")"
+          echo "tag=$TAG cargo=$cargo_version plugin=$plugin_version"
+          if [ "${TAG#v}" != "$cargo_version" ]; then
+            echo "::error::tag $TAG does not match Cargo.toml version $cargo_version"
+            exit 1
+          fi
+          if [ "$plugin_version" != "$cargo_version" ]; then
+            echo "::error::plugin package.json version $plugin_version does not match $cargo_version"
+            exit 1
+          fi
+          echo "version=$cargo_version" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
   build:
     name: ${{ matrix.target }}
+    needs: check
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          # Linux runners are pinned to 22.04 (glibc 2.35): the HaLOS plugin container
+          # allows glibc <= 2.39, and ubuntu-latest would move past it.
+          - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-          - os: ubuntu-latest
+            lto: fat
+          - os: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
-            linker: gcc-aarch64-linux-gnu
-          - os: macos-latest
-            target: x86_64-apple-darwin
-          - os: macos-latest
+            lto: fat
+          # macos-14 runners have 7 GB of RAM; fat LTO peaks at about 7.6 GiB (D45),
+          # so the macOS legs use thin LTO with one codegen unit (1.7 GiB).
+          - os: macos-14
             target: aarch64-apple-darwin
-          - os: windows-latest
+            lto: thin
+          - os: macos-14
+            target: x86_64-apple-darwin
+            lto: thin
+          - os: windows-2022
             target: x86_64-pc-windows-msvc
-
+            lto: fat
+    env:
+      CARGO_PROFILE_RELEASE_LTO: ${{ matrix.lto }}
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "1"
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
+          ref: ${{ needs.check.outputs.tag }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -49,46 +107,131 @@ jobs:
       - name: Cache cargo registry and build
         uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
+          key: release-${{ matrix.target }}
 
-      - name: Install cross linker (Linux aarch64)
-        if: matrix.linker != ''
+      - name: Build lume
+        run: cargo build --release --locked --features ti --bin lume --target ${{ matrix.target }}
+
+      - name: Check glibc floor (Linux)
+        if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ${{ matrix.linker }}
-          mkdir -p .cargo
-          echo "[target.aarch64-unknown-linux-gnu]" >> .cargo/config.toml
-          echo "linker = \"aarch64-linux-gnu-gcc\"" >> .cargo/config.toml
+          bin="target/${{ matrix.target }}/release/lume"
+          newest="$(objdump -T "$bin" | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1)"
+          echo "newest glibc symbol: $newest"
+          if [ "$(printf '%s\nGLIBC_2.39\n' "$newest" | sort -V | tail -1)" != "GLIBC_2.39" ]; then
+            echo "::error::$bin needs $newest; the plugin container allows at most GLIBC_2.39"
+            exit 1
+          fi
 
-      - name: Build release binary
-        run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Smoke test
+        if: matrix.target != 'x86_64-apple-darwin'
+        shell: bash
+        run: |
+          target/${{ matrix.target }}/release/lume --version
+          target/${{ matrix.target }}/release/lume ti --help > /dev/null
 
       - name: Package (Unix)
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          VERSION="${{ github.event.inputs.tag || github.ref_name }}"
-          ARCHIVE="lume-${VERSION}-${{ matrix.target }}.tar.gz"
-          tar -czf "$ARCHIVE" -C "target/${{ matrix.target }}/release" lume
-          sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
-          echo "ASSET=$ARCHIVE" >> "$GITHUB_ENV"
+          name="lume-$TAG-${{ matrix.target }}"
+          mkdir -p "dist/$name"
+          cp "target/${{ matrix.target }}/release/lume" README.md LICENSE "dist/$name/"
+          tar -czf "dist/$name.tar.gz" -C dist "$name"
+          rm -rf "dist/$name"
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          VERSION="${{ github.event.inputs.tag || github.ref_name }}"
-          ARCHIVE="lume-${VERSION}-${{ matrix.target }}.zip"
-          7z a "$ARCHIVE" "./target/${{ matrix.target }}/release/lume.exe"
-          certutil -hashfile "$ARCHIVE" SHA256 > "$ARCHIVE.sha256"
-          echo "ASSET=$ARCHIVE" >> "$GITHUB_ENV"
+          name="lume-$TAG-${{ matrix.target }}"
+          mkdir -p "dist/$name"
+          cp "target/${{ matrix.target }}/release/lume.exe" README.md LICENSE "dist/$name/"
+          (cd dist && 7z a "$name.zip" "$name" > /dev/null)
+          rm -rf "dist/$name"
 
-      - name: Upload to release
+      - name: Upload Linux binary for the plugin package
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/lume
+          retention-days: 3
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: dist/*
+          retention-days: 3
+
+  plugin:
+    name: Signal K plugin package
+    needs: [check, build]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.tag }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install aarch64 binutils
+        run: sudo apt-get update && sudo apt-get install -y binutils-aarch64-linux-gnu
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-x86_64-unknown-linux-gnu
+          path: bins/x64
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-aarch64-unknown-linux-gnu
+          path: bins/arm64
+
+      - name: Build plugin tarball
+        run: |
+          chmod +x bins/x64/lume bins/arm64/lume
+          node scripts/package-plugin.cjs --arm64 bins/arm64/lume --x64 bins/x64/lume --output plugin-dist
+          mkdir -p dist
+          cp plugin-dist/*.tgz dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-plugin
+          path: dist/*.tgz
+          retention-days: 3
+
+  release:
+    name: Publish GitHub Release
+    needs: [check, build, plugin]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.tag }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+
+      - name: Add install scripts and checksums
+        run: |
+          cp scripts/install.sh scripts/install.ps1 dist/
+          cd dist
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publish
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          files: |
-            ${{ env.ASSET }}
-            ${{ env.ASSET }}.sha256
+          tag_name: ${{ needs.check.outputs.tag }}
+          name: Lume ${{ needs.check.outputs.tag }}
+          files: dist/*
           fail_on_unmatched_files: true
           generate_release_notes: true

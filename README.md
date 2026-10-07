@@ -34,6 +34,22 @@ The default build has **four runtime dependencies** (`tantivy-fst`, `ureq`, `ser
 - **MCP server:** exposes indexing and search to any MCP-capable agent over HTTP.
 - **Measured quality:** `lume eval` reports Hit@k, MRR and nDCG@k against Q&A files, without hand labels.
 
+## Install
+
+Prebuilt binaries (with Lume TI) for Linux x64/arm64, macOS Intel/Apple Silicon and Windows x64 are on [GitHub Releases](https://github.com/DeepBlueDynamics/lume/releases), each with `SHA256SUMS`.
+
+```bash
+# Linux / macOS: installs to ~/.local/bin (set LUME_INSTALL_DIR to change, LUME_VERSION to pin)
+curl -fsSL https://github.com/DeepBlueDynamics/lume/releases/latest/download/install.sh | sh
+```
+
+```powershell
+# Windows: installs to %LOCALAPPDATA%\Programs\lume and adds it to your user PATH
+irm https://github.com/DeepBlueDynamics/lume/releases/latest/download/install.ps1 | iex
+```
+
+The Signal K plugin tarball (`signalk-lume-ti-<version>.tgz`, bundling the Linux arm64 and x64 binaries) is attached to the same release. Maintainers cut a release from **Actions → Bump version and release** (patch, minor, major or an explicit version). It updates `Cargo.toml`, `Cargo.lock` and the plugin's `package.json`, tags `vX.Y.Z`, and builds everything.
+
 ## Quick start
 
 **Requirements:** Rust stable. Optional: [Ollama](https://ollama.com/) for entity extraction, agents and summaries; a [Shivvr](#semantic-search) endpoint for dense embeddings; Python 3.10+ with `requests` and `pypdf` for PDF extraction.
