@@ -55,6 +55,8 @@ pub struct WatermarkBucketer {
     logged_failures: BTreeSet<(VesselOrd, BucketIx)>,
     counters: SampleCounters,
     window_bytes: BTreeMap<(VesselOrd, BucketIx), usize>,
+    /// Accumulators already charged per window (hash of path, source and string value).
+    window_charged: BTreeMap<(VesselOrd, BucketIx), std::collections::HashSet<u64>>,
     retained_bytes: usize,
 }
 
@@ -78,6 +80,7 @@ impl WatermarkBucketer {
             logged_failures: BTreeSet::new(),
             counters: SampleCounters::default(),
             window_bytes: BTreeMap::new(),
+            window_charged: BTreeMap::new(),
             retained_bytes: 0,
         }
     }
@@ -102,6 +105,7 @@ impl WatermarkBucketer {
             logged_failures: BTreeSet::new(),
             counters: SampleCounters::default(),
             window_bytes: BTreeMap::new(),
+            window_charged: BTreeMap::new(),
             retained_bytes: 0,
         })
     }
@@ -111,8 +115,10 @@ impl WatermarkBucketer {
         self.closed_observer = observer;
     }
 
-    // Conservative reservation charges every contribution, including repeated
-    // samples, rather than undercounting allocator/tree/string overhead.
+    // Conservative reservation per accumulator: a window holds one accumulator per
+    // (path, source) plus distinct string values, not one entry per sample, so repeats
+    // of an already-charged accumulator cost nothing. Charging every sample blocked
+    // healthy 20k values/s ingest (10 s x 20k samples x ~1.6 KB > the 64 MiB cap).
     fn reserve_sample(
         &mut self,
         key: (VesselOrd, BucketIx),
@@ -126,6 +132,24 @@ impl WatermarkBucketer {
             NormalizedValue::String(s) => s.len(),
             _ => 0,
         };
+        let accumulator = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            path.hash(&mut h);
+            source.hash(&mut h);
+            if let NormalizedValue::String(s) = value {
+                s.hash(&mut h);
+            }
+            h.finish()
+        };
+        if self
+            .window_charged
+            .get(&key)
+            .is_some_and(|charged| charged.contains(&accumulator))
+            && !self.counters.ingest_blocked
+        {
+            return Ok(());
+        }
         let bytes = 1024usize
             .saturating_add(path.len().saturating_mul(8))
             .saturating_add(source.len().saturating_mul(8))
@@ -148,6 +172,10 @@ impl WatermarkBucketer {
         }
         self.retained_bytes += bytes;
         *self.window_bytes.entry(key).or_default() += bytes;
+        self.window_charged
+            .entry(key)
+            .or_default()
+            .insert(accumulator);
         Ok(())
     }
 
@@ -239,6 +267,7 @@ impl WatermarkBucketer {
         self.retained_bytes = self
             .retained_bytes
             .saturating_sub(self.window_bytes.remove(&key).unwrap_or(0));
+        self.window_charged.remove(&key);
         if !window.event_counts.is_empty() {
             Self::remember_event_window(
                 &mut self.closed_event_windows,

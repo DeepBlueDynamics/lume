@@ -733,6 +733,37 @@ fn memory_budget_rejects_an_oversized_contribution_before_retaining_it() {
     assert!(!bucketer.counters().ingest_blocked);
 }
 
+/// Healthy high-rate ingest must not trip the retained-memory cap: a window keeps one
+/// accumulator per (path, source), so repeated samples are not charged again.
+/// Regression for the Pi 20k values/s run (blocked with 21 open windows at 64 MiB).
+#[test]
+fn high_rate_repeated_samples_do_not_block_ingest() {
+    let root = tempfile::tempdir().unwrap();
+    let mut store = Store::open_or_create(root.path(), 10).unwrap();
+    let catalog = Arc::clone(store.catalog());
+    let config = TiConfig::default();
+    let mut bucketer = WatermarkBucketer::new(&config);
+    // 200,000 samples in one 10 s bucket over 50 paths: per-sample charging reserved
+    // about 1.3 KB each (≈ 260 MB) and blocked; per-accumulator charging is ~50 KB.
+    for i in 0..200_000u64 {
+        let path = format!("navigation.synthetic{}", i % 50);
+        bucketer
+            .ingest_point(
+                VESSEL,
+                &path,
+                "n2k.feed",
+                EPOCH + 1 + (i % 9) as i64,
+                ti_ingest::NormalizedValue::Double(i as f64 * 0.001),
+                &config,
+                catalog.as_ref(),
+                &mut store,
+            )
+            .unwrap_or_else(|e| panic!("sample {i} rejected: {e}"));
+    }
+    assert!(!bucketer.counters().ingest_blocked);
+    assert_eq!(bucketer.counters().samples_rejected_blocked, 0);
+}
+
 #[test]
 fn a_failed_store_does_not_skip_other_stores() {
     let roots = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];

@@ -128,7 +128,12 @@ fn test_hello_and_subscribe_handling() {
 
         let mut saw_paths = std::collections::HashSet::new();
         let mut saw_contexts = std::collections::HashSet::new();
-        for _ in 0..15 {
+        // Deltas already in flight for the single-path subscription arrive first; read
+        // until the wildcard takes effect (bounded) instead of a fixed count.
+        for _ in 0..200 {
+            if saw_paths.len() > 1 && saw_contexts.len() > 1 {
+                break;
+            }
             let msg = ws.read().expect("Expected delta after wildcard subscribe");
             if let Message::Text(txt) = msg {
                 let val: serde_json::Value = serde_json::from_str(&txt).unwrap();

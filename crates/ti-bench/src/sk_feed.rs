@@ -659,7 +659,8 @@ fn serve_listener(
                     continue;
                 }
 
-                // Switch to non-blocking for delta stream loop
+                // Non-blocking: reads poll for subscribe messages without waiting;
+                // sends that would block are drained by `send_with_backpressure`.
                 let _ = ws.get_ref().set_nonblocking(true);
 
                 handle_client(&mut ws, &config, subscribe_none, &stop, overall_start);
@@ -678,6 +679,33 @@ fn serve_listener(
     }
 
     Ok(())
+}
+
+/// Send on a non-blocking socket. tungstenite buffers the frame when the kernel buffer is
+/// full and reports WouldBlock; keep flushing until it drains instead of dropping the
+/// client (that dropped the ingest client at 20k values/s on the Pi).
+#[allow(clippy::result_large_err)]
+fn send_with_backpressure<S: std::io::Read + std::io::Write>(
+    ws: &mut tungstenite::WebSocket<S>,
+    msg: Message,
+    stop: &Arc<AtomicBool>,
+) -> Result<(), tungstenite::Error> {
+    let would_block = |e: &tungstenite::Error| matches!(e, tungstenite::Error::Io(io) if io.kind() == ErrorKind::WouldBlock);
+    match ws.send(msg) {
+        Ok(()) => return Ok(()),
+        Err(e) if would_block(&e) => {}
+        Err(e) => return Err(e),
+    }
+    loop {
+        if stop.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+        match ws.flush() {
+            Ok(()) => return Ok(()),
+            Err(e) if would_block(&e) => thread::sleep(Duration::from_micros(200)),
+            Err(e) => return Err(e),
+        }
+    }
 }
 
 fn handle_client<S: std::io::Read + std::io::Write>(
@@ -764,7 +792,8 @@ fn handle_client<S: std::io::Read + std::io::Write>(
                 Message::Close(_) => break,
                 _ => {}
             },
-            Err(tungstenite::Error::Io(ref e)) if e.kind() == ErrorKind::WouldBlock => {}
+            Err(tungstenite::Error::Io(ref e))
+                if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {}
             Err(e) => {
                 eprintln!("[sk-feed] Client connection closed or error: {e}");
                 break;
@@ -863,7 +892,7 @@ fn handle_client<S: std::io::Read + std::io::Write>(
             }]
         });
 
-        if let Err(e) = ws.send(Message::Text(delta.to_string())) {
+        if let Err(e) = send_with_backpressure(ws, Message::Text(delta.to_string()), stop) {
             eprintln!("[sk-feed] Send error: {e}");
             break;
         }
