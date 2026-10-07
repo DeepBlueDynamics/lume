@@ -7,10 +7,10 @@
 //! - Canonical BLAKE3 hash over versioned field files via `canonical_shard_input`
 //! - Shard repair: late data creates v<N+1>
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use arrow_array::builder::{
@@ -508,6 +508,94 @@ pub struct OpenShard {
     pub data: ShardData,
     pub dirty: bool,
     pub has_data: bool,
+    /// Fields changed since the last flush. Empty while `dirty` means every field.
+    pub dirty_fields: BTreeSet<u32>,
+}
+
+/// A field file written to a temporary path; `commit_staged` makes it durable and publishes it.
+pub struct StagedFile {
+    tmp: PathBuf,
+    target: PathBuf,
+    file: File,
+}
+
+fn stage_file(dir: &Path, field_id: u32, bytes: &[u8]) -> Result<StagedFile> {
+    let target = dir.join(format!("{field_id}.rbm"));
+    let tmp = dir.join(format!("{field_id}.tmp.{}", std::process::id()));
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&tmp)?;
+    file.write_all(bytes)?;
+    file.flush()?;
+    Ok(StagedFile { tmp, target, file })
+}
+
+/// Sync every staged file, rename each over its target, then sync each directory once.
+///
+/// One `syncfs` replaces two fsyncs per field file: a Pi SD card sustains only a few dozen
+/// fsyncs per second, and 21 vessels x 224 fields made each flush take minutes (D47).
+pub fn commit_staged(staged: Vec<StagedFile>) -> Result<()> {
+    if staged.is_empty() {
+        return Ok(());
+    }
+    sync_staged(&staged)?;
+    let mut dirs = BTreeSet::new();
+    for StagedFile { tmp, target, file } in staged {
+        drop(file);
+        fs::rename(&tmp, &target)?;
+        if let Some(dir) = target.parent() {
+            dirs.insert(dir.to_path_buf());
+        }
+    }
+    #[cfg(unix)]
+    for dir in dirs {
+        if let Ok(dir_file) = File::open(&dir) {
+            let _ = dir_file.sync_all();
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = dirs;
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn sync_staged(staged: &[StagedFile]) -> Result<()> {
+    use std::os::fd::AsRawFd;
+    // SAFETY: the descriptor belongs to a `File` that outlives the call.
+    if unsafe { libc::syncfs(staged[0].file.as_raw_fd()) } != 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn sync_staged(staged: &[StagedFile]) -> Result<()> {
+    for staged in staged {
+        staged.file.sync_all()?;
+    }
+    Ok(())
+}
+
+fn encode_field_file(
+    key: ShardKey,
+    field_id: u32,
+    field_data: &FieldData,
+    vessel_urn: &str,
+    width_seconds: u64,
+) -> Result<Vec<u8>> {
+    let header = ShardFileHeader {
+        version: FORMAT_VERSION,
+        vessel_urn: vessel_urn.to_string(),
+        shard: key.shard,
+        field: field_id,
+        width_seconds,
+        row_count: field_data.to_row_envelopes().len() as u32,
+    };
+    let mut bytes = header.encode()?;
+    field_data.encode_rows(&mut bytes)?;
+    Ok(bytes)
 }
 
 impl OpenShard {
@@ -516,6 +604,7 @@ impl OpenShard {
             data: ShardData::new(key),
             dirty: false,
             has_data: false,
+            dirty_fields: BTreeSet::new(),
         }
     }
 
@@ -608,6 +697,7 @@ impl OpenShard {
             }
         }
 
+        self.dirty_fields.extend(staged.keys().copied());
         self.data.fields.extend(staged);
         self.dirty = true;
         self.has_data = true;
@@ -621,8 +711,21 @@ impl OpenShard {
         vessel_urn: &str,
         width_seconds: u64,
     ) -> Result<()> {
+        let staged = self.stage_flush(store_root, vessel_urn, width_seconds)?;
+        commit_staged(staged)?;
+        self.mark_flushed();
+        Ok(())
+    }
+
+    /// Write the changed fields to temporary files; `commit_staged` publishes them.
+    pub fn stage_flush(
+        &self,
+        store_root: &Path,
+        vessel_urn: &str,
+        width_seconds: u64,
+    ) -> Result<Vec<StagedFile>> {
         if !self.dirty {
-            return Ok(());
+            return Ok(Vec::new());
         }
 
         let open_dir = store_root
@@ -632,43 +735,29 @@ impl OpenShard {
             .join("open");
         fs::create_dir_all(&open_dir)?;
 
+        // Unchanged fields keep their earlier open file, or load from the sealed base.
+        let all = self.dirty_fields.is_empty();
+        let mut staged = Vec::new();
         for (field_id, field_data) in &self.data.fields {
-            let envelopes = field_data.to_row_envelopes();
-            let header = ShardFileHeader {
-                version: FORMAT_VERSION,
-                vessel_urn: vessel_urn.to_string(),
-                shard: self.data.key.shard,
-                field: *field_id,
+            if !all && !self.dirty_fields.contains(field_id) {
+                continue;
+            }
+            let bytes = encode_field_file(
+                self.data.key,
+                *field_id,
+                field_data,
+                vessel_urn,
                 width_seconds,
-                row_count: envelopes.len() as u32,
-            };
-
-            let mut bytes = header.encode()?;
-            field_data.encode_rows(&mut bytes)?;
-
-            let target = open_dir.join(format!("{field_id}.rbm"));
-            let tmp = open_dir.join(format!("{field_id}.tmp.{}", std::process::id()));
-            {
-                let mut f = OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .truncate(true)
-                    .open(&tmp)?;
-                f.write_all(&bytes)?;
-                f.flush()?;
-                f.sync_all()?;
-            }
-            fs::rename(&tmp, &target)?;
-            #[cfg(unix)]
-            {
-                if let Ok(dir_file) = File::open(&open_dir) {
-                    let _ = dir_file.sync_all();
-                }
-            }
+            )?;
+            staged.push(stage_file(&open_dir, *field_id, &bytes)?);
         }
+        Ok(staged)
+    }
 
+    /// Record that the staged flush was committed.
+    pub fn mark_flushed(&mut self) {
         self.dirty = false;
-        Ok(())
+        self.dirty_fields.clear();
     }
 
     /// Load an open shard from `shards/<vessel>/<shard>/open`.
@@ -783,6 +872,7 @@ impl OpenShard {
                 data,
                 dirty: false,
                 has_data: true,
+                dirty_fields: BTreeSet::new(),
             }))
         } else {
             Ok(None)
@@ -806,45 +896,22 @@ impl OpenShard {
 
         let mut file_pairs = Vec::new();
         let mut total_bytes = 0u64;
+        let mut staged = Vec::new();
 
         // Ascending field ID order
         for (field_id, field_data) in &self.data.fields {
-            let envelopes = field_data.to_row_envelopes();
-            let header = ShardFileHeader {
-                version: FORMAT_VERSION,
-                vessel_urn: vessel_urn.to_string(),
-                shard: self.data.key.shard,
-                field: *field_id,
+            let bytes = encode_field_file(
+                self.data.key,
+                *field_id,
+                field_data,
+                vessel_urn,
                 width_seconds,
-                row_count: envelopes.len() as u32,
-            };
-
-            let mut bytes = header.encode()?;
-            field_data.encode_rows(&mut bytes)?;
-
-            let file_path = version_dir.join(format!("{field_id}.rbm"));
-            let tmp = version_dir.join(format!("{field_id}.tmp.{}", std::process::id()));
-            {
-                let mut f = OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .truncate(true)
-                    .open(&tmp)?;
-                f.write_all(&bytes)?;
-                f.flush()?;
-                f.sync_all()?;
-            }
-            fs::rename(&tmp, &file_path)?;
-            #[cfg(unix)]
-            {
-                if let Ok(dir_file) = File::open(&version_dir) {
-                    let _ = dir_file.sync_all();
-                }
-            }
-
+            )?;
+            staged.push(stage_file(&version_dir, *field_id, &bytes)?);
             total_bytes += bytes.len() as u64;
             file_pairs.push((*field_id, bytes));
         }
+        commit_staged(staged)?;
 
         // Canonical BLAKE3 digest per spec 14 §81
         let canonical_bytes = canonical_shard_input(&file_pairs)?;
@@ -854,7 +921,7 @@ impl OpenShard {
 
         // The owner removes open staging only after atomically publishing this version's manifest.
 
-        self.dirty = false;
+        self.mark_flushed();
 
         let entry = ShardManifestEntry {
             key: self.data.key,

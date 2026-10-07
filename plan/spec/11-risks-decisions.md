@@ -102,9 +102,13 @@ Reserved, and written by the owning lane at merge (agreed among the lanes on 202
 
 | D43 | Root optional `lopdf =0.44.0` (defaults off), `zip =8.6.0` (defaults off, `deflate-flate2` only), `quick-xml =0.42.0` (defaults off), MIT; `pdf` feature included by `ti`, default features unchanged | Lead approved 2026-10-07 for offline cruiser-library extraction. Existing UV remains preferred when available; bounded isolated Rust fallback and EPUB chapter extraction never require Grub. 128 MiB input, 120 s deadline, 512 MiB Linux RSS, 8 MiB page/chapter, 64 MiB text. [Decision and evaluation](../decisions/D43-library-extraction.md) |
 
+| # | Decision | Why |
+|---|---|---|
+| D47 | **Open-shard flush writes only changed fields, behind one sync.** Each flush stages every changed field file of every dirty shard, then makes them durable with one Linux `syncfs` (per-file `sync_all` elsewhere), renames them, and syncs each directory once. Seal uses the same path. The ingest loop keeps the 5 s freshness flush but caps flushing at ~10 % of wall time, and flushes regardless past 2M unflushed records. Root ti-store gains a Linux-only direct `libc = "0.2"` (existing lockfile version 0.2.186, MIT/Apache-2.0) | Lead decision 2026-10-07. The Pi 20k values/s load run (21 vessels × 224 fields) stalled: every flush rewrote all 4,704 field files with two fsyncs each, about 34 files/s on the SD card, so a flush took ~140 s and the reader stopped. Open files layer over the sealed base on load, so partial flushes reload completely (`tests/partial_flush.rs`). Seal bytes and hashes are unchanged |
+
 D44 approves bundled Linux arm64 and x64 plugin binaries, with no install-time scripts; see [the packaging decision](../decisions/D44-plugin-package.md).
 
-The next free number is **D45**. Ask the lead before taking one. Every new runtime dependency needs a line here
+D45 (release binary size) has its own record in `plan/decisions/`; D46 (pgwire TLS) is assigned and in progress. The next free number is **D48**. Ask the lead before taking one. Every new runtime dependency needs a line here
 (PR rule, [10-contracts](10-contracts.md)).
 
 ## Sources (from spec)

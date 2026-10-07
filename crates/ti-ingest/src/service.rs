@@ -360,6 +360,7 @@ impl IngestService {
 
         let mut last_wal_tick = self.now_timestamp();
         let mut last_flush = self.now_timestamp();
+        let mut flush_cost = Duration::ZERO;
         let mut last_seal_check = self.now_timestamp();
         let mut last_retention_check = self.now_timestamp();
         let mut last_status_write = 0i64;
@@ -502,14 +503,19 @@ impl IngestService {
                             last_wal_tick = now_sec;
                         }
 
-                        // 2. Periodic flush of dirty rows / buckets (every 5 s when dirty, or every 60 s, or 50k records)
+                        // 2. Periodic flush of dirty rows / buckets (every 5 s when dirty, or every 60 s, or 50k records).
+                        // The flush blocks this reader, so it may use at most ~10 % of wall time; past
+                        // 2M unflushed records the WAL bound wins (D47).
+                        let since_flush = now_sec.saturating_sub(last_flush);
+                        let duty_ok = Duration::from_secs(since_flush as u64) >= flush_cost * 10;
                         let flush_due = if self.records_since_flush > 0 {
-                            now_sec.saturating_sub(last_flush) >= 5
-                                || self.records_since_flush >= 50_000
+                            (duty_ok && (since_flush >= 5 || self.records_since_flush >= 50_000))
+                                || self.records_since_flush >= 2_000_000
                         } else {
-                            now_sec.saturating_sub(last_flush) >= 60
+                            since_flush >= 60
                         };
                         if flush_due {
+                            let flush_started = Instant::now();
                             let watermark = bucketer.max_event_time().saturating_sub(30);
                             let catalogs: BTreeMap<String, &dyn Catalog> = catalogs_arc
                                 .iter()
@@ -539,6 +545,7 @@ impl IngestService {
                             self.notify_flush();
                             self.records_since_flush = 0;
                             last_flush = now_sec;
+                            flush_cost = flush_started.elapsed();
                         }
 
                         // 3. Seal open shards whose time span ended > 1 h ago

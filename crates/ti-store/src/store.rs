@@ -290,6 +290,7 @@ impl Store {
                 data: sealed.data,
                 dirty: false,
                 has_data,
+                dirty_fields: Default::default(),
             })
         } else {
             Ok(OpenShard::new(key))
@@ -441,11 +442,17 @@ impl Store {
 
     /// Flush dirty open shards to disk.
     pub fn flush_shards(&mut self) -> Result<()> {
-        for (key, shard) in &mut self.open_shards {
+        // Stage every dirty shard first so one sync covers the whole flush.
+        let mut staged = Vec::new();
+        for (key, shard) in &self.open_shards {
             if shard.dirty {
                 let urn = self.catalog.vessel_urn(key.vessel)?;
-                shard.flush_to(&self.root, &urn, self.width_seconds)?;
+                staged.extend(shard.stage_flush(&self.root, &urn, self.width_seconds)?);
             }
+        }
+        crate::shard::commit_staged(staged)?;
+        for shard in self.open_shards.values_mut() {
+            shard.mark_flushed();
         }
         Ok(())
     }
