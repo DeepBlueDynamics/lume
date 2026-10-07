@@ -59,4 +59,37 @@ tests check the refactor's compatibility. On rustc 1.99, contracts/store tests p
 60/60 with the 1,000-process crash gate explicitly skipped; strict clippy on
 contracts/store/sql/bench passed, and Python bench tests passed 34/34. The benchmark
 fingerprint unit test compiled under all-target clippy but has not run locally.
-Performance measurements, full TI tests and the host corpus gate remain pending.
+Native performance results are below; full TI tests and the host corpus gate remain pending.
+
+## Native host measurements (2026-10-07)
+
+Lead-run Rust 1.96 release build at f17885d, store-full, seven warm iterations,
+same binary with caching disabled/enabled. Class-level timings, milliseconds:
+
+| Class | Warm p50 off | Warm p50 256 MiB | Cold off / on |
+|---|---:|---:|---:|
+| Q1 | 99.4 | 0.5 | 100 / 29 |
+| Q2 | 210 | 1.5 | — |
+| Q3 | 553 | 1.3 | — |
+| Q4 | 1003 | 3.1 | — |
+| Q5 | 4275 | 296 | 4301 / 1567 |
+| Q7 | 159 | 3.3 | — |
+| Q8 | 555 | 13.5 | — |
+
+The 64 MiB run is nearly identical: Q5 warm p50 288 ms and Q8 14.0 ms.
+All measured classes meet their p95 targets except Q5: 308 ms against 150 ms.
+Cold clears only the decoded application cache; the OS cache is uncontrolled.
+
+The saved native-256 report contains 20 per-query records; comparison.json
+records matching row counts and answer fingerprints for all 20. Its comparison.md
+is populated. The helper also accepts older class-only reports, explicitly marks
+their values as unchecked, and rejects empty reports rather than printing an empty
+table. Artifacts are under .lanes/data/query-cache/native-{256,64}, outside git.
+
+Q5's slow warm case is q5-002 (electric-only motoring intervals using motor power
+and IS DISTINCT FROM on diesel state): 299.98 ms, versus 6.76 ms for q5-001.
+The 256 MiB run records no evictions for either query, so retained-cache capacity
+does not explain this difference. Profiling q5-002 is queued after resolve-eval;
+no cause or fix has been established. The cache-enabled full corpus gate remains
+pending on the host.
+

@@ -12,9 +12,21 @@ q7-001 q7-002 q7-006 q8-001 q8-002 q8-006""".split()
 
 
 def compare(before, after):
-    old = {q["id"]: q for q in before["queries"]}
-    new = {q["id"]: q for q in after["queries"]}
-    if old.keys() != new.keys():
+    if not before.get("queries") and not after.get("queries"):
+        old, new = before.get("classes", {}), after.get("classes", {})
+        if not old or old.keys() != new.keys():
+            raise ValueError("A/B reports have empty or different class sets")
+        return [
+            dict(id=key, rows=None, values_match=None,
+                 off_cold_ms=a["cold_ms"], on_cold_ms=new[key]["cold_ms"],
+                 off_p50_ms=a["p50_ms"], on_p50_ms=new[key]["p50_ms"],
+                 warm_speedup=a["p50_ms"] / max(new[key]["p50_ms"], 1e-9),
+                 cache_stats={}, granularity="class")
+            for key, a in old.items()
+        ]
+    old = {q["id"]: q for q in before.get("queries", [])}
+    new = {q["id"]: q for q in after.get("queries", [])}
+    if not old or old.keys() != new.keys():
         raise ValueError("A/B query sets differ")
     rows = []
     for qid, a in old.items():
@@ -32,12 +44,16 @@ def compare(before, after):
 
 
 def markdown(rows):
-    lines = ["| Query | Rows | Cold off/on ms | Warm p50 off/on ms | Speedup | Values |",
+    if not rows:
+        raise ValueError("Cannot render an empty comparison")
+    lines = ["| Query/class | Rows | Cold off/on ms | Warm p50 off/on ms | Speedup | Values |",
              "|---|---:|---:|---:|---:|---|"]
     for r in rows:
-        lines.append(f"| {r['id']} | {r['rows']} | {r['off_cold_ms']:.2f} / {r['on_cold_ms']:.2f} | "
+        count = "—" if r["rows"] is None else r["rows"]
+        verdict = "not checked (class summary)" if r["values_match"] is None else ("PASS" if r["values_match"] else "MISMATCH")
+        lines.append(f"| {r['id']} | {count} | {r['off_cold_ms']:.2f} / {r['on_cold_ms']:.2f} | "
                      f"{r['off_p50_ms']:.2f} / {r['on_p50_ms']:.2f} | {r['warm_speedup']:.2f}× | "
-                     f"{'PASS' if r['values_match'] else 'MISMATCH'} |")
+                     f"{verdict} |")
     return "\n".join(lines) + "\n"
 
 
@@ -91,7 +107,7 @@ def main():
     table = markdown(rows)
     (out / "comparison.md").write_text(table, encoding="utf-8")
     print(table)
-    if not all(r["values_match"] for r in rows):
+    if any(r["values_match"] is False for r in rows):
         raise SystemExit(1)
 
 
