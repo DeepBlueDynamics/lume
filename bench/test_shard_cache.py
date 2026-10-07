@@ -23,3 +23,18 @@ class CacheComparisonTests(unittest.TestCase):
     def test_twenty_unique_queries(self):
         self.assertEqual(len(QUERY_IDS), 20)
         self.assertEqual(len(set(QUERY_IDS)), 20)
+
+    def test_class_only_reports_are_timings_not_value_checks(self):
+        from shard_cache import markdown
+        a = {"classes": {"Q5": {"cold_ms": 4301, "p50_ms": 4275}}}
+        b = {"queries": [], "classes": {"Q5": {"cold_ms": 1567, "p50_ms": 296}}}
+        rows = compare(a, b)
+        self.assertEqual(rows[0]["id"], "Q5")
+        self.assertIsNone(rows[0]["values_match"])
+        self.assertIn("not checked (class summary)", markdown(rows))
+        with self.assertRaises(ValueError):
+            compare(a, {"classes": {}})
+        with self.assertRaises(ValueError):
+            compare({"queries": []}, {"queries": []})
+        with self.assertRaises(ValueError):
+            markdown([])
