@@ -109,6 +109,7 @@ lume ti repl --store <root> [--width <seconds>]
 - **`lume chat`** (`492f12b`): `lume chat --ti-store <store> [--docs-index <lume-index>] [--json]`. A model writes and runs SQL with `ti_schema`, `ti_query`, `ti_explain` and `lume_sql`: schema first, up to 3 SQL retries. Logic is in `src/chat_sql.rs`. 3 chat tests skip on Windows.
 - **MCP behaviour** (`899898b`, `2d5e681`): `ti_schema` lists columns and counts and explains unmatched prefixes. Tool descriptions carry a data-model guide with the live bucket width. Errors list available tables and say to omit `width_seconds`. Unknown arguments are ignored with a note, and `store: ""` means the served store.
 - The same engine backs the MCP tools `ti_query`, `ti_schema`, `ti_explain`, `ti_status` and `ti_resolve` (`src/ti_mcp.rs`). `ti_query` is read-only and capped at 500 rows and 64 KiB. pgwire has its own caps in `ti.toml` `[query] pg_max_rows` / `pg_max_bytes` (default 100,000 / 16 MiB; `0798966`). Lower them on small Pis or busy dashboards. pgwire streams batches with flushes, suspends portals when `max_rows > 0`, and treats `BEGIN`/`COMMIT` as no-ops. HTTP and MCP stay at 500 / 64 KiB.
+- **Sealed-shard query cache** (`f17885d`, [design/query-cache.md](design/query-cache.md)): `[query] sealed_cache_bytes` in `ti.toml` (default 256 MiB, `0` disables) keeps decoded sealed-shard fields in a bounded LRU shared across snapshots. Warm p50 drops by 1–2 orders of magnitude (e.g. Q4 1003 → 3.1 ms). 64 MiB performs nearly the same, and the Pi runs with 64 MiB.
 
 **`lume serve` with TI** (`bce7779`, `39c0096`; needs `--features ti`):
 
@@ -125,7 +126,7 @@ lume serve --ti-store <store> [--bind <IP>] [--port <PORT>] [--pg <port>]
   | `GET /ti/schema` | Tables and columns |
   | `POST /ti/explain` | Query plan and pushdown |
   | `GET /ti/status` | Store status |
-  | `GET /ti/resolve?q=<phrase>` | `ti_resolve`: phrase to column (93/100 top-3 on `tests/golden/resolve.json`) |
+  | `GET /ti/resolve?q=<phrase>` | `ti_resolve`: phrase to column (100/100 top-3 on the 100-phrase live MCP eval, holdout 30/30, since `8d7cdbf`; it was 93/100 on `tests/golden/resolve.json` at `39c0096`). Handles nautical vocabulary, sailor idioms, typos and units, excludes `$source`, and never returns empty |
 
 - **Postgres wire** (`451bfc7`, D37): `--pg <port>` adds a read-only Postgres listener on the same bind address. It is off by default and needs `--ti-store`. Since `7c4cb23` it is typed and Grafana-compatible: extended protocol, `pg_catalog`, and Grafana macros. Auth is verifier-only SCRAM-SHA-256 (D42: no plaintext password storage). TLS is not offered, so keep it on loopback (or on the docker0 address for HaLOS Grafana, §11).
 - **`--pg-bind <IP>`** moves only the PG listener (default: `--bind`). **`--pg-auth-config <path>`** reads only the `auth` section of a private `ti.toml`, replaces the store's users entirely (no merging), and on Unix needs mode 0600 (`1bbbac2`). Details in §11.
@@ -212,7 +213,7 @@ lume ti sync --to <shore url> --store <root> [--token <token>] [--token-file <pa
 
 The plugin supervises `lume ti ingest --signalk ws://127.0.0.1:3000 --store <dataDir>/lume-ti --serve --bind 127.0.0.1 --port 5863`, restarts it with backoff, and stops it with SIGTERM. It handles the Signal K access-request token (`<dataDir>/token.txt`) and proxies the SQL console webapp through `/plugins/signalk-lume-ti/api/*`, so nothing listens off loopback. The webapp's `apiBase` is `/plugins/signalk-lume-ti` (`530f6b1`). Plugin tests: `cd plugins/signalk-lume-ti && npm test` (17/17 at `e09bb87`).
 
-- **History API** (`e09bb87`): the plugin is a Signal K v2.31 History API provider, answering from Lume's loopback HTTP. `first`/`last` (SKIP/KIP `:last` requests) need the `@last` aggregate: put `[profiles] opt_in = ["last"]` in the store's `ti.toml`, as on the lead's Pi. Making `@last` the default, with a mean fallback that reports `method_used`, is queued (Long Horse). Rust side: `cargo test --features ti --test ti_http` (8/8).
+- **History API** (`e09bb87`): the plugin is a Signal K v2.31 History API provider, answering from Lume's loopback HTTP. Since `c592a17` the plugin defaults the store to `[profiles] opt_in = ["last"]`, so `first`/`last` (SKIP/KIP `:last` requests) work on new buckets. Older buckets without `@last` fall back to `@mean`, and the response reports `method_used`. Rust side: `cargo test --features ti --test ti_http` (8/8).
 - **Logging in on HaLOS:** Signal K on HaLOS uses OIDC (HaLOS SSO), and the login is bound to the host name. Open `https://halos.local:4430/admin/` → Login → **HaLOS SSO**, then open the Lume TI webapp and other apps from the same host. An IP-address origin can't complete the login. Admin access needs the HaLOS `admins` group. The webapp shows a not-logged-in banner and a Log in link on 401 (`9d90cf9`, `78b326e`, `472d6e6`).
 - **Webapp results:** the webapp requests JSON from `/api/query` and `/api/schema` (`3aec284`). The TI server answers Arrow by default, so before this fix the console never showed results.
 - **Native Pi 5 build:** fat LTO OOMs on the Pi (rustc about 6 GB RSS, even with 10 GB temporary swap). Use thin LTO. The resulting binary runs in the plugin container (glibc 2.39 OK):
@@ -264,7 +265,20 @@ python3 bench/agent_mcp_grade.py <run_dir> --expected .lanes/data/agent-mcp-run/
 
 - The runner offers only the MCP server's read-only `ti_*` tools (`--allow-tools`, default `ti_schema,ti_query,ti_explain,ti_status,ti_resolve`) to any OpenAI-compatible chat endpoint (Ollama by default). It warns if some allowed tools are missing and fails only if none are offered.
 - Questions: `tests/golden/agent_questions.json` (20). The DuckDB answers are hidden from the runner. The grader matches row sets by value, not column name. Prose-table answers need hand grading.
+- **M5 item 2 passed** (`7f048e6`): `glm-5.3` 17/20, `qwen2.5:7b` 5/20. The grader also treats constant expected columns (the named vessel) as optional, and DATE values equal midnight bucket starts (`02dc763`). The runner stood in for a nemesis8 agent; that is a recorded deviation.
 - Results and all other measured numbers are in `docs/performance-comparisons.md` and [STATUS.md](STATUS.md).
+
+**M2 item 3 on the Pi: load feed and sampler** (`eba3ce8`, `7407378`). The gate is ≥ 20,000 values/s for 1 h at ≤ 25 % of one core and ≤ 400 MB RSS. Point a separate `lume ti ingest` at a **temporary store**, never the live one, and feed it synthetic Signal K:
+
+```sh
+ti-bench sk-feed --port <port> --ramp 20000:3600,25000:300,30000:300,40000:300   # rate:seconds,...
+lume ti ingest --signalk ws://127.0.0.1:<port> --store <temp store>
+bash bench/pi_ingest_run.sh --store <temp store> [--duration 3600] [--interval 10] [--out <csv>]
+```
+
+- `sk-feed` also takes `--values-per-sec` (alias `--rate`, default 20,000), `--vessels` (21: 1 self + 20 AIS), `--batch-size` (100), `--seed`, `--duration`, `--max-values` and `--bind` (default `127.0.0.1`).
+- `pi_ingest_run.sh` is read-only: it samples RSS, CPU, `ingest_status.json` counters, WAL/shard sizes, temperature and throttling every 10 s, then writes a CSV and a Markdown summary (`bench/summarize_ingest.py`). It auto-detects the `lume ti ingest` PID unless you pass `--pid`.
+- The first 1-hour live run (`docs/bench/pi5-ingest-1h-2026-10-07.md`) was input-bound at 46.6 values/s: a stability result, not the gate.
 
 **Host oracles for W9 and W10** (Python DuckDB, testing only; run from the repo root on the host):
 
@@ -338,7 +352,7 @@ Then tell the lead the side branch name, its base commit, and which lane it shou
 ## 6. Line endings
 
 The clones were made by Windows git, so each clone sets `core.autocrlf=true` in its own `.git/config`.
-The repo has no `.gitattributes`.
+Since `a1b631d`, `.gitattributes` forces LF for `*.sh` (CRLF checkouts broke bash on the Pi). Nothing else is listed there.
 
 - Keep `core.autocrlf=true` in your clone, including when you run git from a Linux container.
 - **Never commit line-ending-only changes.** Before you commit, compare:

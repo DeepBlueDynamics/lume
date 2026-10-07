@@ -1,9 +1,9 @@
 # Lume TI — Status board
 
-Last updated: **2026-10-07** (docs keeper, after `492f12b`: **M4 item 1 PASSED** (corpus 61/0/1), M5 item 2 agent harness (not passed yet), MCP ergonomics, `lume chat` + plugin Ask tab, plugin UI fixes, Pi on `7081006` with Lume as default History provider; earlier: M6 item 2 passed, `count_paths`, bucket-gap fix, pg-limits, D43/D44)
+Last updated: **2026-10-07** (docs keeper, after `2df24b5`: **M5 items 1 and 2 PASSED**, sealed-shard query cache, `IS [NOT] DISTINCT FROM` pushdown (all classes meet p95), History `:last` default with `@mean` fallback, Pi 1-hour stability run, `ti-bench sk-feed` for the M2 load gate; earlier: M4 item 1 passed, MCP ergonomics, `lume chat`, M6 item 2 passed)
 
-Integration branch `plan/lume-ti` is at `492f12b`. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46 at `8e87a11`; `cargo test --features ti` was 55 at `39c0096` (not recounted since). Plugin `npm test` 17/17 and `cargo test` `ti_http` 8/8 at `e09bb87`.
-Workspace members: `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench`, `ti-geo`, `ti-sync`. Signal K plugin: `plugins/signalk-lume-ti/`. Next free decision: **D45** (ask the lead before taking it; binary-size work that might use it is paused). All measured numbers: [docs/performance-comparisons.md](../docs/performance-comparisons.md).
+Integration branch `plan/lume-ti` is at `2df24b5`. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46 at `8e87a11`; `cargo test --features ti` was 55 at `39c0096` (not recounted since). Plugin `npm test` 17/17 and `cargo test` `ti_http` 8/8 at `e09bb87`.
+Workspace members: `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench`, `ti-geo`, `ti-sync`. Signal K plugin: `plugins/signalk-lume-ti/`. Next free decision: **D47** (unconfirmed: D45 binary size (Long Horse) and D46 pgwire TLS (Artificial Shark) are being drafted, and the decisions log still says D45; ask the lead). All measured numbers: [docs/performance-comparisons.md](../docs/performance-comparisons.md).
 Setup and workflow: [SETUP.md](SETUP.md).
 
 ## Critical path right now
@@ -11,14 +11,15 @@ Setup and workflow: [SETUP.md](SETUP.md).
 - **🚢 Deploying to the user's Raspberry Pi 5** (HaLOS Marine RPI, no HAT, Signal K v2.31.1 in a container, Ubuntu 24.04 with glibc 2.39).
   - KIP and Freeboard-SK are installed. Grafana, QuestDB and OpenCPN are installed. Grafana shares the `influxdb` container's network namespace and reaches the host as `halos.local` = docker0 `172.17.0.1`.
   - `signalk-to-influxdb2` 2.3.0 writes InfluxDB bucket `marine` at 1 s resolution (self vessel only).
-  - **Deployed:** the thin-LTO native arm64 binary at **`7081006`** (bucket-gap fix, pg-limits, D43; `CARGO_PROFILE_RELEASE_LTO=thin`, `CODEGEN_UNITS=16`, `BUILD_JOBS=2`; fat LTO OOMs) runs in the plugin (glibc 2.39 OK). The new ingest drop counters are all zero. `postgresql-client` is installed on the Pi.
-  - **Lume is the default History provider.** The Pi store's `ti.toml` has `[profiles] opt_in = ["last"]`, so SKIP/KIP History API `:last` requests work. Long Horse is queued to make `@last` the default, with a mean fallback that reports `method_used`.
+  - **Deployed:** the thin-LTO native arm64 binary at **`6d7f5c1`** (query cache, History `:last` fallback, bucket-gap fix, pg-limits, D43; `CARGO_PROFILE_RELEASE_LTO=thin`, `CODEGEN_UNITS=16`, `BUILD_JOBS=2`; fat LTO OOMs) runs in the plugin (glibc 2.39 OK), with `[query] sealed_cache_bytes = 64 MiB`. RSS 99 MB after restart. Ingest drop counters were all zero on `7081006`. `postgresql-client` is installed on the Pi.
+  - **Lume is the default History provider.** The plugin now defaults the store to `opt_in = ["last"]`, and History `:last` falls back to `@mean` with `method_used` for older buckets without `@last` (`c592a17`, deployed).
   - **Signal K login** is OIDC (HaLOS SSO), bound to the host name: use `https://halos.local:4430/admin/` → Login → HaLOS SSO, then open apps from the same host. Admin needs the HaLOS `admins` group ([SETUP §3](SETUP.md)).
   - **Vessel UUID pinned.** Signal K on HaLOS regenerated its self UUID on every restart, which split history in both Lume and Influx. The lead pinned it in `data/baseDeltas.json` (`urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee`). Now a deployment step ([SETUP §3](SETUP.md)).
   - **pg smoke on the Pi** (throwaway loopback instance): SCRAM login OK, **16/20 pass**. It stopped at case 17 (raw 24 h series) on the 500-row / 64 KiB cap. Fixed by pg-limits (`0798966`); **rerun pending**.
   - Plugin UI fixes deployed with the webapp: login hint, Log in link, not-logged-in banner; JSON requests (`3aec284`; the console had never shown results because the TI server answers Arrow by default).
   - **Access request still pending the user's approval.** Live ingest isn't blocked (`allow_readonly` is true), but the notes/logbook poller needs the token.
-  - **Next:** rerun the pg smoke and Grafana Save & Test; re-verify Q6 (per-path counts) for the bucket gap; the user approves the access request; M2 item 3 run (Artificial Shark's script).
+  - **Pi 1-hour live run** (`7407378`, [docs/bench/pi5-ingest-1h-2026-10-07.md](../docs/bench/pi5-ingest-1h-2026-10-07.md)): 46.6 values/s (input-bound replay), RSS 119 MiB, CPU 8.4 %, 77 °C, 0 blocked, 0 failures, throttle flags `0xe0000`. **Stability only, not the M2 item 3 gate** (≥ 20,000 values/s, ≤ 25 % of one core, ≤ 400 MB RSS).
+  - **Next:** the M2 item 3 load run with `ti-bench sk-feed` against a separate temp store (20k values/s for 60 min, then 25k/30k/40k for 5 min each); the Pi is building for it now. Also rerun the pg smoke and Grafana Save & Test; re-verify Q6 (per-path counts) for the bucket gap; the user approves the access request.
   - **The Pi runs hot without an Active Cooler** (82–86 °C under load).
 - **📊 Pi benchmark, 50-min window** (`bench/influx_vs_lume.py`, 23:00–23:50Z, 20 runs, warm p50, InfluxDB vs Lume). Replaces the earlier 17-min preliminary table:
 
@@ -36,9 +37,10 @@ Setup and workflow: [SETUP.md](SETUP.md).
 - **✅ M6 item 2 PASSED** on the host (`4400327`): 50 vessels synced and verified in **67.32 s** (1.35 s/vessel, release). `fleet_sync_m6` now defaults to 5 vessels in debug and 50 in release. HTTP sync merged in `ddd6398`. The lossy-HTTP results still go to the lead.
 - **✅ Bucket-gap fix** (`3896e5c` + `65b84a3`). Root cause of the Pi's silent one-bucket loss: `let _ = advance_watermark` swallowed apply errors. Windows are now retained until the sink acknowledges, retried at 1/2/4/8/16/30 s, capped at 64 windows / 64 MiB per store, after which ingest reports `ingest_blocked`. Six drop counters appear in `ingest_status.json` and `/ti/status`. Window granularity is vessel-wide per bucket. **Pi Q6 re-verification pending deployment.**
 - **✅ M4 item 1 PASSED: corpus 61/0/1** on the host (`a264ed2` + `981fe15` + `7d1bc5a`). `q2-001`'s TI SQL is now scoped to the primary vessel like its unchanged oracle, plus a two-vessel notes isolation test. The `count_paths` stores were rebuilt, the oracle rerun exited 0, and 65 hashes match. Only `qx-003` stays excluded.
-- **🟡 M5 item 2 harness merged, gate NOT passed** (`02f826a`, fixes `6080b14`, `d8dbfc2`, `5c02e19`, `2d5e681`, `899898b`). `bench/agent_mcp_run.py` offers the model only the MCP server's read-only `ti_*` tools (`--allow-tools` default) through an OpenAI-compatible endpoint (Ollama). 20 new questions in `tests/golden/agent_questions.json`, with hidden DuckDB answers. `bench/agent_mcp_grade.py` is host-only and matches row sets by value. Results so far:
-  - `qwen2.5:7b` (local): 0/20 before the MCP fixes, **4/20** after.
-  - `glm-5.3` (cloud): **14/20** auto-graded before the fixes; 3 prose-table answers need hand grading. Rerun after the fixes in progress.
+- **✅ M5 item 2 PASSED** (`02dc763`, `7f048e6`, `d1f6a4b`; harness `02f826a`). With only Lume's read-only MCP `ti_*` tools: **`glm-5.3` 17/20** (15/20 before the MCP fixes) and `qwen2.5:7b` 5/20 (0/20 before). The grader matches rows by value and treats constant columns (the named vessel) as optional. **Deviation:** the harness runtime (`bench/agent_mcp_run.py`) stood in for a nemesis8 agent. `d1f6a4b` fixed a semantic merge break (`chat_sql` vs the new `ti_mcp::definitions(width)` signature). Details in `docs/performance-comparisons.md`.
+- **✅ M5 item 1 PASSED** (`8d7cdbf` + `b9d3b1a`). `ti_resolve` top-3 **100/100** on the 100-phrase live MCP eval (holdout 30/30), up from a 65/100 baseline. The lead's independent blind 20 phrases: 19/20 top-3, 18/20 top-1. Adds nautical vocabulary, typo and unit handling, sailor idioms, depth weighting, `$source` exclusion and a never-empty fallback.
+- **✅ Sealed-shard query cache** (`f17885d` + `ca04235`, [design/query-cache.md](design/query-cache.md)). `[query] sealed_cache_bytes` (default 256 MiB, 0 disables). Native 20-query warm p50, off → on: Q1 99 → 0.5, Q2 210 → 1.5, Q3 553 → 1.3, Q4 1003 → 3.1, Q5 4275 → 296, Q7 159 → 3.3, Q8 555 → 13.5 ms. 64 MiB is nearly identical. Corpus 61/0/1, all fingerprints equal.
+- **✅ `IS [NOT] DISTINCT FROM` pushdown** (`1668313` profile, `cebf5ea`). Exact bitmap pushdown (two-valued under `NOT`). Q5-002: 300 → 8.45 ms native release, 0 rows materialized (was 1.5 M). **All query classes now meet their p95 targets.** Corpus 61/0/1.
 - **✅ MCP ergonomics** (`899898b`, `2d5e681`). `ti_schema` lists columns and counts and explains unmatched prefixes. Tool descriptions carry a data-model guide with the live bucket width. Errors teach (available tables, omit `width_seconds`). Unknown arguments are ignored with a note. `store: ""` means the served store.
 - **✅ `lume chat` + plugin Ask tab** (`492f12b`, Artificial Shark). `lume chat --ti-store <store> [--docs-index <index>] [--json]` writes and runs SQL with `ti_schema`/`ti_query`/`ti_explain`/`lume_sql`, schema-first, with 3 SQL retries. Logic in `src/chat_sql.rs`. Plugin options `chatOllamaUrl`/`chatModel`. 3 chat tests skip on Windows.
 - **✅ `count_paths` merged** (`7bf038d`, Long Horse). Host oracle: 65 empty-list shard hashes MATCH; backfill 95.9 M rows in 744.5 s (128,847 rows/s); index 731 MB (0.39× raw). Corpus was 60/1/1 at this merge; `q1-007` and `q6-006` pass; `q2-001` fixed in `a264ed2`.
@@ -65,10 +67,10 @@ Setup and workflow: [SETUP.md](SETUP.md).
   - `lume ti repl` (`f1bb15a`).
   - The `signalk-lume-ti` plugin (`31841c3`).
 - **In flight:**
-  - Long Horse: **`ti/query-cache`**: sealed-shard LRU, 256 MiB default (warm point queries were about 4.5 s on `store-full`). Then the `@last` default with mean fallback and `method_used`.
-  - Artificial Shark: **`ti/pi-ingest-bench`**: the M2 item 3 script (Pi 5 throughput/RSS).
-  - Lead: the `glm-5.3` M5 agent rerun and hand grading.
-  - Paused: D45 binary-size work (x64 thin LTO, codegen-units 1: 100.85 MB, 34.78 MB gzip).
+  - Long Horse: **D45 binary size** (`ti/binary-size`). x64, Rust 1.99, stripped: fat LTO / 1 CGU 92.8 MB (33.9 MB gzip, build peak RSS 7.62 GiB); thin / 16 (the Pi mode) 146.3 MB (48.6 MB gzip, 1.38 GiB peak) but **10.7 % slower, failing the 5 % rule**; thin / 1 101.1 MB (34.9 MB gzip), timing pending.
+  - Artificial Shark: **D46 pgwire TLS proposal** (`ti/pg-tls`).
+  - Lead: the Pi build for the M2 item 3 `sk-feed` load run.
+  - `.gitattributes` (`a1b631d`) now keeps `*.sh` LF; CRLF checkouts had broken bash on the Pi.
 - **🟡 User decisions:** item 16, the CC-BY-SA licence on `src/ti_resolve/signalk_paths.json`, is still needed before publishing.
 - **Disk policy (lead):**
   - Keep at least **25 GB free** on the host.
@@ -92,6 +94,19 @@ Commit messages, the decisions log and older docs use the former names. Re-check
 
 | Commit | What |
 |---|---|
+| `eba3ce8`, `92b211e`, `2df24b5` | **`ti-bench sk-feed`** (`205231a`, Artificial Shark): synthetic Signal K WebSocket stream with rate ramp, vessels and batching for the Pi 20k values/s gate; UTF-8 summary output on Windows |
+| `cebf5ea` | **`IS [NOT] DISTINCT FROM` pushdown** (`ad627f0`): exact bitmap pushdown; Q5-002 300 → 8.45 ms, no rows materialized. All classes meet p95 |
+| `6d7f5c1` | `docs/bench/pi5-ingest-1h-2026-10-07.md`: Pi 1-hour live ingest (46.6 values/s input-bound, 119 MiB RSS, 8.4 % CPU, 0 blocked/failures) |
+| `b9d3b1a` | **`ti_resolve` idioms** (`d0b4cce`): sailor idioms, depth weighting, `$source` exclusion, never-empty fallback; blind 20: 19/20 top-3, 18/20 top-1 |
+| `1668313` | Q5 profile (`446d578`): `IS DISTINCT FROM` was a residual filter materializing 1.5 M rows (14× slower than bitmap runs) |
+| `8d7cdbf` | **`ti_resolve` eval** (`e5a7c8b`): nautical vocabulary, typo and unit handling; 100-phrase live MCP eval top-3 100/100 (holdout 30/30), from 65/100. **M5 item 1** |
+| `ca04235` | Native cache timings; class-only benchmark reports |
+| `a1b631d` | `.gitattributes`: `*.sh` always LF |
+| `7407378` | **Pi ingest sampler** (`6aeb276`): read-only `bench/pi_ingest_run.sh` (RSS, CPU, status counters, WAL/shard sizes, temperature, throttling) and `bench/summarize_ingest.py` |
+| `f17885d` | **Sealed-shard query cache** (`4c790fe`, Long Horse): bounded LRU of decoded fields shared across snapshots, `[query] sealed_cache_bytes` (256 MiB default) |
+| `c592a17` | **History `:last`** (`3458c2e`): plugin defaults the store to `opt_in = [last]`; `:last` falls back to `@mean` with `method_used` |
+| `d1f6a4b` | Plan build fix: `chat_sql` uses the shared `ti_mcp::definitions(width)` |
+| `02dc763`, `7f048e6` | Grader: constant expected columns optional, DATE equals midnight bucket start. **M5 item 2 results**: `glm-5.3` 17/20, `qwen2.5:7b` 5/20 |
 | `492f12b` | **`lume chat`** (`fe6e251`, Artificial Shark): `ti_schema`/`ti_query`/`ti_explain`/`lume_sql`, schema-first, 3 SQL retries, `--json`; plugin Ask tab |
 | `899898b` | **MCP ergonomics** (`9264447`): schema with columns and counts, data-model guide in tool descriptions with live bucket width, teaching errors, unknown arguments ignored with a note |
 | `9d90cf9`, `78b326e`, `472d6e6`, `48696a6`, `3aec284` | Plugin UI: login hint to the Signal K host name and HaLOS SSO, Log in link, not-logged-in banner; wind preset uses `speedApparent`, trimmed column-dump errors; webapp requests JSON (console had never shown results) |
@@ -143,9 +158,9 @@ Earlier: `39c0096` `ti_resolve` 93/100 + `--bind`, `0b3a17a` fmt, `400557c` READ
 
 | Agent (pane name) | Pane | Lane/scope | Branch | Clone | Last known state |
 |---|---|---|---|---|---|
-| Industrial Pike | `ee764a09` | Lead and integrator. Host runs and oracles (DuckDB, `lume ti verify`, rules and robots oracles, D38 regression), host fmt/clippy at merge, disk policy. **Pi 5 deployment** and the Influx-vs-Lume benchmark runs. Owns the M5 item 2 agent run and grading | `plan/lume-ti` | shared tree | `492f12b` |
-| Long Horse (formerly Rigid Roadrunner) | `888bff45` | **`ti/query-cache`** (sealed-shard LRU, 256 MiB), then the `@last` default. Delivered `q2-001`, the M5 agent harness, MCP ergonomics, `count_paths`, D43 library extraction, plugin-managed pgwire, the Influx-vs-Lume bench, pgwire + SCRAM, the History API provider, `lume sql`, the CRoaring evaluation, W9 and W10 | `ti/query-cache` | `.lanes/w4` | In progress |
-| Artificial Shark (formerly Romantic Pike) | `fd91f4b1` | **`ti/pi-ingest-bench`**: M2 item 3 script. Delivered `lume chat` and the Ask tab, pg-limits, M6 HTTP sync, ti-sync, the live ingest service, the plugin, `--hz` and the bench harness | `ti/pi-ingest-bench` | `.lanes/w3` | In progress. Its plugin edits once leaked into the shared tree (rescued as a patch) |
+| Industrial Pike | `ee764a09` | Lead and integrator. Host runs and oracles (DuckDB, `lume ti verify`, rules and robots oracles, D38 regression), host fmt/clippy at merge, disk policy. **Pi 5 deployment**, the Influx-vs-Lume benchmark and the M2 item 3 load run | `plan/lume-ti` | shared tree | `2df24b5` |
+| Long Horse (formerly Rigid Roadrunner) | `888bff45` | **D45 binary size** (LTO/codegen-unit trade-offs). Delivered the query cache, History `:last` fallback, `IS DISTINCT FROM` pushdown, `ti_resolve` idioms, `q2-001`, the M5 agent harness, MCP ergonomics, `count_paths`, D43, plugin pgwire, the Influx-vs-Lume bench, pgwire + SCRAM, the History API provider, `lume sql`, the CRoaring evaluation, W9 and W10 | `ti/binary-size` | `.lanes/w4` | In progress |
+| Artificial Shark (formerly Romantic Pike) | `fd91f4b1` | **D46 pgwire TLS proposal**. Delivered `ti-bench sk-feed`, the Pi ingest sampler, `lume chat` and the Ask tab, pg-limits, M6 HTTP sync, ti-sync, the live ingest service, the plugin, `--hz` and the bench harness | `ti/pg-tls` | `.lanes/w3` | In progress. Its plugin edits once leaked into the shared tree (rescued as a patch) |
 | Zygomorphic Prawn | `eccaf836` | — | — | `.lanes/corpus` (retired) | **Retired.** Its `target/` has been deleted |
 | Compact Echidna (formerly Regular Pheasant) | `6914c38e` | Host build pane (PowerShell 7, rustc 1.96.1). Not an agent | — | — | Bulk data and DuckDB jobs run here. **Check free disk before big builds** |
 
@@ -159,13 +174,13 @@ Week numbers count from kickoff. A milestone closes only when every gate test pa
 |---|---|---|---|
 | M0 Contracts | W0 | 1 | **✅ Complete** (`312f6a0`) |
 | M1 Core and store | W1, W2 | 2–4 | **Complete** (`cf98c61`). Sealed-data repair hardened in `b23514a` |
-| M2 Ingest | W3 | 2–5 | **In progress.** Items 1 and 2 passed. Item 3 (Pi 5 throughput/RSS) is open; the script is in flight (`ti/pi-ingest-bench`) |
+| M2 Ingest | W3 | 2–5 | **In progress.** Items 1 and 2 passed. Item 3 open: a 1-hour Pi stability run passed (46.6 values/s, input-bound), and the 20k values/s `sk-feed` load run is next |
 | M3 SQL and pushdown | W4 | 2–6 | **✅ Closed 2026-10-06** (`711d2c4`) |
 | M4 Text, geo, intervals | W4, W5, W6 | 6–8 | **All three items met on the host** (CI not run on this branch). Item 1: corpus 61/0/1 (`a264ed2`). Item 2: 72.4×. Item 3: CRoaring rejected (D40, `f38ecb4`) |
-| M5 Agent surface | W7 | 7–9 | **In progress.** Item 1 met (93/100). Item 2: **harness merged, not passed** (`qwen2.5:7b` 4/20; `glm-5.3` 14/20 before MCP fixes, rerun in progress). Item 3: plugin, History API provider (now the Pi's default) and plugin-managed SCRAM pgwire deployed on the Pi (token pending). Pi pg smoke 16/20; the cap is fixed (`0798966`), rerun pending. Offline npm package (D44) merged |
+| M5 Agent surface | W7 | 7–9 | **In progress. Items 1 and 2 passed** (`ti_resolve` 100/100; agent `glm-5.3` 17/20 with the harness standing in for nemesis8). Item 3: plugin, History API provider (the Pi's default) and plugin-managed SCRAM pgwire deployed on the Pi (token pending). Pi pg smoke 16/20 before pg-limits, rerun pending. Store-based installs, Pi 4 and OpenPlotter not done |
 | M6 Fleet and benchmarks | W8, integrator | 9–12 | **In progress.** Item 2 **passed** (50 vessels, 67.32 s release). Item 1: lossy-HTTP results to the lead. Item 3: Influx-vs-Lume Pi benchmark run (50 min); report not written |
 
-Also landed outside the original milestones: W9 generic Parquet (accepted), W10 alerts (accepted), the cruiser library (`lume crawl --list`, D43), the D44 plugin package and `lume chat`. Remaining: M2 item 3, M5 items 2 and 3, M6 items 1 and 3, the query cache and `@last` default, and the Pi 5 deployment.
+Also landed outside the original milestones: W9 generic Parquet (accepted), W10 alerts (accepted), the cruiser library (`lume crawl --list`, D43), the D44 plugin package, `lume chat`, the query cache and `IS DISTINCT FROM` pushdown. Remaining: M2 item 3, M5 item 3, M6 items 1 and 3, D45/D46, and the Pi 5 deployment.
 
 ### M2 gate detail
 
@@ -173,7 +188,7 @@ Also landed outside the original milestones: W9 generic Parquet (accepted), W10 
 |---|---|---|
 | 1 | Replaying a recorded 24 h delta log yields `BucketRecord`s equal to oracle bucketing | **Passing on real data**: 460,112/460,112 (`8931877`) |
 | 2 | Parquet backfill of the correctness set is idempotent | **✅ Passed** (`11c0edc`): 65 sealed shards identical on rerun. Still holds on the W9 backfill path (65/65, `167f391`) |
-| 3 | Pi 5 sustains 20,000 values/s for 1 h within the CPU and RSS budget | **Open.** Only a host x86 figure so far (181,783 values/s). The Pi script is in flight (Artificial Shark, `ti/pi-ingest-bench`). The Pi runs at 82–86 °C under load without an Active Cooler |
+| 3 | Pi 5 sustains 20,000 values/s for 1 h within the CPU and RSS budget (≤ 25 % of one core, ≤ 400 MB RSS) | **Open.** Host x86: 181,783 values/s. Pi 1-hour live run (`6d7f5c1`): 46.6 values/s input-bound, RSS 119 MiB, CPU 8.4 %, 77 °C, 0 blocked/failures; stability only, **not the gate**. Next: `ti-bench sk-feed --ramp` (20k for 60 min, then 25k/30k/40k for 5 min each) against a temp store; the Pi is building. Without an Active Cooler the Pi has reached 82–86 °C under load |
 
 ### M4 gate detail
 
@@ -187,8 +202,8 @@ Also landed outside the original milestones: W9 generic Parquet (accepted), W10 
 
 | # | Gate item | State |
 |---|---|---|
-| 1 | MCP tools live in `lume serve`, and `ti_resolve` returns the right column in the top 3 for ≥ 90 % of a 100-phrase test set | **✅ Met** (`39c0096`): 93/100 (fixture accuracy) |
-| 2 | A nemesis8 agent with only Lume MCP answers 20 scripted fleet questions; integrator grades against oracle results | **Open, not passed.** Harness merged (`02f826a`): `bench/agent_mcp_run.py` (read-only `ti_*` tools only, OpenAI-compatible endpoint), 20 new questions in `tests/golden/agent_questions.json` with hidden DuckDB answers, host-only `bench/agent_mcp_grade.py`. `qwen2.5:7b` local: 0/20, then 4/20 after the MCP fixes. `glm-5.3` cloud: 14/20 auto-graded before the fixes, 3 prose-table answers need hand grading; rerun in progress. The original 20 fleet questions still pass as a regression (20/20) |
+| 1 | MCP tools live in `lume serve`, and `ti_resolve` returns the right column in the top 3 for ≥ 90 % of a 100-phrase test set | **✅ Passed** (`8d7cdbf` + `b9d3b1a`): 100/100 top-3 on the live MCP eval (holdout 30/30), from a 65/100 baseline; the lead's blind 20: 19/20 top-3, 18/20 top-1. (Was 93/100 fixture accuracy at `39c0096`) |
+| 2 | A nemesis8 agent with only Lume MCP answers 20 scripted fleet questions; integrator grades against oracle results | **✅ Passed, with a deviation** (`7f048e6`): `glm-5.3` 17/20 (15/20 before the MCP fixes), `qwen2.5:7b` 5/20 (0/20 before), on `tests/golden/agent_questions.json` with hidden DuckDB answers, graded by `bench/agent_mcp_grade.py` (rows by value, constant columns optional). **Deviation:** the `bench/agent_mcp_run.py` runtime, offering only the read-only `ti_*` tools, stood in for a nemesis8 agent |
 | 3 | Signal K plugin installs on a HALPI2 from the HaLOS Marine container store, and on OpenPlotter from the Signal K App Store (Pi 4 4 GB and Pi 5), obtains a token and supervises ingest. psql and Grafana pass a 20-query smoke set | **Open.** Plugin merged (`31841c3`) with access-request auth and supervision, plus the History API provider (`e09bb87`). pgwire merged (`451bfc7`), Grafana-compatible with verifier-only SCRAM since `7c4cb23` (D42; TLS not offered), plugin-managed with Grafana provisioning since `1bbbac2`. **Installed on the Pi 5** by hand (binary at `1bbbac2`); the token is still pending the user's approval. **psql smoke on the Pi: 16/20**, stopped at case 17 on the 500-row/64 KiB cap (`ti/pg-limits`). Grafana Save & Test, store-based installs, Pi 4 and OpenPlotter are not done |
 
 ### M6 gate detail
@@ -231,26 +246,27 @@ Spec deviations and proposals needing the user:
 
 ## Open items (team, not user)
 
-- [ ] **Pi 5 deployment** (lead): binary at `7081006`, plugin JS, vessel UUID pin and Lume as default History provider are done. Still to do: the user approves the plugin's access request (needed by the notes/logbook poller).
+- [ ] **Pi 5 deployment** (lead): binary at `6d7f5c1` (cache 64 MiB), plugin JS, vessel UUID pin, Lume as default History provider with `:last` fallback are done. Still to do: the user approves the plugin's access request (needed by the notes/logbook poller).
 - [ ] **Pi pg smoke rerun** (16/20 before pg-limits) and Grafana Save & Test for M5 item 3, after the D43 build is deployed.
 - [ ] **Pi Q6 re-verification** of the bucket-gap fix (`3896e5c`) after deployment.
-- [ ] **Query cache** (Long Horse, `ti/query-cache`): sealed-shard LRU, 256 MiB default. Then the `@last` default with mean fallback and `method_used`.
+- [ ] **M2 item 3 load run** (lead): `ti-bench sk-feed` ramp against a separate temp store on the Pi (20k values/s for 60 min, then 25k/30k/40k for 5 min each), sampled with `bench/pi_ingest_run.sh`.
+- [x] Query cache (`f17885d`), History `:last` fallback (`c592a17`), `IS DISTINCT FROM` pushdown (`cebf5ea`; all classes meet p95), Pi 1-hour stability run (`6d7f5c1`).
 - [x] `q2-001` (`a264ed2`, corpus 61/0/1, M4 item 1). `lume chat` + Ask tab (`492f12b`). MCP ergonomics (`899898b`). Plugin UI login and JSON fixes.
 - [ ] **D44 package:** rebuild arm64 and x64 from one revision before publishing; size-reduction options not implemented.
 - [x] pg-limits (`0798966`). Bucket-gap fix (`3896e5c`). `count_paths` (`7bf038d`). M6 item 2 (50 vessels, 67.32 s). Cruiser library and D43.
 - [x] Influx-vs-Lume 50-min Pi run (20 runs; see Critical path).
 - [x] Plugin-managed SCRAM pgwire + Grafana provisioning (`1bbbac2`).
-- [ ] **M5 item 2** (lead): finish the `glm-5.3` rerun after the MCP fixes, hand-grade the prose-table answers, and decide pass/fail. Harness merged (`02f826a`).
-- [ ] **D45 binary-size work**: paused (x64 thin LTO, codegen-units 1: 100.85 MB, 34.78 MB gzip).
+- [x] **M5 item 2** (`7f048e6`): `glm-5.3` 17/20; deviation: harness runtime instead of nemesis8. **M5 item 1** (`8d7cdbf`): `ti_resolve` 100/100.
+- [ ] **D45 binary size** (Long Horse, `ti/binary-size`): fat/1 92.8 MB but 7.62 GiB build peak RSS (fat LTO already OOMed on the Pi); thin/16 146.3 MB and 10.7 % slower (fails the 5 % rule); thin/1 101.1 MB, timing pending.
 - [ ] **M6**: lossy-HTTP results to the lead (item 1), then the benchmark report and the go/no-go (item 3). Item 2 passed.
 - [x] `lume sql` and `--docs-index` (`c130bc1`).
 - [x] `croaring` evaluation (M4 item 3): rejected, D40.
 - [x] **`count_paths` host acceptance** (`7bf038d`): 65 empty-list shard hashes MATCH; stores rebuilt and oracle rerun exited 0 after `a264ed2`. See [the contract](design/count-paths.md) and `tests/golden/count_paths_oracle.py`.
 - [ ] **`qx-003`**: keep the join-form `qx-013`, or revisit on a DataFusion upgrade.
-- [ ] pgwire TLS. SCRAM landed (D42, `7c4cb23`); D13's aarch64 smoke: SCRAM login works on the Pi (`tests/pg_smoke.sh`, 16/20 before pg-limits).
+- [ ] pgwire TLS: **D46 proposal** next (Artificial Shark, `ti/pg-tls`). SCRAM landed (D42, `7c4cb23`); D13's aarch64 smoke: SCRAM login works on the Pi (`tests/pg_smoke.sh`, 16/20 before pg-limits).
 - [ ] **User licence decision** on `signalk_paths.json` (user item 16).
 - [ ] Meridian VHF transcripts. Not done. (Notes and logbook polling landed in `db2e777`, D41.)
-- [ ] Pi 5 throughput/RSS run for M2 item 3 (script on `ti/pi-ingest-bench`).
+- [ ] Pi 5 throughput/RSS for M2 item 3: see the load run above. Sampler `bench/pi_ingest_run.sh` merged (`7407378`).
 - [ ] `tests/golden/README.md` still describes the W10 rule as `for 5m`, but the oracle and test now use a 30 s hold (`6d51df5`). Owner to fix (outside docs-keeper scope).
 - [x] W10 alerts accepted (118/118/118; `match(alerts,'battery')` 357 buckets).
 - [x] W9 accepted (robots 14/14 DuckDB, verify 14/0/0; boat 65/65 hashes, 58/0/4; 174,769 rows/s).
