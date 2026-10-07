@@ -101,6 +101,8 @@ fn test_ingest_serve_live_queries_grow_without_restart() {
             "--pg-auth-config",
             auth_path.to_str().unwrap(),
         ])
+        // Exact bucket counts below; Lume's own `lume.urn:` rows would add to them.
+        .env("LUME_TI_SELF_TELEMETRY", "0")
         .stdout(Stdio::null())
         .stderr(Stdio::inherit())
         .spawn()

@@ -392,8 +392,8 @@ mod tests {
         ] {
             assert!(Verifier::parse(value).is_err());
         }
-        assert!(AuthConfig::new(vec![], true).is_err());
-        assert!(AuthConfig::new(vec![], false).is_ok());
+        assert!(AuthConfig::new(vec![], true, false).is_err());
+        assert!(AuthConfig::new(vec![], false, false).is_ok());
     }
     #[test]
     fn malformed_scram_attributes_rejected() {
