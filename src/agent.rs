@@ -771,7 +771,18 @@ pub fn serve_with_ti_pg_config(
     port: u16, root: &std::path::Path, bind: &str, pg: Option<u16>,
     pg_bind: Option<&str>, pg_auth_config: Option<&std::path::Path>,
 ) -> Result<(), String> {
+    serve_with_ti_pg_docs_config(port, root, bind, pg, pg_bind, pg_auth_config, None)
+}
+#[cfg(feature = "ti")]
+pub fn serve_with_ti_pg_docs_config(
+    port: u16, root: &std::path::Path, bind: &str, pg: Option<u16>,
+    pg_bind: Option<&str>, pg_auth_config: Option<&std::path::Path>,
+    docs_index: Option<&std::path::Path>,
+) -> Result<(), String> {
     let mut ti = crate::ti_http::TiServer::open(root)?;
+    if let Some(path) = docs_index {
+        ti = ti.with_docs_index(path)?;
+    }
     if let Some(path) = pg_auth_config {
         ti = ti.with_pg_auth_config(path)?;
     }

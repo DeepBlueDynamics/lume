@@ -94,6 +94,8 @@ def extract_pdf(pdf_path):
     """Extracts text from a PDF file and returns a list of pages with text."""
     try:
         reader = pypdf.PdfReader(pdf_path)
+        if reader.is_encrypted:
+            return {"success": False, "error": "encrypted PDF skipped"}
         raw_pages = []
         for i, page in enumerate(reader.pages):
             text = page.extract_text()
@@ -104,7 +106,7 @@ def extract_pdf(pdf_path):
             {"page_number": n, "text": repair_split_words(t, vocab)}
             for n, t in raw_pages
         ]
-        return {"success": True, "pages": pages}
+        return {"success": True, "pages": pages, "total_pages": len(reader.pages)}
     except Exception as e:
         return {"success": False, "error": str(e)}
 

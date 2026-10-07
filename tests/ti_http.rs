@@ -13,6 +13,9 @@ use ti_contracts::{
 mod pg_extended_tests;
 #[path = "support/pg.rs"]
 mod pg_tests;
+#[path = "support/library.rs"]
+mod library_tests;
+use library_tests::rebuild_manual;
 static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 struct Server {
     child: Child,
@@ -50,6 +53,12 @@ impl Server {
         history: bool,
         pg_bind: Option<&str>,
         external_auth: bool,
+    ) -> Self {
+        Self::start_with_docs(bind, pg, verifier, history, pg_bind, external_auth, false)
+    }
+    fn start_with_docs(
+        bind: Option<&str>, pg: bool, verifier: Option<&str>, history: bool,
+        pg_bind: Option<&str>, external_auth: bool, docs: bool,
     ) -> Self {
         let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!(
             "http-{}-{}",
@@ -165,10 +174,24 @@ impl Server {
                 .unwrap();
             }
         }
+        if docs {
+            ti_store::DocStore::open(&store_root).unwrap().upsert_all([ti_contracts::Document {
+                id: "alert:bilge".into(), vessel: "vessels.urn:test:http".into(), kind: "alerts".into(),
+                ts_start: ti_contracts::EPOCH + 10, ts_end: Some(ti_contracts::EPOCH + 20),
+                title: "Bilge alarm".into(), body: "bilge pump alarm".into(),
+            }]).unwrap();
+            let dir = root.join("manual");
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("manual.md"), "## Bilge manual\n\nA bilge pump original procedure. Inspect the inlet, strainer, float switch and discharge hose. Test operation and keep the boat safe before departure.\n").unwrap();
+            rebuild_manual(&root);
+        }
         let mut command = Command::new(env!("CARGO_BIN_EXE_lume"));
         command
             .args(["serve", "--port", "0", "--ti-store"])
             .arg(&store_root);
+        if docs {
+            command.arg("--docs-index").arg(root.join("index"));
+        }
         if let Some(bind) = bind {
             command.args(["--bind", bind]);
         }

@@ -43,6 +43,8 @@ pub struct TiServer {
     store: Arc<Mutex<ti_store::Store>>,
     receiver: Arc<ti_sync::ShoreReceiver>,
     sync_token: Option<String>,
+    docs_index: Option<Mutex<crate::ti_docs_index::DocsIndex>>,
+    docs_reload: Mutex<()>,
 }
 
 impl TiServer {
@@ -111,7 +113,41 @@ impl TiServer {
             store,
             receiver,
             sync_token,
+            docs_index: None,
+            docs_reload: Mutex::new(()),
         })
+    }
+
+    /// Register an ordinary index; an absent index starts with an empty sections table.
+    pub fn with_docs_index(mut self, root: &Path) -> Result<Self, String> {
+        self.docs_index = Some(Mutex::new(crate::ti_docs_index::DocsIndex::new(root)));
+        self.force_reload_engine()?;
+        Ok(self)
+    }
+
+    fn refresh_docs_index(&self) {
+        let Some(index) = &self.docs_index else { return };
+        let Ok(_reload) = self.docs_reload.try_lock() else { return };
+        let Ok(mut index) = index.try_lock() else { return };
+        if !index.ready(Instant::now()) {
+            return;
+        }
+        // Release the watcher lock before opening the engine, which also reads this path.
+        drop(index);
+        match self.force_reload_engine() {
+            Ok(()) => {
+                if let Ok(mut index) = self.docs_index.as_ref().unwrap().lock() {
+                    index.acknowledge();
+                }
+            }
+            Err(error) => {
+                eprintln!("Library index reload failed; retaining previous snapshot: {error}");
+                if let Ok(mut index) = self.docs_index.as_ref().unwrap().lock() {
+                    // Retry when a subsequent publication changes the marker.
+                    index.acknowledge();
+                }
+            }
+        }
     }
 
     /// External auth replaces store auth entirely; ingest/query configuration is untouched.
@@ -154,6 +190,10 @@ impl TiServer {
                 Some(&factory),
             ))
             .map_err(|e| e.to_string())?;
+        if let Some(index) = &self.docs_index {
+            let root = index.lock().map_err(|e| e.to_string())?.root.clone();
+            crate::ti_docs_index::register(&engine.session, &root)?;
+        }
         self.runtime
             .block_on(ti_sql::postgres::register(&engine))
             .map_err(|e| e.to_string())?;
@@ -166,6 +206,7 @@ impl TiServer {
         Ok(())
     }
     pub(crate) fn pg_describe(&self, sql: &str, hints: &[String]) -> Result<Value, String> {
+        self.refresh_docs_index();
         let engine = self.engine.read().map_err(|e| e.to_string())?.clone();
         let _guard = self.gate.lock().map_err(|e| e.to_string())?;
         engine
@@ -181,6 +222,7 @@ impl TiServer {
         sql: &str,
         parameters: Vec<ti_sql::postgres::Parameter>,
     ) -> Result<Value, String> {
+        self.refresh_docs_index();
         let engine = self.engine.read().map_err(|e| e.to_string())?.clone();
         let _guard = self.gate.lock().map_err(|e| e.to_string())?;
         engine
@@ -222,6 +264,7 @@ impl TiServer {
                 return Err("store must match the server's --ti-store".into());
             }
         }
+        self.refresh_docs_index();
         let engine = self.engine.read().map_err(|e| e.to_string())?.clone();
         if let Some(width) = args.get("width_seconds") {
             if width.as_u64() != Some(engine.session.catalog.width_seconds) {
@@ -534,6 +577,7 @@ impl TiServer {
         if !args.is_object() {
             return Err("body must be a JSON object".into());
         }
+        self.refresh_docs_index();
         let engine = self.engine.read().map_err(|e| e.to_string())?.clone();
         let _guard = self.gate.lock().map_err(|e| e.to_string())?;
         engine
