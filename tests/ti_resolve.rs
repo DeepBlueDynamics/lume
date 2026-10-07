@@ -3,6 +3,8 @@ use lume::ti_resolve::PathsResolver;
 use serde_json::{json, Value};
 use std::{collections::BTreeMap, sync::Arc};
 use ti_contracts::{Agg, BucketRecord, FieldKind, FieldSpec, FieldValue, ShardKey, EPOCH};
+#[path = "support/resolve_eval.rs"]
+mod live_evaluation;
 #[test]
 fn one_hundred_phrases_reach_ninety_percent_top_three() {
     let bundle: Value =
@@ -166,6 +168,14 @@ fn canonical_columns_latest_nonnull_and_vessel_filters() {
             .as_str()
             .unwrap()
             .contains("speed over ground"));
+        let inferred = resolver
+            .resolve(&engine, &json!({"phrase":"boat 1 SOG","limit":1}))
+            .await
+            .unwrap();
+        assert_eq!(
+            inferred["candidates"][0]["last_vessel"],
+            "vessels.urn:test:1"
+        );
         let result = resolver
             .resolve(&engine, &json!({"phrase":"SOG","vessel":"boat 1"}))
             .await
@@ -209,4 +219,51 @@ fn canonical_columns_latest_nonnull_and_vessel_filters() {
             .unwrap();
         assert_eq!(none["candidates"], json!([]));
     });
+}
+
+#[test]
+fn vocabulary_units_typos_and_distinct_paths_work_without_boat_specific_names() {
+    let mut fields = Vec::new();
+    for path in [
+        "environment.depth.belowTransducer",
+        "electrical.batteries.reserve.voltage",
+        "electrical.batteries.reserve.current",
+        "navigation.position.latitude",
+    ] {
+        for agg in [Agg::Mean, Agg::Min, Agg::Max, Agg::Last] {
+            fields.push(FieldSpec {
+                id: fields.len() as u32,
+                path: path.into(),
+                agg: Some(agg),
+                kind: FieldKind::Bsi { scale: 3 },
+                units: None,
+            });
+        }
+    }
+    let catalog = ti_sql::SqlCatalog::new(10, fields, vec![], BTreeMap::new()).unwrap();
+    let resolver = PathsResolver::new(&catalog);
+    for (phrase, path) in [
+        ("reserve bank volts", "electrical.batteries.reserve.voltage"),
+        ("reserve bank amps", "electrical.batteries.reserve.current"),
+        ("deep beneath sounder", "environment.depth.belowTransducer"),
+        ("latitdue", "navigation.position.latitude"),
+    ] {
+        let ranked = resolver.rank(phrase, 3);
+        assert!(
+            ranked
+                .iter()
+                .any(|(c, _)| c.split('@').next() == Some(path)),
+            "{phrase}: {ranked:?}"
+        );
+        let unique: std::collections::BTreeSet<_> = ranked
+            .iter()
+            .map(|(c, _)| c.split('@').next().unwrap())
+            .collect();
+        assert_eq!(unique.len(), ranked.len(), "{ranked:?}");
+    }
+    assert_eq!(
+        resolver.rank("minimum depht", 1)[0].0,
+        "environment.depth.belowTransducer@min"
+    );
+    assert!(resolver.rank("zzyyxxyy", 3).is_empty());
 }

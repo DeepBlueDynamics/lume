@@ -1,0 +1,142 @@
+{
+  "description": "General nautical lexical vocabulary; wildcard catalog patterns, abbreviations and display units. No evaluation phrases or vessel-specific values.",
+  "entries": [
+    {
+      "pattern": "navigation.speedOverGround",
+      "aliases": "SOG boat speed GPS groundspeed knots kts movement making headway",
+      "units": "m/s"
+    },
+    {
+      "pattern": "navigation.speedThroughWater",
+      "aliases": "STW boatspeed log speed water knots kts",
+      "units": "m/s"
+    },
+    {
+      "pattern": "environment.depth.belowTransducer",
+      "aliases": "deep depth sounder echo echosounder fathoms bottom underneath beneath water clearance",
+      "units": "m"
+    },
+    {
+      "pattern": "environment.depth.belowKeel",
+      "aliases": "UKC keel clearance underkeel",
+      "units": "m"
+    },
+    {
+      "pattern": "environment.wind.speedApparent",
+      "aliases": "AWS apparent relative wind bow hitting felt strength strong breeze",
+      "units": "m/s"
+    },
+    {
+      "pattern": "environment.wind.speedTrue",
+      "aliases": "TWS true actual wind motion corrected strength strong breeze",
+      "units": "m/s"
+    },
+    {
+      "pattern": "navigation.position",
+      "aliases": "position location whereabouts coordinates where GPS"
+    },
+    {
+      "pattern": "navigation.position.latitude",
+      "aliases": "lat latitude north south northing GPS degrees",
+      "units": "rad"
+    },
+    {
+      "pattern": "navigation.position.longitude",
+      "aliases": "lon long longitude east west easting GPS degrees",
+      "units": "rad"
+    },
+    {
+      "pattern": "navigation.attitude.roll",
+      "aliases": "roll rolling heel heeling lean leaning side tilt angle",
+      "units": "rad"
+    },
+    {
+      "pattern": "navigation.attitude.pitch",
+      "aliases": "pitch pitching fore aft bow stern longitudinal tilt angle",
+      "units": "rad"
+    },
+    {
+      "pattern": "navigation.state",
+      "aliases": "nav navigation status state anchored anchor moored sailing underway stopped"
+    },
+    {
+      "pattern": "electrical.batteries.*.voltage",
+      "aliases": "battery batteries bank volts voltage potential domestic service",
+      "units": "V"
+    },
+    {
+      "pattern": "electrical.batteries.*.current",
+      "aliases": "battery batteries bank amps amperes current charging discharging domestic service",
+      "units": "A"
+    },
+    {
+      "pattern": "electrical.batteries.*.stateOfCharge",
+      "aliases": "battery batteries bank SOC remaining charge fraction percentage percent capacity domestic service",
+      "units": "ratio"
+    },
+    {
+      "pattern": "electrical.batteries.*.capacity.stateOfCharge",
+      "aliases": "battery batteries bank SOC remaining charge fraction percentage percent capacity domestic service",
+      "units": "ratio"
+    },
+    {
+      "pattern": "electrical.solar.*.panelPower",
+      "aliases": "solar PV photovoltaic panels generated generation output watts power electricity",
+      "units": "W"
+    },
+    {
+      "pattern": "environment.outside.pressure",
+      "aliases": "barometer barometric atmosphere atmospheric air pressure millibars mbar hpa",
+      "units": "Pa"
+    },
+    {
+      "pattern": "environment.outside.temperature",
+      "aliases": "ambient outside outdoor air temperature hot heat weather degrees Celsius centigrade",
+      "units": "K"
+    },
+    {
+      "pattern": "propulsion.*.revolutions",
+      "aliases": "engine motor RPM rev revs revolution revolutions tach tachometer counter rotation rotating frequency",
+      "units": "Hz"
+    },
+    {
+      "pattern": "propulsion.*.motorPower",
+      "aliases": "engine motor electric electrical delivering output watts kilowatts power propulsion",
+      "units": "W"
+    },
+    {
+      "pattern": "propulsion.*.temperature",
+      "aliases": "engine motor temperature heat hot overheating coolant Celsius kelvin",
+      "units": "K"
+    },
+    {
+      "pattern": "propulsion.*.state",
+      "aliases": "engine motor diesel state status started stopped running operating on off"
+    },
+    {
+      "pattern": "tanks.freshWater.*.currentLevel",
+      "aliases": "freshwater fresh drinking potable water tank level remaining fill percentage percent",
+      "units": "ratio"
+    },
+    {
+      "pattern": "electrical.bilge.pumpCycles",
+      "aliases": "bilge pump cycles cycle activations activated starts pumped pumping count pcycles"
+    },
+    {
+      "pattern": "navigation.courseOverGroundTrue",
+      "aliases": "COG course true heading ground"
+    },
+    {
+      "pattern": "navigation.courseOverGroundMagnetic",
+      "aliases": "COG course magnetic heading ground"
+    },
+    {
+      "pattern": "environment.wind.angleApparent",
+      "aliases": "AWA apparent wind angle"
+    },
+    {
+      "pattern": "environment.wind.angleTrueWater",
+      "aliases": "TWA true wind angle"
+    }
+  ]
+}

@@ -59,7 +59,7 @@ tests check the refactor's compatibility. On rustc 1.99, contracts/store tests p
 60/60 with the 1,000-process crash gate explicitly skipped; strict clippy on
 contracts/store/sql/bench passed, and Python bench tests passed 34/34. The benchmark
 fingerprint unit test compiled under all-target clippy but has not run locally.
-Native performance results are below; full TI tests and the host corpus gate remain pending.
+Native performance and the host corpus gate are recorded below; full TI tests remain pending.
 
 ## Native host measurements (2026-10-07)
 
@@ -90,6 +90,7 @@ Q5's slow warm case is q5-002 (electric-only motoring intervals using motor powe
 and IS DISTINCT FROM on diesel state): 299.98 ms, versus 6.76 ms for q5-001.
 The 256 MiB run records no evictions for either query, so retained-cache capacity
 does not explain this difference. Profiling q5-002 is queued after resolve-eval;
-no cause or fix has been established. The cache-enabled full corpus gate remains
-pending on the host.
+no cause or fix has been established. The lead verified the cache-enabled release
+build against the count_paths store: 61 passed / 0 failed / 1 excluded, with all
+20 A/B fingerprints matching.
 

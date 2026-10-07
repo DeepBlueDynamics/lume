@@ -148,8 +148,26 @@ Q5's slow warm case is q5-002 (electric-only motoring intervals using motor powe
 and IS DISTINCT FROM on diesel state): 299.98 ms, versus 6.76 ms for q5-001.
 The 256 MiB run records no evictions for either query, so retained-cache capacity
 does not explain this difference. Profiling q5-002 is queued after resolve-eval;
-no cause or fix has been established. The cache-enabled full corpus gate remains
-pending on the host.
+no cause or fix has been established. The lead verified the cache-enabled release
+build against the count_paths store: 61 passed / 0 failed / 1 excluded, with all
+20 A/B fingerprints matching.
+
+## 8. Resolve accuracy through live MCP (M5 item 1)
+
+100 new natural sailor/agent phrases over store-full, with 30 holdout phrases
+committed before reading the resolver or tuning. Rust 1.99 debug, real loopback
+lume serve MCP endpoint; zero transport errors.
+
+| Split | Baseline top 1 / top 3 | Improved top 1 / top 3 |
+|---|---:|---:|
+| All 100 | 47 / 65 | **99 / 100** |
+| Development 70 | 34 / 47 | 69 / 70 |
+| Frozen holdout 30 | 13 / 18 | **30 / 30** |
+
+General nautical vocabulary, units, unique single-edit typo corrections and
+distinct-path candidate ranking improve the resolver. The fixture was unchanged
+during tuning; holdout miss details were withheld until the final run.
+See plan/design/resolve-eval.md for reproduction and limitations.
 
 ## Not yet measured
 
