@@ -489,7 +489,8 @@ fn test_sync_config_token_file_error_and_permissions() {
     let empty_file = scratch.0.join("empty_token");
     std::fs::write(&empty_file, "   \n").unwrap();
     let cfg_empty = ti_contracts::TiConfig::from_toml(&format!(
-        "width_seconds = 10\n[sync]\ntoken_file = \"{}\"\n",
+        // TOML literal string: Windows paths contain backslashes.
+        "width_seconds = 10\n[sync]\ntoken_file = '{}'\n",
         empty_file.display()
     ))
     .unwrap();
