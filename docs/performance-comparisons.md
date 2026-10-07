@@ -41,8 +41,8 @@ Golden boat corpus: 5 vessels, 11,500 Parquet files. Command: `lume ti backfill`
 | Metric | Value |
 |---|---:|
 | Raw rows ingested | 95,924,426 |
-| Backfill time | 744.5 s |
-| Throughput | **128,847 rows/s** |
+| Backfill time | 744.5 s → **637.3 s** after `7ea727d` |
+| Throughput | 128,847 → **150,510 rows/s** (+17%; per-accumulator admission charging, same 8,060 shard files byte for byte) |
 | Shards sealed | 65 in 16.9 s |
 | Raw Parquet on disk | 1,892.7 MB |
 | Lume index on disk | 730.8 MB (**0.39× raw**) |
