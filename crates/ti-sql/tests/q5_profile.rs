@@ -147,13 +147,18 @@ async fn nullable_distinct_from_intervals_equal_bitmap_expression_across_shards(
     assert_eq!(a, b);
     assert_eq!(a.len(), 3);
     assert!(
-        original["plan"]
-            .as_str()
-            .unwrap()
-            .contains("materialization fallback"),
+        original["plan"].as_str().unwrap().contains("bitmap runs"),
         "{original}"
     );
-    assert!(original["materialized_rows"].as_u64().unwrap() > 0);
+    assert_eq!(original["materialized_rows"], 0);
+    let forced_residual = DISTINCT.replace("motorPower\" > 500", "motorPower\" + 0 > 500");
+    let (residual, c) = measure(&session, &forced_residual).await;
+    assert_eq!(a, c);
+    assert!(residual["plan"]
+        .as_str()
+        .unwrap()
+        .contains("materialization fallback"));
+    assert!(residual["materialized_rows"].as_u64().unwrap() > 0);
     assert!(
         rewritten["plan"].as_str().unwrap().contains("bitmap runs"),
         "{rewritten}"

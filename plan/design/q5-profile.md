@@ -91,3 +91,61 @@ residual. Test missing fields, NULL literals, unknown dictionary values, numeric
 columns and negated forms against DataFusion before changing the classifier.
 The paired diagnostic shows that avoiding materialization is useful; no production
 implementation or native target claim is included in this commit.
+
+## Exact classifier implementation
+
+The follow-up translates indexed scalar numeric/count/dictionary comparisons
+using the existing bitmap IR. For non-NULL literals, DISTINCT is IS NULL OR <>,
+and NOT DISTINCT is IS NOT NULL AND =. The explicit presence guard supplies a
+FALSE mask for absent values; without it equality would remain UNKNOWN beneath
+NOT. NULL literals become IS NOT NULL or IS NULL respectively. Reversed
+literal/column operands are supported. Arrays, column-to-column comparisons and
+unsupported encodings remain residual. No seal encoding or golden SQL changes.
+
+The regression fixture spans two vessels and the 65,536-bucket shard boundary,
+with NULLs, whole-shard missing fields, unknown dictionary values, counts and
+Float64 reconstruction collisions. It compares pushed rows against an ordinary
+Arrow MemTable evaluated by DataFusion, and directly verifies that every distinct
+predicate and its negation have empty UNKNOWN masks. Nested NOT/AND/OR and
+reversed operands are included. The interval fixture compares both bitmap forms
+against a forced materialization fallback and preserves the NULL arm check.
+
+Observed targeted tests: boundaries 2/2, distinct 2/2, provider 6/6 and the
+ordinary Q5 interval regression 1/1; the boat profile is ignored by default.
+The distinct test covers 132 pushed/residual SQL comparisons, plus direct
+truth-mask checks. Full cargo test -p ti-sql passed: 39 tests, with the three
+fixture/performance tests ignored as declared. Crate-scoped cargo fmt --check
+passed. Strict cargo clippy -p ti-sql --all-targets -- -D warnings also passed
+on Rust 1.99.
+
+Native release acceptance remains the host's 61/0/1 corpus gate, Q5-002 p50 below
+150 ms, and no other class regressing by more than 5%.
+
+### Post-change store-full profile
+
+Rust 1.99 debug, same read-only store-full and 256 MiB cache, seven warm runs:
+
+| Query | Warm p50 | Warm p95 | Materialized rows | Intervals |
+|---|---:|---:|---:|---:|
+| Original DISTINCT predicate, now pushed | 55.19 ms | 72.15 ms | 0 | 134 |
+| Explicit NULL-preserving bitmap equivalent | 54.74 ms | 68.87 ms | 0 | 134 |
+
+The original predicate improves from 770.15 to 55.19 ms p50 (13.96 times) in
+this environment. Every cold/warm answer matched the paired equivalent. A
+separate complete JSON comparison against the pre-change profile also found
+all 134 intervals identical. Both physical plans use bitmap runs. Cold totals
+were 64,082.79 and 63,936.71 ms; these bind-mount numbers are not native targets.
+Artifact: .lanes/data/query-cache/q5-profile-after.json (not committed).
+
+The measured integration binary was built by the targeted cargo test command,
+then run directly after the full suite finished, with no compiler running:
+
+```sh
+TI_Q5_STORE=<read-only-store-full> TI_Q5_OUTPUT=<fresh-output.json> TI_Q5_RUNS=7 \\
+target/debug/deps/q5_profile-<cargo-hash> \\
+boat_store_q5_paired_profile --ignored --nocapture
+```
+
+The release cargo command above remains the native host reproduction. The
+61/0/1 corpus result, native Q5-002 p50 target and other-class regression gate
+have not been run locally for this change.

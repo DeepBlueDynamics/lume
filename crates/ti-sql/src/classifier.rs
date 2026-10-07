@@ -300,6 +300,11 @@ impl PushdownClassifier {
                     p
                 })
             }
+            Expr::BinaryExpr(b)
+                if matches!(b.op, Operator::IsDistinctFrom | Operator::IsNotDistinctFrom) =>
+            {
+                self.distinct(&b.left, &b.right, b.op == Operator::IsNotDistinctFrom)
+            }
             Expr::BinaryExpr(b) => {
                 let Some(mut op) = operation(b.op) else {
                     return Ok(unsupported("arithmetic or non-comparison operator"));
@@ -434,6 +439,50 @@ impl PushdownClassifier {
                 bitmap(if *v { Predicate::All } else { Predicate::None })
             }
             _ => unsupported("expression is outside the frozen bitmap IR"),
+        })
+    }
+    /// Null-safe comparisons are two-valued, including beneath NOT. Equality
+    /// alone has the right true mask but leaves absent buckets UNKNOWN.
+    fn distinct(&self, left: &Expr, right: &Expr, not_distinct: bool) -> Classification {
+        let pair = column(left)
+            .zip(literal(right))
+            .or_else(|| column(right).zip(literal(left)));
+        let Some((name, value)) = pair else {
+            return unsupported("null-safe comparison is not column versus literal");
+        };
+        let Some(field) = self.catalog.field(name) else {
+            return unsupported("null-safe comparison requires an indexed scalar column");
+        };
+        if self.catalog.source_column(name)
+            || !matches!(
+                field.kind,
+                FieldKind::Bsi { .. } | FieldKind::Count | FieldKind::Set
+            )
+        {
+            return unsupported("null-safe comparison encoding is not scalar numeric/dictionary");
+        }
+        let present = PlannedPredicate::Bitmap(Predicate::Present(field.id));
+        if value.is_null() {
+            return exact(if not_distinct {
+                PlannedPredicate::Not(Box::new(present))
+            } else {
+                present
+            });
+        }
+        let compared = self.comparison(
+            name,
+            if not_distinct { CmpOp::Eq } else { CmpOp::Ne },
+            &value,
+        );
+        if compared.class != TableProviderFilterPushDown::Exact {
+            return unsupported(format!("null-safe comparison: {}", compared.reason));
+        }
+        let comparison = compared.predicate.expect("exact comparison");
+        exact(if not_distinct {
+            // Present is FALSE at NULL, making equality two-valued under NOT.
+            PlannedPredicate::And(vec![present, comparison])
+        } else {
+            PlannedPredicate::Or(vec![PlannedPredicate::Not(Box::new(present)), comparison])
         })
     }
     fn geo(&self, name: &str, args: &[Expr]) -> Classification {
