@@ -3,7 +3,6 @@ use std::env;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::{SystemTime, Instant};
 
 use lume::bm25::{Bm25Index, Section, Bm25Params, SearchVariant};
@@ -57,6 +56,16 @@ fn lume_main() {
 
     let subcommand = args[1].trim().to_lowercase();
     match subcommand.as_str() {
+        #[cfg(feature = "pdf")]
+        "__extract-document" => {
+            let result = args.get(2).ok_or_else(|| "missing document path".to_string()).and_then(|path| {
+                std::panic::catch_unwind(|| lume::document_extract::worker(Path::new(path)))
+                    .map_err(|_| "document parser panicked".to_string()).and_then(|r| r)
+            });
+            if serde_json::to_writer(std::io::stdout().lock(), &result).is_err() {
+                std::process::exit(1);
+            }
+        }
         #[cfg(feature = "ti")]
         "sql" => {
             if let Err(e) = lume::sql::run_cli(&args[2..]) {
@@ -190,6 +199,14 @@ fn lume_main() {
                     eprintln!("--ti-store requires a store root");std::process::exit(2);
                 })
             });
+            let docs_index = args.iter().position(|a| a == "--docs-index").map(|pos| {
+                args.get(pos + 1).filter(|s| !s.starts_with("--")).map(Path::new).unwrap_or_else(|| {
+                    eprintln!("--docs-index requires an index path"); std::process::exit(2);
+                })
+            });
+            if docs_index.is_some() && ti_store.is_none() {
+                eprintln!("--docs-index requires --ti-store"); std::process::exit(2);
+            }
             let bind=args.iter().position(|a|a=="--bind").map(|pos|{
                 args.get(pos+1).filter(|s|!s.starts_with("--")).map(String::as_str).unwrap_or_else(||{
                     eprintln!("--bind requires an IP address");std::process::exit(2);
@@ -216,7 +233,7 @@ fn lume_main() {
             if pg.is_some() && ti_store.is_none(){eprintln!("--pg requires --ti-store");std::process::exit(2);}
             #[cfg(feature = "ti")]
             let result=match ti_store{
-                Some(root)=>lume::agent::serve_with_ti_pg_config(port,std::path::Path::new(root),bind.unwrap_or("127.0.0.1"),pg,pg_bind,pg_auth_config),
+                Some(root)=>lume::agent::serve_with_ti_pg_docs_config(port,std::path::Path::new(root),bind.unwrap_or("127.0.0.1"),pg,pg_bind,pg_auth_config,docs_index),
                 None=>lume::agent::serve_on(port,bind.unwrap_or("0.0.0.0")),
             };
             #[cfg(not(feature = "ti"))]
@@ -286,7 +303,7 @@ fn lume_main() {
 #[cfg(feature = "ti")]
 fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
     if args.iter().any(|a| a == "-h" || a == "--help") {
-        println!("Usage: lume ti ingest --signalk <url> --store <root> [--config <path>] [--token <file|token>] [--serve] [--bind <IP>] [--port <port>] [--pg <port>] [--pg-bind <IP>] [--pg-auth-config <path>] [--self-urn <urn>]");
+        println!("Usage: lume ti ingest --signalk <url> --store <root> [--config <path>] [--token <file|token>] [--serve] [--bind <IP>] [--port <port>] [--pg <port>] [--pg-bind <IP>] [--pg-auth-config <path>] [--docs-index <index>] [--self-urn <urn>]");
         println!("--pg-bind defaults to --bind; HTTP bind is independent. --pg-auth-config replaces store auth without merging; other sections are ignored. Unix file must be private (chmod 600).");
         return Ok(());
     }
@@ -301,6 +318,7 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
     let mut pg_bind = None;
     let mut pg_auth_config = None;
     let mut self_urn = None;
+    let mut docs_index = None;
 
     let mut i = 0;
     while i < args.len() {
@@ -323,6 +341,10 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
             "--token" => {
                 let val = args.get(i + 1).ok_or("--token requires a file or token value")?;
                 token_arg = Some(val.clone());
+                i += 2;
+            }
+            "--docs-index" => {
+                docs_index = Some(args.get(i + 1).filter(|s| !s.starts_with("--")).ok_or("--docs-index requires an index path")?.clone());
                 i += 2;
             }
             "--self-urn" => {
@@ -361,6 +383,7 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
         }
     }
 
+    if docs_index.is_some() && !serve { return Err("--docs-index requires --serve".into()); }
     if pg.is_some() && !serve { return Err("--pg requires --serve".into()); }
     if pg.is_none() && (pg_bind.is_some() || pg_auth_config.is_some()) {
         return Err("--pg-bind and --pg-auth-config require --pg".into());
@@ -411,6 +434,9 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
         let width = service.config.width_seconds;
         match lume::ti_http::TiServer::open_with_width(&store_path, Some(width)) {
             Ok(server) => {
+                let server = if let Some(path) = &docs_index {
+                    server.with_docs_index(Path::new(path))?
+                } else { server };
                 let server = if let Some(path) = &pg_auth_config {
                     server.with_pg_auth_config(Path::new(path))?
                 } else { server };
@@ -914,7 +940,7 @@ fn scan_directory(
                 let ext_lower = ext.to_lowercase();
                 if matches!(
                     ext_lower.as_str(),
-                    "pdf" | "txt" | "md" | "rs" | "py" | "js" | "ts" | "go" | "c" | "cpp" | "h" | "java" | "sh" | "yml" | "yaml" | "toml" | "html" | "css" | "ini" | "cfg" | "conf"
+                    "pdf" | "epub" | "txt" | "md" | "rs" | "py" | "js" | "ts" | "go" | "c" | "cpp" | "h" | "java" | "sh" | "yml" | "yaml" | "toml" | "html" | "css" | "ini" | "cfg" | "conf"
                 ) {
                     files.push(path);
                 }
@@ -946,45 +972,6 @@ fn find_extractor_script() -> PathBuf {
         }
     }
     PathBuf::from("lib/lume_extractor.py")
-}
-
-fn run_extractor_pdf(pdf_path: &Path) -> Result<Vec<Section>, String> {
-    let script = find_extractor_script();
-    let output = Command::new("uv")
-        .arg("run")
-        .arg(&script)
-        .arg("pdf")
-        .arg(pdf_path)
-        .output()
-        .map_err(|e| format!("Failed to spawn `uv run {}`: {}", script.display(), e))?;
-
-    if !output.status.success() {
-        return Err(format!("Python extractor failed: {}", String::from_utf8_lossy(&output.stderr)));
-    }
-
-    let stdout_str = String::from_utf8_lossy(&output.stdout);
-    let json_val: serde_json::Value = serde_json::from_str(&stdout_str)
-        .map_err(|e| format!("Failed to parse extractor output: {}. Raw: {}", e, stdout_str))?;
-
-    if !json_val["success"].as_bool().unwrap_or(false) {
-        return Err(json_val["error"].as_str().unwrap_or("Unknown error").to_string());
-    }
-
-    let mut sections = Vec::new();
-    let pages = json_val["pages"].as_array().ok_or("No pages in output")?;
-    let filename_str = pdf_path.to_string_lossy().to_string();
-    for page in pages {
-        let page_num = page["page_number"].as_u64().unwrap_or(0);
-        let text = page["text"].as_str().unwrap_or("").to_string();
-        sections.push(Section {
-            title: format!("Page {}", page_num),
-            body: text,
-            line_number: page_num as usize,
-            filename: Some(filename_str.clone()),
-            entities: Vec::new(),
-        });
-    }
-    Ok(sections)
 }
 
 fn run_extractor_entities(
@@ -1152,9 +1139,6 @@ fn flush_searchable_indexes(
     db_path: &Path,
 ) -> Result<usize, String> {
     let all_sections = collect_all_sections(cached_files);
-    if all_sections.is_empty() {
-        return Ok(0);
-    }
     let count = all_sections.len();
     let bm25 = Bm25Index::build(all_sections, tagger);
     let corpus_terms: Vec<Vec<u8>> = bm25.posting_lists.keys().cloned().collect();
@@ -1169,6 +1153,10 @@ fn flush_searchable_indexes(
     save_json(&db_path.join("bm25.json"), &bm25)?;
     save_json(&db_path.join("spelling.json"), &spelling)?;
     save_json(&db_path.join("entity_graph.json"), &entity_graph)?;
+    // Publish only after every searchable table has been written.
+    save_json(&db_path.join("manifest.json"), &serde_json::json!({
+        "generation": lume::uuid_v4(), "sections": count,
+    }))?;
     Ok(count)
 }
 
@@ -1241,6 +1229,8 @@ fn run_indexing(
     let mut last_flush = Instant::now();
     let mut files_indexed = 0usize;
     let mut files_skipped_binary = 0usize;
+    let mut files_skipped_documents = 0usize;
+    let mut units_skipped_documents = 0usize;
 
     for (file_num, file_path) in files.iter().enumerate() {
         let file_progress = format!("[file {}/{}]", file_num + 1, total_files);
@@ -1269,9 +1259,25 @@ fn run_indexing(
         if needs_index {
             let file_start = Instant::now();
             let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
-            let mut sections = if ext == "pdf" {
-                println!("[⚙️] {} Processing PDF file: {}", file_progress, path_str);
-                run_extractor_pdf(file_path)?
+            let mut sections = if ext == "pdf" || ext == "epub" {
+                println!("[⚙️] {} Processing document: {}", file_progress, path_str);
+                let script = find_extractor_script();
+                match lume::document_extract::extract(file_path, if ext == "pdf" { Some(&script) } else { None }) {
+                    Ok(report) => {
+                        units_skipped_documents += report.skipped_units;
+                        if report.skipped_units > 0 {
+                            eprintln!("[⚠️] {}: skipped {} pages/chapters: {}", path_str, report.skipped_units, report.warnings.join("; "));
+                        }
+                        if report.sections.is_empty() { files_skipped_documents += 1; }
+                        report.sections
+                    }
+                    Err(error) => {
+                        files_skipped_documents += 1;
+                        cached_files.remove(&path_str);
+                        eprintln!("[⚠️] Document skipped {}: {}", path_str, error);
+                        continue;
+                    }
+                }
             } else {
                 let content = match read_text_tolerant(file_path)? {
                     Some(c) => c,
@@ -1329,12 +1335,11 @@ fn run_indexing(
         }
     }
 
+    if files_skipped_documents > 0 || units_skipped_documents > 0 {
+        eprintln!("[⚠️] Extraction warnings: {} files skipped, {} pages/chapters skipped.", files_skipped_documents, units_skipped_documents);
+    }
     let all_sections = collect_all_sections(&cached_files);
 
-    if all_sections.is_empty() {
-        println!("[⚠️] No sections to index.");
-        return Ok(());
-    }
 
     println!(
         "[📊] Indexing {} sections total ({} files indexed this run, {} skipped as binary, {} files in corpus)...",
@@ -2485,6 +2490,7 @@ USAGE:
 OPTIONS:
   -p, --port <PORT>      Port to bind the HTTP server to [default: 5863 — "LUME" on a phone keypad]
   --ti-store <ROOT>     Open one shared TI engine for /ti and MCP (requires feature ti)
+  --docs-index <INDEX>  Add sections/entities tables; reload on index publication
   --pg <PORT>          Enable read-only Postgres; requires --ti-store [off by default]
   --pg-bind <IP>       Postgres bind only [defaults to --bind]
   --pg-auth-config <PATH>  Private ti.toml: auth replaces store auth, no merging;

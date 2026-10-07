@@ -35,6 +35,7 @@ pub mod hybrid;
 pub mod agent;
 pub mod crawl;
 pub mod crawl_list;
+pub mod document_extract;
 pub mod search;
 #[cfg(feature = "ti")]
 pub mod ti_text;
@@ -48,6 +49,8 @@ pub mod ti_parquet;
 mod ti_mcp;
 #[cfg(feature = "ti")]
 pub mod ti_http;
+#[cfg(feature = "ti")]
+mod ti_docs_index;
 #[cfg(feature = "ti")]
 mod ti_pg;
 #[cfg(feature = "ti")]
