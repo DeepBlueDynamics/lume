@@ -1,0 +1,360 @@
+{
+  "version": 1,
+  "questions": [
+    {
+      "id": "agent-01",
+      "class": "Q1",
+      "question": "What was the maximum true wind speed in the 10-second bucket starting 2026-05-01 12:00:00 UTC for vessel MMSI 367000000? Give metres per second.",
+      "hidden": {
+        "source_case": "q1-001",
+        "oracle_sql": "SELECT context AS vessel,\n       time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS ts,\n       round(round(max(value), 3), 3) AS wind_max\nFROM raw\nWHERE path = 'environment.wind.speedTrue' AND context = 'vessels.urn:mrn:imo:mmsi:367000000'\nGROUP BY 1, 2\nHAVING ts = TIMESTAMP '2026-05-01 12:00:00'\nORDER BY ts",
+        "answer_extraction": {
+          "mode": "scalar",
+          "column": "wind_max"
+        },
+        "grading": {
+          "mode": "tolerance",
+          "absolute": 0.001
+        }
+      }
+    },
+    {
+      "id": "agent-02",
+      "class": "Q1",
+      "question": "For MMSI 367000000, what was the minimum depth below transducer in the bucket starting 2026-05-01 14:00:00 UTC? Give metres.",
+      "hidden": {
+        "source_case": "q1-005",
+        "oracle_sql": "SELECT context AS vessel,\n       time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS ts,\n       round(round(min(value), 2), 2) AS depth_min\nFROM raw\nWHERE path = 'environment.depth.belowTransducer' AND context = 'vessels.urn:mrn:imo:mmsi:367000000'\nGROUP BY 1, 2\nHAVING ts = TIMESTAMP '2026-05-01 14:00:00'\nORDER BY ts",
+        "answer_extraction": {
+          "mode": "scalar",
+          "column": "depth_min"
+        },
+        "grading": {
+          "mode": "tolerance",
+          "absolute": 0.01
+        }
+      }
+    },
+    {
+      "id": "agent-03",
+      "class": "Q1",
+      "question": "How many bilge pump cycle samples did MMSI 367000000 have in the 10-second bucket starting 2026-05-01 00:02:30 UTC?",
+      "hidden": {
+        "source_case": "q1-007",
+        "oracle_sql": "SELECT context AS vessel,\n       time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS ts,\n       count(*) AS cycles\nFROM raw WHERE path='electrical.bilge.pumpCycles' AND context='vessels.urn:mrn:imo:mmsi:367000000'\nGROUP BY 1,2 HAVING ts = TIMESTAMP '2026-05-01 00:02:30'\nORDER BY ts",
+        "answer_extraction": {
+          "mode": "scalar",
+          "column": "cycles"
+        },
+        "grading": {
+          "mode": "exact"
+        }
+      }
+    },
+    {
+      "id": "agent-04",
+      "class": "Q2",
+      "question": "For MMSI 367000000 after 2026-03-01 UTC, list the 10-minute windows and maximum true wind speed where at least one 10-second bucket had port propulsion started, at least three bilge pump cycle samples, true wind maximum above 4 m/s, and a covering note containing leak or water.",
+      "hidden": {
+        "source_case": "q2-001",
+        "oracle_sql": "WITH w AS (\n  SELECT context AS vessel,\n         time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt,\n         round(max(value), 3) AS wmax\n  FROM raw WHERE path = 'environment.wind.speedTrue'\n  GROUP BY 1, 2),\nb AS (\n  SELECT context AS vessel,\n         time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt,\n         count(*) AS cyc\n  FROM raw WHERE path = 'electrical.bilge.pumpCycles'\n  GROUP BY 1, 2),\ns AS (\n  SELECT context AS vessel,\n         time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt\n  FROM raw WHERE path = 'propulsion.port.state'\n  GROUP BY 1, 2 HAVING arg_max(value_str, ts) = 'started'),\nn AS (\n  SELECT DISTINCT context AS vessel,\n         unnest(generate_series(time_bucket(INTERVAL '10 seconds', ts_start, TIMESTAMP '2020-01-01'), COALESCE(ts_end - INTERVAL '1 second', ts_start), INTERVAL '10 seconds')) AS bkt\n  FROM docs\n  WHERE kind = 'notes' AND (lower(body) LIKE '%leak%' OR lower(body) LIKE '%water%')\n    AND context = 'vessels.urn:mrn:imo:mmsi:367000000')\nSELECT w.vessel, time_bucket(INTERVAL '10 minutes', w.bkt, TIMESTAMP '2020-01-01') AS win,\n       round(max(w.wmax), 3) AS wind_max\nFROM w JOIN b ON w.vessel=b.vessel AND w.bkt=b.bkt\n       JOIN s ON w.vessel=s.vessel AND w.bkt=s.bkt\n       JOIN n ON w.vessel=n.vessel AND w.bkt=n.bkt\nWHERE w.wmax > 4.0 AND b.cyc >= 3 AND w.bkt > TIMESTAMP '2026-03-01'\nGROUP BY w.vessel, win",
+        "answer_extraction": {
+          "mode": "rows"
+        },
+        "grading": {
+          "mode": "tolerance",
+          "exact": [
+            "vessel",
+            "win"
+          ],
+          "absolute": {
+            "wind_max": 0.001
+          },
+          "order": "set"
+        }
+      }
+    },
+    {
+      "id": "agent-05",
+      "class": "Q2",
+      "question": "How many 10-second buckets on 2026-05-07 UTC for MMSI 367000000 simultaneously had port propulsion started, SOG maximum between 2.5 and 5 m/s inclusive, true wind maximum above 8 m/s, and depth minimum below 10 metres?",
+      "hidden": {
+        "source_case": "q2-002",
+        "oracle_sql": "SELECT count(*) AS answer FROM (WITH sog AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='navigation.speedOverGround' GROUP BY 1,2),\nw AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='environment.wind.speedTrue' GROUP BY 1,2),\nd AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(min(value), 2) AS v\n  FROM raw WHERE path='environment.depth.belowTransducer' GROUP BY 1,2),\ns AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt\n  FROM raw WHERE path='propulsion.port.state' GROUP BY 1,2 HAVING arg_max(value_str, ts) = 'started')\nSELECT sog.vessel, sog.bkt AS ts, round(sog.v, 3) AS sog\nFROM sog JOIN w ON sog.vessel=w.vessel AND sog.bkt=w.bkt\n         JOIN d ON sog.vessel=d.vessel AND sog.bkt=d.bkt\n         JOIN s ON sog.vessel=s.vessel AND sog.bkt=s.bkt\nWHERE sog.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND sog.v BETWEEN 2.5 AND 5.0 AND w.v > 8.0 AND d.v < 10.0\n  AND sog.bkt >= TIMESTAMP '2026-05-07' AND sog.bkt < TIMESTAMP '2026-05-08'\nORDER BY ts) AS oracle_answer",
+        "answer_extraction": {
+          "mode": "scalar",
+          "column": "answer"
+        },
+        "grading": {
+          "mode": "exact"
+        }
+      }
+    },
+    {
+      "id": "agent-06",
+      "class": "Q3",
+      "question": "During May 2026 UTC, how many 10-second buckets for MMSI 367000000 had SOG maximum above 3.086 m/s while the main propulsion state was present and not started?",
+      "hidden": {
+        "source_case": "q3-001",
+        "oracle_sql": "WITH sog AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='navigation.speedOverGround' GROUP BY 1,2),\nmain AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, arg_max(value_str, ts) AS st\n  FROM raw WHERE path='propulsion.main.state' GROUP BY 1,2)\nSELECT sog.vessel, count(*) AS n\nFROM sog JOIN main ON sog.vessel=main.vessel AND sog.bkt=main.bkt\nWHERE sog.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND sog.v > 3.086 AND main.st IS DISTINCT FROM 'started'\n  AND sog.bkt >= TIMESTAMP '2026-05-01' AND sog.bkt < TIMESTAMP '2026-06-01'\nGROUP BY sog.vessel",
+        "answer_extraction": {
+          "mode": "scalar",
+          "column": "n"
+        },
+        "grading": {
+          "mode": "exact"
+        }
+      }
+    },
+    {
+      "id": "agent-07",
+      "class": "Q3",
+      "question": "Since 2026-05-01 UTC, how many 10-second buckets for MMSI 367000000 had navigation state anchored and depth below transducer minimum below 3 metres?",
+      "hidden": {
+        "source_case": "q3-003",
+        "oracle_sql": "WITH d AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(min(value), 2) AS v\n  FROM raw WHERE path='environment.depth.belowTransducer' GROUP BY 1,2),\nst AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt\n  FROM raw WHERE path='navigation.state' GROUP BY 1,2 HAVING arg_max(value_str, ts) = 'anchored')\nSELECT d.vessel, count(*) AS n\nFROM d JOIN st ON d.vessel=st.vessel AND d.bkt=st.bkt\nWHERE d.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND d.v < 3.0 AND d.bkt >= TIMESTAMP '2026-05-01'\nGROUP BY d.vessel",
+        "answer_extraction": {
+          "mode": "scalar",
+          "column": "n"
+        },
+        "grading": {
+          "mode": "exact"
+        }
+      }
+    },
+    {
+      "id": "agent-08",
+      "class": "Q4",
+      "question": "List each UTC day from 2026-03-01 inclusive to 2026-06-01 exclusive and its maximum true wind speed in m/s for MMSI 367000000.",
+      "hidden": {
+        "source_case": "q4-001",
+        "oracle_sql": "WITH w AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='environment.wind.speedTrue' GROUP BY 1,2)\nSELECT vessel, time_bucket(INTERVAL '1 day', bkt, TIMESTAMP '2020-01-01') AS day,\n       round(max(v), 3) AS wind_max\nFROM w WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-03-01' AND bkt < TIMESTAMP '2026-06-01'\nGROUP BY vessel, day ORDER BY day",
+        "answer_extraction": {
+          "mode": "rows"
+        },
+        "grading": {
+          "mode": "tolerance",
+          "exact": [
+            "vessel",
+            "day"
+          ],
+          "absolute": {
+            "wind_max": 0.001
+          },
+          "order": "set"
+        }
+      }
+    },
+    {
+      "id": "agent-09",
+      "class": "Q4",
+      "question": "For MMSI 367000000 on 2026-05-01 UTC, give the house battery voltage for each UTC hour, averaging the 10-second bucket means equally.",
+      "hidden": {
+        "source_case": "q4-002",
+        "oracle_sql": "WITH vv AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(avg(value), 3) AS v\n  FROM raw WHERE path='electrical.batteries.house.voltage' GROUP BY 1,2)\nSELECT vessel, date_trunc('hour', bkt) AS hr, round(avg(v), 3) AS batt_v\nFROM vv WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-05-01' AND bkt < TIMESTAMP '2026-05-02'\nGROUP BY vessel, hr ORDER BY hr",
+        "answer_extraction": {
+          "mode": "rows"
+        },
+        "grading": {
+          "mode": "tolerance",
+          "exact": [
+            "vessel",
+            "hr"
+          ],
+          "absolute": {
+            "batt_v": 0.001
+          },
+          "order": "set"
+        }
+      }
+    },
+    {
+      "id": "agent-10",
+      "class": "Q5",
+      "question": "Across all vessels, how many motoring intervals started after 2026-05-01 UTC, with port propulsion started and true wind maximum above 12.9 m/s, lasted at least five minutes, allowing gaps up to one minute?",
+      "hidden": {
+        "source_case": "q5-001",
+        "oracle_sql": "SELECT count(*) AS answer FROM (WITH cond AS (\n  SELECT w.vessel, w.bkt AS ts\n  FROM (SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n        FROM raw WHERE path='environment.wind.speedTrue' GROUP BY 1,2) w\n  JOIN (SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt\n        FROM raw WHERE path='propulsion.port.state' GROUP BY 1,2 HAVING arg_max(value_str, ts) = 'started') s\n    ON w.vessel=s.vessel AND w.bkt=s.bkt\n  WHERE w.v > 12.9),\nislands AS (\n  SELECT vessel, ts,\n         ts - (row_number() OVER (PARTITION BY vessel ORDER BY ts)) * INTERVAL '10 seconds' AS grp\n  FROM cond),\nruns AS (\n  SELECT vessel, min(ts) AS start, max(ts) + INTERVAL '10 seconds' AS \"end\", count(*) AS buckets\n  FROM islands GROUP BY vessel, grp),\nmerged AS (\n  SELECT vessel, start, \"end\", buckets,\n         lag(\"end\") OVER (PARTITION BY vessel ORDER BY start) AS prev_end\n  FROM runs),\nislands2 AS (\n  SELECT vessel, start, \"end\", buckets,\n         sum(CASE WHEN prev_end IS NULL OR start - prev_end > INTERVAL '1 minute' THEN 1 ELSE 0 END)\n           OVER (PARTITION BY vessel ORDER BY start) AS grp2\n  FROM merged)\nSELECT vessel, min(start) AS start, max(\"end\") AS \"end\", sum(buckets) AS buckets\nFROM islands2\nGROUP BY vessel, grp2\nHAVING min(start) > TIMESTAMP '2026-05-01'\n   AND (max(\"end\") - min(start)) >= INTERVAL '5 minutes') AS oracle_answer",
+        "answer_extraction": {
+          "mode": "scalar",
+          "column": "answer"
+        },
+        "grading": {
+          "mode": "exact"
+        }
+      }
+    },
+    {
+      "id": "agent-11",
+      "class": "Q5",
+      "question": "Across all vessels, how many uninterrupted intervals last at least 40 seconds with port motor bucket maximum power above 500 W and a present main propulsion state other than started?",
+      "hidden": {
+        "source_case": "q5-002",
+        "oracle_sql": "SELECT count(*) AS answer FROM (WITH pw AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 1) AS v\n  FROM raw WHERE path='propulsion.port.motorPower' GROUP BY 1,2),\nmain AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, arg_max(value_str, ts) AS st\n  FROM raw WHERE path='propulsion.main.state' GROUP BY 1,2),\ncond AS (\n  SELECT pw.vessel, pw.bkt AS ts\n  FROM pw JOIN main ON pw.vessel=main.vessel AND pw.bkt=main.bkt\n  WHERE pw.v > 500 AND main.st IS DISTINCT FROM 'started'),\nislands AS (\n  SELECT vessel, ts,\n         ts - (row_number() OVER (PARTITION BY vessel ORDER BY ts)) * INTERVAL '10 seconds' AS grp\n  FROM cond)\nSELECT vessel, min(ts) AS start, max(ts) + INTERVAL '10 seconds' AS \"end\", count(*) AS buckets\nFROM islands GROUP BY vessel, grp\nHAVING (max(ts) + INTERVAL '10 seconds' - min(ts)) >= INTERVAL '40 seconds') AS oracle_answer",
+        "answer_extraction": {
+          "mode": "scalar",
+          "column": "answer"
+        },
+        "grading": {
+          "mode": "exact"
+        }
+      }
+    },
+    {
+      "id": "agent-12",
+      "class": "Q6",
+      "question": "Since 2026-05-01 UTC, how many 10-second buckets on MMSI 367000000 had a covering note containing leak and roll maximum above 0.05 radians?",
+      "hidden": {
+        "source_case": "q6-001",
+        "oracle_sql": "SELECT count(*) AS answer FROM (WITH roll AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 4) AS v\n  FROM raw WHERE path='navigation.attitude.roll' GROUP BY 1,2),\nn AS (\n  SELECT DISTINCT context AS vessel, unnest(generate_series(time_bucket(INTERVAL '10 seconds', ts_start, TIMESTAMP '2020-01-01'), COALESCE(ts_end - INTERVAL '1 second', ts_start), INTERVAL '10 seconds')) AS bkt\n  FROM docs WHERE kind='notes' AND lower(body) LIKE '%leak%' AND context='vessels.urn:mrn:imo:mmsi:367000000')\nSELECT roll.vessel, roll.bkt AS ts, round(roll.v, 4) AS roll_max\nFROM roll JOIN n ON roll.vessel=n.vessel AND roll.bkt=n.bkt\nWHERE roll.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND roll.v > 0.05 AND roll.bkt >= TIMESTAMP '2026-05-01'\nORDER BY ts) AS oracle_answer",
+        "answer_extraction": {
+          "mode": "scalar",
+          "column": "answer"
+        },
+        "grading": {
+          "mode": "exact"
+        }
+      }
+    },
+    {
+      "id": "agent-13",
+      "class": "Q6",
+      "question": "Since 2026-05-01 UTC, how many 10-second buckets on MMSI 367000000 had minimum depth below transducer below 3 metres and a covering note containing leak or water?",
+      "hidden": {
+        "source_case": "q6-002",
+        "oracle_sql": "SELECT count(*) AS answer FROM (WITH d AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(min(value), 2) AS v\n  FROM raw WHERE path='environment.depth.belowTransducer' GROUP BY 1,2),\nn AS (\n  SELECT DISTINCT context AS vessel, unnest(generate_series(time_bucket(INTERVAL '10 seconds', ts_start, TIMESTAMP '2020-01-01'), COALESCE(ts_end - INTERVAL '1 second', ts_start), INTERVAL '10 seconds')) AS bkt\n  FROM docs WHERE kind='notes' AND (lower(body) LIKE '%leak%' OR lower(body) LIKE '%water%') AND context='vessels.urn:mrn:imo:mmsi:367000000')\nSELECT d.vessel, d.bkt AS ts, round(d.v, 2) AS depth_min\nFROM d JOIN n ON d.vessel=n.vessel AND d.bkt=n.bkt\nWHERE d.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND d.v < 3.0 AND d.bkt >= TIMESTAMP '2026-05-01'\nORDER BY ts) AS oracle_answer",
+        "answer_extraction": {
+          "mode": "scalar",
+          "column": "answer"
+        },
+        "grading": {
+          "mode": "exact"
+        }
+      }
+    },
+    {
+      "id": "agent-14",
+      "class": "Q6",
+      "question": "For MMSI 367000000, list the distinct alert document titles whose bodies contain alarm and whose time ranges contain a 10-second bucket with SOG maximum above 0.5 m/s.",
+      "hidden": {
+        "source_case": "q6-004",
+        "oracle_sql": "SELECT DISTINCT title FROM (WITH sog AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='navigation.speedOverGround' GROUP BY 1,2)\nSELECT d.context AS vessel, d.title, NULL::DOUBLE AS score, round(sog.v, 3) AS sog\nFROM docs d JOIN sog ON d.context=sog.vessel AND sog.bkt >= d.ts_start AND sog.bkt <= d.ts_end\nWHERE d.context='vessels.urn:mrn:imo:mmsi:367000000' AND d.kind='alerts' AND lower(d.body) LIKE '%alarm%' AND sog.v > 0.5\nORDER BY d.title) AS oracle_answer ORDER BY title",
+        "answer_extraction": {
+          "mode": "column_set",
+          "column": "title"
+        },
+        "grading": {
+          "mode": "set"
+        }
+      }
+    },
+    {
+      "id": "agent-15",
+      "class": "Q7",
+      "question": "How many 10-second buckets between 2026-05-07 00:00:00 inclusive and 06:00:00 exclusive UTC on MMSI 367000000 were within 5 nautical miles of latitude 36.619 longitude -122.389 and had depth minimum below 3 metres?",
+      "hidden": {
+        "source_case": "q7-001",
+        "oracle_sql": "SELECT count(*) AS answer FROM (WITH pos AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt,\n         round(arg_max(value, ts) FILTER (WHERE path='navigation.position.latitude'), 7) AS lat,\n         round(arg_max(value, ts) FILTER (WHERE path='navigation.position.longitude'), 7) AS lon\n  FROM raw WHERE path IN ('navigation.position.latitude','navigation.position.longitude') GROUP BY 1,2),\nd AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(min(value), 2) AS v\n  FROM raw WHERE path='environment.depth.belowTransducer' GROUP BY 1,2)\nSELECT pos.vessel, pos.bkt AS ts, round(d.v, 2) AS depth_min\nFROM pos JOIN d ON pos.vessel=d.vessel AND pos.bkt=d.bkt\nWHERE pos.vessel='vessels.urn:mrn:imo:mmsi:367000000'\n  AND 2.0 * 3440.065 * asin(sqrt(pow(sin(radians(pos.lat - 36.619) / 2.0), 2.0) + cos(radians(36.619)) * cos(radians(pos.lat)) * pow(sin(radians(pos.lon - (-122.389)) / 2.0), 2.0))) < 5.0\n  AND d.v < 3.0 AND pos.bkt >= TIMESTAMP '2026-05-07 00:00:00' AND pos.bkt < TIMESTAMP '2026-05-07 06:00:00'\nORDER BY ts) AS oracle_answer",
+        "answer_extraction": {
+          "mode": "scalar",
+          "column": "answer"
+        },
+        "grading": {
+          "mode": "exact"
+        }
+      }
+    },
+    {
+      "id": "agent-16",
+      "class": "Q7",
+      "question": "How many 10-second buckets between 2026-05-07 00:00:00 inclusive and 06:00:00 exclusive UTC on MMSI 367000000 were inside latitude 36.5 to 37.0 and longitude -123.0 to -121.0 inclusive, and had SOG maximum above 3.086 m/s?",
+      "hidden": {
+        "source_case": "q7-002",
+        "oracle_sql": "SELECT count(*) AS answer FROM (WITH pos AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt,\n         round(arg_max(value, ts) FILTER (WHERE path='navigation.position.latitude'), 7) AS lat,\n         round(arg_max(value, ts) FILTER (WHERE path='navigation.position.longitude'), 7) AS lon\n  FROM raw WHERE path IN ('navigation.position.latitude','navigation.position.longitude') GROUP BY 1,2),\nsog AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='navigation.speedOverGround' GROUP BY 1,2)\nSELECT pos.vessel, pos.bkt AS ts, round(sog.v, 3) AS sog\nFROM pos JOIN sog ON pos.vessel=sog.vessel AND pos.bkt=sog.bkt\nWHERE pos.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND pos.lat BETWEEN 36.5 AND 37.0 AND pos.lon BETWEEN -123.0 AND -121.0\n  AND sog.v > 3.086 AND pos.bkt >= TIMESTAMP '2026-05-07 00:00:00' AND pos.bkt < TIMESTAMP '2026-05-07 06:00:00'\nORDER BY ts) AS oracle_answer",
+        "answer_extraction": {
+          "mode": "scalar",
+          "column": "answer"
+        },
+        "grading": {
+          "mode": "exact"
+        }
+      }
+    },
+    {
+      "id": "agent-17",
+      "class": "Q8",
+      "question": "Give each UTC day since 2026-05-01 and the SOG in m/s for MMSI 367000000, averaging the 10-second bucket means equally.",
+      "hidden": {
+        "source_case": "q8-002",
+        "oracle_sql": "WITH sog AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(avg(value), 3) AS v\n  FROM raw WHERE path='navigation.speedOverGround' GROUP BY 1,2)\nSELECT time_bucket(INTERVAL '1 day', bkt, TIMESTAMP '2020-01-01') AS day, round(avg(v), 3) AS sog\nFROM sog WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-05-01'\nGROUP BY day ORDER BY day",
+        "answer_extraction": {
+          "mode": "rows"
+        },
+        "grading": {
+          "mode": "tolerance",
+          "exact": [
+            "day"
+          ],
+          "absolute": {
+            "sog": 0.001
+          },
+          "order": "set"
+        }
+      }
+    },
+    {
+      "id": "agent-18",
+      "class": "Q8",
+      "question": "Give each UTC day since 2026-05-01 and the house battery current in amperes for MMSI 367000000, averaging the 10-second bucket means equally.",
+      "hidden": {
+        "source_case": "q8-006",
+        "oracle_sql": "WITH c AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(avg(value), 2) AS v\n  FROM raw WHERE path='electrical.batteries.house.current' GROUP BY 1,2)\nSELECT time_bucket(INTERVAL '1 day', bkt, TIMESTAMP '2020-01-01') AS day, round(avg(v), 2) AS current_avg\nFROM c WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-05-01'\nGROUP BY day ORDER BY day",
+        "answer_extraction": {
+          "mode": "rows"
+        },
+        "grading": {
+          "mode": "tolerance",
+          "exact": [
+            "day"
+          ],
+          "absolute": {
+            "current_avg": 0.01
+          },
+          "order": "set"
+        }
+      }
+    },
+    {
+      "id": "agent-19",
+      "class": "Q3",
+      "question": "Since 2026-05-01 UTC, how many 10-second buckets on MMSI 367000000 had true wind maximum above 12.86 m/s?",
+      "hidden": {
+        "source_case": "q3-004",
+        "oracle_sql": "WITH w AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='environment.wind.speedTrue' GROUP BY 1,2)\nSELECT w.vessel, count(*) AS n\nFROM w WHERE w.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND w.v > 12.86 AND w.bkt >= TIMESTAMP '2026-05-01'\nGROUP BY w.vessel",
+        "answer_extraction": {
+          "mode": "scalar",
+          "column": "n"
+        },
+        "grading": {
+          "mode": "exact"
+        }
+      }
+    },
+    {
+      "id": "agent-20",
+      "class": "Q7",
+      "question": "Since 2026-05-01 UTC, how many 10-second position buckets for MMSI 367000000 lay inside latitude 36.5 to 37.0 and longitude -123.0 to -121.0 inclusive?",
+      "hidden": {
+        "source_case": "q7-006",
+        "oracle_sql": "WITH pos AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt,\n         round(arg_max(value, ts) FILTER (WHERE path='navigation.position.latitude'), 7) AS lat,\n         round(arg_max(value, ts) FILTER (WHERE path='navigation.position.longitude'), 7) AS lon\n  FROM raw WHERE path IN ('navigation.position.latitude','navigation.position.longitude') GROUP BY 1,2)\nSELECT vessel, count(*) AS n\nFROM pos WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND lat BETWEEN 36.5 AND 37.0 AND lon BETWEEN -123.0 AND -121.0\n  AND bkt >= TIMESTAMP '2026-05-01'\nGROUP BY vessel",
+        "answer_extraction": {
+          "mode": "scalar",
+          "column": "n"
+        },
+        "grading": {
+          "mode": "exact"
+        }
+      }
+    }
+  ]
+}
