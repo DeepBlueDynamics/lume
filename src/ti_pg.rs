@@ -780,23 +780,34 @@ pub struct PgOptions {
     pub tls_cert: Option<PathBuf>,
     pub tls_key: Option<PathBuf>,
     pub allow_plaintext: bool,
+    pub require_tls: Option<bool>,
 }
 
 pub(crate) fn is_loopback_or_docker0(ip: std::net::IpAddr) -> bool {
     match ip {
         std::net::IpAddr::V4(ipv4) => {
-            ipv4.is_loopback() || (ipv4.octets()[0] == 172 && ipv4.octets()[1] == 17)
+            ipv4.is_loopback() || ipv4 == std::net::Ipv4Addr::new(172, 17, 0, 1)
         }
         std::net::IpAddr::V6(ipv6) => {
             if ipv6.is_loopback() {
                 return true;
             }
             if let Some(ipv4) = ipv6.to_ipv4_mapped() {
-                return ipv4.is_loopback() || (ipv4.octets()[0] == 172 && ipv4.octets()[1] == 17);
+                return ipv4.is_loopback() || ipv4 == std::net::Ipv4Addr::new(172, 17, 0, 1);
             }
             false
         }
     }
+}
+
+pub fn require_tls(bind: std::net::IpAddr, options: &PgOptions) -> bool {
+    if options.allow_plaintext {
+        return false;
+    }
+    if let Some(explicit) = options.require_tls {
+        return explicit;
+    }
+    !is_loopback_or_docker0(bind)
 }
 
 fn load_tls_acceptor_from_files(
@@ -913,11 +924,11 @@ fn configure_tls(
     match get_or_create_self_signed(server_root, address.ip()) {
         Ok((cert_path, key_path)) => load_tls_acceptor_from_files(&cert_path, &key_path).map(Some),
         Err(e) => {
-            if options.allow_plaintext || is_loopback_or_docker0(address.ip()) {
+            if !require_tls(address.ip(), options) {
                 Ok(None)
             } else {
                 Err(format!(
-                    "Non-loopback bind requires TLS, but TLS configuration failed: {e}"
+                    "Postgres bind requires TLS, but TLS configuration failed: {e}"
                 ))
             }
         }
@@ -1128,15 +1139,15 @@ pub fn start_with_options(
     address: SocketAddr,
     options: &PgOptions,
 ) -> Result<Listener, String> {
-    let require_tls = !is_loopback_or_docker0(address.ip()) && !options.allow_plaintext;
+    let must_require_tls = require_tls(address.ip(), options);
     let auth = crate::ti_pg_auth::AuthConfig::new(
         server.pg_users()?,
         !address.ip().is_loopback(),
-        require_tls,
+        must_require_tls,
     )?;
     let tls_acceptor = configure_tls(server.root(), address, options)?;
-    if require_tls && tls_acceptor.is_none() {
-        return Err("Non-loopback Postgres bind requires TLS".into());
+    if must_require_tls && tls_acceptor.is_none() {
+        return Err("Postgres bind requires TLS".into());
     }
 
     let listener = TcpListener::bind(address)

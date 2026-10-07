@@ -233,6 +233,25 @@ fn lume_main() {
                 })
             });
             let pg_allow_plaintext = args.iter().any(|a| a == "--pg-allow-plaintext");
+            let pg_require_tls = if let Some(arg) = args.iter().find(|a| a.starts_with("--pg-require-tls=")) {
+                match arg.strip_prefix("--pg-require-tls=").unwrap() {
+                    "true" | "1" => Some(true),
+                    "false" | "0" => Some(false),
+                    other => { eprintln!("Invalid --pg-require-tls value: {other}"); std::process::exit(2); }
+                }
+            } else if let Some(pos) = args.iter().position(|a| a == "--pg-require-tls") {
+                if let Some(next) = args.get(pos + 1).filter(|s| !s.starts_with("--")) {
+                    match next.as_str() {
+                        "true" | "1" => Some(true),
+                        "false" | "0" => Some(false),
+                        other => { eprintln!("Invalid --pg-require-tls value: {other}"); std::process::exit(2); }
+                    }
+                } else {
+                    Some(true)
+                }
+            } else {
+                None
+            };
             if (pg_tls_cert.is_some() && pg_tls_key.is_none()) || (pg_tls_cert.is_none() && pg_tls_key.is_some()) {
                 eprintln!("Both --pg-tls-cert and --pg-tls-key must be specified together"); std::process::exit(2);
             }
@@ -250,6 +269,7 @@ fn lume_main() {
                 tls_cert: pg_tls_cert,
                 tls_key: pg_tls_key,
                 allow_plaintext: pg_allow_plaintext,
+                require_tls: pg_require_tls,
             };
             #[cfg(feature = "ti")]
             let result=match ti_store{
@@ -344,7 +364,7 @@ fn lume_main() {
 #[cfg(feature = "ti")]
 fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
     if args.iter().any(|a| a == "-h" || a == "--help") {
-        println!("Usage: lume ti ingest --signalk <url> --store <root> [--config <path>] [--token <file|token>] [--serve] [--bind <IP>] [--port <port>] [--pg <port>] [--pg-bind <IP>] [--pg-auth-config <path>] [--pg-tls-cert <path>] [--pg-tls-key <path>] [--pg-allow-plaintext] [--docs-index <index>] [--self-urn <urn>]");
+        println!("Usage: lume ti ingest --signalk <url> --store <root> [--config <path>] [--token <file|token>] [--serve] [--bind <IP>] [--port <port>] [--pg <port>] [--pg-bind <IP>] [--pg-auth-config <path>] [--pg-tls-cert <path>] [--pg-tls-key <path>] [--pg-require-tls[=<bool>]] [--pg-allow-plaintext] [--docs-index <index>] [--self-urn <urn>]");
         println!("--pg-bind defaults to --bind; HTTP bind is independent. --pg-auth-config replaces store auth without merging; other sections are ignored. Unix file must be private (chmod 600).");
         return Ok(());
     }
@@ -361,6 +381,7 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
     let mut pg_tls_cert = None;
     let mut pg_tls_key = None;
     let mut pg_allow_plaintext = false;
+    let mut pg_require_tls = None;
     let mut self_urn = None;
     let mut docs_index = None;
 
@@ -433,6 +454,26 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
             }
             "--pg-allow-plaintext" => {
                 pg_allow_plaintext = true;
+                i += 1;
+            }
+            "--pg-require-tls" => {
+                if let Some(next) = args.get(i + 1).filter(|s| !s.starts_with("--")) {
+                    match next.as_str() {
+                        "true" | "1" => { pg_require_tls = Some(true); i += 2; }
+                        "false" | "0" => { pg_require_tls = Some(false); i += 2; }
+                        other => return Err(format!("Invalid --pg-require-tls value: {other}")),
+                    }
+                } else {
+                    pg_require_tls = Some(true);
+                    i += 1;
+                }
+            }
+            opt if opt.starts_with("--pg-require-tls=") => {
+                match opt.strip_prefix("--pg-require-tls=").unwrap() {
+                    "true" | "1" => pg_require_tls = Some(true),
+                    "false" | "0" => pg_require_tls = Some(false),
+                    other => return Err(format!("Invalid --pg-require-tls value: {other}")),
+                }
                 i += 1;
             }
             other => return Err(format!("Unknown option: {other}")),
@@ -512,6 +553,7 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
                     tls_cert: pg_tls_cert.map(PathBuf::from).or_else(|| service.config.bind.pg_tls_cert.clone().map(PathBuf::from)),
                     tls_key: pg_tls_key.map(PathBuf::from).or_else(|| service.config.bind.pg_tls_key.clone().map(PathBuf::from)),
                     allow_plaintext: pg_allow_plaintext || service.config.bind.pg_allow_plaintext,
+                    require_tls: pg_require_tls.or(service.config.bind.pg_require_tls),
                 };
                 std::thread::spawn(move || {
                     println!("Starting integrated query server on {serve_bind}:{port}...");
@@ -2561,6 +2603,7 @@ OPTIONS:
                           other sections ignored; Unix chmod 600 required
   --pg-tls-cert <PATH> PEM certificate or chain for Postgres TLS
   --pg-tls-key <PATH>  PEM private key for Postgres TLS (Unix chmod 600 required)
+  --pg-require-tls[=<bool>] Require or disable TLS explicitly [true/false]
   --pg-allow-plaintext Allow unencrypted Postgres connections on non-loopback binds
   --bind <IP>           Bind address [with TI: 127.0.0.1; otherwise: 0.0.0.0]
   -h, --help             Prints help information

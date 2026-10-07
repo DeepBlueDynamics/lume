@@ -103,6 +103,8 @@ pub struct BindConfig {
     pub pg_tls_key: Option<String>,
     /// Allow plaintext connections on non-loopback binds.
     pub pg_allow_plaintext: bool,
+    /// Explicit TLS requirement override (None = policy-based).
+    pub pg_require_tls: Option<bool>,
 }
 
 /// Shore NUTS integration and optional boat credentials.
@@ -443,6 +445,7 @@ impl Default for BindConfig {
             pg_tls_cert: None,
             pg_tls_key: None,
             pg_allow_plaintext: false,
+            pg_require_tls: None,
         }
     }
 }

@@ -11,7 +11,7 @@ Lume exposes a read-only PostgreSQL wire protocol endpoint (`ti_pg.rs`) powered 
 Before Grafana or external `psql` clients can connect across boat LANs or external networks, Lume requires TLS support. This decision establishes:
 1. The TLS engine integration (`pgwire`'s built-in `server-api-ring` vs. direct `tokio-rustls`).
 2. Certificate provisioning (`--pg-tls-cert`/`--pg-tls-key` PEM files, private key `0600` permissions check, and automatic self-signed generation on first run via `rcgen`).
-3. Network connection security policy (mandatory TLS off loopback/docker0, unless explicit `--pg-allow-plaintext` is specified).
+3. Network connection security policy (mandatory TLS off loopback/docker0, unless explicit `--pg-allow-plaintext` or `--pg-require-tls=false` is specified).
 4. Dependency licensing audit and release binary size impact.
 
 ---
@@ -37,11 +37,11 @@ PostgreSQL wire protocol does not use raw direct TLS by default; it uses an in-b
 ### Option 2 Implementation Mechanics
 Because `pgwire::tokio::process_socket` requires `Option<pgwire::tokio::TlsAcceptor>` (which is an uninhabited placeholder enum without `server-api-ring`), Lume implements connection handling in `src/ti_pg.rs`:
 1. `handle_handshake(socket, tls_acceptor)` inspects the initial 8-byte header:
-   - If `SSLRequest` and TLS is configured (`tls_acceptor.is_some()`): writes byte `b'S'`, flushes, and initiates `tls_acceptor.accept(socket).await` to produce a `tokio_rustls::server::TlsStream<TcpStream>`. Returns `(PgStream::Tls(stream), true)`.
+   - If `SSLRequest` and TLS is configured (`tls_acceptor.is_some()`): writes byte `b'S'`, flushes, and initiates `tls_acceptor.accept(socket).await` to produce a `tokio_rustls::server::TlsStream<TcpStream>`. Returns `(PgStream::Tls(Box::new(stream)), true)`.
    - If `SSLRequest` and TLS is not configured: writes byte `b'N'`, flushes, and returns `(PgStream::Plain(socket), false)`.
    - If `GSSENCRequest`: writes byte `b'N'`, flushes, and recurses to read the subsequent `SSLRequest` or `StartupMessage`.
    - If any other message (e.g. standard plaintext `StartupMessage`): prepends the 8 peeked bytes back into the stream using `tokio_util::codec::Framed` and returns `(PgStream::Plain(prefixed_socket), false)`.
-2. A custom enum `PgStream` implements both `AsyncRead` and `AsyncWrite`, delegating to either `Plain(PrefixStream<TcpStream>)` or `Tls(TlsStream<TcpStream>)`.
+2. A custom enum `PgStream` implements both `AsyncRead` and `AsyncWrite`, delegating to either `Plain(TcpStream)` or `Tls(Box<TlsStream<TcpStream>>)`.
 3. The framed stream is processed using `pgwire::tokio::server::process_message(stream, &client_info, &authenticator, &processor)`.
 4. Client secure state (`client_info.is_secure()`) is marked `true` when TLS is active.
 
@@ -53,6 +53,7 @@ Because `pgwire::tokio::process_socket` requires `Option<pgwire::tokio::TlsAccep
 - **CLI Flags**:
   - `--pg-tls-cert <PATH>`: Path to PEM-encoded certificate or certificate chain.
   - `--pg-tls-key <PATH>`: Path to PEM-encoded private key (PKCS#8, PKCS#1 RSA, or SEC1 EC).
+  - `--pg-require-tls[=<bool>]`: Explicitly require or disable TLS (`true`/`false`), overriding bind address heuristics.
   - `--pg-allow-plaintext`: Explicitly permit unencrypted connections on non-loopback binds.
 - **`ti.toml [bind]` Section**:
   ```toml
@@ -62,6 +63,7 @@ Because `pgwire::tokio::process_socket` requires `Option<pgwire::tokio::TlsAccep
   pg_tls_cert = "/var/lib/lume/pg_cert.pem"
   pg_tls_key = "/var/lib/lume/pg_key.pem"
   pg_allow_plaintext = false
+  pg_require_tls = true
   ```
   CLI flags take precedence over `ti.toml`. Specifying only `--pg-tls-cert` without `--pg-tls-key` (or vice versa) returns a CLI validation error.
 
@@ -118,30 +120,35 @@ chmod 600 pg_key.pem
 
 ### Network Classification
 - **Loopback**: `127.0.0.0/8` (IPv4) or `::1` (IPv6), checked via `ip.is_loopback()`.
-- **docker0 / Container Bridge**: `172.17.0.0/16` or host gateway `172.17.0.1`.
+- **docker0 Gateway**: Exactly `172.17.0.1` (the default Docker bridge gateway IP used by HaLOS Grafana). Other addresses in `172.17.0.0/16` (such as boat LANs using `172.17.x.x`) are treated as external and require TLS unless `--pg-allow-plaintext` or `--pg-require-tls=false` is provided.
 - **Non-loopback / External**: `0.0.0.0`, `::`, or specific LAN/WAN interface IPs.
 
 ### Connection Policy Matrix
-| Bind Address | Client TLS (`sslmode`) | `--pg-allow-plaintext` | Result |
-|---|---|---|---|
-| Loopback (`127.0.0.1`, `127.0.0.2`, `::1`) | TLS (`require`) | Any | **Allowed** |
-| Loopback (`127.0.0.1`, `127.0.0.2`, `::1`) | Plaintext (`disable`) | Any | **Allowed** (default local IPC) |
-| docker0 (`172.17.0.0/16`) | TLS (`require`) | Any | **Allowed** |
-| docker0 (`172.17.0.0/16`) | Plaintext (`disable`) | Any | **Allowed** (container bridge) |
-| Non-loopback (`0.0.0.0`, LAN) | TLS (`require`) | Any | **Allowed** |
-| Non-loopback (`0.0.0.0`, LAN) | Plaintext (`disable`) | `false` (default) | **REJECTED** (SQLSTATE `28000`) |
-| Non-loopback (`0.0.0.0`, LAN) | Plaintext (`disable`) | `true` | **Allowed** (with warning log) |
+| Bind Address | Client TLS (`sslmode`) | `--pg-allow-plaintext` | `--pg-require-tls` | Result |
+|---|---|---|---|---|
+| Loopback (`127.0.0.1`, `127.0.0.2`, `::1`) | TLS (`require`) | Any | Any | **Allowed** |
+| Loopback (`127.0.0.1`, `127.0.0.2`, `::1`) | Plaintext (`disable`) | Any | None / false | **Allowed** (default local IPC) |
+| Loopback (`127.0.0.1`, `127.0.0.2`, `::1`) | Plaintext (`disable`) | `false` | true | **REJECTED** (SQLSTATE `28000`) |
+| docker0 gateway (`172.17.0.1`) | TLS (`require`) | Any | Any | **Allowed** |
+| docker0 gateway (`172.17.0.1`) | Plaintext (`disable`) | Any | None / false | **Allowed** (container bridge) |
+| docker0 subnet (`172.17.5.5`) | Plaintext (`disable`) | `false` (default) | None | **REJECTED** (SQLSTATE `28000`) |
+| Non-loopback (`0.0.0.0`, LAN) | TLS (`require`) | Any | Any | **Allowed** |
+| Non-loopback (`0.0.0.0`, LAN) | Plaintext (`disable`) | `false` (default) | None / true | **REJECTED** (SQLSTATE `28000`) |
+| Non-loopback (`0.0.0.0`, LAN) | Plaintext (`disable`) | `true` | Any | **Allowed** (with warning log) |
+| Non-loopback (`0.0.0.0`, LAN) | Plaintext (`disable`) | Any | false | **Allowed** (explicit override) |
 
 ### Rejection Implementation
-When `--pg-bind` is not loopback or docker0 and `--pg-allow-plaintext` is false, `AuthConfig::new` sets `require_tls = true`. In `StartupHandler::on_startup`:
-```rust
-if self.config.require_tls && !client.is_secure() {
-    return Err(super::ti_pg::error(
-        "28000",
-        "TLS connection is required for non-loopback connections. Connect using sslmode=require, or start the server with --pg-allow-plaintext",
-    ));
-}
-```
+When `require_tls(bind, options)` returns `true`:
+- `AuthConfig::new` sets `require_tls = true`.
+- In `StartupHandler::on_startup`:
+  ```rust
+  if self.config.require_tls && !client.is_secure() {
+      return Err(super::ti_pg::error(
+          "28000",
+          "TLS connection is required for non-loopback connections. Connect using sslmode=require, or start the server with --pg-allow-plaintext",
+      ));
+  }
+  ```
 Standard PostgreSQL SQLSTATE `28000` (`invalid_authorization_specification`) cleanly instructs `psql` or Grafana to connect using `sslmode=require`.
 
 ### SCRAM-SHA-256 over TLS
@@ -197,11 +204,12 @@ The binary size increase is only ~114 KiB (+0.12%) because `ring`, `rustls`, and
 
 ## 7. Verification & Test Suite
 
-The implementation is verified by integration tests in `tests/pg_tls.rs` (7/7 passing):
-1. `test_tls_sslmode_require_succeeds`: Validates connecting with `tokio-postgres` and `tokio-postgres-rustls` under `sslmode=require` against auto-generated self-signed certificate.
-2. `test_non_loopback_refuses_plaintext`: Confirms unencrypted connections (`sslmode=disable`) to `0.0.0.0` are rejected with SQLSTATE `28000`.
-3. `test_plaintext_loopback_unchanged`: Confirms local connections to `127.0.0.1` continue working unencrypted with zero config.
-4. `test_loopback_127_0_0_2`: Confirms alias loopback addresses work without TLS.
-5. `test_non_loopback_allows_plaintext_when_configured`: Confirms `--pg-allow-plaintext` permits unencrypted connections on `0.0.0.0`.
-6. `test_wrong_key_mode_rejected`: Confirms private keys with permissive permissions (e.g. `0644`) fail with descriptor permission error on Unix.
-7. `test_scram_over_tls`: Confirms full SCRAM-SHA-256 authentication handshake completes successfully over TLS.
+The implementation is verified by integration tests in `tests/pg_tls.rs` (8/8 passing). Tests never bind `0.0.0.0`:
+1. `test_require_tls_policy`: Pure unit test evaluating `require_tls(bind, options)` on `0.0.0.0`, `192.0.2.1`, `::`, `127.0.0.1`, `127.0.0.2`, `::1`, `172.17.0.1`, `172.17.5.5`, and `172.18.0.1` under default, `allow_plaintext: true`, `require_tls: Some(false)`, and `require_tls: Some(true)`.
+2. `test_tls_sslmode_require_succeeds`: Validates connecting with `tokio-postgres` and `tokio-postgres-rustls` under `sslmode=require` on `127.0.0.1:0`.
+3. `test_non_loopback_refuses_plaintext`: Confirms unencrypted connections (`sslmode=disable`) to server with `require_tls: Some(true)` on `127.0.0.1:0` are rejected with SQLSTATE `28000`, while TLS succeeds.
+4. `test_plaintext_loopback_unchanged`: Confirms local connections to `127.0.0.1` continue working unencrypted with zero config.
+5. `test_loopback_127_0_0_2`: Confirms alias loopback addresses work without TLS.
+6. `test_non_loopback_allows_plaintext_when_configured`: Confirms `--pg-allow-plaintext` permits unencrypted connections on `127.0.0.1:0` even when `require_tls: Some(true)` is set.
+7. `test_wrong_key_mode_rejected`: Confirms private keys with permissive permissions (e.g. `0644`) fail with descriptor permission error on Unix.
+8. `test_scram_over_tls`: Confirms full SCRAM-SHA-256 authentication handshake completes successfully over TLS.

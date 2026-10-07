@@ -148,6 +148,67 @@ fn test_loopback_127_0_0_2() {
 }
 
 #[test]
+fn test_require_tls_policy() {
+    use std::net::IpAddr;
+    let default_options = PgOptions::default();
+    let allow_plaintext_options = PgOptions {
+        allow_plaintext: true,
+        ..Default::default()
+    };
+    let require_tls_true_options = PgOptions {
+        require_tls: Some(true),
+        ..Default::default()
+    };
+    let require_tls_false_options = PgOptions {
+        require_tls: Some(false),
+        ..Default::default()
+    };
+
+    let non_loopback_cases: &[&str] = &["0.0.0.0", "192.0.2.1", "::", "172.17.5.5", "172.18.0.1"];
+    let loopback_or_docker0_cases: &[&str] = &["127.0.0.1", "127.0.0.2", "::1", "172.17.0.1"];
+
+    for &addr_str in non_loopback_cases {
+        let ip: IpAddr = addr_str.parse().unwrap();
+        assert!(
+            ti_pg::require_tls(ip, &default_options),
+            "Address {addr_str} should require TLS by default"
+        );
+        assert!(
+            !ti_pg::require_tls(ip, &allow_plaintext_options),
+            "Address {addr_str} should NOT require TLS when allow_plaintext is true"
+        );
+        assert!(
+            !ti_pg::require_tls(ip, &require_tls_false_options),
+            "Address {addr_str} should NOT require TLS when require_tls is Some(false)"
+        );
+        assert!(
+            ti_pg::require_tls(ip, &require_tls_true_options),
+            "Address {addr_str} should require TLS when require_tls is Some(true)"
+        );
+    }
+
+    for &addr_str in loopback_or_docker0_cases {
+        let ip: IpAddr = addr_str.parse().unwrap();
+        assert!(
+            !ti_pg::require_tls(ip, &default_options),
+            "Address {addr_str} should NOT require TLS by default"
+        );
+        assert!(
+            !ti_pg::require_tls(ip, &allow_plaintext_options),
+            "Address {addr_str} should NOT require TLS when allow_plaintext is true"
+        );
+        assert!(
+            !ti_pg::require_tls(ip, &require_tls_false_options),
+            "Address {addr_str} should NOT require TLS when require_tls is Some(false)"
+        );
+        assert!(
+            ti_pg::require_tls(ip, &require_tls_true_options),
+            "Address {addr_str} should require TLS when require_tls is Some(true)"
+        );
+    }
+}
+
+#[test]
 fn test_non_loopback_refuses_plaintext() {
     let test_dir = TestDir::new();
     std::fs::write(
@@ -156,8 +217,12 @@ fn test_non_loopback_refuses_plaintext() {
     )
     .unwrap();
     let server = Arc::new(TiServer::open(&test_dir.store_root).unwrap());
-    let bind_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
-    let listener = ti_pg::start(server, bind_addr).unwrap();
+    let bind_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+    let options = PgOptions {
+        require_tls: Some(true),
+        ..Default::default()
+    };
+    let listener = ti_pg::start_with_options(server, bind_addr, &options).unwrap();
     let port = listener.address.port();
     let cert_path = test_dir.store_root.join("pg_cert.pem");
     assert!(cert_path.exists());
@@ -212,11 +277,12 @@ fn test_non_loopback_allows_plaintext_when_configured() {
     )
     .unwrap();
     let server = Arc::new(TiServer::open(&test_dir.store_root).unwrap());
-    let bind_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
+    let bind_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
     let options = PgOptions {
         tls_cert: None,
         tls_key: None,
         allow_plaintext: true,
+        require_tls: Some(true),
     };
     let listener = ti_pg::start_with_options(server, bind_addr, &options).unwrap();
     let port = listener.address.port();
@@ -264,6 +330,7 @@ fn test_wrong_key_mode_rejected() {
         tls_cert: Some(cert_path),
         tls_key: Some(key_path),
         allow_plaintext: false,
+        require_tls: None,
     };
 
     let bind_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
