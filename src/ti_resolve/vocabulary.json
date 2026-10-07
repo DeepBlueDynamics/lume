@@ -13,7 +13,7 @@
     },
     {
       "pattern": "environment.depth.belowTransducer",
-      "aliases": "deep depth sounder echo echosounder fathoms bottom underneath beneath water clearance",
+      "aliases": "deep depth sounder echo echosounder fathoms bottom underneath beneath water clearance hull under us keel seabed",
       "units": "m"
     },
     {
@@ -86,7 +86,7 @@
     },
     {
       "pattern": "environment.outside.pressure",
-      "aliases": "barometer barometric atmosphere atmospheric air pressure millibars mbar hpa",
+      "aliases": "barometer barometric atmosphere atmospheric air pressure millibars mbar hpa glass mercury falling dropping rising",
       "units": "Pa"
     },
     {

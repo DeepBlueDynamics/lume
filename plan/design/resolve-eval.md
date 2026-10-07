@@ -70,7 +70,9 @@ python3 bench/resolve_eval.py --mcp-url http://127.0.0.1:5863/mcp \
 
 The harness starts nothing and refuses a non-loopback endpoint. Use --split
 development while tuning; --show-holdout is reserved for the final evaluation.
-Exit status is zero only at 90% top-three or better.
+Exit status is zero only at 90% top-three or better. The current evaluator also
+loads resolve_independent.json, reports its 20 phrases separately, and keeps the
+original 100-phrase gate unchanged. --split independent runs only that split.
 
 The ignored Rust live-store test manages a loopback server and can run explicitly:
 
@@ -81,7 +83,7 @@ TI_RESOLVE_REQUIRE_PASS=1 cargo test --features ti --test ti_resolve -- --ignore
 ```
 
 TI_RESOLVE_SPLIT selects development/holdout/all; TI_RESOLVE_SHOW_HOLDOUT=1
-prints final holdout misses. PYTHON can select the host interpreter.
+prints final holdout and independent misses. PYTHON can select the host interpreter.
 
 Observed checks: 40 Python bench tests passed; resolver integration tests passed
 3/3 with the real-store gate ignored in the ordinary run; the separate live
@@ -90,3 +92,45 @@ regression remains 97/100 top-three over 488 catalog fields. Tests also check
 aggregate intent, unique paths, typo handling, units, source-independent reserve
 bank vocabulary, latest non-null values and vessel qualification. Specific-file
 rustfmt checks passed. Full TI suite and strict root clippy were not run locally.
+
+## Independent-set follow-up
+
+The lead independently authored 20 phrases without viewing vocabulary.json.
+The lead reported 16/20 top-one and 19/20 top-three before this follow-up and
+accepted M5 on both sets. Imported unchanged in 09a29a8 as
+tests/golden/resolve_independent.json; the original phrase/expected-path pairs
+remain intact. The third split never contributes to the original 100-phrase gate,
+and hidden labels/splits still never reach MCP.
+
+The requested general behaviors were implemented and committed as a980221 before
+running this third split: glass/barometer vocabulary; depth weighting for
+under hull/keel/us and beneath; exclusion of provenance columns unless source,
+sensor or provenance is explicitly requested. Pinned physical units are not
+assigned to source metadata. A no-hit search tries plain path-name BM25, then
+offers zero-score, explicitly labelled catalog suggestions rather than an empty
+list when eligible catalog columns exist. This fallback has a match_mode and
+teaching hint; it does not claim a lexical match. Vessel/no-data restrictions
+remain in force.
+
+Observed final live MCP/store-full results on Rust 1.99 debug:
+
+| Split | Top 1 | Top 3 | Errors |
+|---|---:|---:|---:|
+| Primary 100 | 99/100 | 100/100 | 0 |
+| Development 70 | 69/70 | 70/70 | 0 |
+| Frozen holdout 30 | 30/30 | 30/30 | 0 |
+| Independent 20 | 18/20 | 19/20 | 0 |
+
+The remaining independent exact-path miss is "our lat lon": its expected path is
+navigation.position, while the resolver returns navigation.position.latitude
+and navigation.position.longitude. This is reported as a miss under the
+evaluator's exact-path rule. Neither ranking nor expectations were changed after
+the independent results were seen. The lead's original grading implementation
+was not inspected; its reported figures and this exact-path run are labelled
+separately rather than assuming identical grading details.
+
+Artifact: .lanes/data/resolve-eval/idioms-final (not committed).
+Checks: 49 Python bench tests passed; 4 Rust resolver tests passed with the
+real-store gate ignored in the ordinary run; the explicit live gate passed.
+The older metadata-wide regression remains 97/100. Specific-file rustfmt passed.
+Full TI suite and strict root clippy were not run locally.

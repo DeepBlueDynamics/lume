@@ -217,7 +217,12 @@ fn canonical_columns_latest_nonnull_and_vessel_filters() {
             .resolve(&engine, &json!({"phrase":"unrecognizedxyz"}))
             .await
             .unwrap();
-        assert_eq!(none["candidates"], json!([]));
+        assert!(!none["candidates"].as_array().unwrap().is_empty());
+        assert_eq!(none["match_mode"], "catalog_fallback");
+        assert!(none["hint"]
+            .as_str()
+            .unwrap()
+            .contains("No lexical matches"));
     });
 }
 
@@ -265,5 +270,78 @@ fn vocabulary_units_typos_and_distinct_paths_work_without_boat_specific_names() 
         resolver.rank("minimum depht", 1)[0].0,
         "environment.depth.belowTransducer@min"
     );
-    assert!(resolver.rank("zzyyxxyy", 3).is_empty());
+    assert!(!resolver.rank("zzyyxxyy", 3).is_empty());
+}
+
+#[test]
+fn nautical_idioms_depth_intent_and_provenance_filtering() {
+    let fields = [
+        (
+            "environment.depth.belowTransducer",
+            Some(Agg::Mean),
+            FieldKind::Bsi { scale: 2 },
+        ),
+        (
+            "environment.outside.pressure",
+            Some(Agg::Mean),
+            FieldKind::Bsi { scale: 0 },
+        ),
+        (
+            "tanks.freshWater.reserve.currentLevel",
+            Some(Agg::Mean),
+            FieldKind::Bsi { scale: 3 },
+        ),
+        (
+            "navigation.speedOverGround",
+            Some(Agg::Mean),
+            FieldKind::Bsi { scale: 3 },
+        ),
+        ("navigation.speedOverGround$source", None, FieldKind::Set),
+        ("electrical.bilge.pumpCycles$source", None, FieldKind::Set),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(i, (path, agg, kind))| FieldSpec {
+        id: i as u32,
+        path: path.into(),
+        agg,
+        kind,
+        units: None,
+    })
+    .collect();
+    let catalog = ti_sql::SqlCatalog::new(10, fields, vec![], BTreeMap::new()).unwrap();
+    let resolver = PathsResolver::new(&catalog);
+    assert!(resolver.rank("is the glass dropping", 3)[0]
+        .0
+        .starts_with("environment.outside.pressure"));
+    for phrase in [
+        "how much water under the hull",
+        "water under the keel",
+        "water under us",
+        "water beneath",
+    ] {
+        let ranked = resolver.rank(phrase, 3);
+        assert!(
+            ranked[0].0.starts_with("environment.depth."),
+            "{phrase}: {ranked:?}"
+        );
+        assert!(ranked.iter().all(|(c, _)| !c.contains("$source")));
+    }
+    for phrase in ["SOG", "bilge pump", "unrecognizedxyz"] {
+        let ranked = resolver.rank(phrase, 20);
+        assert!(!ranked.is_empty());
+        assert!(
+            ranked.iter().all(|(c, _)| !c.contains("$source")),
+            "{phrase}: {ranked:?}"
+        );
+    }
+    for phrase in ["SOG source", "SOG sensor"] {
+        assert!(
+            resolver
+                .rank(phrase, 20)
+                .iter()
+                .any(|(c, _)| c.contains("$source")),
+            "{phrase}"
+        );
+    }
 }

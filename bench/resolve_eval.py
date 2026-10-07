@@ -25,6 +25,16 @@ def load_phrases(path):
     return entries
 
 
+def load_independent(path):
+    entries = json.loads(Path(path).read_text(encoding="utf-8"))["entries"]
+    if (len(entries) != 20 or len({e["id"] for e in entries}) != 20
+            or len({e["phrase"] for e in entries}) != 20
+            or any(e["split"] != "independent" or not e["hidden"]["expected_paths"]
+                   for e in entries)):
+        raise ValueError("Require 20 unchanged independent phrases")
+    return entries
+
+
 def candidates(result):
     if result.get("isError"):
         raise ValueError("MCP ti_resolve returned an error")
@@ -52,8 +62,9 @@ def grade(entry, found, k):
 
 def metrics(records):
     result = {}
-    for split in ("all", "development", "holdout"):
-        selected = [r for r in records if split == "all" or r["split"] == split]
+    for split in ("all", "development", "holdout", "independent"):
+        selected = [r for r in records if (r["split"] in ("development", "holdout")
+                    if split == "all" else r["split"] == split)]
         n = len(selected)
         top1 = sum(r["top1"] for r in selected)
         top3 = sum(r["top3"] for r in selected)
@@ -91,16 +102,16 @@ def markdown(records, show_holdout=False):
     lines = ["| Split | N | Top 1 | Top 3 | Errors |",
              "|---|---:|---:|---:|---:|"]
     for split, m in metrics(records).items():
-        lines.append(f"| {split} | {m['total']} | {m['top1']} ({m['top1_percent']:.1f}%) | "
+        lines.append(f"| {'primary' if split == 'all' else split} | {m['total']} | {m['top1']} ({m['top1_percent']:.1f}%) | "
                      f"{m['top3']} ({m['top3_percent']:.1f}%) | {m['errors']} |")
     lines += ["", "Top-3 misses:", ""]
     for r in records:
-        if r["top3"] or (r["split"] == "holdout" and not show_holdout):
+        if r["top3"] or (r["split"] in ("holdout", "independent") and not show_holdout):
             continue
         got = ", ".join(c["column"] for c in r["candidates"]) or r.get("error", "(no candidates)")
         lines.append(f"- {r['id']}: {r['phrase']} → {got}; expected {r['expected']['expected_paths']}")
     if not show_holdout:
-        lines.append("\nHoldout miss details withheld until final evaluation (--show-holdout).")
+        lines.append("\nHoldout and independent miss details withheld until final evaluation (--show-holdout).")
     return "\n".join(lines) + "\n"
 
 
@@ -108,25 +119,29 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--mcp-url", required=True)
     p.add_argument("--phrases", type=Path, default=ROOT / "tests/golden/resolve_phrases.json")
+    p.add_argument("--independent", type=Path, default=ROOT / "tests/golden/resolve_independent.json")
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--label", required=True, help="binary/source revision")
     p.add_argument("--timeout", type=float, default=180)
-    p.add_argument("--split", choices=["all", "development", "holdout"], default="all")
+    p.add_argument("--split", choices=["all", "development", "holdout", "independent"], default="all")
     p.add_argument("--show-holdout", action="store_true")
     args = p.parse_args(argv)
     if args.timeout <= 0:
         p.error("timeout must be positive")
-    entries = load_phrases(args.phrases)
+    entries = load_phrases(args.phrases) + load_independent(args.independent)
     entries = [e for e in entries if args.split == "all" or e["split"] == args.split]
     mcp = MCP(args.mcp_url, args.timeout)
     args.output.mkdir(parents=True, exist_ok=False)
     manifest = {"label": args.label, "mcp_url": mcp.url, "split": args.split,
-                "fixture_sha256": hashlib.sha256(args.phrases.read_bytes()).hexdigest()}
+                "fixture_sha256": hashlib.sha256(args.phrases.read_bytes()).hexdigest(),
+                "independent_sha256": hashlib.sha256(args.independent.read_bytes()).hexdigest(),
+                "primary_definition": "development + holdout; independent reported separately"}
     records = evaluate(mcp, entries, lambda rs: write_json(args.output / "results.json", {**manifest, "records": rs, "metrics": metrics(rs)}))
     report = markdown(records, args.show_holdout)
     (args.output / "summary.md").write_text(report, encoding="utf-8")
     print(report)
-    return 0 if metrics(records)["all"]["top3_percent"] >= 90 else 1
+    gate = "independent" if args.split == "independent" else "all"
+    return 0 if metrics(records)[gate]["top3_percent"] >= 90 else 1
 
 
 if __name__ == "__main__":

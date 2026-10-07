@@ -69,6 +69,7 @@ fn vocabulary() -> &'static [Alias] {
         .entries
 }
 fn aliases(path: &str) -> String {
+    let path = path.strip_suffix("$source").unwrap_or(path);
     vocabulary()
         .iter()
         .filter(|a| matches(&a.pattern, path))
@@ -142,6 +143,7 @@ struct Column {
 pub struct PathsResolver {
     columns: Vec<Column>,
     index: Bm25Index,
+    path_index: Bm25Index,
     lexicon: std::collections::BTreeSet<String>,
 }
 impl PathsResolver {
@@ -157,7 +159,7 @@ impl PathsResolver {
                     .iter()
                     .filter(|p| matches(&p.pattern, path))
                     .max_by_key(|p| p.pattern.split('.').filter(|s| *s != "*").count());
-                if field.units.is_none() {
+                if field.units.is_none() && !field.path.ends_with("$source") {
                     field.units = spec.and_then(|p| p.units.clone()).or_else(|| {
                         vocabulary()
                             .iter()
@@ -233,7 +235,18 @@ impl PathsResolver {
                 ))
             })
             .collect();
+        let path_sections = columns
+            .iter()
+            .map(|c| Section {
+                title: words(&c.field.path),
+                body: String::new(),
+                line_number: 0,
+                filename: None,
+                entities: vec![],
+            })
+            .collect();
         Self {
+            path_index: Bm25Index::build(path_sections, None),
             lexicon,
             columns,
             index: Bm25Index::build(sections, None),
@@ -248,6 +261,9 @@ impl PathsResolver {
             .collect()
     }
     fn hits(&self, phrase: &str) -> Vec<(usize, f64)> {
+        self.ranked(phrase).0
+    }
+    fn ranked(&self, phrase: &str) -> (Vec<(usize, f64)>, &'static str) {
         let query: Vec<_> = tokens(phrase)
             .into_iter()
             .map(|word| {
@@ -285,16 +301,60 @@ impl PathsResolver {
             .into_iter()
             .map(|h| (h.section_index, h.score))
             .collect();
-        // Source metadata is useful only when explicitly requested. Normal requests
-        // should not lose their three candidate slots to aggregate/source variants.
-        for (i, score) in &mut hits {
-            if self.columns[*i].field.path.ends_with("$source")
-                && !query
+        let asks_source = query.iter().any(|w| {
+            matches!(
+                w.as_str(),
+                "source" | "sources" | "sensor" | "sensors" | "provenance"
+            )
+        });
+        let eligible = |i: usize| asks_source || !self.columns[i].field.path.ends_with("$source");
+        hits.retain(|(i, _)| eligible(*i));
+        // Hull/keel clearance language identifies depth, not fresh-water tanks.
+        let depth_intent = query
+            .iter()
+            .any(|w| matches!(w.as_str(), "beneath" | "underneath"))
+            || (query.iter().any(|w| w == "under")
+                && query
                     .iter()
-                    .any(|w| matches!(w.as_str(), "source" | "sources" | "provenance"))
-            {
-                *score *= 0.1;
+                    .any(|w| matches!(w.as_str(), "hull" | "keel" | "us")));
+        if depth_intent {
+            for (i, score) in &mut hits {
+                if self.columns[*i]
+                    .field
+                    .path
+                    .starts_with("environment.depth.")
+                {
+                    *score *= 3.0;
+                }
             }
+        }
+        let mut mode = "catalog_bm25";
+        if hits.is_empty() {
+            mode = "path_bm25";
+            hits = self
+                .path_index
+                .search_quiet(
+                    &phrase,
+                    SearchVariant::Classic,
+                    &Bm25Params::default(),
+                    None,
+                )
+                .into_iter()
+                .map(|h| (h.section_index, h.score))
+                .filter(|(i, _)| eligible(*i))
+                .collect();
+        }
+        // Truly unknown words also score zero against path names. Return labelled
+        // catalog suggestions rather than pretending that BM25 found a match.
+        if hits.is_empty() {
+            mode = "catalog_fallback";
+            hits = self
+                .columns
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| eligible(*i))
+                .map(|(i, _)| (i, 0.0))
+                .collect();
         }
         hits.sort_by(|a, b| {
             b.1.total_cmp(&a.1)
@@ -302,7 +362,7 @@ impl PathsResolver {
         });
         let mut seen = std::collections::BTreeSet::new();
         hits.retain(|(i, _)| seen.insert(self.columns[*i].field.path.clone()));
-        hits
+        (hits, mode)
     }
     pub async fn resolve(&self, engine: &ti_sql::TiEngine, args: &Value) -> Result<Value, String> {
         let started = Instant::now();
@@ -384,7 +444,8 @@ impl PathsResolver {
                 .shards(vessel.as_ref().map(std::slice::from_ref), 0, u32::MAX);
         keys.sort_by(|a, b| b.shard.cmp(&a.shard).then_with(|| a.vessel.cmp(&b.vessel)));
         let mut candidates = Vec::new();
-        for (i, score) in self.hits(phrase) {
+        let (hits, mode) = self.ranked(phrase);
+        for (i, score) in hits {
             let column = &self.columns[i];
             let mut latest: Option<(ti_contracts::ShardKey, u32)> = None;
             for key in &keys {
@@ -431,7 +492,7 @@ impl PathsResolver {
                 break;
             }
         }
-        let mut reply = json!({"phrase":phrase,"candidates":candidates,"elapsed_ms":started.elapsed().as_millis() as u64,"truncated":false,"hint":null});
+        let mut reply = json!({"phrase":phrase,"candidates":candidates,"elapsed_ms":started.elapsed().as_millis() as u64,"truncated":false,"match_mode":mode,"hint":if mode == "catalog_fallback" { json!("No lexical matches; these are unranked catalog suggestions. Call ti_schema or use a path name, unit or synonym.") } else if mode == "path_bm25" { json!("Matched path names after vocabulary search found no candidates.") } else { Value::Null }});
         loop {
             let text = serde_json::to_string(&reply).map_err(|e| e.to_string())?;
             if serde_json::to_vec(&json!({"content":[{"type":"text","text":text}]}))

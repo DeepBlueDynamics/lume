@@ -1,0 +1,206 @@
+{
+  "version": 1,
+  "provenance": "Lead's 20 blind phrases, authored independently without viewing vocabulary.json; original result top-1 16/20, top-3 19/20. Imported unchanged; never used for ranking tuning.",
+  "entries": [
+    {
+      "id": "independent-001",
+      "split": "independent",
+      "phrase": "how much water under the hull",
+      "hidden": {
+        "expected_paths": [
+          "environment.depth.belowTransducer"
+        ]
+      }
+    },
+    {
+      "id": "independent-002",
+      "split": "independent",
+      "phrase": "are the batteries charging or draining",
+      "hidden": {
+        "expected_paths": [
+          "electrical.batteries.house.current"
+        ]
+      }
+    },
+    {
+      "id": "independent-003",
+      "split": "independent",
+      "phrase": "how full is the house bank",
+      "hidden": {
+        "expected_paths": [
+          "electrical.batteries.house.stateOfCharge"
+        ]
+      }
+    },
+    {
+      "id": "independent-004",
+      "split": "independent",
+      "phrase": "solar output right now",
+      "hidden": {
+        "expected_paths": [
+          "electrical.solar.house.panelPower"
+        ]
+      }
+    },
+    {
+      "id": "independent-005",
+      "split": "independent",
+      "phrase": "is the glass dropping",
+      "hidden": {
+        "expected_paths": [
+          "environment.outside.pressure"
+        ]
+      }
+    },
+    {
+      "id": "independent-006",
+      "split": "independent",
+      "phrase": "air temp on deck",
+      "hidden": {
+        "expected_paths": [
+          "environment.outside.temperature"
+        ]
+      }
+    },
+    {
+      "id": "independent-007",
+      "split": "independent",
+      "phrase": "wind over the deck",
+      "hidden": {
+        "expected_paths": [
+          "environment.wind.speedApparent"
+        ]
+      }
+    },
+    {
+      "id": "independent-008",
+      "split": "independent",
+      "phrase": "actual wind strength over water",
+      "hidden": {
+        "expected_paths": [
+          "environment.wind.speedTrue"
+        ]
+      }
+    },
+    {
+      "id": "independent-009",
+      "split": "independent",
+      "phrase": "how much are we heeling",
+      "hidden": {
+        "expected_paths": [
+          "navigation.attitude.roll"
+        ]
+      }
+    },
+    {
+      "id": "independent-010",
+      "split": "independent",
+      "phrase": "bow up or down angle",
+      "hidden": {
+        "expected_paths": [
+          "navigation.attitude.pitch"
+        ]
+      }
+    },
+    {
+      "id": "independent-011",
+      "split": "independent",
+      "phrase": "our lat lon",
+      "hidden": {
+        "expected_paths": [
+          "navigation.position"
+        ]
+      }
+    },
+    {
+      "id": "independent-012",
+      "split": "independent",
+      "phrase": "speed made good over the bottom",
+      "hidden": {
+        "expected_paths": [
+          "navigation.speedOverGround"
+        ]
+      }
+    },
+    {
+      "id": "independent-013",
+      "split": "independent",
+      "phrase": "are we anchored or under way",
+      "hidden": {
+        "expected_paths": [
+          "navigation.state"
+        ]
+      }
+    },
+    {
+      "id": "independent-014",
+      "split": "independent",
+      "phrase": "port engine rpm",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.port.revolutions"
+        ]
+      }
+    },
+    {
+      "id": "independent-015",
+      "split": "independent",
+      "phrase": "starbord engine temperture",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.starboard.temperature"
+        ]
+      }
+    },
+    {
+      "id": "independent-016",
+      "split": "independent",
+      "phrase": "port motor kilowatts",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.port.motorPower"
+        ]
+      }
+    },
+    {
+      "id": "independent-017",
+      "split": "independent",
+      "phrase": "is the starboard engine running",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.starboard.state"
+        ]
+      }
+    },
+    {
+      "id": "independent-018",
+      "split": "independent",
+      "phrase": "fresh water left in the port tank",
+      "hidden": {
+        "expected_paths": [
+          "tanks.freshWater.port.currentLevel"
+        ]
+      }
+    },
+    {
+      "id": "independent-019",
+      "split": "independent",
+      "phrase": "how often is the bilge pump kicking on",
+      "hidden": {
+        "expected_paths": [
+          "electrical.bilge.pumpCycles"
+        ]
+      }
+    },
+    {
+      "id": "independent-020",
+      "split": "independent",
+      "phrase": "battery volts",
+      "hidden": {
+        "expected_paths": [
+          "electrical.batteries.house.voltage"
+        ]
+      }
+    }
+  ]
+}

@@ -171,6 +171,13 @@ distinct-path candidate ranking improve the resolver. The fixture was unchanged
 during tuning; holdout miss details were withheld until the final run.
 See plan/design/resolve-eval.md for reproduction and limitations.
 
+A separately authored lead blind set initially scored 16/20 top-one and 19/20
+top-three (lead-reported). After the general idiom/depth/provenance follow-up,
+the evaluator's separate exact-path split scores 18/20 and 19/20, with no errors.
+The one miss returns latitude/longitude leaves for an expected position parent;
+its expectation and ranking were left unchanged after viewing results. The
+original 100-phrase set remains 99/100 top-one and 100/100 top-three.
+
 ## Not yet measured
 
 - Lume vs InfluxDB over a full hour or longer, and cold-cache (after restart) latency.
