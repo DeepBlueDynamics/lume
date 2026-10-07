@@ -33,8 +33,8 @@ cargo clippy --all-targets || true   # informational only; the existing crate ha
 - Always pass `--locked`. CI fails if `Cargo.lock` would change.
 - There is no `rust-toolchain` file yet. The host build pane runs rustc **1.96.1** and the containers run **1.99**, and their clippy lints differ. A pinned `rust-toolchain.toml` has been proposed to the user (unconfirmed until accepted). The strict TI CI job pins Rust **1.96.0** for itself only.
 - CI runs only on pushes and PRs to `main`. Lane branches and `plan/lume-ti` get **no CI**, so run the commands above yourself before you report a commit.
-- **Strict TI CI job** (`ti` in `ci.yml`, `ec48673`; legacy jobs unchanged), on Ubuntu with Rust 1.96.0: `cargo fmt --check` on the 8 TI crates plus the root TI files, `clippy -D warnings` on the TI crates, `cargo test --features ti`, plugin `npm test` on Node 20, and the bench Python tests. It has **not run on GitHub yet**, because `plan/lume-ti` is local only. Run its steps yourself.
-- `release.yml` builds release binaries on `v*` tags for five gnu/darwin/msvc targets. It has no musl targets and no `--features ti` build yet ([repo-fit §4](repo-fit.md)).
+- **Strict TI CI job** (`ti` in `ci.yml`, `ec48673`; legacy jobs unchanged), on Ubuntu with Rust 1.96.0: `cargo fmt --check` on the 8 TI crates plus the root TI files, `clippy -D warnings` on the TI crates, `cargo test --features ti`, plugin `npm test` on Node 20, and the bench Python tests. It first ran on GitHub on PR #4 (`plan/lume-ti` to `main`) and passed. Lane branches still get no CI, so run its steps yourself.
+- **Release pipeline** (`2a456bb`): `.github/workflows/release.yml` builds 5 targets with `--features ti`, gates on glibc <= 2.39, and publishes the plugin `.tgz`, `SHA256SUMS`, `install.sh` and `install.ps1`. `bump-version.yml` is a one-click patch/minor/major bump of `Cargo.toml`, `Cargo.lock` and the plugin `package.json`, followed by the release. The plugin version is synced to 0.12.0.
 
 ## 3. The `--features ti` build
 
@@ -128,8 +128,9 @@ lume serve --ti-store <store> [--bind <IP>] [--port <PORT>] [--pg <port>]
   | `GET /ti/status` | Store status |
   | `GET /ti/resolve?q=<phrase>` | `ti_resolve`: phrase to column (100/100 top-3 on the 100-phrase live MCP eval, holdout 30/30, since `8d7cdbf`; it was 93/100 on `tests/golden/resolve.json` at `39c0096`). Handles nautical vocabulary, sailor idioms, typos and units, excludes `$source`, and never returns empty |
 
-- **Postgres wire** (`451bfc7`, D37): `--pg <port>` adds a read-only Postgres listener on the same bind address. It is off by default and needs `--ti-store`. Since `7c4cb23` it is typed and Grafana-compatible: extended protocol, `pg_catalog`, and Grafana macros. Auth is verifier-only SCRAM-SHA-256 (D42: no plaintext password storage). TLS is not offered, so keep it on loopback (or on the docker0 address for HaLOS Grafana, §11).
+- **Postgres wire** (`451bfc7`, D37): `--pg <port>` adds a read-only Postgres listener on the same bind address. It is off by default and needs `--ti-store`. Since `7c4cb23` it is typed and Grafana-compatible: extended protocol, `pg_catalog`, and Grafana macros. Auth is verifier-only SCRAM-SHA-256 (D42: no plaintext password storage). TLS is offered since D46 (`45ae6ff`): see the flags below.
 - **`--pg-bind <IP>`** moves only the PG listener (default: `--bind`). **`--pg-auth-config <path>`** reads only the `auth` section of a private `ti.toml`, replaces the store's users entirely (no merging), and on Unix needs mode 0600 (`1bbbac2`). Details in §11.
+- **pgwire TLS** (D46 Option 2, tokio-rustls): TLS is required off loopback. `--pg-require-tls[=bool]` (or `[bind] pg_require_tls` in `ti.toml`) sets the policy, `--pg-tls-cert` and `--pg-tls-key` supply a certificate, and without them an auto self-signed cert is generated at `<store>/pg_cert.pem` (rcgen). `--pg-allow-plaintext` opts out. Plaintext trust on docker0 is narrowed to exactly `172.17.0.1`.
 
 **`lume ti ingest`: the live service** (`75a1a4f`; needs `--features ti`):
 
@@ -497,7 +498,7 @@ The plugin writes its data-dir ti.toml atomically with mode 0600 and passes
 --pg-auth-config, keeping store/ti.toml intact. Provisioning uses
 secureJsonData.password: $__env{LUME_PG_PASSWORD}; supply that environment
 secret to Grafana with the same password entered in the plugin.
-sslmode disable is for loopback/local Docker-host transport only.
+sslmode disable is fine over 172.17.0.1 (loopback/docker0 trust); use require everywhere else.
 
 Run bash tests/pg_smoke.sh host:port grafana ti on the Pi with PGPASSWORD or
 PGPASSFILE configured (`postgresql-client` is installed on the lead's Pi). First Pi
