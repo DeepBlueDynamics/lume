@@ -216,12 +216,15 @@ The plugin supervises `lume ti ingest --signalk ws://127.0.0.1:3000 --store <dat
 - **History API** (`e09bb87`): the plugin is a Signal K v2.31 History API provider, answering from Lume's loopback HTTP. Since `c592a17` the plugin defaults the store to `[profiles] opt_in = ["last"]`, so `first`/`last` (SKIP/KIP `:last` requests) work on new buckets. Older buckets without `@last` fall back to `@mean`, and the response reports `method_used`. Rust side: `cargo test --features ti --test ti_http` (8/8).
 - **Logging in on HaLOS:** Signal K on HaLOS uses OIDC (HaLOS SSO), and the login is bound to the host name. Open `https://halos.local:4430/admin/` → Login → **HaLOS SSO**, then open the Lume TI webapp and other apps from the same host. An IP-address origin can't complete the login. Admin access needs the HaLOS `admins` group. The webapp shows a not-logged-in banner and a Log in link on 401 (`9d90cf9`, `78b326e`, `472d6e6`).
 - **Webapp results:** the webapp requests JSON from `/api/query` and `/api/schema` (`3aec284`). The TI server answers Arrow by default, so before this fix the console never showed results.
-- **Native Pi 5 build:** fat LTO OOMs on the Pi (rustc about 6 GB RSS, even with 10 GB temporary swap). Use thin LTO. The resulting binary runs in the plugin container (glibc 2.39 OK):
+- **Native Pi 5 build:** the shipped release profile (D45, `8e7fcfe`) is fat LTO, `codegen-units = 1`, `opt-level = 3`, `panic = "unwind"`, `strip = "symbols"`. Fat LTO OOMs on the Pi, so override it to thin LTO with one codegen unit and one job. The resulting binary runs in the plugin container (glibc 2.39 OK):
 
   ```sh
-  CARGO_PROFILE_RELEASE_LTO=thin CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 CARGO_BUILD_JOBS=2 \
+  CARGO_PROFILE_RELEASE_LTO=thin CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_STRIP=symbols \
+  CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 \
     cargo build --release --locked --features ti --bin lume
   ```
+
+  Measured on the Pi: `lume` 88.3 MB, `ti-bench` 81.1 MB, peak rustc RSS 2.01 GiB, 54 minutes. (Earlier Pi builds used thin LTO with 16 codegen units and 2 jobs.)
 
 - **Influx-vs-Lume benchmark (Pi):** `signalk-to-influxdb2` 2.3.0 writes InfluxDB bucket `marine` at 1 s (self vessel only). The harness `bench/influx_vs_lume.py` (`e9d95fc`, `9e823ea`, `0c4cdf6`) is read-only and Python stdlib only. Connection settings and sampling semantics are in [bench/influx_vs_lume.md](../bench/influx_vs_lume.md).
 
@@ -279,6 +282,8 @@ bash bench/pi_ingest_run.sh --store <temp store> [--duration 3600] [--interval 1
 - `sk-feed` also takes `--values-per-sec` (alias `--rate`, default 20,000), `--vessels` (21: 1 self + 20 AIS), `--batch-size` (100), `--seed`, `--duration`, `--max-values` and `--bind` (default `127.0.0.1`).
 - `pi_ingest_run.sh` is read-only: it samples RSS, CPU, `ingest_status.json` counters, WAL/shard sizes, temperature and throttling every 10 s, then writes a CSV and a Markdown summary (`bench/summarize_ingest.py`). It auto-detects the `lume ti ingest` PID unless you pass `--pid`.
 - The first 1-hour live run (`docs/bench/pi5-ingest-1h-2026-10-07.md`) was input-bound at 46.6 values/s: a stability result, not the gate.
+- `sk-feed` subscriptions are additive and the feed handles socket backpressure (`35950de`).
+- The first load attempt found two bugs. `7ea727d`: the retained-window admission cap (64 windows / 64 MiB) is now charged once per accumulator, so a healthy 20k values/s stream no longer reports INGEST BLOCKED. D47 (`80c7f7e`): each open-shard flush rewrote 4,704 files with 2 fsyncs each (about 140 s per flush on the SD card). A flush now writes only changed fields behind one `syncfs` on Linux, then renames and syncs each directory once; seal uses the same path. Ingest keeps its 5 s freshness flush, capped at about 10 % duty, with a hard flush past 2M records. The rebuilt Pi binary and the load rerun are in progress.
 
 **Host oracles for W9 and W10** (Python DuckDB, testing only; run from the repo root on the host):
 

@@ -1,9 +1,9 @@
 # Lume TI — Status board
 
-Last updated: **2026-10-07** (docs keeper, after `2df24b5`: **M5 items 1 and 2 PASSED**, sealed-shard query cache, `IS [NOT] DISTINCT FROM` pushdown (all classes meet p95), History `:last` default with `@mean` fallback, Pi 1-hour stability run, `ti-bench sk-feed` for the M2 load gate; earlier: M4 item 1 passed, MCP ergonomics, `lume chat`, M6 item 2 passed)
+Last updated: **2026-10-07** (docs keeper, after `80c7f7e`: D45 release profile shipped (`8e7fcfe`), Pi 20k values/s load-run fixes (`7ea727d`), backfill 150,510 rows/s, **D47** flush (`80c7f7e`); earlier at `2df24b5`: **M5 items 1 and 2 PASSED**, sealed-shard query cache, `IS [NOT] DISTINCT FROM` pushdown (all classes meet p95), History `:last` default with `@mean` fallback, Pi 1-hour stability run, `ti-bench sk-feed` for the M2 load gate; earlier: M4 item 1 passed, MCP ergonomics, `lume chat`, M6 item 2 passed)
 
-Integration branch `plan/lume-ti` is at `2df24b5`. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46 at `8e87a11`; `cargo test --features ti` was 55 at `39c0096` (not recounted since). Plugin `npm test` 17/17 and `cargo test` `ti_http` 8/8 at `e09bb87`.
-Workspace members: `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench`, `ti-geo`, `ti-sync`. Signal K plugin: `plugins/signalk-lume-ti/`. Next free decision: **D47** (unconfirmed: D45 binary size (Long Horse) and D46 pgwire TLS (Artificial Shark) are being drafted, and the decisions log still says D45; ask the lead). All measured numbers: [docs/performance-comparisons.md](../docs/performance-comparisons.md).
+Integration branch `plan/lume-ti` is at `80c7f7e`. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46 at `8e87a11`; `cargo test --features ti` was 55 at `39c0096` (not recounted since). Plugin `npm test` 17/17 and `cargo test` `ti_http` 8/8 at `e09bb87`.
+Workspace members: `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench`, `ti-geo`, `ti-sync`. Signal K plugin: `plugins/signalk-lume-ti/`. Next free decision: **D48**. D45 (binary size) is merged and recorded in [decisions/D45-binary-size.md](decisions/D45-binary-size.md). D46 (pgwire TLS, Option 2) is assigned to Long Horse and not yet picked up. D47 (open-shard flush) is in [spec/11](spec/11-risks-decisions.md). All measured numbers: [docs/performance-comparisons.md](../docs/performance-comparisons.md).
 Setup and workflow: [SETUP.md](SETUP.md).
 
 ## Critical path right now
@@ -19,7 +19,9 @@ Setup and workflow: [SETUP.md](SETUP.md).
   - Plugin UI fixes deployed with the webapp: login hint, Log in link, not-logged-in banner; JSON requests (`3aec284`; the console had never shown results because the TI server answers Arrow by default).
   - **Access request still pending the user's approval.** Live ingest isn't blocked (`allow_readonly` is true), but the notes/logbook poller needs the token.
   - **Pi 1-hour live run** (`7407378`, [docs/bench/pi5-ingest-1h-2026-10-07.md](../docs/bench/pi5-ingest-1h-2026-10-07.md)): 46.6 values/s (input-bound replay), RSS 119 MiB, CPU 8.4 %, 77 °C, 0 blocked, 0 failures, throttle flags `0xe0000`. **Stability only, not the M2 item 3 gate** (≥ 20,000 values/s, ≤ 25 % of one core, ≤ 400 MB RSS).
-  - **Next:** the M2 item 3 load run with `ti-bench sk-feed` against a separate temp store (20k values/s for 60 min, then 25k/30k/40k for 5 min each); the Pi is building for it now. Also rerun the pg smoke and Grafana Save & Test; re-verify Q6 (per-path counts) for the bucket gap; the user approves the access request.
+  - **Load-run findings (first M2 item 3 attempt):** `7ea727d` fixed two bugs. The retained-window admission cap (64 windows / 64 MiB) is now charged once per accumulator, so a healthy 20k values/s stream no longer reports INGEST BLOCKED. `ti-bench sk-feed` subscriptions are additive and the feed handles socket backpressure (`35950de`). Backfill after the fix: **150,510 rows/s**, shards byte-identical, corpus 61/0/1 (`bc92c4f`).
+  - **D47 flush** (`80c7f7e`): the load run then stalled. Each open-shard flush rewrote 4,704 files with 2 fsyncs each, about 140 s per flush on the SD card. A flush now writes only the changed fields behind one `syncfs` on Linux, then renames and syncs each directory once. Seal uses the same path. Ingest keeps its 5 s freshness flush, capped at about 10 % duty, with a hard flush past 2M records.
+  - **Next:** the Pi rebuild with `80c7f7e` and the M2 item 3 load rerun are in progress (`ti-bench sk-feed` against a separate temp store: 20k values/s for 60 min, then 25k/30k/40k for 5 min each). Also rerun the pg smoke and Grafana Save & Test; re-verify Q6 (per-path counts) for the bucket gap; the user approves the access request.
   - **The Pi runs hot without an Active Cooler** (82–86 °C under load).
 - **📊 Pi benchmark, 50-min window** (`bench/influx_vs_lume.py`, 23:00–23:50Z, 20 runs, warm p50, InfluxDB vs Lume). Replaces the earlier 17-min preliminary table:
 
@@ -67,9 +69,9 @@ Setup and workflow: [SETUP.md](SETUP.md).
   - `lume ti repl` (`f1bb15a`).
   - The `signalk-lume-ti` plugin (`31841c3`).
 - **In flight:**
-  - Long Horse: **D45 binary size** (`ti/binary-size`). x64, Rust 1.99, stripped: fat LTO / 1 CGU 92.8 MB (33.9 MB gzip, build peak RSS 7.62 GiB); thin / 16 (the Pi mode) 146.3 MB (48.6 MB gzip, 1.38 GiB peak) but **10.7 % slower, failing the 5 % rule**; thin / 1 101.1 MB (34.9 MB gzip), timing pending.
-  - Artificial Shark: **D46 pgwire TLS proposal** (`ti/pg-tls`).
-  - Lead: the Pi build for the M2 item 3 `sk-feed` load run.
+  - Long Horse: **D46 pgwire TLS, Option 2**, assigned and not yet picked up. D45 binary size was delivered (`39bfe72`, merged `b84e6aa`).
+  - Artificial Shark: session appears down. Nothing assigned.
+  - Lead: the Pi rebuild with `80c7f7e` and the M2 item 3 `sk-feed` load rerun.
   - `.gitattributes` (`a1b631d`) now keeps `*.sh` LF; CRLF checkouts had broken bash on the Pi.
 - **🟡 User decisions:** item 16, the CC-BY-SA licence on `src/ti_resolve/signalk_paths.json`, is still needed before publishing.
 - **Disk policy (lead):**
@@ -94,6 +96,9 @@ Commit messages, the decisions log and older docs use the former names. Re-check
 
 | Commit | What |
 |---|---|
+| `80c7f7e` | **D47** open-shard flush: changed fields only, one `syncfs` on Linux, renames and directory syncs once; seal uses the same path; 5 s freshness flush capped at about 10 % duty, hard flush past 2M records |
+| `bc92c4f`, `7ea727d`, `35950de` | Pi load-run fixes: retained-window admission cap charged once per accumulator (no false INGEST BLOCKED at 20k values/s); `sk-feed` additive subscriptions and socket backpressure; backfill 150,510 rows/s, byte-identical shards, corpus 61/0/1 |
+| `8e7fcfe` | **D45 release profile**: fat LTO, 1 CGU, opt-level 3, unwind, `strip = symbols` (D45 itself `39bfe72`, merged `b84e6aa`) |
 | `eba3ce8`, `92b211e`, `2df24b5` | **`ti-bench sk-feed`** (`205231a`, Artificial Shark): synthetic Signal K WebSocket stream with rate ramp, vessels and batching for the Pi 20k values/s gate; UTF-8 summary output on Windows |
 | `cebf5ea` | **`IS [NOT] DISTINCT FROM` pushdown** (`ad627f0`): exact bitmap pushdown; Q5-002 300 → 8.45 ms, no rows materialized. All classes meet p95 |
 | `6d7f5c1` | `docs/bench/pi5-ingest-1h-2026-10-07.md`: Pi 1-hour live ingest (46.6 values/s input-bound, 119 MiB RSS, 8.4 % CPU, 0 blocked/failures) |
@@ -159,8 +164,8 @@ Earlier: `39c0096` `ti_resolve` 93/100 + `--bind`, `0b3a17a` fmt, `400557c` READ
 | Agent (pane name) | Pane | Lane/scope | Branch | Clone | Last known state |
 |---|---|---|---|---|---|
 | Industrial Pike | `ee764a09` | Lead and integrator. Host runs and oracles (DuckDB, `lume ti verify`, rules and robots oracles, D38 regression), host fmt/clippy at merge, disk policy. **Pi 5 deployment**, the Influx-vs-Lume benchmark and the M2 item 3 load run | `plan/lume-ti` | shared tree | `2df24b5` |
-| Long Horse (formerly Rigid Roadrunner) | `888bff45` | **D45 binary size** (LTO/codegen-unit trade-offs). Delivered the query cache, History `:last` fallback, `IS DISTINCT FROM` pushdown, `ti_resolve` idioms, `q2-001`, the M5 agent harness, MCP ergonomics, `count_paths`, D43, plugin pgwire, the Influx-vs-Lume bench, pgwire + SCRAM, the History API provider, `lume sql`, the CRoaring evaluation, W9 and W10 | `ti/binary-size` | `.lanes/w4` | In progress |
-| Artificial Shark (formerly Romantic Pike) | `fd91f4b1` | **D46 pgwire TLS proposal**. Delivered `ti-bench sk-feed`, the Pi ingest sampler, `lume chat` and the Ask tab, pg-limits, M6 HTTP sync, ti-sync, the live ingest service, the plugin, `--hz` and the bench harness | `ti/pg-tls` | `.lanes/w3` | In progress. Its plugin edits once leaked into the shared tree (rescued as a patch) |
+| Long Horse (formerly Rigid Roadrunner) | `888bff45` | Idle, waiting to pick up **D46 pgwire TLS (Option 2)**. Delivered **D45 binary size** (`39bfe72`, merged `b84e6aa`), the query cache, History `:last` fallback, `IS DISTINCT FROM` pushdown, `ti_resolve` idioms, `q2-001`, the M5 agent harness, MCP ergonomics, `count_paths`, D43, plugin pgwire, the Influx-vs-Lume bench, pgwire + SCRAM, the History API provider, `lume sql`, the CRoaring evaluation, W9 and W10 | `ti/binary-size` | `.lanes/w4` | Idle; D46 not yet picked up |
+| Artificial Shark (formerly Romantic Pike) | `fd91f4b1` | Nothing assigned. Delivered `ti-bench sk-feed`, the Pi ingest sampler, `lume chat` and the Ask tab, pg-limits, M6 HTTP sync, ti-sync, the live ingest service, the plugin, `--hz` and the bench harness | `ti/pg-tls` | `.lanes/w3` | Session appears down. Its plugin edits once leaked into the shared tree (rescued as a patch) |
 | Zygomorphic Prawn | `eccaf836` | — | — | `.lanes/corpus` (retired) | **Retired.** Its `target/` has been deleted |
 | Compact Echidna (formerly Regular Pheasant) | `6914c38e` | Host build pane (PowerShell 7, rustc 1.96.1). Not an agent | — | — | Bulk data and DuckDB jobs run here. **Check free disk before big builds** |
 
@@ -174,7 +179,7 @@ Week numbers count from kickoff. A milestone closes only when every gate test pa
 |---|---|---|---|
 | M0 Contracts | W0 | 1 | **✅ Complete** (`312f6a0`) |
 | M1 Core and store | W1, W2 | 2–4 | **Complete** (`cf98c61`). Sealed-data repair hardened in `b23514a` |
-| M2 Ingest | W3 | 2–5 | **In progress.** Items 1 and 2 passed. Item 3 open: a 1-hour Pi stability run passed (46.6 values/s, input-bound), and the 20k values/s `sk-feed` load run is next |
+| M2 Ingest | W3 | 2–5 | **In progress.** Items 1 and 2 passed. Item 3 open: a 1-hour Pi stability run passed (46.6 values/s, input-bound), and the 20k values/s `sk-feed` load run is being rerun after the `7ea727d` and D47 (`80c7f7e`) fixes |
 | M3 SQL and pushdown | W4 | 2–6 | **✅ Closed 2026-10-06** (`711d2c4`) |
 | M4 Text, geo, intervals | W4, W5, W6 | 6–8 | **All three items met on the host** (CI not run on this branch). Item 1: corpus 61/0/1 (`a264ed2`). Item 2: 72.4×. Item 3: CRoaring rejected (D40, `f38ecb4`) |
 | M5 Agent surface | W7 | 7–9 | **In progress. Items 1 and 2 passed** (`ti_resolve` 100/100; agent `glm-5.3` 17/20 with the harness standing in for nemesis8). Item 3: plugin, History API provider (the Pi's default) and plugin-managed SCRAM pgwire deployed on the Pi (token pending). Pi pg smoke 16/20 before pg-limits, rerun pending. Store-based installs, Pi 4 and OpenPlotter not done |
@@ -188,7 +193,7 @@ Also landed outside the original milestones: W9 generic Parquet (accepted), W10 
 |---|---|---|
 | 1 | Replaying a recorded 24 h delta log yields `BucketRecord`s equal to oracle bucketing | **Passing on real data**: 460,112/460,112 (`8931877`) |
 | 2 | Parquet backfill of the correctness set is idempotent | **✅ Passed** (`11c0edc`): 65 sealed shards identical on rerun. Still holds on the W9 backfill path (65/65, `167f391`) |
-| 3 | Pi 5 sustains 20,000 values/s for 1 h within the CPU and RSS budget (≤ 25 % of one core, ≤ 400 MB RSS) | **Open.** Host x86: 181,783 values/s. Pi 1-hour live run (`6d7f5c1`): 46.6 values/s input-bound, RSS 119 MiB, CPU 8.4 %, 77 °C, 0 blocked/failures; stability only, **not the gate**. Next: `ti-bench sk-feed --ramp` (20k for 60 min, then 25k/30k/40k for 5 min each) against a temp store; the Pi is building. Without an Active Cooler the Pi has reached 82–86 °C under load |
+| 3 | Pi 5 sustains 20,000 values/s for 1 h within the CPU and RSS budget (≤ 25 % of one core, ≤ 400 MB RSS) | **Open.** Host x86: 181,783 values/s. Pi 1-hour live run (`6d7f5c1`): 46.6 values/s input-bound, RSS 119 MiB, CPU 8.4 %, 77 °C, 0 blocked/failures; stability only, **not the gate**. The first load attempt found the admission-cap bug (`7ea727d`) and the flush stall (D47, `80c7f7e`). Next: the Pi rebuild and the `ti-bench sk-feed --ramp` rerun (20k for 60 min, then 25k/30k/40k for 5 min each) against a temp store, in progress. Without an Active Cooler the Pi has reached 82–86 °C under load |
 
 ### M4 gate detail
 
@@ -249,7 +254,7 @@ Spec deviations and proposals needing the user:
 - [ ] **Pi 5 deployment** (lead): binary at `6d7f5c1` (cache 64 MiB), plugin JS, vessel UUID pin, Lume as default History provider with `:last` fallback are done. Still to do: the user approves the plugin's access request (needed by the notes/logbook poller).
 - [ ] **Pi pg smoke rerun** (16/20 before pg-limits) and Grafana Save & Test for M5 item 3, after the D43 build is deployed.
 - [ ] **Pi Q6 re-verification** of the bucket-gap fix (`3896e5c`) after deployment.
-- [ ] **M2 item 3 load run** (lead): `ti-bench sk-feed` ramp against a separate temp store on the Pi (20k values/s for 60 min, then 25k/30k/40k for 5 min each), sampled with `bench/pi_ingest_run.sh`.
+- [ ] **M2 item 3 load run** (lead, rerun in progress after `80c7f7e`): `ti-bench sk-feed` ramp against a separate temp store on the Pi (20k values/s for 60 min, then 25k/30k/40k for 5 min each), sampled with `bench/pi_ingest_run.sh`.
 - [x] Query cache (`f17885d`), History `:last` fallback (`c592a17`), `IS DISTINCT FROM` pushdown (`cebf5ea`; all classes meet p95), Pi 1-hour stability run (`6d7f5c1`).
 - [x] `q2-001` (`a264ed2`, corpus 61/0/1, M4 item 1). `lume chat` + Ask tab (`492f12b`). MCP ergonomics (`899898b`). Plugin UI login and JSON fixes.
 - [ ] **D44 package:** rebuild arm64 and x64 from one revision before publishing; size-reduction options not implemented.
@@ -257,13 +262,13 @@ Spec deviations and proposals needing the user:
 - [x] Influx-vs-Lume 50-min Pi run (20 runs; see Critical path).
 - [x] Plugin-managed SCRAM pgwire + Grafana provisioning (`1bbbac2`).
 - [x] **M5 item 2** (`7f048e6`): `glm-5.3` 17/20; deviation: harness runtime instead of nemesis8. **M5 item 1** (`8d7cdbf`): `ti_resolve` 100/100.
-- [ ] **D45 binary size** (Long Horse, `ti/binary-size`): fat/1 92.8 MB but 7.62 GiB build peak RSS (fat LTO already OOMed on the Pi); thin/16 146.3 MB and 10.7 % slower (fails the 5 % rule); thin/1 101.1 MB, timing pending.
+- [x] **D45 binary size** (Long Horse): merged (`b84e6aa`). Shipped release profile (`8e7fcfe`): fat LTO, 1 codegen unit, opt-level 3, `panic = "unwind"`, `strip = "symbols"`. The Pi native build overrides to thin LTO with 1 codegen unit: lume 88.3 MB, ti-bench 81.1 MB, peak rustc RSS 2.01 GiB, 54 minutes.
 - [ ] **M6**: lossy-HTTP results to the lead (item 1), then the benchmark report and the go/no-go (item 3). Item 2 passed.
 - [x] `lume sql` and `--docs-index` (`c130bc1`).
 - [x] `croaring` evaluation (M4 item 3): rejected, D40.
 - [x] **`count_paths` host acceptance** (`7bf038d`): 65 empty-list shard hashes MATCH; stores rebuilt and oracle rerun exited 0 after `a264ed2`. See [the contract](design/count-paths.md) and `tests/golden/count_paths_oracle.py`.
 - [ ] **`qx-003`**: keep the join-form `qx-013`, or revisit on a DataFusion upgrade.
-- [ ] pgwire TLS: **D46 proposal** next (Artificial Shark, `ti/pg-tls`). SCRAM landed (D42, `7c4cb23`); D13's aarch64 smoke: SCRAM login works on the Pi (`tests/pg_smoke.sh`, 16/20 before pg-limits).
+- [ ] pgwire TLS: **D46, Option 2** (Long Horse, assigned, not yet picked up). SCRAM landed (D42, `7c4cb23`); D13's aarch64 smoke: SCRAM login works on the Pi (`tests/pg_smoke.sh`, 16/20 before pg-limits).
 - [ ] **User licence decision** on `signalk_paths.json` (user item 16).
 - [ ] Meridian VHF transcripts. Not done. (Notes and logbook polling landed in `db2e777`, D41.)
 - [ ] Pi 5 throughput/RSS for M2 item 3: see the load run above. Sampler `bench/pi_ingest_run.sh` merged (`7407378`).
