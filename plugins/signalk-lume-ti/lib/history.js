@@ -98,18 +98,28 @@ function createHistoryProvider({app, port, request = (path, body) => requestJson
       let column = path + '@' + METHODS[method][0];
       // One retained value per 1s HR bucket supports numeric roll-ups.
       if (!names.has(column) && table === hr && names.has(path + '@last')) column = path + '@last';
-      if (names.has(column)) return {table:table.name, column};
+      if (names.has(column)) {
+        const fallback = method === 'last' && names.has(path+'@mean') ? path+'@mean' : null;
+        return {table:table.name, column, fallback};
+      }
+      if (method === 'last' && names.has(path+'@mean')) return {table:table.name,column:path+'@mean',method_used:'mean'};
     }
     throw new Error('No retained ' + METHODS[method][0] + ' column for ' + path);
   }
   async function samples(field, method, context, time, resolution) {
     const result = new Map();
+    let usedMean = field.method_used === 'mean';
     const binMs = resolution*1000;
     async function chunk(start, end) {
-      const column = field.longitude ? "named_struct('latitude',"+identifier(field.column)+",'longitude',"+identifier(field.longitude)+")" : identifier(field.column);
-      const present = identifier(field.column)+' IS NOT NULL'+(field.longitude ? ' AND '+identifier(field.longitude)+' IS NOT NULL' : '');
+      const lat = field.fallback ? 'coalesce('+identifier(field.column)+','+identifier(field.fallback)+')' : identifier(field.column);
+      const lon = field.longitudeFallback ? 'coalesce('+identifier(field.longitude)+','+identifier(field.longitudeFallback)+')' : identifier(field.longitude);
+      const column = field.longitude ? "named_struct('latitude',"+lat+",'longitude',"+lon+")" : lat;
+      const present = lat+' IS NOT NULL'+(field.longitude ? ' AND '+lon+' IS NOT NULL' : '');
+      const fallbacks = [[field.column,field.fallback],[field.longitude,field.longitudeFallback]]
+        .filter(([,mean])=>mean).map(([last,mean])=>identifier(last)+' IS NULL AND '+identifier(mean)+' IS NOT NULL');
+      const fallbackFlag = fallbacks.length ? ', max(CASE WHEN '+fallbacks.map(s=>'('+s+')').join(' OR ')+' THEN 1 ELSE 0 END) AS history_fallback' : '';
       const sql = 'SELECT date_bin(INTERVAL ' + literal(resolution + ' seconds') + ', ts, TIMESTAMP ' + literal(iso(time.from)) + ') AS history_ts, ' +
-        METHODS[method][1] + '(' + column + (method === 'first' || method === 'last' ? ' ORDER BY ts' : '') + ') AS history_value FROM ' +
+        METHODS[method][1] + '(' + column + (method === 'first' || method === 'last' ? ' ORDER BY ts' : '') + ') AS history_value' + fallbackFlag + ' FROM ' +
         identifier(field.table) + ' WHERE vessel = ' + literal(context) + ' AND ts >= TIMESTAMP ' + literal(iso(start)) +
         ' AND ts < TIMESTAMP ' + literal(iso(end)) + ' AND ' + present + ' GROUP BY 1 ORDER BY 1';
       const reply = await query(sql);
@@ -119,9 +129,13 @@ function createHistoryProvider({app, port, request = (path, body) => requestJson
         const middle = start + Math.floor(bins/2)*binMs;
         await chunk(start, middle); await chunk(middle, end); return;
       }
-      for (const row of reply.rows) result.set(iso(instant(row.history_ts)), row.history_value ?? null);
+      for (const row of reply.rows) {
+        usedMean ||= Number(row.history_fallback) > 0;
+        result.set(iso(instant(row.history_ts)), row.history_value ?? null);
+      }
     }
     for (let start = time.from; start < time.to; start += 400*binMs) await chunk(start, Math.min(time.to, start + 400*binMs));
+    result.method_used = usedMean ? 'mean' : method;
     return result;
   }
   const provider = {
@@ -141,12 +155,15 @@ function createHistoryProvider({app, port, request = (path, body) => requestJson
           const lat = selectField(catalog, spec.path+'.latitude', spec.aggregate,resolution);
           const lon = selectField(catalog, spec.path+'.longitude', spec.aggregate,resolution);
           if (lat.table !== lon.table) throw new Error('Position coordinates require the same retained store');
-          series.push(await samples({...lat,longitude:lon.column},spec.aggregate,context,time,resolution));
+          series.push(await samples({...lat,longitude:lon.column,longitudeFallback:lon.fallback,
+            method_used:lat.method_used || lon.method_used},spec.aggregate,context,time,resolution));
         } else series.push(await samples(selectField(catalog,spec.path,spec.aggregate,resolution),spec.aggregate,context,time,resolution));
       }
       const timestamps = [...new Set(series.flatMap(s => [...s.keys()]))].sort();
       return {context, range:{from:iso(time.from),to:iso(time.to)},
-        values:input.pathSpecs.map(s => ({path:s.path,method:s.aggregate})),
+        values:input.pathSpecs.map((s,i) => ({path:s.path,method:s.aggregate,
+          ...(series[i].method_used !== s.aggregate ? {method_used:series[i].method_used,
+            note:'Buckets without retained @last use @mean; retained @last buckets are preserved.'} : {})})),
         data:timestamps.map(ts => [ts,...series.map(s => s.get(ts) ?? null)])};
     },
     async getContexts(input) {
