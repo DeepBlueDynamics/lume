@@ -4,6 +4,7 @@ pub mod layout;
 pub mod model;
 pub mod rng;
 pub mod robots;
+pub mod sk_feed;
 pub mod write;
 
 /// Default master seed for the correctness set.

@@ -6,11 +6,17 @@ use std::path::Path;
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
-        eprintln!("usage: ti-bench <gen|bench> [args...]");
+        eprintln!("usage: ti-bench <gen|bench|sk-feed> [args...]");
         std::process::exit(2);
     }
     match args[1].as_str() {
         "gen" => gen(&args),
+        "sk-feed" => {
+            if let Err(e) = ti_bench::sk_feed::run(&args) {
+                eprintln!("sk-feed error: {e}");
+                std::process::exit(1);
+            }
+        }
         "bench" => {
             if let Err(e) = bench(&args).await {
                 eprintln!("benchmark error: {e}");

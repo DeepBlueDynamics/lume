@@ -3352,6 +3352,7 @@ dependencies = [
  "serde_json",
  "ti-sql",
  "tokio",
+ "tungstenite",
 ]
 
 [[package]]
