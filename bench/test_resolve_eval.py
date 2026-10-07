@@ -4,7 +4,7 @@ from pathlib import Path
 import threading
 import unittest
 from agent_mcp_run import MCP
-from resolve_eval import evaluate, grade, load_phrases, markdown, metrics, candidates
+from resolve_eval import evaluate, grade, load_phrases, load_independent, markdown, metrics, candidates
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -77,3 +77,28 @@ class ResolveEvalTests(unittest.TestCase):
     def test_non_loopback_is_not_allowed(self):
         with self.assertRaises(ValueError):
             MCP("http://192.168.1.1:5863/mcp")
+
+    def test_independent_split_does_not_inflate_primary_gate_or_leak_labels(self):
+        cases = load_independent(ROOT / "tests/golden/resolve_independent.json")
+        self.assertEqual(len(cases), 20)
+        records = [
+            dict(id="dev", phrase="public", split="development", top1=False,
+                 top3=False, candidates=[], expected={"expected_paths": ["hidden"]}),
+            dict(id="blind", phrase="blind", split="independent", top1=True,
+                 top3=True, candidates=[], expected={"expected_paths": ["hidden"]}),
+        ]
+        scores = metrics(records)
+        self.assertEqual(scores["all"]["total"], 1)
+        self.assertEqual(scores["all"]["top3"], 0)
+        self.assertEqual(scores["independent"]["top3"], 1)
+        self.assertNotIn("blind →", markdown(records))
+        class StubMCP:
+            def tools(self):
+                return [{"name": "ti_resolve"}]
+            def rpc(self, method, params):
+                self.params = params
+                return {"structuredContent": {"candidates": []}}
+        mcp = StubMCP()
+        evaluate(mcp, [cases[0]])
+        self.assertEqual(set(mcp.params["arguments"]), {"phrase", "limit"})
+        self.assertNotIn("hidden", json.dumps(mcp.params))

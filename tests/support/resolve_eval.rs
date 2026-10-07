@@ -57,10 +57,15 @@ fn boat_phrases_through_live_mcp() {
         "all" => 100,
         "development" => 70,
         "holdout" => 30,
+        "independent" => 0,
         _ => panic!("invalid split"),
     };
     assert_eq!(report["metrics"]["all"]["total"], expected);
     assert_eq!(report["metrics"]["all"]["errors"], 0);
+    if split == "all" || split == "independent" {
+        assert_eq!(report["metrics"]["independent"]["total"], 20);
+        assert_eq!(report["metrics"]["independent"]["errors"], 0);
+    }
     if std::env::var("TI_RESOLVE_REQUIRE_PASS").as_deref() == Ok("1") {
         assert!(
             status.success(),
