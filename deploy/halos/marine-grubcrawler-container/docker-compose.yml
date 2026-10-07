@@ -1,0 +1,53 @@
+services:
+  grubcrawler:
+    image: ${GRUB_IMAGE:-grubcrawler:lite-arm64}
+    container_name: grubcrawler
+    init: true
+    restart: unless-stopped
+    logging:
+      driver: journald
+      options:
+        tag: '{{.Name}}'
+    # Loopback only: Lume's plugin runs in the Signal K container on the host
+    # network and reaches Grub at http://127.0.0.1:6792. Auth is off, so this
+    # must not be published to the LAN.
+    ports:
+    - 127.0.0.1:6792:6792
+    volumes:
+    - ${CONTAINER_DATA_ROOT}/storage:/app/storage
+    environment:
+    - HOST=0.0.0.0
+    - PORT=6792
+    - DEBUG=false
+    - STORAGE_PATH=/app/storage
+    - RUNNING_IN_CLOUD=false
+    - DISABLE_AUTH=true
+    - MAX_CONCURRENT_CRAWLS=${GRUB_MAX_CONCURRENT_CRAWLS:-1}
+    - CRAWL_TIMEOUT=${GRUB_CRAWL_TIMEOUT:-60}
+    - BROWSER_TIMEOUT=60000
+    - ENABLE_JAVASCRIPT=true
+    - ENABLE_SCREENSHOTS=false
+    - BROWSER_ENGINE=${GRUB_BROWSER_ENGINE:-chromium}
+    - STEALTH_ENABLED=true
+    - BLOCK_TRACKING_DOMAINS=true
+    # No LLM agent or vision OCR on the boat: there is no local Ollama and no
+    # cloud key. Plain fetch, render and PDF download still work.
+    - AGENT_ENABLED=false
+    - AGENT_GHOST_ENABLED=false
+    - AGENT_GHOST_AUTO_TRIGGER=false
+    - PROXY_BYPASS=localhost,127.0.0.1
+    - _HALOS_SYSTEMD_CHECK=${HALOS_SYSTEMD_STARTED:?Container must be started via
+      systemctl, not docker compose directly}
+    mem_limit: ${GRUB_MEMORY_LIMIT:-1536m}
+    cpus: 2
+    shm_size: 512m
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -f
+      - http://127.0.0.1:6792/health
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
