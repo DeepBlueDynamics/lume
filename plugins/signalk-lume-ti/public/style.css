@@ -435,3 +435,5 @@ td.empty-state {
 .lib-ref { margin-bottom: 10px; }
 .lib-ref h4 { margin: 0 0 4px; }
 #lib-job { white-space: pre-wrap; max-height: 220px; overflow: auto; font-family: var(--font-mono); font-size: 0.8em; }
+
+.login-link { margin-left: 12px; text-decoration: none; padding: 4px 12px; font-size: 0.85em; }
