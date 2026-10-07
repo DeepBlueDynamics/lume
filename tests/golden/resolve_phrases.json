@@ -1,0 +1,1010 @@
+{
+  "version": 1,
+  "store": "boat corpus (store-full or count-paths-enabled-host)",
+  "scoring": "Any expected path among the first k ranked candidates is correct; aggregate-independent unless expected_agg is specified. No expectations are sent to MCP.",
+  "holdout": "Entries 071–100 frozen before inspecting resolver implementation or baseline results.",
+  "entries": [
+    {
+      "id": "resolve-001",
+      "split": "development",
+      "phrase": "how deep is it",
+      "hidden": {
+        "expected_paths": [
+          "environment.depth.belowTransducer"
+        ]
+      }
+    },
+    {
+      "id": "resolve-002",
+      "split": "development",
+      "phrase": "boat speed",
+      "hidden": {
+        "expected_paths": [
+          "navigation.speedOverGround"
+        ]
+      }
+    },
+    {
+      "id": "resolve-003",
+      "split": "development",
+      "phrase": "SOG",
+      "hidden": {
+        "expected_paths": [
+          "navigation.speedOverGround"
+        ]
+      }
+    },
+    {
+      "id": "resolve-004",
+      "split": "development",
+      "phrase": "How strong is the wind from the bow?",
+      "hidden": {
+        "expected_paths": [
+          "environment.wind.speedApparent"
+        ]
+      }
+    },
+    {
+      "id": "resolve-005",
+      "split": "development",
+      "phrase": "house bank volts",
+      "hidden": {
+        "expected_paths": [
+          "electrical.batteries.house.voltage"
+        ]
+      }
+    },
+    {
+      "id": "resolve-006",
+      "split": "development",
+      "phrase": "bilge cycles",
+      "hidden": {
+        "expected_paths": [
+          "electrical.bilge.pumpCycles"
+        ]
+      }
+    },
+    {
+      "id": "resolve-007",
+      "split": "development",
+      "phrase": "where are we",
+      "hidden": {
+        "expected_paths": [
+          "navigation.position",
+          "navigation.position.latitude",
+          "navigation.position.longitude"
+        ]
+      }
+    },
+    {
+      "id": "resolve-008",
+      "split": "development",
+      "phrase": "port engine rpm",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.port.revolutions"
+        ]
+      }
+    },
+    {
+      "id": "resolve-009",
+      "split": "development",
+      "phrase": "starboard engine rpm",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.starboard.revolutions"
+        ]
+      }
+    },
+    {
+      "id": "resolve-010",
+      "split": "development",
+      "phrase": "house battery amps",
+      "hidden": {
+        "expected_paths": [
+          "electrical.batteries.house.current"
+        ]
+      }
+    },
+    {
+      "id": "resolve-011",
+      "split": "development",
+      "phrase": "battery percentage left",
+      "hidden": {
+        "expected_paths": [
+          "electrical.batteries.house.stateOfCharge"
+        ]
+      }
+    },
+    {
+      "id": "resolve-012",
+      "split": "development",
+      "phrase": "solar watts",
+      "hidden": {
+        "expected_paths": [
+          "electrical.solar.house.panelPower"
+        ]
+      }
+    },
+    {
+      "id": "resolve-013",
+      "split": "development",
+      "phrase": "air temperature",
+      "hidden": {
+        "expected_paths": [
+          "environment.outside.temperature"
+        ]
+      }
+    },
+    {
+      "id": "resolve-014",
+      "split": "development",
+      "phrase": "barometer reading",
+      "hidden": {
+        "expected_paths": [
+          "environment.outside.pressure"
+        ]
+      }
+    },
+    {
+      "id": "resolve-015",
+      "split": "development",
+      "phrase": "How full is the port drinking water tank?",
+      "hidden": {
+        "expected_paths": [
+          "tanks.freshWater.port.currentLevel"
+        ]
+      }
+    },
+    {
+      "id": "resolve-016",
+      "split": "development",
+      "phrase": "How full is the starboard drinking water tank?",
+      "hidden": {
+        "expected_paths": [
+          "tanks.freshWater.starboard.currentLevel"
+        ]
+      }
+    },
+    {
+      "id": "resolve-017",
+      "split": "development",
+      "phrase": "heel angle",
+      "hidden": {
+        "expected_paths": [
+          "navigation.attitude.roll"
+        ]
+      }
+    },
+    {
+      "id": "resolve-018",
+      "split": "development",
+      "phrase": "bow up or down",
+      "hidden": {
+        "expected_paths": [
+          "navigation.attitude.pitch"
+        ]
+      }
+    },
+    {
+      "id": "resolve-019",
+      "split": "development",
+      "phrase": "latitude",
+      "hidden": {
+        "expected_paths": [
+          "navigation.position.latitude"
+        ]
+      }
+    },
+    {
+      "id": "resolve-020",
+      "split": "development",
+      "phrase": "longitude",
+      "hidden": {
+        "expected_paths": [
+          "navigation.position.longitude"
+        ]
+      }
+    },
+    {
+      "id": "resolve-021",
+      "split": "development",
+      "phrase": "Are we anchored or sailing?",
+      "hidden": {
+        "expected_paths": [
+          "navigation.state"
+        ]
+      }
+    },
+    {
+      "id": "resolve-022",
+      "split": "development",
+      "phrase": "Is the main engine running?",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.main.state"
+        ]
+      }
+    },
+    {
+      "id": "resolve-023",
+      "split": "development",
+      "phrase": "Is the port motor running?",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.port.state"
+        ]
+      }
+    },
+    {
+      "id": "resolve-024",
+      "split": "development",
+      "phrase": "Is the starboard motor running?",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.starboard.state"
+        ]
+      }
+    },
+    {
+      "id": "resolve-025",
+      "split": "development",
+      "phrase": "How hot is the port engine?",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.port.temperature"
+        ]
+      }
+    },
+    {
+      "id": "resolve-026",
+      "split": "development",
+      "phrase": "How hot is the starboard engine?",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.starboard.temperature"
+        ]
+      }
+    },
+    {
+      "id": "resolve-027",
+      "split": "development",
+      "phrase": "port motor output power",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.port.motorPower"
+        ]
+      }
+    },
+    {
+      "id": "resolve-028",
+      "split": "development",
+      "phrase": "starboard motor output power",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.starboard.motorPower"
+        ]
+      }
+    },
+    {
+      "id": "resolve-029",
+      "split": "development",
+      "phrase": "true wind speed",
+      "hidden": {
+        "expected_paths": [
+          "environment.wind.speedTrue"
+        ]
+      }
+    },
+    {
+      "id": "resolve-030",
+      "split": "development",
+      "phrase": "apparent wind speed",
+      "hidden": {
+        "expected_paths": [
+          "environment.wind.speedApparent"
+        ]
+      }
+    },
+    {
+      "id": "resolve-031",
+      "split": "development",
+      "phrase": "water under the depth sounder in metres",
+      "hidden": {
+        "expected_paths": [
+          "environment.depth.belowTransducer"
+        ]
+      }
+    },
+    {
+      "id": "resolve-032",
+      "split": "development",
+      "phrase": "GPS speed in knots",
+      "hidden": {
+        "expected_paths": [
+          "navigation.speedOverGround"
+        ]
+      }
+    },
+    {
+      "id": "resolve-033",
+      "split": "development",
+      "phrase": "speed over ground m/s",
+      "hidden": {
+        "expected_paths": [
+          "navigation.speedOverGround"
+        ]
+      }
+    },
+    {
+      "id": "resolve-034",
+      "split": "development",
+      "phrase": "AWS in knots",
+      "hidden": {
+        "expected_paths": [
+          "environment.wind.speedApparent"
+        ]
+      }
+    },
+    {
+      "id": "resolve-035",
+      "split": "development",
+      "phrase": "TWS in metres per second",
+      "hidden": {
+        "expected_paths": [
+          "environment.wind.speedTrue"
+        ]
+      }
+    },
+    {
+      "id": "resolve-036",
+      "split": "development",
+      "phrase": "battery SOC",
+      "hidden": {
+        "expected_paths": [
+          "electrical.batteries.house.stateOfCharge"
+        ]
+      }
+    },
+    {
+      "id": "resolve-037",
+      "split": "development",
+      "phrase": "house battery V",
+      "hidden": {
+        "expected_paths": [
+          "electrical.batteries.house.voltage"
+        ]
+      }
+    },
+    {
+      "id": "resolve-038",
+      "split": "development",
+      "phrase": "house current in amperes",
+      "hidden": {
+        "expected_paths": [
+          "electrical.batteries.house.current"
+        ]
+      }
+    },
+    {
+      "id": "resolve-039",
+      "split": "development",
+      "phrase": "PV output in W",
+      "hidden": {
+        "expected_paths": [
+          "electrical.solar.house.panelPower"
+        ]
+      }
+    },
+    {
+      "id": "resolve-040",
+      "split": "development",
+      "phrase": "outside pressure in hPa",
+      "hidden": {
+        "expected_paths": [
+          "environment.outside.pressure"
+        ]
+      }
+    },
+    {
+      "id": "resolve-041",
+      "split": "development",
+      "phrase": "ambient air in degrees C",
+      "hidden": {
+        "expected_paths": [
+          "environment.outside.temperature"
+        ]
+      }
+    },
+    {
+      "id": "resolve-042",
+      "split": "development",
+      "phrase": "GPS lat in degrees",
+      "hidden": {
+        "expected_paths": [
+          "navigation.position.latitude"
+        ]
+      }
+    },
+    {
+      "id": "resolve-043",
+      "split": "development",
+      "phrase": "GPS lon in degrees",
+      "hidden": {
+        "expected_paths": [
+          "navigation.position.longitude"
+        ]
+      }
+    },
+    {
+      "id": "resolve-044",
+      "split": "development",
+      "phrase": "rolling from side to side",
+      "hidden": {
+        "expected_paths": [
+          "navigation.attitude.roll"
+        ]
+      }
+    },
+    {
+      "id": "resolve-045",
+      "split": "development",
+      "phrase": "pitching fore and aft",
+      "hidden": {
+        "expected_paths": [
+          "navigation.attitude.pitch"
+        ]
+      }
+    },
+    {
+      "id": "resolve-046",
+      "split": "development",
+      "phrase": "left engine revs",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.port.revolutions"
+        ]
+      }
+    },
+    {
+      "id": "resolve-047",
+      "split": "development",
+      "phrase": "right engine revs",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.starboard.revolutions"
+        ]
+      }
+    },
+    {
+      "id": "resolve-048",
+      "split": "development",
+      "phrase": "port propulsion watts",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.port.motorPower"
+        ]
+      }
+    },
+    {
+      "id": "resolve-049",
+      "split": "development",
+      "phrase": "starboard propulsion watts",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.starboard.motorPower"
+        ]
+      }
+    },
+    {
+      "id": "resolve-050",
+      "split": "development",
+      "phrase": "port motor temperature in kelvin",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.port.temperature"
+        ]
+      }
+    },
+    {
+      "id": "resolve-051",
+      "split": "development",
+      "phrase": "starboard motor temperature in Celsius",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.starboard.temperature"
+        ]
+      }
+    },
+    {
+      "id": "resolve-052",
+      "split": "development",
+      "phrase": "port fresh water percentage",
+      "hidden": {
+        "expected_paths": [
+          "tanks.freshWater.port.currentLevel"
+        ]
+      }
+    },
+    {
+      "id": "resolve-053",
+      "split": "development",
+      "phrase": "starboard fresh water percentage",
+      "hidden": {
+        "expected_paths": [
+          "tanks.freshWater.starboard.currentLevel"
+        ]
+      }
+    },
+    {
+      "id": "resolve-054",
+      "split": "development",
+      "phrase": "how often did the bilge pump run",
+      "hidden": {
+        "expected_paths": [
+          "electrical.bilge.pumpCycles"
+        ]
+      }
+    },
+    {
+      "id": "resolve-055",
+      "split": "development",
+      "phrase": "nav status",
+      "hidden": {
+        "expected_paths": [
+          "navigation.state"
+        ]
+      }
+    },
+    {
+      "id": "resolve-056",
+      "split": "development",
+      "phrase": "main engine status",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.main.state"
+        ]
+      }
+    },
+    {
+      "id": "resolve-057",
+      "split": "development",
+      "phrase": "port engine status",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.port.state"
+        ]
+      }
+    },
+    {
+      "id": "resolve-058",
+      "split": "development",
+      "phrase": "starboard engine status",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.starboard.state"
+        ]
+      }
+    },
+    {
+      "id": "resolve-059",
+      "split": "development",
+      "phrase": "PV-1 house bank voltage",
+      "hidden": {
+        "expected_paths": [
+          "electrical.batteries.house.voltage"
+        ]
+      }
+    },
+    {
+      "id": "resolve-060",
+      "split": "development",
+      "phrase": "Fleet-2 speed over ground",
+      "hidden": {
+        "expected_paths": [
+          "navigation.speedOverGround"
+        ]
+      }
+    },
+    {
+      "id": "resolve-061",
+      "split": "development",
+      "phrase": "367000000 depth sounder",
+      "hidden": {
+        "expected_paths": [
+          "environment.depth.belowTransducer"
+        ]
+      }
+    },
+    {
+      "id": "resolve-062",
+      "split": "development",
+      "phrase": "Fleet-3 true wind speed",
+      "hidden": {
+        "expected_paths": [
+          "environment.wind.speedTrue"
+        ]
+      }
+    },
+    {
+      "id": "resolve-063",
+      "split": "development",
+      "phrase": "MMSI 367000004 starboard engine rpm",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.starboard.revolutions"
+        ]
+      }
+    },
+    {
+      "id": "resolve-064",
+      "split": "development",
+      "phrase": "PV-1 port water tank level",
+      "hidden": {
+        "expected_paths": [
+          "tanks.freshWater.port.currentLevel"
+        ]
+      }
+    },
+    {
+      "id": "resolve-065",
+      "split": "development",
+      "phrase": "Fleet-4 solar output",
+      "hidden": {
+        "expected_paths": [
+          "electrical.solar.house.panelPower"
+        ]
+      }
+    },
+    {
+      "id": "resolve-066",
+      "split": "development",
+      "phrase": "depht below transducer",
+      "hidden": {
+        "expected_paths": [
+          "environment.depth.belowTransducer"
+        ]
+      }
+    },
+    {
+      "id": "resolve-067",
+      "split": "development",
+      "phrase": "house battrey voltage",
+      "hidden": {
+        "expected_paths": [
+          "electrical.batteries.house.voltage"
+        ]
+      }
+    },
+    {
+      "id": "resolve-068",
+      "split": "development",
+      "phrase": "starbord engine temperature",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.starboard.temperature"
+        ]
+      }
+    },
+    {
+      "id": "resolve-069",
+      "split": "development",
+      "phrase": "aparrent wind speed",
+      "hidden": {
+        "expected_paths": [
+          "environment.wind.speedApparent"
+        ]
+      }
+    },
+    {
+      "id": "resolve-070",
+      "split": "development",
+      "phrase": "latitdue of the boat",
+      "hidden": {
+        "expected_paths": [
+          "navigation.position.latitude"
+        ]
+      }
+    },
+    {
+      "id": "resolve-071",
+      "split": "holdout",
+      "phrase": "How many knots are we making?",
+      "hidden": {
+        "expected_paths": [
+          "navigation.speedOverGround"
+        ]
+      }
+    },
+    {
+      "id": "resolve-072",
+      "split": "holdout",
+      "phrase": "How much water is beneath our sounder?",
+      "hidden": {
+        "expected_paths": [
+          "environment.depth.belowTransducer"
+        ]
+      }
+    },
+    {
+      "id": "resolve-073",
+      "split": "holdout",
+      "phrase": "How hard is the wind hitting the boat?",
+      "hidden": {
+        "expected_paths": [
+          "environment.wind.speedApparent"
+        ]
+      }
+    },
+    {
+      "id": "resolve-074",
+      "split": "holdout",
+      "phrase": "wind speed after removing boat motion",
+      "hidden": {
+        "expected_paths": [
+          "environment.wind.speedTrue"
+        ]
+      }
+    },
+    {
+      "id": "resolve-075",
+      "split": "holdout",
+      "phrase": "volts on the domestic bank",
+      "hidden": {
+        "expected_paths": [
+          "electrical.batteries.house.voltage"
+        ]
+      }
+    },
+    {
+      "id": "resolve-076",
+      "split": "holdout",
+      "phrase": "Are the house batteries charging or discharging?",
+      "hidden": {
+        "expected_paths": [
+          "electrical.batteries.house.current"
+        ]
+      }
+    },
+    {
+      "id": "resolve-077",
+      "split": "holdout",
+      "phrase": "remaining charge fraction in the house bank",
+      "hidden": {
+        "expected_paths": [
+          "electrical.batteries.house.stateOfCharge"
+        ]
+      }
+    },
+    {
+      "id": "resolve-078",
+      "split": "holdout",
+      "phrase": "electricity generated by the panels",
+      "hidden": {
+        "expected_paths": [
+          "electrical.solar.house.panelPower"
+        ]
+      }
+    },
+    {
+      "id": "resolve-079",
+      "split": "holdout",
+      "phrase": "air temp outside the cabin",
+      "hidden": {
+        "expected_paths": [
+          "environment.outside.temperature"
+        ]
+      }
+    },
+    {
+      "id": "resolve-080",
+      "split": "holdout",
+      "phrase": "atmospheric pressure in millibars",
+      "hidden": {
+        "expected_paths": [
+          "environment.outside.pressure"
+        ]
+      }
+    },
+    {
+      "id": "resolve-081",
+      "split": "holdout",
+      "phrase": "drinking water left on the port side",
+      "hidden": {
+        "expected_paths": [
+          "tanks.freshWater.port.currentLevel"
+        ]
+      }
+    },
+    {
+      "id": "resolve-082",
+      "split": "holdout",
+      "phrase": "freshwater remaining on starboard",
+      "hidden": {
+        "expected_paths": [
+          "tanks.freshWater.starboard.currentLevel"
+        ]
+      }
+    },
+    {
+      "id": "resolve-083",
+      "split": "holdout",
+      "phrase": "port engine speed in revolutions per minute",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.port.revolutions"
+        ]
+      }
+    },
+    {
+      "id": "resolve-084",
+      "split": "holdout",
+      "phrase": "starboard engine rev counter",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.starboard.revolutions"
+        ]
+      }
+    },
+    {
+      "id": "resolve-085",
+      "split": "holdout",
+      "phrase": "Is the left engine overheating?",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.port.temperature"
+        ]
+      }
+    },
+    {
+      "id": "resolve-086",
+      "split": "holdout",
+      "phrase": "right engine heat",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.starboard.temperature"
+        ]
+      }
+    },
+    {
+      "id": "resolve-087",
+      "split": "holdout",
+      "phrase": "How much power is the left motor delivering?",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.port.motorPower"
+        ]
+      }
+    },
+    {
+      "id": "resolve-088",
+      "split": "holdout",
+      "phrase": "output of the right propulsion motor",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.starboard.motorPower"
+        ]
+      }
+    },
+    {
+      "id": "resolve-089",
+      "split": "holdout",
+      "phrase": "main propulsion operating state",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.main.state"
+        ]
+      }
+    },
+    {
+      "id": "resolve-090",
+      "split": "holdout",
+      "phrase": "left motor on or off",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.port.state"
+        ]
+      }
+    },
+    {
+      "id": "resolve-091",
+      "split": "holdout",
+      "phrase": "right motor on or off",
+      "hidden": {
+        "expected_paths": [
+          "propulsion.starboard.state"
+        ]
+      }
+    },
+    {
+      "id": "resolve-092",
+      "split": "holdout",
+      "phrase": "Are we moored?",
+      "hidden": {
+        "expected_paths": [
+          "navigation.state"
+        ]
+      }
+    },
+    {
+      "id": "resolve-093",
+      "split": "holdout",
+      "phrase": "number of bilge pump activations",
+      "hidden": {
+        "expected_paths": [
+          "electrical.bilge.pumpCycles"
+        ]
+      }
+    },
+    {
+      "id": "resolve-094",
+      "split": "holdout",
+      "phrase": "fore and aft tilt",
+      "hidden": {
+        "expected_paths": [
+          "navigation.attitude.pitch"
+        ]
+      }
+    },
+    {
+      "id": "resolve-095",
+      "split": "holdout",
+      "phrase": "lean of the boat to one side",
+      "hidden": {
+        "expected_paths": [
+          "navigation.attitude.roll"
+        ]
+      }
+    },
+    {
+      "id": "resolve-096",
+      "split": "holdout",
+      "phrase": "our east west GPS coordinate",
+      "hidden": {
+        "expected_paths": [
+          "navigation.position.longitude"
+        ]
+      }
+    },
+    {
+      "id": "resolve-097",
+      "split": "holdout",
+      "phrase": "our north south GPS coordinate",
+      "hidden": {
+        "expected_paths": [
+          "navigation.position.latitude"
+        ]
+      }
+    },
+    {
+      "id": "resolve-098",
+      "split": "holdout",
+      "phrase": "PV-1 SOG in kts",
+      "hidden": {
+        "expected_paths": [
+          "navigation.speedOverGround"
+        ]
+      }
+    },
+    {
+      "id": "resolve-099",
+      "split": "holdout",
+      "phrase": "MMSI 367000002 house state of charge",
+      "hidden": {
+        "expected_paths": [
+          "electrical.batteries.house.stateOfCharge"
+        ]
+      }
+    },
+    {
+      "id": "resolve-100",
+      "split": "holdout",
+      "phrase": "Fleet-5 bilge pumpp cycles",
+      "hidden": {
+        "expected_paths": [
+          "electrical.bilge.pumpCycles"
+        ]
+      }
+    }
+  ]
+}
