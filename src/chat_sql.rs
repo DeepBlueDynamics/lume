@@ -69,6 +69,70 @@ pub struct AgentJsonOutput {
     pub tool_calls: Vec<ToolCallRecord>,
 }
 
+/// Pick the Ollama endpoint for this question from a comma-separated list, in order:
+/// the first reachable one that already has `model`, else the first reachable one.
+/// On a boat this is "the Pi's own Ollama, then the laptop's over the LAN".
+fn select_ollama_endpoint(raw: &str, model: &str) -> Result<String, String> {
+    let mut ordered: Vec<String> = Vec::new();
+    for url in raw.split(',').map(resolve_ollama_url) {
+        if !ordered.contains(&url) {
+            ordered.push(url);
+        }
+    }
+    if ordered.len() == 1 {
+        return Ok(ordered[0].clone());
+    }
+    let mut first_reachable = None;
+    for base in &ordered {
+        let request = with_ollama_auth(
+            ureq::get(&format!("{base}/api/tags")).timeout(std::time::Duration::from_secs(2)),
+            base,
+        );
+        let Ok(response) = request.call() else {
+            continue;
+        };
+        let names: Vec<String> = response
+            .into_json::<serde_json::Value>()
+            .ok()
+            .and_then(|v| v.get("models").and_then(|m| m.as_array()).cloned())
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|m| m.get("name").and_then(|n| n.as_str()).map(str::to_string))
+            .collect();
+        if names
+            .iter()
+            .any(|n| n == model || n.trim_end_matches(":latest") == model)
+        {
+            return Ok(base.clone());
+        }
+        first_reachable.get_or_insert_with(|| base.clone());
+    }
+    first_reachable.ok_or_else(|| {
+        format!(
+            "Ollama is unreachable at {}. Check that Ollama is running and accessible.",
+            ordered.join(", ")
+        )
+    })
+}
+
+/// `OLLAMA_API_KEY` is sent only to ollama.com (direct cloud use). A local Ollama that
+/// ran `ollama signin` serves `:cloud` models itself and needs no key from Lume.
+fn with_ollama_auth(request: ureq::Request, base: &str) -> ureq::Request {
+    match std::env::var("OLLAMA_API_KEY") {
+        Ok(key) if is_ollama_cloud(base) && !key.trim().is_empty() => {
+            request.set("Authorization", &format!("Bearer {}", key.trim()))
+        }
+        _ => request,
+    }
+}
+
+fn is_ollama_cloud(base: &str) -> bool {
+    base.split("://")
+        .nth(1)
+        .and_then(|rest| rest.split(['/', ':']).next())
+        .is_some_and(|host| host == "ollama.com" || host.ends_with(".ollama.com"))
+}
+
 fn resolve_ollama_url(raw: &str) -> String {
     let trimmed = raw.trim().trim_end_matches('/');
     if trimmed.is_empty() {
@@ -91,7 +155,20 @@ pub fn run_chat_loop(
     docs_index: Option<&str>,
     json_output: bool,
 ) -> Result<(), String> {
-    let url = format!("{}/api/chat", resolve_ollama_url(ollama_url));
+    let base = match select_ollama_endpoint(ollama_url, ollama_model) {
+        Ok(base) => base,
+        Err(message) if json_output => {
+            let out = AgentJsonOutput {
+                answer: message,
+                sql: Vec::new(),
+                tool_calls: Vec::new(),
+            };
+            println!("{}", serde_json::to_string(&out).unwrap_or_default());
+            return Ok(());
+        }
+        Err(message) => return Err(message),
+    };
+    let url = format!("{base}/api/chat");
 
     let system_prompt = if ti_store.is_some() {
         let mut p = String::from(
@@ -198,7 +275,7 @@ CRITICAL RULES:\n\
             },
         };
 
-        let response = match ureq::post(&url)
+        let response = match with_ollama_auth(ureq::post(&url), &base)
             .set("Content-Type", "application/json")
             .timeout(std::time::Duration::from_secs(300))
             .send_json(&payload)
@@ -210,7 +287,7 @@ CRITICAL RULES:\n\
                     let out = AgentJsonOutput {
                         answer: format!(
                             "Ollama is unreachable at {}. Check that Ollama is running and accessible.",
-                            ollama_url
+                            base
                         ),
                         sql: executed_sql,
                         tool_calls: recorded_tool_calls,
@@ -453,4 +530,36 @@ fn finish_agent(
         println!("\n[Agent Final Answer]\n{}", content);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod endpoint_tests {
+    use super::*;
+
+    #[test]
+    fn a_single_endpoint_is_used_without_probing() {
+        assert_eq!(
+            select_ollama_endpoint("127.0.0.1:11434/", "m").unwrap(),
+            "http://127.0.0.1:11434"
+        );
+    }
+
+    #[test]
+    fn unreachable_endpoints_are_all_named() {
+        // Port 9 (discard) on loopback refuses connections immediately.
+        let error =
+            select_ollama_endpoint("http://127.0.0.1:9, http://127.0.0.2:9", "m").unwrap_err();
+        assert!(
+            error.contains("http://127.0.0.1:9, http://127.0.0.2:9"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn the_api_key_goes_only_to_ollama_com() {
+        assert!(is_ollama_cloud("https://ollama.com"));
+        assert!(is_ollama_cloud("https://api.ollama.com/v1"));
+        assert!(!is_ollama_cloud("http://127.0.0.1:11434"));
+        assert!(!is_ollama_cloud("https://ollama.com.evil.example"));
+    }
 }

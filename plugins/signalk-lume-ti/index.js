@@ -112,9 +112,9 @@ module.exports = function (app) {
         },
         chatOllamaUrl: {
           type: 'string',
-          title: 'Chat Ollama API URL',
+          title: 'Chat Ollama API URLs',
           default: 'http://127.0.0.1:11434',
-          description: 'Ollama API endpoint URL for the Ask tab chat assistant (default http://127.0.0.1:11434)',
+          description: 'Ollama endpoints for the Ask tab, comma-separated and tried in order: the first reachable one that has the model is used. Example: http://127.0.0.1:11434,http://192.168.1.20:11434 (the Pi's own Ollama, then a laptop on the LAN). A signed-in Ollama (ollama signin) also serves :cloud models.',
         },
         chatModel: {
           type: 'string',
