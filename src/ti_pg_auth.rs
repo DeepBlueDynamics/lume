@@ -20,26 +20,34 @@ use pgwire::{
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
 use tokio::sync::Mutex;
-/// Open first, then check that exact file's mode before reading verifier data.
-pub(crate) fn load_users(path: &std::path::Path) -> Result<Vec<ti_contracts::ScramUser>, String> {
-    use std::io::Read;
-    let mut file = std::fs::File::open(path).map_err(|_| "Cannot open pg auth config")?;
+pub(crate) fn open_private_file(
+    path: &std::path::Path,
+    desc: &str,
+) -> Result<std::fs::File, String> {
+    let file = std::fs::File::open(path).map_err(|e| format!("Cannot open {desc}: {e}"))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         if file
             .metadata()
-            .map_err(|_| "Cannot stat pg auth config")?
+            .map_err(|e| format!("Cannot stat {desc}: {e}"))?
             .permissions()
             .mode()
             & 0o077
             != 0
         {
-            return Err(
-                "pg auth config must not be group- or world-accessible (use chmod 600)".into(),
-            );
+            return Err(format!(
+                "{desc} must not be group- or world-accessible (use chmod 600)"
+            ));
         }
     }
+    Ok(file)
+}
+
+/// Open first, then check that exact file's mode before reading verifier data.
+pub(crate) fn load_users(path: &std::path::Path) -> Result<Vec<ti_contracts::ScramUser>, String> {
+    use std::io::Read;
+    let mut file = open_private_file(path, "pg auth config")?;
     let mut text = String::new();
     file.by_ref()
         .take(65537)
@@ -111,11 +119,13 @@ impl Verifier {
 }
 pub(crate) struct AuthConfig {
     users: BTreeMap<String, Verifier>,
+    pub(crate) require_tls: bool,
 }
 impl AuthConfig {
     pub(crate) fn new(
         users: Vec<ti_contracts::ScramUser>,
         non_loopback: bool,
+        require_tls: bool,
     ) -> Result<Arc<Self>, String> {
         if non_loopback && users.is_empty() {
             return Err("Non-loopback Postgres bind requires [auth] scram_users in ti.toml".into());
@@ -128,7 +138,10 @@ impl AuthConfig {
                     .map_err(|e| format!("SCRAM user {}: {e}", user.username))?,
             );
         }
-        Ok(Arc::new(Self { users: parsed }))
+        Ok(Arc::new(Self {
+            users: parsed,
+            require_tls,
+        }))
     }
     pub(crate) fn startup(self: &Arc<Self>) -> Arc<Auth> {
         Arc::new(Auth {
@@ -238,6 +251,12 @@ impl StartupHandler for Auth {
         parameters.time_zone = "UTC".into();
         match message {
             PgWireFrontendMessage::Startup(ref startup) => {
+                if self.config.require_tls && !client.is_secure() {
+                    return Err(super::ti_pg::error(
+                        "28000",
+                        "TLS connection is required for non-loopback connections. Connect using sslmode=require, or start the server with --pg-allow-plaintext",
+                    ));
+                }
                 protocol_negotiation(client, startup).await?;
                 save_startup_parameters_to_metadata(client, startup);
                 let generator = RandomPidSecretKeyGenerator::default();

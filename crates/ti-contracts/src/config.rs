@@ -97,6 +97,12 @@ pub struct BindConfig {
     pub http_port: u16,
     /// Optional PostgreSQL port.
     pub pg_port: Option<u16>,
+    /// Optional PostgreSQL TLS certificate path.
+    pub pg_tls_cert: Option<String>,
+    /// Optional PostgreSQL TLS private key path.
+    pub pg_tls_key: Option<String>,
+    /// Allow plaintext connections on non-loopback binds.
+    pub pg_allow_plaintext: bool,
 }
 
 /// Shore NUTS integration and optional boat credentials.
@@ -434,6 +440,9 @@ impl Default for BindConfig {
             address: "0.0.0.0".into(),
             http_port: 8080,
             pg_port: Some(5432),
+            pg_tls_cert: None,
+            pg_tls_key: None,
+            pg_allow_plaintext: false,
         }
     }
 }

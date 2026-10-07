@@ -9,8 +9,8 @@ use pgwire::{
         results::{FieldFormat, FieldInfo, QueryResponse, Response, Tag},
         stmt::QueryParser,
         store::{Entry, PortalStore},
-        ClientInfo, ClientPortalStore, PgWireConnectionState, PgWireServerHandlers, Type,
-        DEFAULT_NAME,
+        ClientInfo, ClientPortalStore, DefaultClient, ErrorHandler, PgWireConnectionState,
+        PgWireServerHandlers, Type, DEFAULT_NAME,
     },
     error::{ErrorInfo, PgWireError, PgWireResult},
     messages::{
@@ -18,14 +18,18 @@ use pgwire::{
         extendedquery::Execute,
         response::{EmptyQueryResponse, ReadyForQuery},
         simplequery::Query,
-        PgWireBackendMessage,
+        PgWireBackendMessage, PgWireFrontendMessage,
     },
 };
 use serde_json::Value;
 use std::{
     net::{SocketAddr, TcpListener},
+    path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio_rustls::rustls;
 pub(crate) fn error(code: &str, message: impl Into<String>) -> PgWireError {
     PgWireError::UserError(Box::new(ErrorInfo::new(
         "ERROR".into(),
@@ -771,6 +775,335 @@ impl PgWireServerHandlers for Handler {
         })
     }
 }
+#[derive(Debug, Clone, Default)]
+pub struct PgOptions {
+    pub tls_cert: Option<PathBuf>,
+    pub tls_key: Option<PathBuf>,
+    pub allow_plaintext: bool,
+}
+
+pub(crate) fn is_loopback_or_docker0(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(ipv4) => {
+            ipv4.is_loopback() || (ipv4.octets()[0] == 172 && ipv4.octets()[1] == 17)
+        }
+        std::net::IpAddr::V6(ipv6) => {
+            if ipv6.is_loopback() {
+                return true;
+            }
+            if let Some(ipv4) = ipv6.to_ipv4_mapped() {
+                return ipv4.is_loopback() || (ipv4.octets()[0] == 172 && ipv4.octets()[1] == 17);
+            }
+            false
+        }
+    }
+}
+
+fn load_tls_acceptor_from_files(
+    cert_path: &Path,
+    key_path: &Path,
+) -> Result<tokio_rustls::TlsAcceptor, String> {
+    let key_file = crate::ti_pg_auth::open_private_file(key_path, "pg TLS private key")?;
+    let mut key_reader = std::io::BufReader::new(key_file);
+    let key = rustls_pemfile::private_key(&mut key_reader)
+        .map_err(|e| {
+            format!(
+                "Failed to read pg TLS private key from {}: {e}",
+                key_path.display()
+            )
+        })?
+        .ok_or_else(|| format!("No private key found in {}", key_path.display()))?;
+
+    let cert_file = std::fs::File::open(cert_path)
+        .map_err(|e| format!("Cannot open pg TLS cert {}: {e}", cert_path.display()))?;
+    let mut cert_reader = std::io::BufReader::new(cert_file);
+    let certs = rustls_pemfile::certs(&mut cert_reader)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| {
+            format!(
+                "Failed to parse pg TLS certs from {}: {e}",
+                cert_path.display()
+            )
+        })?;
+    if certs.is_empty() {
+        return Err(format!("No certificates found in {}", cert_path.display()));
+    }
+
+    let mut server_config = rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(certs, key)
+        .map_err(|e| format!("Invalid TLS server config: {e}"))?;
+    server_config.alpn_protocols = vec![b"postgresql".to_vec()];
+
+    Ok(tokio_rustls::TlsAcceptor::from(Arc::new(server_config)))
+}
+
+fn get_or_create_self_signed(
+    store_root: &Path,
+    bind_ip: std::net::IpAddr,
+) -> Result<(PathBuf, PathBuf), String> {
+    let cert_path = store_root.join("pg_cert.pem");
+    let key_path = store_root.join("pg_key.pem");
+
+    if cert_path.exists() && key_path.exists() {
+        return Ok((cert_path, key_path));
+    }
+
+    let mut sans = vec![
+        "localhost".to_string(),
+        "127.0.0.1".to_string(),
+        "::1".to_string(),
+        "halos.local".to_string(),
+        "172.17.0.1".to_string(),
+    ];
+    let bind_str = bind_ip.to_string();
+    if !sans.contains(&bind_str) && bind_str != "0.0.0.0" && bind_str != "::" {
+        sans.push(bind_str);
+    }
+
+    let rcgen::CertifiedKey { cert, signing_key } = rcgen::generate_simple_self_signed(sans)
+        .map_err(|e| format!("Failed to generate self-signed TLS cert: {e}"))?;
+
+    let cert_pem = cert.pem();
+    let key_pem = signing_key.serialize_pem();
+
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&key_path)
+            .map_err(|e| format!("Cannot write {}: {e}", key_path.display()))?;
+        file.write_all(key_pem.as_bytes())
+            .map_err(|e| format!("Cannot write {}: {e}", key_path.display()))?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(&key_path, key_pem.as_bytes())
+            .map_err(|e| format!("Cannot write {}: {e}", key_path.display()))?;
+    }
+
+    std::fs::write(&cert_path, cert_pem.as_bytes())
+        .map_err(|e| format!("Cannot write {}: {e}", cert_path.display()))?;
+
+    Ok((cert_path, key_path))
+}
+
+fn configure_tls(
+    server_root: &Path,
+    address: SocketAddr,
+    options: &PgOptions,
+) -> Result<Option<tokio_rustls::TlsAcceptor>, String> {
+    if options.tls_cert.is_some() || options.tls_key.is_some() {
+        let cert_path = options
+            .tls_cert
+            .as_deref()
+            .ok_or("Both --pg-tls-cert and --pg-tls-key must be specified")?;
+        let key_path = options
+            .tls_key
+            .as_deref()
+            .ok_or("Both --pg-tls-cert and --pg-tls-key must be specified")?;
+        return load_tls_acceptor_from_files(cert_path, key_path).map(Some);
+    }
+
+    match get_or_create_self_signed(server_root, address.ip()) {
+        Ok((cert_path, key_path)) => load_tls_acceptor_from_files(&cert_path, &key_path).map(Some),
+        Err(e) => {
+            if options.allow_plaintext || is_loopback_or_docker0(address.ip()) {
+                Ok(None)
+            } else {
+                Err(format!(
+                    "Non-loopback bind requires TLS, but TLS configuration failed: {e}"
+                ))
+            }
+        }
+    }
+}
+
+pub enum PgStream {
+    Plain(tokio::net::TcpStream),
+    Tls(Box<tokio_rustls::server::TlsStream<tokio::net::TcpStream>>),
+}
+
+impl tokio::io::AsyncRead for PgStream {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            PgStream::Plain(s) => std::pin::Pin::new(s).poll_read(cx, buf),
+            PgStream::Tls(s) => std::pin::Pin::new(s).poll_read(cx, buf),
+        }
+    }
+}
+
+impl tokio::io::AsyncWrite for PgStream {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        match self.get_mut() {
+            PgStream::Plain(s) => std::pin::Pin::new(s).poll_write(cx, buf),
+            PgStream::Tls(s) => std::pin::Pin::new(s).poll_write(cx, buf),
+        }
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            PgStream::Plain(s) => std::pin::Pin::new(s).poll_flush(cx),
+            PgStream::Tls(s) => std::pin::Pin::new(s).poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            PgStream::Plain(s) => std::pin::Pin::new(s).poll_shutdown(cx),
+            PgStream::Tls(s) => std::pin::Pin::new(s).poll_shutdown(cx),
+        }
+    }
+}
+
+const SSL_REQUEST_CODE: u32 = 80877103;
+const GSS_ENC_REQUEST_CODE: u32 = 80877104;
+
+async fn handle_handshake(
+    mut socket: tokio::net::TcpStream,
+    tls_acceptor: Option<&tokio_rustls::TlsAcceptor>,
+) -> Result<(PgStream, bool), Box<dyn std::error::Error + Send + Sync>> {
+    let mut header = [0u8; 8];
+    loop {
+        socket.readable().await?;
+        let n = socket.peek(&mut header).await?;
+        if n == 0 {
+            return Err("Client disconnected during handshake".into());
+        }
+        if n < 8 {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+            continue;
+        }
+
+        let len = u32::from_be_bytes([header[0], header[1], header[2], header[3]]);
+        let code = u32::from_be_bytes([header[4], header[5], header[6], header[7]]);
+
+        if len == 8 && code == GSS_ENC_REQUEST_CODE {
+            socket.read_exact(&mut header).await?;
+            socket.write_all(b"N").await?;
+            socket.flush().await?;
+            continue;
+        }
+
+        if len == 8 && code == SSL_REQUEST_CODE {
+            socket.read_exact(&mut header).await?;
+            if let Some(acceptor) = tls_acceptor {
+                socket.write_all(b"S").await?;
+                socket.flush().await?;
+                let tls_stream = acceptor.accept(socket).await?;
+                return Ok((PgStream::Tls(Box::new(tls_stream)), true));
+            } else {
+                socket.write_all(b"N").await?;
+                socket.flush().await?;
+                continue;
+            }
+        }
+
+        return Ok((PgStream::Plain(socket), false));
+    }
+}
+
+async fn process_connection(
+    socket: tokio::net::TcpStream,
+    peer_addr: SocketAddr,
+    tls_acceptor: Option<tokio_rustls::TlsAcceptor>,
+    handler: Arc<Handler>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    socket.set_nodelay(true)?;
+
+    let (stream, is_secure) = tokio::time::timeout(
+        Duration::from_secs(10),
+        handle_handshake(socket, tls_acceptor.as_ref()),
+    )
+    .await??;
+
+    let client_info = DefaultClient::new(peer_addr, is_secure);
+    let mut socket = tokio_util::codec::Framed::new(
+        stream,
+        pgwire::tokio::server::PgWireMessageServerCodec::new(client_info),
+    );
+    socket
+        .codec_mut()
+        .client_info
+        .set_state(PgWireConnectionState::AwaitingStartup);
+
+    let startup_timeout = tokio::time::sleep(Duration::from_millis(10_000));
+    tokio::pin!(startup_timeout);
+
+    let startup_handler = handler.startup_handler();
+    let simple_query_handler = handler.simple_query_handler();
+    let extended_query_handler = handler.extended_query_handler();
+    let copy_handler = handler.copy_handler();
+    let cancel_handler = handler.cancel_handler();
+    let error_handler = handler.error_handler();
+
+    loop {
+        let msg = if matches!(
+            socket.state(),
+            PgWireConnectionState::AwaitingStartup
+                | PgWireConnectionState::AuthenticationInProgress
+        ) {
+            tokio::select! {
+                _ = &mut startup_timeout => None,
+                msg = socket.next() => msg,
+            }
+        } else {
+            socket.next().await
+        };
+
+        match msg {
+            Some(Ok(msg)) => {
+                if matches!(msg, PgWireFrontendMessage::Terminate(_)) {
+                    break;
+                }
+                let is_extended_query = match socket.state() {
+                    PgWireConnectionState::CopyInProgress(is_extended_query) => is_extended_query,
+                    _ => msg.is_extended_query(),
+                };
+                if let Err(mut e) = pgwire::tokio::server::process_message(
+                    msg,
+                    &mut socket,
+                    startup_handler.clone(),
+                    simple_query_handler.clone(),
+                    extended_query_handler.clone(),
+                    copy_handler.clone(),
+                    cancel_handler.clone(),
+                )
+                .await
+                {
+                    error_handler.on_error(&socket, &mut e);
+                    pgwire::tokio::server::process_error(&mut socket, e, is_extended_query).await?;
+                }
+            }
+            Some(Err(e)) => {
+                eprintln!("Postgres connection error: {e}");
+                break;
+            }
+            None => break,
+        }
+    }
+    Ok(())
+}
+
 pub struct Listener {
     pub address: SocketAddr,
     stop: Option<tokio::sync::oneshot::Sender<()>>,
@@ -787,7 +1120,25 @@ impl Drop for Listener {
     }
 }
 pub fn start(server: Arc<TiServer>, address: SocketAddr) -> Result<Listener, String> {
-    let auth = crate::ti_pg_auth::AuthConfig::new(server.pg_users()?, !address.ip().is_loopback())?;
+    start_with_options(server, address, &PgOptions::default())
+}
+
+pub fn start_with_options(
+    server: Arc<TiServer>,
+    address: SocketAddr,
+    options: &PgOptions,
+) -> Result<Listener, String> {
+    let require_tls = !is_loopback_or_docker0(address.ip()) && !options.allow_plaintext;
+    let auth = crate::ti_pg_auth::AuthConfig::new(
+        server.pg_users()?,
+        !address.ip().is_loopback(),
+        require_tls,
+    )?;
+    let tls_acceptor = configure_tls(server.root(), address, options)?;
+    if require_tls && tls_acceptor.is_none() {
+        return Err("Non-loopback Postgres bind requires TLS".into());
+    }
+
     let listener = TcpListener::bind(address)
         .map_err(|e| format!("Failed to bind Postgres to {address}: {e}"))?;
     listener.set_nonblocking(true).map_err(|e| e.to_string())?;
@@ -802,6 +1153,7 @@ pub fn start(server: Arc<TiServer>, address: SocketAddr) -> Result<Listener, Str
     let thread = std::thread::Builder::new()
         .name("ti-pgwire".into())
         .spawn(move || {
+            let keep_handler = handler.clone();
             runtime.block_on(async move {
                 let listener = match tokio::net::TcpListener::from_std(listener) {
                     Ok(l) => l,
@@ -817,10 +1169,11 @@ pub fn start(server: Arc<TiServer>, address: SocketAddr) -> Result<Listener, Str
                         _ = clients.join_next(), if !clients.is_empty() => {},
                         incoming = listener.accept() => {
                             match incoming {
-                                Ok((socket, _)) if clients.len() < 32 => {
+                                Ok((socket, peer_addr)) if clients.len() < 32 => {
                                     let handler = handler.clone();
+                                    let tls_acceptor = tls_acceptor.clone();
                                     clients.spawn(async move {
-                                        if let Err(e) = pgwire::tokio::process_socket(socket, None, handler).await {
+                                        if let Err(e) = process_connection(socket, peer_addr, tls_acceptor, handler).await {
                                             eprintln!("Postgres connection: {e}");
                                         }
                                     });
@@ -835,7 +1188,9 @@ pub fn start(server: Arc<TiServer>, address: SocketAddr) -> Result<Listener, Str
                     }
                 }
                 clients.abort_all();
-            })
+                while clients.join_next().await.is_some() {}
+            });
+            drop(keep_handler);
         })
         .map_err(|e| e.to_string())?;
     println!("Lume Postgres server listening on {address}");
