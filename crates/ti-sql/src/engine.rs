@@ -173,6 +173,10 @@ impl TiEngine {
             skipped_stores: Vec::new(),
         }
     }
+    /// Benchmark controls for the default physical store's immutable cache.
+    pub fn query_cache_control(&self) -> Result<ti_store::QueryCacheControl> {
+        ti_store::QueryCacheControl::open(&self.root).map_err(core_error)
+    }
     pub fn units(&self) -> BTreeMap<String, Option<String>> {
         let mut u: BTreeMap<String, Option<String>> = self
             .session

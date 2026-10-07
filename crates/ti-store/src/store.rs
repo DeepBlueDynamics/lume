@@ -8,10 +8,12 @@
 //! - Immutable sealed shards (`SealedShard`)
 //! - Group commit and crash-recovery replay
 
+use crate::cache::{self, CacheKey, Cached, FieldCache};
+use crate::shard::ShardView;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use arrow_array::RecordBatch;
 use ti_contracts::{
@@ -43,12 +45,21 @@ pub struct Store {
     sealed_shards: BTreeMap<ShardKey, SealedShard>,
     text_index: Option<Arc<dyn TextIndex>>,
     retention: RetentionState,
+    query_cache: Arc<Mutex<FieldCache>>,
 }
 
 impl Store {
     /// Open a store strictly read-only for querying.
     /// Does not open or replay WAL files, does not truncate files, and performs no disk writes.
     pub fn open_readonly(root: &Path, width_seconds: u64) -> Result<Self> {
+        Self::open_readonly_with_cache(root, width_seconds, cache::configured_budget(root)?)
+    }
+    /// Explicit cache budget for read-only performance comparisons; never edits ti.toml.
+    pub fn open_readonly_with_cache(
+        root: &Path,
+        width_seconds: u64,
+        cache_bytes: u64,
+    ) -> Result<Self> {
         let catalog = Arc::new(DiskCatalog::open_or_create(root)?);
         let manifest = Arc::new(Manifest::open_or_create(root)?);
 
@@ -117,6 +128,7 @@ impl Store {
             sealed_shards: BTreeMap::new(),
             text_index: None,
             retention,
+            query_cache: cache::shared(root, cache_bytes)?,
         })
     }
 
@@ -251,6 +263,7 @@ impl Store {
             sealed_shards: BTreeMap::new(),
             text_index: None,
             retention,
+            query_cache: cache::shared(root, cache::configured_budget(root)?)?,
         })
     }
 
@@ -283,6 +296,105 @@ impl Store {
         }
     }
 
+    /// Retained cache charge excludes active query batches and temporary cold decode buffers.
+    pub fn query_cache_stats(&self) -> Result<crate::QueryCacheStats> {
+        Ok(cache::lock(&self.query_cache)?.stats())
+    }
+    fn with_sealed_view<R>(
+        &self,
+        shard: ShardKey,
+        needed: &[u32],
+        use_view: impl FnOnce(&ShardView<'_>) -> Result<R>,
+    ) -> Result<R> {
+        let entry = self
+            .manifest
+            .get(shard)
+            .ok_or_else(|| Error::NotFound(format!("shard {shard:?}")))?;
+        if cache::lock(&self.query_cache)?.stats().budget_bytes == 0 {
+            let sealed = SealedShard::load(
+                &self.root,
+                shard.vessel,
+                shard.shard,
+                entry.version,
+                self.catalog.as_ref(),
+            )?;
+            return use_view(&sealed.data.view());
+        }
+        let universe_key = CacheKey::new(&entry, None);
+        let cached_universe = {
+            let mut cache = cache::lock(&self.query_cache)?;
+            cache.retain_version(&entry);
+            cache.get(universe_key)
+        };
+        let mut decoded = None;
+        let universe = if let Some(universe) = cached_universe {
+            universe
+        } else {
+            cache::lock(&self.query_cache)?.full_load();
+            let sealed = SealedShard::load(
+                &self.root,
+                shard.vessel,
+                shard.shard,
+                entry.version,
+                self.catalog.as_ref(),
+            )?;
+            let universe = Arc::new(Cached::Universe(sealed.data.universe()));
+            cache::lock(&self.query_cache)?.insert(universe_key, Arc::clone(&universe));
+            decoded = Some(sealed);
+            universe
+        };
+        let mut owners = BTreeMap::new();
+        let mut specs = BTreeMap::new();
+        for id in needed
+            .iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>()
+        {
+            let key = CacheKey::new(&entry, Some(id));
+            let cached_field = { cache::lock(&self.query_cache)?.get(key) };
+            let value = if let Some(value) = cached_field {
+                value
+            } else {
+                let field = if let Some(sealed) = decoded.as_mut() {
+                    sealed.data.fields.remove(&id)
+                } else {
+                    cache::lock(&self.query_cache)?.field_load();
+                    SealedShard::load_field(
+                        &self.root,
+                        shard,
+                        entry.version,
+                        id,
+                        self.catalog.as_ref(),
+                    )?
+                    .map(|(_, field)| field)
+                };
+                let value = Arc::new(field.map(Cached::Field).unwrap_or(Cached::Missing));
+                cache::lock(&self.query_cache)?.insert(key, Arc::clone(&value));
+                value
+            };
+            if matches!(value.as_ref(), Cached::Field(_)) {
+                specs.insert(id, self.catalog.field(id)?);
+            }
+            owners.insert(id, value);
+        }
+        drop(decoded);
+        let fields = owners
+            .iter()
+            .filter_map(|(id, value)| match value.as_ref() {
+                Cached::Field(field) => Some((*id, field)),
+                _ => None,
+            })
+            .collect();
+        let Cached::Universe(bitmap) = universe.as_ref() else {
+            return Err(Error::Corrupt("invalid universe cache entry".into()));
+        };
+        use_view(&ShardView {
+            key: shard,
+            fields,
+            specs: &specs,
+            cached_universe: Some(bitmap),
+        })
+    }
     pub fn with_text_index(mut self, text: Arc<dyn TextIndex>) -> Self {
         self.text_index = Some(text);
         self
@@ -367,6 +479,7 @@ impl Store {
     pub fn drop_shard(&mut self, key: ShardKey) -> Result<()> {
         self.open_shards.remove(&key);
         self.sealed_shards.remove(&key);
+        cache::lock(&self.query_cache)?.invalidate(key);
         self.manifest.remove(key)?;
         if self.retention.active_open.contains(&key) {
             self.retention.active_open.retain(|active| *active != key);
@@ -604,18 +717,26 @@ impl ShardSource for Store {
             return Ok(open.data.eval_masks(p, self.text_index.as_deref())?.truth);
         }
 
-        let entry = self
-            .manifest
-            .get(shard)
-            .ok_or_else(|| Error::NotFound(format!("shard {:?}", shard)))?;
-        let sealed = SealedShard::load(
-            &self.root,
-            shard.vessel,
-            shard.shard,
-            entry.version,
-            self.catalog.as_ref(),
-        )?;
-        Ok(sealed.data.eval_masks(p, self.text_index.as_deref())?.truth)
+        fn collect_fields(p: &Predicate, fields: &mut Vec<u32>) {
+            match p {
+                Predicate::Present(id)
+                | Predicate::SetEq { field: id, .. }
+                | Predicate::BsiCmp { field: id, .. }
+                | Predicate::GeoCover { field: id, .. } => fields.push(*id),
+                Predicate::And(children) | Predicate::Or(children) => {
+                    for child in children {
+                        collect_fields(child, fields);
+                    }
+                }
+                Predicate::Not(child) => collect_fields(child, fields),
+                _ => {}
+            }
+        }
+        let mut fields = Vec::new();
+        collect_fields(p, &mut fields);
+        self.with_sealed_view(shard, &fields, |view| {
+            Ok(view.eval_masks(p, self.text_index.as_deref())?.truth)
+        })
     }
 
     fn read(&self, shard: ShardKey, cols: &RoaringBitmap, fields: &[u32]) -> Result<RecordBatch> {
@@ -631,24 +752,15 @@ impl ShardSource for Store {
             );
         }
 
-        let entry = self
-            .manifest
-            .get(shard)
-            .ok_or_else(|| Error::NotFound(format!("shard {:?}", shard)))?;
-        let sealed = SealedShard::load(
-            &self.root,
-            shard.vessel,
-            shard.shard,
-            entry.version,
-            self.catalog.as_ref(),
-        )?;
-        sealed.data.materialize(
-            &urn,
-            cols,
-            fields,
-            self.width_seconds,
-            self.catalog.as_ref(),
-        )
+        self.with_sealed_view(shard, fields, |view| {
+            view.materialize(
+                &urn,
+                cols,
+                fields,
+                self.width_seconds,
+                self.catalog.as_ref(),
+            )
+        })
     }
 
     fn agg(
@@ -662,18 +774,12 @@ impl ShardSource for Store {
             return open.data.aggregate(cols, field, a);
         }
 
-        let entry = self
-            .manifest
-            .get(shard)
-            .ok_or_else(|| Error::NotFound(format!("shard {:?}", shard)))?;
-        let sealed = SealedShard::load(
-            &self.root,
-            shard.vessel,
-            shard.shard,
-            entry.version,
-            self.catalog.as_ref(),
-        )?;
-        sealed.data.aggregate(cols, field, a)
+        let fields = if a == AggOp::CountAll {
+            Vec::new()
+        } else {
+            vec![field]
+        };
+        self.with_sealed_view(shard, &fields, |view| view.aggregate(cols, field, a))
     }
 }
 
