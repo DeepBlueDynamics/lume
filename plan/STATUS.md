@@ -35,7 +35,7 @@ Setup and workflow: [SETUP.md](SETUP.md).
 
 **Agents:**
 - The Hyperia restart closed both agent panes; their sessions must be restarted.
-- Long Horse has the M6 items 1 and 3 scope (`ti/m6-report`) in its mailbox and has not started.
+- Long Horse has the M6 items 1 and 3 scope (`ti/m6-report`) in its mailbox. The lead has since done item 1 (`3024cb9`); only item 3, the benchmark report plus the D48 draft, remains for it.
 - Artificial Shark has the `ti/plugin-tls` scope in its mailbox.
 - Both need a human to type "run msg_check" until Hyperia PR #311 (n8 pane detection) ships.
 
@@ -77,6 +77,7 @@ Setup and workflow: [SETUP.md](SETUP.md).
 
   Caveat: the HaLOS Influx writer's 1 s resolution drops samples, so raw bucket means and minimums differ from Lume's.
 - **✅ Signal K History API provider** (`e09bb87`, merge of `64cbc0d`). `plugins/signalk-lume-ti` registers as a Signal K v2.31 History API provider backed by Lume's loopback HTTP. Plugin tests 17/17, `ti_http` 8/8. `first`/`last` need the `@last` aggregate retained. **It must be selected as the server's default history provider**, because `signalk-to-influxdb2` also registers one.
+- **✅ M6 item 1 PASSED** (`3024cb9`, lead): 20% chunk loss over HTTP (seed 7) plus a mid-shard link outage. The outage is time-compressed at the real ratio: a 30-minute outage against the 60-minute shore session TTL becomes 60 ms against 120 ms. Within the TTL the client resumes and sends only the missing chunks. Past it, the shard is resent in full. Both end with byte-identical hashes. The earlier test only toggled the link between shards.
 - **✅ M6 item 2 PASSED** on the host (`4400327`): 50 vessels synced and verified in **67.32 s** (1.35 s/vessel, release). `fleet_sync_m6` now defaults to 5 vessels in debug and 50 in release. HTTP sync merged in `ddd6398`. The lossy-HTTP results still go to the lead.
 - **✅ Bucket-gap fix** (`3896e5c` + `65b84a3`). Root cause of the Pi's silent one-bucket loss: `let _ = advance_watermark` swallowed apply errors. Windows are now retained until the sink acknowledges, retried at 1/2/4/8/16/30 s, capped at 64 windows / 64 MiB per store, after which ingest reports `ingest_blocked`. Six drop counters appear in `ingest_status.json` and `/ti/status`. Window granularity is vessel-wide per bucket. **Pi Q6 re-verification pending deployment.**
 - **✅ M4 item 1 PASSED: corpus 61/0/1** on the host (`a264ed2` + `981fe15` + `7d1bc5a`). `q2-001`'s TI SQL is now scoped to the primary vessel like its unchanged oracle, plus a two-vessel notes isolation test. The `count_paths` stores were rebuilt, the oracle rerun exited 0, and 65 hashes match. Only `qx-003` stays excluded.
@@ -229,9 +230,9 @@ Week numbers count from kickoff. A milestone closes only when every gate test pa
 | M3 SQL and pushdown | W4 | 2–6 | **✅ Closed 2026-10-06** (`711d2c4`) |
 | M4 Text, geo, intervals | W4, W5, W6 | 6–8 | **All three items met on the host** (CI not run on this branch). Item 1: corpus 61/0/1 (`a264ed2`). Item 2: 72.4×. Item 3: CRoaring rejected (D40, `f38ecb4`) |
 | M5 Agent surface | W7 | 7–9 | **In progress. Items 1 and 2 passed** (`ti_resolve` 100/100; agent `glm-5.3` 17/20 with the harness standing in for nemesis8). Item 3: plugin, History API provider (the Pi's default) and plugin-managed SCRAM pgwire deployed on the Pi (token pending). Pi pg smoke 16/20 before pg-limits, rerun pending. Store-based installs, Pi 4 and OpenPlotter not done |
-| M6 Fleet and benchmarks | W8, integrator | 9–12 | **In progress.** Item 2 **passed** (50 vessels, 67.32 s release). Item 1: lossy-HTTP results to the lead. Item 3: Influx-vs-Lume Pi benchmark run (50 min); report not written |
+| M6 Fleet and benchmarks | W8, integrator | 9–12 | **In progress.** Item 1 **passed** (`3024cb9`, mid-shard outage resume). Item 2 **passed** (50 vessels, 67.32 s release). Item 3: Influx-vs-Lume Pi benchmark run (50 min); report not written |
 
-Also landed outside the original milestones: W9 generic Parquet (accepted), W10 alerts (accepted), the cruiser library (`lume crawl --list`, D43), the D44 plugin package, `lume chat`, the query cache and `IS DISTINCT FROM` pushdown. Remaining: M5 item 3, M6 items 1 and 3, and the Pi 5 deployment.
+Also landed outside the original milestones: W9 generic Parquet (accepted), W10 alerts (accepted), the cruiser library (`lume crawl --list`, D43), the D44 plugin package, `lume chat`, the query cache and `IS DISTINCT FROM` pushdown. Remaining: M5 item 3, M6 item 3, and the Pi 5 deployment.
 
 ### M2 gate detail
 

@@ -94,7 +94,7 @@ Boats sync sealed shards to a shore store over HTTP, then fleet queries are chec
 | Debug build | 5 | 101–107 s | ~21 s |
 | Debug build | 10 | 243 s | 24 s |
 
-The lossy-link test (20% drop plus a 30-minute outage) resumes and ends with identical manifests.
+The lossy-link tests (20% chunk drop over HTTP) end with byte-identical manifests and shard hashes. One of them cuts the link in the middle of a shard (`3024cb9`), time-compressed at the real ratio of a 30-minute outage to the shore's 60-minute session TTL. Within the TTL, the client resumes and sends only the missing chunks. Past it, the shard is resent in full.
 
 ## 5. Binary and package size
 
