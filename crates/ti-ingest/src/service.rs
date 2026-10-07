@@ -100,6 +100,7 @@ pub struct IngestService {
     pub reconnects: u64,
     pub records_ingested: u64,
     pub documents_rejected_pre_epoch: u64,
+    pub sample_counters: crate::counters::SampleCounters,
     pub last_delta_ts: Option<i64>,
     pub last_delta_received: Option<SystemTime>,
     pub last_flush_ts: i64,
@@ -125,6 +126,7 @@ impl IngestService {
             reconnects: 0,
             records_ingested: 0,
             documents_rejected_pre_epoch: 0,
+            sample_counters: Default::default(),
             last_delta_ts: None,
             last_delta_received: None,
             last_flush_ts: now,
@@ -266,6 +268,14 @@ impl IngestService {
             "reconnects": self.reconnects,
             "records_ingested": self.records_ingested,
             "documents_rejected_pre_epoch": self.documents_rejected_pre_epoch,
+            "samples_dropped_late": self.sample_counters.samples_dropped_late,
+            "samples_dropped_nonfinite": self.sample_counters.samples_dropped_nonfinite,
+            "samples_skipped_magnitude": self.sample_counters.samples_skipped_magnitude,
+            "samples_rejected_source": self.sample_counters.samples_rejected_source,
+            "apply_failures": self.sample_counters.apply_failures,
+            "apply_retries": self.sample_counters.apply_retries,
+            "samples_rejected_blocked": self.sample_counters.samples_rejected_blocked,
+            "ingest_blocked": self.sample_counters.ingest_blocked,
             "ingest_lag_seconds": lag_seconds,
             "last_delta": last_delta_rfc,
             "updated_at": chrono::Utc::now().to_rfc3339(),
@@ -424,6 +434,7 @@ impl IngestService {
                                     .map(|(k, v)| (k.clone(), v as &mut dyn ShardSink))
                                     .collect();
 
+                                let prior_failures = bucketer.counters().apply_failures;
                                 match process_message_multi(
                                     &text,
                                     &self.self_urn,
@@ -446,7 +457,9 @@ impl IngestService {
                                         }
                                     }
                                     Err(e) => {
-                                        eprintln!("Error processing Signal K message: {e}");
+                                        if bucketer.counters().apply_failures == prior_failures && !bucketer.counters().ingest_blocked {
+                                            eprintln!("Error processing Signal K message: {e}");
+                                        }
                                     }
                                 }
                             }
@@ -481,7 +494,9 @@ impl IngestService {
 
                         // 1. Group commit WAL fsync (every 1 s)
                         if now_sec.saturating_sub(last_wal_tick) >= 1 {
-                            let _ = self.tick_stores(&mut store_set);
+                            if let Err(error) = self.tick_stores(&mut store_set) {
+                                eprintln!("Ingest WAL tick failed: {error}");
+                            }
                             last_wal_tick = now_sec;
                         }
 
@@ -503,13 +518,15 @@ impl IngestService {
                                 .iter_mut()
                                 .map(|(k, v)| (k.clone(), v as &mut dyn ShardSink))
                                 .collect();
-                            let _ = bucketer.advance_watermark(
-                                watermark,
-                                &self.config,
-                                &catalogs,
-                                &mut sinks,
-                            );
-                            let _ = self.flush_stores(&mut store_set);
+                            let prior_failures = bucketer.counters().apply_failures;
+                            if let Err(error) = bucketer.advance_watermark(watermark, &self.config, &catalogs, &mut sinks) {
+                                if bucketer.counters().apply_failures == prior_failures && !bucketer.counters().ingest_blocked {
+                                    eprintln!("Ingest bucket publication failed: {error}");
+                                }
+                            }
+                            if let Err(error) = self.flush_stores(&mut store_set) {
+                                eprintln!("Ingest store flush failed: {error}");
+                            }
                             self.notify_flush();
                             self.records_since_flush = 0;
                             last_flush = now_sec;
@@ -530,6 +547,21 @@ impl IngestService {
                             let _ = store_set.enforce_retention(now_sec, &self.config);
                             last_retention_check = now_sec;
                         }
+
+                        // Retry retained windows independently of incoming traffic or dirty-row flush.
+                        {
+                            let catalogs = catalogs_arc.iter().map(|(name, catalog)|
+                                (name.clone(), catalog.as_ref() as &dyn Catalog)).collect();
+                            let mut sinks = store_set.stores_mut().iter_mut().map(|(name, store)|
+                                (name.clone(), store as &mut dyn ShardSink)).collect();
+                            let prior_failures = bucketer.counters().apply_failures;
+                            if let Err(error) = bucketer.retry_pending(Instant::now(), &self.config, &catalogs, &mut sinks) {
+                                if bucketer.counters().apply_failures == prior_failures && !bucketer.counters().ingest_blocked {
+                                    eprintln!("Ingest retry publication failed: {error}");
+                                }
+                            }
+                        }
+                        self.sample_counters = bucketer.counters();
 
                         // 5. Update status file
                         if now_sec.saturating_sub(last_status_write) >= 1 {
@@ -567,7 +599,23 @@ impl IngestService {
             .map(|(k, v)| (k.clone(), v as &mut dyn ShardSink))
             .collect();
 
-        bucketer.flush_all(&self.config, &catalogs, &mut sinks)?;
+        // Give acknowledged retries a bounded shutdown grace period; never report a
+        // clean shutdown with retained, unpublished samples.
+        let shutdown_deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let result = bucketer.flush_all(&self.config, &catalogs, &mut sinks);
+            self.sample_counters = bucketer.counters();
+            if bucketer.pending_retry_count() == 0 {
+                result?;
+                break;
+            }
+            if Instant::now() >= shutdown_deadline {
+                self.write_status(&store_root_path, false);
+                return result.and_then(|_| Err(ti_contracts::Error::InvalidInput(
+                    "shutdown has unpublished ingest windows after retry grace period".into())));
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
         self.flush_stores(&mut store_set)?;
         self.notify_flush();
 
