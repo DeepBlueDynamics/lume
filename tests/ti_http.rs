@@ -491,6 +491,18 @@ fn http_shared_engine_arrow_json_schema_explain_status_and_read_only() {
     let resolved: Value =
         serde_json::from_str(mcp["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
     assert_eq!(resolved["candidates"][0]["last_value"], 4.0);
+    // An empty store argument means the served store, not a relative path.
+    let mcp: Value = server
+        .post(
+            "/mcp",
+            json!({"jsonrpc":"2.0","id":3,"method":"tools/call",
+                "params":{"name":"ti_query","arguments":{"store":"","sql":"SELECT 7 AS answer"}}}),
+            true,
+        )
+        .unwrap()
+        .into_json()
+        .unwrap();
+    assert_ne!(mcp["result"]["isError"], true, "{mcp}");
     std::fs::rename(hidden, store).unwrap();
 }
 

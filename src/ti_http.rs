@@ -319,7 +319,10 @@ impl TiServer {
         }
         if let Some(root) = args.get("store") {
             let root = root.as_str().ok_or("store must be a string")?;
-            if Path::new(root).canonicalize().map_err(|e| e.to_string())? != self.root {
+            // Models often send "" for an optional string; that means the served store.
+            if !root.trim().is_empty()
+                && Path::new(root).canonicalize().map_err(|e| e.to_string())? != self.root
+            {
                 return Err("store must match the server's --ti-store".into());
             }
         }

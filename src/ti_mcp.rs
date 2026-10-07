@@ -136,6 +136,7 @@ pub(crate) fn call(name: &str, args: Value) -> Result<String, String> {
         .get("store")
         .map(|v| v.as_str().ok_or("store must be a string"))
         .transpose()?
+        .filter(|s| !s.trim().is_empty())
         .unwrap_or(&default);
     let width = args
         .get("width_seconds")
