@@ -93,6 +93,30 @@ The lossy-link test (20% drop plus a 30-minute outage) resumes and ends with ide
 
 Size reduction is still being measured (D45).
 
+## 6. Agent answering fleet questions with only Lume MCP (M5 item 2)
+
+The harness is `bench/agent_mcp_run.py` and the grader is `bench/agent_mcp_grade.py`. 20 natural-language questions
+(Q1–Q8 classes) over the golden boat store. The model gets only the five read-only `ti_*` MCP tools, at most 12 turns
+and 20 tool calls per question, and never sees SQL templates or answers. Answers are graded against hidden DuckDB
+results: exact, within tolerance, or as a row set matched by value.
+
+| Model | Lume MCP tools before `899898b` | After (schema guidance, teaching errors) |
+|---|---:|---:|
+| glm-5.3 (cloud, through Ollama) | 15 / 20 | **17 / 20** |
+| qwen2.5:7b (local Ollama) | 0 / 20 | 5 / 20 |
+
+The three glm-5.3 misses after the fix:
+
+- a Q2 multi-condition window query (54 rows instead of 3; it did not aggregate to 10-minute windows);
+- a Q5 that hit the 20 tool-call cap;
+- a Q8 daily mean that ended on a schema lookup instead of the answer query.
+
+The first run surfaced and fixed three real Lume problems: `store:""` was treated as a path, `ti_schema` returned
+empty column lists for unmatched prefixes, and the tool descriptions had no data-model guidance.
+
+Deviation from the milestone text: no nemesis8 launcher was reachable, so the harness itself is the agent runtime.
+The tool restriction is the same.
+
 ---
 
 ## Not yet measured
@@ -101,4 +125,3 @@ Size reduction is still being measured (D45).
 - Grafana panel latency over Postgres. The 100k-row streaming change is merged; the Pi smoke rerun is pending.
 - Pi 1-hour ingest throughput and memory (M2 item 3).
 - The full 471-item library (fetch and index time).
-- Agent question accuracy (M5 item 2): running now.
