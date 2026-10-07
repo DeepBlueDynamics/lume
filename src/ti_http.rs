@@ -313,6 +313,12 @@ impl TiServer {
         .auth
         .scram_users)
     }
+    pub(crate) fn mcp_width(&self) -> Option<u64> {
+        self.engine
+            .read()
+            .ok()
+            .map(|engine| engine.session.catalog.width_seconds)
+    }
     pub fn mcp(&self, name: &str, args: &Value) -> Result<String, String> {
         if !args.is_object() {
             return Err("arguments must be an object".into());
@@ -330,7 +336,10 @@ impl TiServer {
         let engine = self.engine.read().map_err(|e| e.to_string())?.clone();
         if let Some(width) = args.get("width_seconds") {
             if width.as_u64() != Some(engine.session.catalog.width_seconds) {
-                return Err("store bucket width mismatch".into());
+                return Err(format!(
+                    "store bucket width mismatch: this store\'s width is {} s; omit width_seconds",
+                    engine.session.catalog.width_seconds
+                ));
             }
         }
         let _guard = self.gate.lock().map_err(|e| e.to_string())?;
@@ -338,7 +347,8 @@ impl TiServer {
             .session
             .reset_diagnostics()
             .map_err(|e| e.to_string())?;
-        let reply = self.dispatch(name, args, &engine)?;
+        let mut reply = self.dispatch(name, args, &engine)?;
+        crate::ti_mcp::add_argument_notes(&mut reply, name, args);
         serde_json::to_string(&reply).map_err(|e| e.to_string())
     }
     fn dispatch(

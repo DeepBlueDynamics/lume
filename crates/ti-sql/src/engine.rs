@@ -77,7 +77,7 @@ pub fn store_width(root: &Path, requested: Option<u64>) -> Result<u64> {
             file.read_exact(&mut bytes)?;
             let found = u64::from_le_bytes(bytes);
             if found == 0 || width.is_some_and(|w| w != found) {
-                return Err(invalid("store bucket width mismatch"));
+                return Err(invalid(format!("store bucket width mismatch: this store\'s width is {found} s; omit width_seconds")));
             }
             *width = Some(found);
         }
@@ -95,7 +95,10 @@ pub fn store_width(root: &Path, requested: Option<u64>) -> Result<u64> {
         let config = ti_contracts::TiConfig::from_toml(&std::fs::read_to_string(config)?)
             .map_err(core_error)?;
         if width.is_some_and(|w| w != config.width_seconds) {
-            return Err(invalid("store bucket width mismatch"));
+            return Err(invalid(format!(
+                "store bucket width mismatch: this store\'s width is {} s; omit width_seconds",
+                config.width_seconds
+            )));
         }
         width = Some(config.width_seconds);
     }
@@ -430,6 +433,20 @@ impl TiEngine {
                 }
             }
         }
+        let prefix = prefix.filter(|p| !p.is_empty());
+        let table_filter = prefix.and_then(|p| {
+            let short = p.rsplit('.').next().unwrap_or(p);
+            table_names
+                .iter()
+                .find(|name| name.as_str() == short)
+                .cloned()
+        });
+        let column_prefix = if table_filter.is_some() { None } else { prefix };
+        let mut total_columns = 0usize;
+        let mut matched_columns = 0usize;
+        let mut returned_columns = 0usize;
+        let mut examples = Vec::new();
+        const COLUMN_LIMIT: usize = 256;
         for name in &table_names {
             let frame = self
                 .session
@@ -447,7 +464,8 @@ impl TiEngine {
                 .fields()
                 .iter()
                 .filter(|f| {
-                    prefix.is_none_or(|p| f.name().starts_with(p))
+                    table_filter.as_ref().is_none_or(|table| table == name)
+                        && column_prefix.is_none_or(|p| f.name().starts_with(p))
                         && kind.is_none_or(|k| f.data_type().to_string().eq_ignore_ascii_case(k))
                 })
                 .map(|f| {
@@ -464,7 +482,28 @@ impl TiEngine {
                     })
                 })
                 .collect();
-            tables.push(json!({"name": name, "columns": columns}));
+            let column_count = frame.schema().fields().len();
+            total_columns += column_count;
+            if examples.len() < 6 {
+                examples.extend(
+                    frame
+                        .schema()
+                        .fields()
+                        .iter()
+                        .take(2)
+                        .map(|f| format!("{name}.{}", f.name())),
+                );
+                examples.truncate(6);
+            }
+            let matching_column_count = columns.len();
+            matched_columns += matching_column_count;
+            let columns: Vec<_> = columns
+                .into_iter()
+                .take(COLUMN_LIMIT - returned_columns)
+                .collect();
+            returned_columns += columns.len();
+            tables.push(json!({"name": name, "column_count": column_count,
+                "matching_column_count": matching_column_count, "columns": columns}));
         }
         let coverage: Vec<_> = self
             .session
@@ -473,8 +512,20 @@ impl TiEngine {
             .values()
             .map(|v| json!({"vessel": v.urn, "from": v.first_seen, "to": v.last_seen}))
             .collect();
+        let truncated = returned_columns < matched_columns;
+        let hint = if matched_columns == 0 {
+            format!("no columns match prefix {}; {total_columns} columns exist, e.g. {}. Use a table name such as telemetry, or a Signal K path prefix such as environment.wind.",
+                prefix.unwrap_or("(none)"), examples.join(", "))
+        } else if truncated {
+            format!("Returned {returned_columns} of {matched_columns} matching columns; narrow prefix or select a table.")
+        } else {
+            "Quote Signal K column names in SQL; call ti_resolve to find paths and vessels.".into()
+        };
         Ok(
-            json!({"tables": tables, "width_seconds": self.session.catalog.width_seconds, "time_coverage": coverage, "units": self.units()}),
+            json!({"tables": tables, "width_seconds": self.session.catalog.width_seconds,
+            "time_coverage": coverage, "units": self.units(), "column_count": total_columns,
+            "matching_column_count": matched_columns, "returned_column_count": returned_columns,
+            "truncated": truncated, "hint": hint}),
         )
     }
     pub async fn status(&self) -> Result<Value> {

@@ -42,7 +42,11 @@ fn widths_are_derived_and_conflicts_or_corruption_fail() {
     assert_eq!(store_width(&dir.0, Some(60)).unwrap(), 60);
     header(&dir.0.join("shards/0/1/v1/0.rbm"), 60);
     assert_eq!(store_width(&dir.0, None).unwrap(), 60);
-    assert!(store_width(&dir.0, Some(10)).is_err());
+    let error = store_width(&dir.0, Some(10)).unwrap_err().to_string();
+    assert!(
+        error.contains("this store\'s width is 60 s; omit width_seconds"),
+        "{error}"
+    );
     header(&dir.0.join("shards/0/2/open/0.rbm"), 10);
     assert!(store_width(&dir.0, None).is_err());
 }
@@ -51,7 +55,11 @@ fn stored_config_supports_empty_stores_and_rejects_mismatches() {
     let dir = Scratch::new();
     std::fs::write(dir.0.join("ti.toml"), "width_seconds = 60\n").unwrap();
     assert_eq!(store_width(&dir.0, None).unwrap(), 60);
-    assert!(store_width(&dir.0, Some(10)).is_err());
+    let error = store_width(&dir.0, Some(10)).unwrap_err().to_string();
+    assert!(
+        error.contains("this store\'s width is 60 s; omit width_seconds"),
+        "{error}"
+    );
 }
 
 #[tokio::test]

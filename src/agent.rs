@@ -495,7 +495,7 @@ fn handle_mcp_request(req_val: serde_json::Value, _ti: &TiState) -> serde_json::
             let response = {
                 let mut response = response;
                 if let Some(tools) = response["result"]["tools"].as_array_mut() {
-                    tools.extend(crate::ti_mcp::definitions());
+                    tools.extend(crate::ti_mcp::definitions(_ti.as_ref().and_then(|server| server.mcp_width())));
                     tools.push(crate::sql::definition());
                 }
                 response
