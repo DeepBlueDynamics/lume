@@ -171,7 +171,7 @@ class TestPiIngestSummarize(unittest.TestCase):
                 "--output",
                 str(tmp_path),
             ]
-            proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", check=True)
             stdout = proc.stdout
             self.assertIn("# Pi Ingest Benchmark Summary", stdout)
             self.assertIn("**150.0 rows/s**", stdout)
