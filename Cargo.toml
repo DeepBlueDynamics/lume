@@ -18,6 +18,10 @@ license = "BSD-3-Clause"
 [dependencies]
 tantivy-fst = "0.5"
 ureq = { version = "2.9", features = ["json"] }
+# D51: RS256 using the existing ring backend; no PEM/ASN1 or new crypto backend.
+jsonwebtoken = { version = "=9.3.1", default-features = false }
+ring = "0.17"
+url = "2.5"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 lopdf = { version = "=0.44.0", default-features = false, optional = true }

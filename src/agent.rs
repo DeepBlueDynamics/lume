@@ -675,12 +675,22 @@ fn handle_connection_with_auth(
     let method = parts[0];
     let path = parts[1];
 
+    if method == "GET" && path.split('?').next() == Some("/health")
+        && auth.is_none_or(|auth| auth.public_health())
+    {
+        stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")?;
+        return Ok(());
+    }
+
     if let Some(auth) = auth {
         #[cfg(feature = "ti")]
         let route_token = _ti.as_ref().and_then(|server| server.route_http_token(path));
         #[cfg(not(feature = "ti"))]
         let route_token = None;
-        if !auth.accepts(req_str, route_token) {
+        let clean_path = path.split('?').next().unwrap_or(path);
+        let write = clean_path.starts_with("/v1/")
+            || (clean_path.starts_with("/ti/shards/") && method != "GET" && method != "HEAD");
+        if !auth.accepts_scope(req_str, route_token, if write { "write" } else { "read" }) {
             return http_error(&mut stream, "401 Unauthorized");
         }
     }
@@ -803,6 +813,14 @@ fn handle_connection_with_auth(
         // Standalone TI MCP calls must not reintroduce browser access to TI data.
         #[cfg(feature = "ti")]
         let cors=if rpc_req["params"]["name"].as_str().is_some_and(|name|matches!(name,"ti_query"|"ti_schema"|"ti_explain"|"ti_status"|"ti_resolve")){""}else{cors};
+        // MCP transport needs read; mutation tools additionally need write.
+        // Check after bounded parsing, before any tool dispatch.
+        if rpc_req["method"].as_str() == Some("tools/call")
+            && rpc_req["params"]["name"].as_str() == Some("lume_index")
+            && auth.is_some_and(|auth| !auth.accepts_scope(req_str, None, "write"))
+        {
+            return http_error(&mut stream, "401 Unauthorized");
+        }
         let response_json = handle_mcp_request(rpc_req, _ti);
         if response_json.is_null() {
             let response = format!("HTTP/1.1 204 No Content\r\n\
@@ -987,6 +1005,8 @@ pub fn serve_with_ti_server_pg_http_options(
         .unwrap_or(bind)
         .parse::<std::net::IpAddr>()
         .map_err(|e| format!("Invalid pg bind address: {e}"))?;
+    crate::http_auth::validate_bind(bind, auth.is_some()
+        || (ti.otlp_only() && ti.route_http_token("/v1/logs").is_some()))?;
     let _pg = pg
         .map(|port| {
             crate::ti_pg::start_with_options(
@@ -1006,21 +1026,6 @@ impl Drop for ActiveConnection {
     }
 }
 
-fn unauthenticated_http_warning(
-    bind: std::net::IpAddr,
-    ti_enabled: bool,
-    otlp_only: bool,
-    http_authenticated: bool,
-) -> Option<&'static str> {
-    if bind.is_loopback() || otlp_only || http_authenticated {
-        None
-    } else if ti_enabled {
-        Some("WARNING: /ti and MCP are unauthenticated on this non-loopback HTTP listener; use only a trusted LAN or an authenticated proxy.")
-    } else {
-        Some("WARNING: MCP is unauthenticated on this non-loopback HTTP listener, including indexing tools; use only a trusted LAN or an authenticated proxy.")
-    }
-}
-
 fn serve_configured(
     port: u16,
     _ti: TiState,
@@ -1030,16 +1035,13 @@ fn serve_configured(
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     #[cfg(feature = "ti")]
-    let (ti_enabled, otlp_only) = (
-        _ti.is_some(),
-        _ti.as_ref().is_some_and(|server| server.otlp_only()),
-    );
+    let otlp_only = _ti.as_ref().is_some_and(|server| server.otlp_only());
+    #[cfg(feature = "ti")]
+    let route_authenticated = otlp_only
+        && _ti.as_ref().is_some_and(|server| server.route_http_token("/v1/logs").is_some());
     #[cfg(not(feature = "ti"))]
-    let (ti_enabled, otlp_only) = (false, false);
-    if let Some(warning) = unauthenticated_http_warning(bind, ti_enabled, otlp_only, auth.is_some())
-    {
-        eprintln!("{warning}");
-    }
+    let route_authenticated = false;
+    crate::http_auth::validate_bind(&bind.to_string(), auth.is_some() || route_authenticated)?;
     let address = std::net::SocketAddr::new(bind, port);
     let listener =
         TcpListener::bind(address).map_err(|e| format!("Failed to bind to {address}: {e}"))?;
@@ -1738,19 +1740,11 @@ mod http_limits_tests {
     }
 
     #[test]
-    fn non_loopback_warning_covers_ti_and_plain_mcp_without_binding() {
-        let lan = "192.0.2.1".parse().unwrap();
-        let loopback = "127.0.0.1".parse().unwrap();
-        assert!(unauthenticated_http_warning(lan, true, false, false)
-            .unwrap()
-            .contains("/ti and MCP"));
-        assert!(unauthenticated_http_warning(lan, false, false, false)
-            .unwrap()
-            .contains("indexing"));
-        assert!(unauthenticated_http_warning(loopback, true, false, false).is_none());
-        assert!(unauthenticated_http_warning(lan, true, true, false).is_none());
-        assert!(unauthenticated_http_warning(lan, true, false, true).is_none());
-        assert!(unauthenticated_http_warning(lan, false, false, true).is_none());
+    fn non_loopback_requires_global_auth_before_binding() {
+        assert!(crate::http_auth::validate_bind("192.0.2.1", false).is_err());
+        assert!(crate::http_auth::validate_bind("192.0.2.1", true).is_ok());
+        assert!(crate::http_auth::validate_bind("127.0.0.1", false).is_ok());
+        assert!(crate::http_auth::validate_bind("::1", false).is_ok());
     }
 
     #[test]
