@@ -3,7 +3,7 @@
 //! Measures cold and warm latency (p50, p95, p99), compares against spec/13 targets,
 //! and runs DuckDB baseline on the same Parquet tier if DuckDB is available.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::process::Command;
 use std::time::Instant;
@@ -80,6 +80,36 @@ pub struct FullReport {
     pub classes: BTreeMap<String, ClassMetric>,
     pub queries: Vec<QueryMetric>,
     pub duckdb_baseline: Option<serde_json::Value>,
+    /// Pi runs only. Class p95 is the slowest query in that class, not a pooled percentile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by_class: Option<BTreeMap<String, PiClassP95>>,
+    /// Pi runs only. The gen command that produced the 1-vessel store.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store_recipe: Option<String>,
+}
+
+/// The 26-query Pi set: the host cache selection plus every q6 entry.
+pub const PI_QUERY_IDS: &[&str] = &[
+    "q1-001", "q1-002", "q1-004", "q2-002", "q2-003", "q2-005", "q3-001", "q3-002", "q3-004",
+    "q4-001", "q4-002", "q4-005", "q5-001", "q5-002", "q6-001", "q6-002", "q6-003", "q6-004",
+    "q6-005", "q6-006", "q7-001", "q7-002", "q7-006", "q8-001", "q8-002", "q8-006",
+];
+
+/// Host recipe. PARQUET is the gen root; backfill and import_docs follow it.
+pub const PI_STORE_RECIPE: &str = "ti-bench gen --root PARQUET --seed 42 --vessels 1 --days 90";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PiQueryP95 {
+    pub id: String,
+    pub p95_ms: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PiClassP95 {
+    pub p95_ms: f64,
+    pub edge_target_p95_ms: Option<f64>,
+    pub status: String,
+    pub queries: Vec<PiQueryP95>,
 }
 
 fn percentile(sorted: &[f64], p: f64) -> f64 {
@@ -157,6 +187,9 @@ pub async fn run_benchmark_with_cache(
             class_filter,
             cache_budget_bytes,
             warm_before_cold: false,
+            result_label: None,
+            sha_override: None,
+            query_allow: None,
         },
         None,
     )
@@ -173,6 +206,12 @@ pub struct BenchmarkOptions<'a> {
     pub class_filter: Option<&'a str>,
     pub cache_budget_bytes: Option<u64>,
     pub warm_before_cold: bool,
+    /// Inserted into bench/results/<date>-<label>-<sha>.json. Some("pi") is the Pi file.
+    pub result_label: Option<&'a str>,
+    /// When set, used instead of git rev-parse. Required on a Pi image without the repo.
+    pub sha_override: Option<&'a str>,
+    /// When set, only these corpus ids run, and a missing id is an error.
+    pub query_allow: Option<&'a [&'a str]>,
 }
 
 pub async fn run_benchmark_with_documents(
@@ -188,10 +227,17 @@ pub async fn run_benchmark_with_documents(
         class_filter,
         cache_budget_bytes,
         warm_before_cold,
+        result_label,
+        sha_override,
+        query_allow,
     } = options;
     if iterations == 0 {
         return Err("iterations must be positive".into());
     }
+    if query_allow.is_some() && class_filter.is_some() {
+        return Err("a fixed query set cannot be combined with --class".into());
+    }
+    let allow: Option<BTreeSet<&str>> = query_allow.map(|ids| ids.iter().copied().collect());
     eprintln!("=== Lume TI Benchmark Runner ===");
     eprintln!("Store path   : {}", store_dir);
     eprintln!("Parquet path : {}", parquet_dir);
@@ -201,13 +247,17 @@ pub async fn run_benchmark_with_documents(
     let corpus_bytes = std::fs::read(corpus_file)?;
     let corpus: GoldenCorpus = serde_json::from_slice(&corpus_bytes)?;
 
-    let git_sha = Command::new("git")
-        .args(["rev-parse", "--short", "HEAD"])
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_else(|| "unknown".to_string());
+    let git_sha = match sha_override {
+        Some(sha) => clean_sha(sha)?,
+        None => Command::new("git")
+            .args(["rev-parse", "--short=7", "HEAD"])
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "unknown".to_string()),
+    };
 
     let date = chrono::Utc::now().format("%Y-%m-%d").to_string();
 
@@ -227,10 +277,26 @@ pub async fn run_benchmark_with_documents(
 
     for entry in &corpus.entries {
         if let Some(reason) = &entry.exclude {
+            if allow
+                .as_ref()
+                .is_some_and(|set| set.contains(entry.id.as_str()))
+            {
+                return Err(format!(
+                    "{} is excluded ({}) but is required by the fixed query set",
+                    entry.id, reason
+                )
+                .into());
+            }
             eprintln!(
                 "Skipping excluded query {} ({}): {}",
                 entry.id, entry.qclass, reason
             );
+            continue;
+        }
+        if allow
+            .as_ref()
+            .is_some_and(|set| !set.contains(entry.id.as_str()))
+        {
             continue;
         }
         if let Some(cf) = class_filter {
@@ -318,6 +384,23 @@ pub async fn run_benchmark_with_documents(
             .push(cold_ms);
     }
 
+    if let Some(allow) = &allow {
+        let missing: Vec<&str> = allow
+            .iter()
+            .copied()
+            .filter(|id| !query_metrics.iter().any(|query| query.id == *id))
+            .collect();
+        if !missing.is_empty() || query_metrics.len() != allow.len() {
+            return Err(format!(
+                "fixed query set wants {} queries, ran {}, missing {}",
+                allow.len(),
+                query_metrics.len(),
+                missing.join(", ")
+            )
+            .into());
+        }
+    }
+
     // Attempt DuckDB baseline
     let duckdb_report = run_duckdb_baseline(parquet_dir, corpus_file, iterations);
 
@@ -367,6 +450,8 @@ pub async fn run_benchmark_with_documents(
         );
     }
 
+    let by_class = allow.as_ref().map(|_| pi_by_class(&query_metrics));
+    let store_recipe = (result_label == Some("pi")).then(|| PI_STORE_RECIPE.to_string());
     let report = FullReport {
         date: date.clone(),
         git_sha: git_sha.clone(),
@@ -379,17 +464,23 @@ pub async fn run_benchmark_with_documents(
         classes: class_metrics,
         queries: query_metrics,
         duckdb_baseline: duckdb_report,
+        by_class,
+        store_recipe,
     };
 
     // Output JSON and Markdown
     let out_path = Path::new(out_dir);
     std::fs::create_dir_all(out_path)?;
 
-    let json_filename = format!("{}-{}.json", date, git_sha);
-    let md_filename = format!("{}-{}.md", date, git_sha);
+    let stem = report_stem(&date, &git_sha, result_label);
+    let json_filename = format!("{stem}.json");
+    let md_filename = format!("{stem}.md");
 
     let json_file = out_path.join(&json_filename);
     let md_file = out_path.join(&md_filename);
+    if json_file.exists() {
+        return Err(format!("refusing to overwrite {}", json_file.display()).into());
+    }
 
     std::fs::write(&json_file, serde_json::to_string_pretty(&report)?)?;
     std::fs::write(&md_file, generate_markdown_summary(&report))?;
@@ -506,7 +597,92 @@ fn generate_markdown_summary(report: &FullReport) -> String {
         ));
     }
 
+    if let Some(by_class) = &report.by_class {
+        out.push_str("\n## Pi p95 by class (slowest query)\n\n");
+        out.push_str("| Class | Edge target | Class p95 | Status | Queries |\n");
+        out.push_str("|-------|-------------|-----------|--------|---------|\n");
+        for (class_name, stats) in by_class {
+            let target = stats
+                .edge_target_p95_ms
+                .map(|ms| format!("{ms:.0} ms"))
+                .unwrap_or_else(|| "DuckDB parity".to_string());
+            let queries = stats
+                .queries
+                .iter()
+                .map(|query| format!("{} {:.2}", query.id, query.p95_ms))
+                .collect::<Vec<_>>()
+                .join(", ");
+            out.push_str(&format!(
+                "| **{class_name}** | {target} | {:.2} ms | {} | {queries} |\n",
+                stats.p95_ms, stats.status
+            ));
+        }
+    }
+
     out
+}
+
+fn report_stem(date: &str, git_sha: &str, label: Option<&str>) -> String {
+    match label {
+        Some(label) => format!("{date}-{label}-{git_sha}"),
+        None => format!("{date}-{git_sha}"),
+    }
+}
+
+fn clean_sha(raw: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let sha = raw.trim();
+    if sha.is_empty() || sha.len() > 40 || !sha.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err("sha must be 1-40 hex characters".into());
+    }
+    Ok(sha.to_string())
+}
+
+fn edge_target_p95_ms(class: &str) -> Option<f64> {
+    match class {
+        "Q1" => Some(20.0),
+        "Q2" => Some(150.0),
+        "Q3" => Some(50.0),
+        "Q4" => Some(400.0),
+        "Q5" => Some(150.0),
+        "Q6" => Some(200.0),
+        "Q7" => Some(300.0),
+        _ => None,
+    }
+}
+
+fn pi_by_class(queries: &[QueryMetric]) -> BTreeMap<String, PiClassP95> {
+    let mut grouped: BTreeMap<String, Vec<PiQueryP95>> = BTreeMap::new();
+    for query in queries {
+        grouped
+            .entry(query.class.clone())
+            .or_default()
+            .push(PiQueryP95 {
+                id: query.id.clone(),
+                p95_ms: query.p95_ms,
+            });
+    }
+    grouped
+        .into_iter()
+        .map(|(class, mut rows)| {
+            rows.sort_by(|a, b| a.id.cmp(&b.id));
+            let p95_ms = rows.iter().fold(0.0_f64, |max, row| max.max(row.p95_ms));
+            let edge_target_p95_ms = edge_target_p95_ms(&class);
+            let status = match edge_target_p95_ms {
+                None => "PENDING".to_string(),
+                Some(target) if p95_ms <= target => "PASS".to_string(),
+                Some(_) => "MISS".to_string(),
+            };
+            (
+                class,
+                PiClassP95 {
+                    p95_ms,
+                    edge_target_p95_ms,
+                    status,
+                    queries: rows,
+                },
+            )
+        })
+        .collect()
 }
 
 fn fingerprint(
@@ -565,5 +741,73 @@ mod cache_measurement_tests {
         )
         .unwrap();
         assert_ne!(a, fingerprint(&[changed]).unwrap());
+    }
+
+    #[test]
+    fn pi_report_name_uses_label_and_sha() {
+        assert_eq!(
+            report_stem("2026-10-08", "369e40f", Some("pi")),
+            "2026-10-08-pi-369e40f"
+        );
+        assert_eq!(
+            report_stem("2026-10-08", "369e40f", None),
+            "2026-10-08-369e40f"
+        );
+        assert!(clean_sha("369e40f").is_ok());
+        assert!(clean_sha("../sha").is_err());
+    }
+
+    #[test]
+    fn pi_preset_lists_twenty_six_corpus_queries() {
+        assert_eq!(PI_QUERY_IDS.len(), 26);
+        let mut ids = PI_QUERY_IDS.to_vec();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), 26);
+        assert!(PI_STORE_RECIPE.contains("--seed 42"));
+        assert!(PI_STORE_RECIPE.contains("--vessels 1"));
+        assert!(PI_STORE_RECIPE.contains("--days 90"));
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/golden/corpus.json");
+        let corpus: GoldenCorpus = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        for id in PI_QUERY_IDS {
+            let entry = corpus
+                .entries
+                .iter()
+                .find(|entry| entry.id == *id)
+                .unwrap_or_else(|| panic!("missing {id}"));
+            assert!(entry.exclude.is_none(), "{id} is excluded");
+        }
+    }
+
+    #[test]
+    fn class_p95_is_the_slowest_query() {
+        let metric = |id: &str, class: &str, p95_ms: f64| QueryMetric {
+            id: id.to_string(),
+            class: class.to_string(),
+            description: String::new(),
+            rows: 1,
+            answer_fingerprint: String::new(),
+            cache_stats: None,
+            cache_warm: None,
+            cold_ms: 0.0,
+            p50_ms: 0.0,
+            p95_ms,
+            p99_ms: 0.0,
+            min_ms: 0.0,
+            max_ms: 0.0,
+            mean_ms: 0.0,
+        };
+        let by_class = pi_by_class(&[
+            metric("q1-002", "Q1", 4.0),
+            metric("q1-001", "Q1", 1.5),
+            metric("q8-001", "Q8", 9.0),
+        ]);
+        assert_eq!(by_class["Q1"].p95_ms, 4.0);
+        assert_eq!(by_class["Q1"].status, "PASS");
+        assert_eq!(by_class["Q1"].edge_target_p95_ms, Some(20.0));
+        assert_eq!(by_class["Q1"].queries[0].id, "q1-001");
+        assert_eq!(by_class["Q8"].status, "PENDING");
+        assert_eq!(by_class["Q8"].edge_target_p95_ms, None);
     }
 }
