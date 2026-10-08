@@ -4,6 +4,8 @@
 //! `sum("claude_code.token.usage")` is not the sum of increments. The check compares
 //! the sum of per-vessel `max("claude_code.token.usage")` to the deltas in 2xx posts.
 //! Log doc ids hash entity, time, title, and body, so each log gets a unique time.
+//! After the load, SQL is `lume ti query` against the store. Standalone `lume ti otlp`
+//! does not serve `/ti/query`, so this harness never checks counts over HTTP.
 
 use crate::rng::SplitMix64;
 use serde::Serialize;
@@ -29,7 +31,9 @@ Usage: ti-bench otlp-soak [--url http://127.0.0.1:PORT | --spawn] [OPTIONS]
 Options:
   --url <URL>            Receiver base URL (http://host:port). Required without --spawn.
   --spawn                Start `lume ti otlp` on 127.0.0.1 with an ephemeral port.
-  --lume-bin <PATH>      lume binary for --spawn (else $LUME_BIN or target/debug/lume).
+  --lume-bin <PATH>      lume binary for --spawn and for the SQL check.
+  --verify-store <DIR>   With --url, check counts via `lume ti query` on DIR.
+                         Ignored with --spawn, which checks the spawned store.
   --token-file <PATH>    Bearer token file. Ignored with --spawn (loopback has no token).
   --agents <N>           Simulated agents (required).
   --rate <R>             Log posts per second per agent (required).
@@ -39,7 +43,8 @@ Options:
 
 Each agent posts /v1/metrics every 10s and /v1/logs at --rate. Times are phase-offset
 by agent/agents of each interval. Metric model/tool/file variation is on the log
-records; the token series stays unattributed so the column is claude_code.token.usage.";
+records; the token series stays unattributed so the column is claude_code.token.usage.
+Without --spawn or --verify-store, sql.ok is false and the error is: not verified.";
 
 const METRIC_INTERVAL_NS: u64 = 10_000_000_000;
 const BASE_UNIX_NS: u128 = 1_577_836_811_000_000_000;
@@ -77,6 +82,7 @@ pub struct SoakConfig {
     pub out: PathBuf,
     pub spawn: bool,
     pub lume_bin: Option<PathBuf>,
+    pub verify_store: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy)]
@@ -103,6 +109,16 @@ pub struct Report {
     pub status: BTreeMap<String, BTreeMap<String, u64>>,
     pub rss_bytes: Rss,
     pub sql: SqlCheck,
+    pub docs_json: DocsJson,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DocsJson {
+    pub bytes: u64,
+    pub commits: u64,
+    pub rewrite_us_p50: Option<u64>,
+    pub rewrite_us_p95: Option<u64>,
+    pub rewrite_us_max: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -162,8 +178,8 @@ struct Spawned {
     store: PathBuf,
 }
 
-impl Drop for Spawned {
-    fn drop(&mut self) {
+impl Spawned {
+    fn shutdown(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
         if let Some(thread) = self.stdout_thread.take() {
@@ -172,6 +188,12 @@ impl Drop for Spawned {
         if let Some(thread) = self.stderr_thread.take() {
             let _ = thread.join();
         }
+    }
+}
+
+impl Drop for Spawned {
+    fn drop(&mut self) {
+        self.shutdown();
         let _ = fs::remove_dir_all(&self.store);
     }
 }
@@ -190,7 +212,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let cfg = parse_args(args)?;
     let report = execute(&cfg)?;
     println!(
-        "otlp-soak: out={} logs_2xx={} metrics_2xx={} tokens={} docs={} sql_ok={} p95_logs_ms={} p95_metrics_ms={} rss_peak={}",
+        "otlp-soak: out={} logs_2xx={} metrics_2xx={} tokens={} docs={} sql_ok={} p95_logs_ms={} p95_metrics_ms={} rss_peak={} docs_bytes={} rewrite_us_p95={}",
         cfg.out.display(),
         report.sent.log_2xx,
         report.sent.metrics_2xx,
@@ -212,7 +234,13 @@ pub fn run(args: &[String]) -> Result<(), String> {
         match &report.rss_bytes {
             Rss::Bytes { peak, .. } => peak.to_string(),
             Rss::Unavailable(v) => v.clone(),
-        }
+        },
+        report.docs_json.bytes,
+        report
+            .docs_json
+            .rewrite_us_p95
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "n/a".to_string()),
     );
     Ok(())
 }
@@ -227,6 +255,7 @@ pub fn parse_args(args: &[String]) -> Result<SoakConfig, String> {
     let mut out = None;
     let mut spawn = false;
     let mut lume_bin = None;
+    let mut verify_store = None;
     let mut i = 2;
     while i < args.len() {
         let flag = args[i].as_str();
@@ -270,6 +299,7 @@ pub fn parse_args(args: &[String]) -> Result<SoakConfig, String> {
             }
             "--out" => out = Some(PathBuf::from(value)),
             "--lume-bin" => lume_bin = Some(PathBuf::from(value)),
+            "--verify-store" => verify_store = Some(PathBuf::from(value)),
             other => return Err(format!("unknown option: {other}\n{USAGE}")),
         }
         i += 2;
@@ -300,6 +330,7 @@ pub fn parse_args(args: &[String]) -> Result<SoakConfig, String> {
         out,
         spawn,
         lume_bin,
+        verify_store,
     })
 }
 
@@ -314,14 +345,21 @@ pub fn execute(cfg: &SoakConfig) -> Result<Report, String> {
             cfg.duration_s,
         )?);
     }
-    let (spawned, url, token) = if cfg.spawn {
-        let bin = resolve_lume(cfg.lume_bin.as_deref())?;
+    let lume_bin = if cfg.spawn || cfg.verify_store.is_some() {
+        Some(resolve_lume(cfg.lume_bin.as_deref())?)
+    } else {
+        None
+    };
+    let (mut spawned, url, token) = if cfg.spawn {
+        let bin = lume_bin
+            .as_deref()
+            .ok_or("lume binary is required for --spawn")?;
         let store = std::env::temp_dir().join(format!(
             "otlp-soak-{}-{}",
             std::process::id(),
             Instant::now().elapsed().as_nanos()
         ));
-        let (child, listen) = spawn_lume(&bin, &store)?;
+        let (child, listen) = spawn_lume(bin, &store)?;
         let addr = socket_from_url(&listen)?;
         wait_ready(addr)?;
         (Some(child), listen, None)
@@ -406,7 +444,6 @@ pub fn execute(cfg: &SoakConfig) -> Result<Report, String> {
     progress_stop.store(true, Ordering::Relaxed);
     let _ = progress.join();
     let load_wall_s = started.elapsed().as_secs_f64();
-    let sql = sql_check(addr, token.as_deref(), &samples);
     rss_stop.store(true, Ordering::Relaxed);
     let rss = match rss_thread {
         Some(Some(thread)) => thread.join().unwrap_or(RssStats {
@@ -420,6 +457,23 @@ pub fn execute(cfg: &SoakConfig) -> Result<Report, String> {
             peak: None,
         },
     };
+    if let Some(server) = spawned.as_mut() {
+        server.shutdown();
+    }
+    let sql = match (
+        spawned.as_ref(),
+        cfg.verify_store.as_ref(),
+        lume_bin.as_deref(),
+    ) {
+        (Some(server), _, Some(bin)) => sql_check_store(bin, &server.store, &samples),
+        (None, Some(store), Some(bin)) => sql_check_store(bin, store, &samples),
+        _ => sql_unverified(&samples),
+    };
+    let store_for_docs = spawned
+        .as_ref()
+        .map(|server| server.store.clone())
+        .or_else(|| cfg.verify_store.clone());
+    let docs_json = read_docs_json(store_for_docs.as_deref());
     let report = build_report(
         cfg,
         &url,
@@ -428,6 +482,7 @@ pub fn execute(cfg: &SoakConfig) -> Result<Report, String> {
             offered_metrics,
             offered_logs,
             load_wall_s,
+            docs_json,
         },
         &samples,
         &sql,
@@ -475,6 +530,7 @@ struct LoadMeta {
     offered_metrics: u64,
     offered_logs: u64,
     load_wall_s: f64,
+    docs_json: DocsJson,
 }
 
 fn run_agent(ctx: AgentCtx, events: Vec<Event>, done: &AtomicUsize) -> Vec<Sample> {
@@ -625,7 +681,45 @@ fn build_report(
             _ => Rss::Unavailable("n/a".to_string()),
         },
         sql: sql.clone_report(),
+        docs_json: meta.docs_json,
     }
+}
+
+fn parse_docs_commits(stderr: &str) -> Vec<u64> {
+    stderr
+        .lines()
+        .filter_map(|line| {
+            let rest = line.split_once("otlp-docs-commit ")?.1;
+            let us = rest
+                .split_whitespace()
+                .find_map(|part| part.strip_prefix("rewrite_us="))?;
+            us.parse().ok()
+        })
+        .collect()
+}
+
+fn docs_json_from(bytes: u64, rewrites: &[u64]) -> DocsJson {
+    let mut values: Vec<f64> = rewrites.iter().map(|v| *v as f64).collect();
+    values.sort_by(|a, b| a.total_cmp(b));
+    let at = |pct: f64| percentile(&values, pct).map(|v| v.round() as u64);
+    DocsJson {
+        bytes,
+        commits: u64::try_from(rewrites.len()).unwrap_or(u64::MAX),
+        rewrite_us_p50: at(50.0),
+        rewrite_us_p95: at(95.0),
+        rewrite_us_max: rewrites.iter().copied().max(),
+    }
+}
+
+fn read_docs_json(store: Option<&Path>) -> DocsJson {
+    let Some(store) = store else {
+        return docs_json_from(0, &[]);
+    };
+    let bytes = fs::metadata(store.join("docs").join("documents.json"))
+        .map(|meta| meta.len())
+        .unwrap_or(0);
+    let stderr = fs::read_to_string(store.join("receiver.err")).unwrap_or_default();
+    docs_json_from(bytes, &parse_docs_commits(&stderr))
 }
 
 impl SqlCheck {
@@ -641,7 +735,7 @@ impl SqlCheck {
     }
 }
 
-fn sql_check(addr: SocketAddr, token: Option<&str>, samples: &[Sample]) -> SqlCheck {
+fn sent_counts(samples: &[Sample]) -> (u64, u64) {
     let tokens_sent = samples
         .iter()
         .filter(|s| s.kind == Kind::Metric)
@@ -656,7 +750,24 @@ fn sql_check(addr: SocketAddr, token: Option<&str>, samples: &[Sample]) -> SqlCh
             .count(),
     )
     .unwrap_or(0);
-    match sql_numbers(addr, token, tokens_sent, logs_sent) {
+    (tokens_sent, logs_sent)
+}
+
+fn sql_unverified(samples: &[Sample]) -> SqlCheck {
+    let (tokens_sent, logs_sent) = sent_counts(samples);
+    SqlCheck {
+        token_totals: 0.0,
+        tokens_sent,
+        docs: 0,
+        logs_sent,
+        ok: false,
+        error: Some("not verified".to_string()),
+    }
+}
+
+fn sql_check_store(bin: &Path, store: &Path, samples: &[Sample]) -> SqlCheck {
+    let (tokens_sent, logs_sent) = sent_counts(samples);
+    match sql_numbers(bin, store, tokens_sent, logs_sent) {
         Ok((token_totals, docs)) => {
             let tokens_ok = (token_totals - tokens_sent as f64).abs() < 1e-3;
             let docs_ok = docs == logs_sent;
@@ -681,12 +792,12 @@ fn sql_check(addr: SocketAddr, token: Option<&str>, samples: &[Sample]) -> SqlCh
 }
 
 fn sql_numbers(
-    addr: SocketAddr,
-    token: Option<&str>,
+    bin: &Path,
+    store: &Path,
     tokens_sent: u64,
     logs_sent: u64,
 ) -> Result<(f64, u64), String> {
-    let agent_rows = match query(addr, token, "SELECT count(*) AS n FROM telemetry_agents") {
+    let agent_rows = match query_store(bin, store, "SELECT count(*) AS n FROM telemetry_agents") {
         Ok(agents) => json_u64(&agents["rows"][0]["n"]).unwrap_or(0),
         Err(_) if tokens_sent == 0 => 0,
         Err(error) => return Err(error),
@@ -699,11 +810,14 @@ fn sql_numbers(
         }
         0.0
     } else {
-        let rows = query(
-            addr,
-            token,
-            "SELECT vessel, max(\"claude_code.token.usage\") AS tokens FROM telemetry_agents GROUP BY vessel",
+        let rows = query_store(
+            bin,
+            store,
+            r#"SELECT vessel, max("claude_code.token.usage") AS tokens FROM telemetry_agents GROUP BY vessel"#,
         )?;
+        if rows["truncated"].as_bool() == Some(true) {
+            return Err("token query hit the row cap".into());
+        }
         let list = rows["rows"]
             .as_array()
             .ok_or("token query returned no rows array")?;
@@ -716,8 +830,13 @@ fn sql_numbers(
         }
         sum
     };
-    let docs = match query(addr, token, "SELECT count(*) AS n FROM docs") {
-        Ok(reply) => json_u64(&reply["rows"][0]["n"]).ok_or("docs count was not a number")?,
+    let docs = match query_store(bin, store, "SELECT count(*) AS n FROM docs") {
+        Ok(reply) => {
+            if reply["truncated"].as_bool() == Some(true) {
+                return Err("docs query was truncated".into());
+            }
+            json_u64(&reply["rows"][0]["n"]).ok_or("docs count was not a number")?
+        }
         Err(_) if logs_sent == 0 => 0,
         Err(error) => return Err(error),
     };
@@ -729,20 +848,29 @@ fn sql_numbers(
     Ok((token_totals, docs))
 }
 
-fn query(addr: SocketAddr, token: Option<&str>, sql: &str) -> Result<Value, String> {
-    let body =
-        serde_json::to_vec(&json!({"sql": sql, "max_rows": 500})).map_err(|e| e.to_string())?;
-    let posted = post(addr, "/ti/query", &body, token);
-    let status = posted
-        .status
-        .ok_or_else(|| "sql query transport error".to_string())?;
-    if status != 200 {
+fn query_store(bin: &Path, store: &Path, sql: &str) -> Result<Value, String> {
+    let output = Command::new(bin)
+        .args(["ti", "query", sql, "--store"])
+        .arg(store)
+        .arg("--json")
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("lume ti query: {e}"))?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr);
+        let extra = String::from_utf8_lossy(&output.stdout);
+        let detail = detail.trim();
+        let extra = extra.trim();
+        if extra.is_empty() {
+            return Err(format!("lume ti query exited {}: {detail}", output.status));
+        }
         return Err(format!(
-            "sql status {status}: {}",
-            String::from_utf8_lossy(&posted.body)
+            "lume ti query exited {}: {detail} stdout: {extra}",
+            output.status
         ));
     }
-    serde_json::from_slice(&posted.body).map_err(|e| format!("sql json: {e}"))
+    serde_json::from_slice(&output.stdout)
+        .map_err(|e| format!("sql json: {e}: {}", String::from_utf8_lossy(&output.stdout)))
 }
 
 fn json_f64(v: &Value) -> Option<f64> {
@@ -992,7 +1120,6 @@ fn load_golden(name: &str) -> Result<Value, String> {
 
 struct PostResult {
     status: Option<u16>,
-    body: Vec<u8>,
     latency_ms: f64,
 }
 
@@ -1000,7 +1127,6 @@ fn post(addr: SocketAddr, path: &str, body: &[u8], token: Option<&str>) -> PostR
     let started = Instant::now();
     let fail = |started: Instant| PostResult {
         status: None,
-        body: Vec::new(),
         latency_ms: elapsed_ms(started),
     };
     let mut stream = match TcpStream::connect_timeout(&addr, Duration::from_secs(5)) {
@@ -1026,9 +1152,8 @@ fn post(addr: SocketAddr, path: &str, body: &[u8], token: Option<&str>) -> PostR
         let _ = stream.set_read_timeout(Some(Duration::from_millis(200)));
     }
     match read_response(&mut stream) {
-        Ok((status, body)) => PostResult {
+        Ok((status, _body)) => PostResult {
             status: Some(status),
-            body,
             latency_ms: elapsed_ms(started),
         },
         Err(_) => fail(started),
@@ -1457,6 +1582,21 @@ mod tests {
     }
 
     #[test]
+    fn docs_commit_lines_record_size_and_rewrite_time() {
+        let stderr = "noise\notlp-docs-commit bytes=9 rewrite_us=15\nOTLP ingest failed: x\notlp-docs-commit bytes=12 rewrite_us=40 trailing\n";
+        assert_eq!(parse_docs_commits(stderr), vec![15, 40]);
+        let stats = docs_json_from(100, &[10, 30, 20]);
+        assert_eq!(stats.bytes, 100);
+        assert_eq!(stats.commits, 3);
+        assert_eq!(stats.rewrite_us_p50, Some(20));
+        assert_eq!(stats.rewrite_us_p95, Some(30));
+        assert_eq!(stats.rewrite_us_max, Some(30));
+        let empty = docs_json_from(0, &[]);
+        assert_eq!(empty.commits, 0);
+        assert_eq!(empty.rewrite_us_p50, None);
+    }
+
+    #[test]
     fn parse_requires_load_arguments() {
         let err = parse_args(&[
             "ti-bench".into(),
@@ -1483,6 +1623,45 @@ mod tests {
     }
 
     #[test]
+    fn unverified_sql_is_not_ok() {
+        let samples = [Sample {
+            kind: Kind::Log,
+            status: Some(200),
+            latency_ms: 1.0,
+            tokens: 0,
+        }];
+        let sql = sql_unverified(&samples);
+        assert!(!sql.ok);
+        assert_eq!(sql.error.as_deref(), Some("not verified"));
+        assert_eq!(sql.logs_sent, 1);
+        assert_eq!(sql.docs, 0);
+        assert_eq!(sql.tokens_sent, 0);
+    }
+
+    #[test]
+    fn parse_accepts_verify_store() {
+        let cfg = parse_args(&[
+            "ti-bench".into(),
+            "otlp-soak".into(),
+            "--url".into(),
+            "http://127.0.0.1:9".into(),
+            "--verify-store".into(),
+            "/tmp/store".into(),
+            "--agents".into(),
+            "1".into(),
+            "--rate".into(),
+            "1".into(),
+            "--duration".into(),
+            "1".into(),
+            "--out".into(),
+            "out.json".into(),
+        ])
+        .unwrap();
+        assert_eq!(cfg.verify_store.unwrap(), PathBuf::from("/tmp/store"));
+        assert!(!cfg.spawn);
+    }
+
+    #[test]
     fn spawn_smoke_two_agents_ten_seconds() {
         let Ok(bin) = resolve_lume(None) else {
             eprintln!(
@@ -1501,6 +1680,7 @@ mod tests {
             out: out.clone(),
             spawn: true,
             lume_bin: Some(bin),
+            verify_store: None,
         };
         let report = execute(&cfg).unwrap_or_else(|e| panic!("{e}"));
         let _ = fs::remove_file(&out);
