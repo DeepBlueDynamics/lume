@@ -59,12 +59,21 @@ if [ -z "$SSH_HOST" ]; then
     exit 1
 fi
 
+SSH_CMD=(ssh)
+if [ -n "${LUME_DEPLOY_SSH_CONFIG:-}" ]; then
+    SSH_CMD=(ssh -F "$LUME_DEPLOY_SSH_CONFIG")
+fi
+
 run_remote() {
     local cmd="$1"
     if [ "$DRY_RUN" = true ]; then
-        echo "[dry-run] ssh ${SSH_HOST} '${cmd}'"
+        if [ -n "${LUME_DEPLOY_SSH_CONFIG:-}" ]; then
+            echo "[dry-run] ssh -F ${LUME_DEPLOY_SSH_CONFIG} ${SSH_HOST} '${cmd}'"
+        else
+            echo "[dry-run] ssh ${SSH_HOST} '${cmd}'"
+        fi
     else
-        ssh "$SSH_HOST" "$cmd"
+        "${SSH_CMD[@]}" "$SSH_HOST" "$cmd"
     fi
 }
 

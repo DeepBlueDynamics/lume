@@ -22,34 +22,30 @@ fi
 command -v docker >/dev/null 2>&1 || { echo "Error: docker required" >&2; exit 1; }
 docker info >/dev/null 2>&1 || { echo "Error: docker daemon unreachable" >&2; exit 1; }
 
+# Record initial ~/.ssh/config state (test must never modify or create it)
+USER_SSH_CONFIG="${HOME}/.ssh/config"
+ORIG_SSH_CONFIG_EXISTS=false
+INITIAL_SSH_CONFIG_CKSUM=""
+if [ -f "$USER_SSH_CONFIG" ]; then
+    ORIG_SSH_CONFIG_EXISTS=true
+    INITIAL_SSH_CONFIG_CKSUM="$(sha256sum "$USER_SSH_CONFIG" | awk '{print $1}')"
+fi
+
 # 2. Test identifiers and temporary workspace
 TEST_ID="deploy-test-$(date +%s)-$$"
 IMAGE_NAME="${TEST_ID}-img"
 CONTAINER_NAME="${TEST_ID}-c"
 SSH_HOST_ALIAS="${TEST_ID}-host"
 TMP_DIR="$(mktemp -d -t deploy-test.XXXXXX)"
-
-USER_HOME=$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f6 || echo "$HOME")
-[ -z "$USER_HOME" ] && USER_HOME="$HOME"
-
-SYS_SSH_CONF="/etc/ssh/ssh_config.d/${TEST_ID}.conf"
-USER_SSH_CONFIG="${USER_HOME}/.ssh/config"
-USER_SSH_BACKUP="${USER_HOME}/.ssh/config.test-backup.$$"
-HOME_SSH_CONFIG="${HOME}/.ssh/config"
-HOME_SSH_BACKUP="${HOME}/.ssh/config.test-backup.$$"
-
-# Track backups
-if [ -f "$USER_SSH_CONFIG" ]; then
-    cp -p "$USER_SSH_CONFIG" "$USER_SSH_BACKUP"
-fi
-if [ "$HOME" != "$USER_HOME" ] && [ -f "$HOME_SSH_CONFIG" ]; then
-    cp -p "$HOME_SSH_CONFIG" "$HOME_SSH_BACKUP"
-fi
+PROXY_PID=""
 
 cleanup() {
     local exit_code=$?
     echo
     echo "--- Tearing down test resources ---"
+    if [ -n "${PROXY_PID:-}" ]; then
+        kill "$PROXY_PID" >/dev/null 2>&1 || true
+    fi
     if [ -n "${CONTAINER_NAME:-}" ]; then
         docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
     fi
@@ -60,20 +56,22 @@ cleanup() {
         rm -rf "$TMP_DIR"
     fi
 
-    # Clean up SSH configuration
-    rm -f "$SYS_SSH_CONF" 2>/dev/null || true
-
-    if [ -f "$USER_SSH_BACKUP" ]; then
-        mv "$USER_SSH_BACKUP" "$USER_SSH_CONFIG"
-    elif [ -f "${TMP_DIR}/user_ssh_config_created" ]; then
-        rm -f "$USER_SSH_CONFIG"
-    fi
-
-    if [ "$HOME" != "$USER_HOME" ]; then
-        if [ -f "$HOME_SSH_BACKUP" ]; then
-            mv "$HOME_SSH_BACKUP" "$HOME_SSH_CONFIG"
-        elif [ -f "${TMP_DIR}/home_ssh_config_created" ]; then
-            rm -f "$HOME_SSH_CONFIG"
+    # Assert user's ~/.ssh/config was never modified or created
+    if [ "$ORIG_SSH_CONFIG_EXISTS" = true ]; then
+        if [ ! -f "$USER_SSH_CONFIG" ]; then
+            echo "FAIL: ~/.ssh/config was deleted during test run" >&2
+            exit_code=1
+        else
+            FINAL_CKSUM="$(sha256sum "$USER_SSH_CONFIG" | awk '{print $1}')"
+            if [ "$INITIAL_SSH_CONFIG_CKSUM" != "$FINAL_CKSUM" ]; then
+                echo "FAIL: ~/.ssh/config checksum changed ($INITIAL_SSH_CONFIG_CKSUM vs $FINAL_CKSUM)" >&2
+                exit_code=1
+            fi
+        fi
+    else
+        if [ -f "$USER_SSH_CONFIG" ]; then
+            echo "FAIL: ~/.ssh/config was created during test run" >&2
+            exit_code=1
         fi
     fi
 
@@ -201,59 +199,59 @@ docker run -d --name "$CONTAINER_NAME" -p 127.0.0.1::22 "$IMAGE_NAME" >/dev/null
 SSH_PORT=$(docker port "$CONTAINER_NAME" 22 | head -n 1 | sed 's/.*://')
 echo "Published on port: ${SSH_PORT}"
 
-# Determine reachability for local vs containerized runner
-TARGET_HOST=""
-for i in $(seq 1 30); do
-    if timeout 1 bash -c "cat < /dev/null > /dev/tcp/127.0.0.1/${SSH_PORT}" 2>/dev/null; then
-        TARGET_HOST="127.0.0.1"
-        break
-    elif timeout 1 bash -c "cat < /dev/null > /dev/tcp/host.docker.internal/${SSH_PORT}" 2>/dev/null; then
-        TARGET_HOST="host.docker.internal"
-        break
+# If running inside a containerized runner where 127.0.0.1:PORT routes to the container
+# rather than the Docker host, forward 127.0.0.1:PORT to host.docker.internal:PORT
+# so HostName 127.0.0.1 works seamlessly and identically everywhere.
+if ! timeout 1 bash -c "cat < /dev/null > /dev/tcp/127.0.0.1/${SSH_PORT}" 2>/dev/null; then
+    if timeout 1 bash -c "cat < /dev/null > /dev/tcp/host.docker.internal/${SSH_PORT}" 2>/dev/null; then
+        python3 -c "
+import socket, threading, sys
+def forward(src, dst):
+    while True:
+        try:
+            d = src.recv(4096)
+            if not d: break
+            dst.sendall(d)
+        except: break
+    src.close(); dst.close()
+srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+srv.bind(('127.0.0.1', ${SSH_PORT}))
+srv.listen(5)
+while True:
+    c, _ = srv.accept()
+    r = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    r.connect(('host.docker.internal', ${SSH_PORT}))
+    threading.Thread(target=forward, args=(c, r), daemon=True).start()
+    threading.Thread(target=forward, args=(r, c), daemon=True).start()
+" &
+        PROXY_PID=$!
+        sleep 0.5
     fi
-    sleep 0.5
-done
-if [ -z "$TARGET_HOST" ]; then
-    TARGET_HOST="127.0.0.1"
 fi
-echo "Connecting to target host: ${TARGET_HOST}:${SSH_PORT}"
 
-# Configure SSH alias across possible config paths
-SSH_STANZA="
+# 5. Write isolated SSH config to TMP_DIR/ssh_config and export LUME_DEPLOY_SSH_CONFIG
+SSH_CONFIG_FILE="${TMP_DIR}/ssh_config"
+cat << EOF > "$SSH_CONFIG_FILE"
 Host ${SSH_HOST_ALIAS}
-    HostName ${TARGET_HOST}
+    HostName 127.0.0.1
     Port ${SSH_PORT}
     User testpi
     IdentityFile ${SSH_KEY}
+    IdentitiesOnly yes
     StrictHostKeyChecking no
-    UserKnownHostsFile /dev/null
+    UserKnownHostsFile ${TMP_DIR}/known_hosts
     LogLevel ERROR
-"
+EOF
+chmod 600 "$SSH_CONFIG_FILE"
 
-if [ -d "/etc/ssh/ssh_config.d" ] && [ -w "/etc/ssh/ssh_config.d" ]; then
-    echo "$SSH_STANZA" > "$SYS_SSH_CONF"
-fi
-
-mkdir -p "${USER_HOME}/.ssh"
-chmod 700 "${USER_HOME}/.ssh"
-if [ ! -f "$USER_SSH_CONFIG" ]; then
-    touch "${TMP_DIR}/user_ssh_config_created"
-fi
-echo "$SSH_STANZA" >> "$USER_SSH_CONFIG"
-
-if [ "$HOME" != "$USER_HOME" ]; then
-    mkdir -p "${HOME}/.ssh"
-    chmod 700 "${HOME}/.ssh"
-    if [ ! -f "$HOME_SSH_CONFIG" ]; then
-        touch "${TMP_DIR}/home_ssh_config_created"
-    fi
-    echo "$SSH_STANZA" >> "$HOME_SSH_CONFIG"
-fi
+export LUME_DEPLOY_SSH_CONFIG="$SSH_CONFIG_FILE"
+echo "Exported LUME_DEPLOY_SSH_CONFIG=${LUME_DEPLOY_SSH_CONFIG}"
 
 echo "Waiting for SSH to become ready..."
 SSH_READY=false
 for i in $(seq 1 30); do
-    if ssh -q "$SSH_HOST_ALIAS" "echo ssh_ready" >/dev/null 2>&1; then
+    if ssh -F "$LUME_DEPLOY_SSH_CONFIG" -q "$SSH_HOST_ALIAS" "echo ssh_ready" >/dev/null 2>&1; then
         SSH_READY=true
         echo "SSH is ready (attempt $i/30)."
         break
@@ -283,19 +281,19 @@ DRY_RUN_OUTPUT=$(bash "$DEPLOY_SCRIPT" "$SSH_HOST_ALIAS" --dry-run --lume-bin "$
 echo "$DRY_RUN_OUTPUT" | grep -q "Mode: DRY RUN" || { echo "FAIL: dry-run mode notice missing" >&2; exit 1; }
 
 # Destination must not exist
-if ssh "$SSH_HOST_ALIAS" "test -e /var/lib/container-apps/marine-signalk-server-container/data/data/lume-plugin/signalk-lume-ti"; then
+if ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "test -e /var/lib/container-apps/marine-signalk-server-container/data/data/lume-plugin/signalk-lume-ti"; then
     echo "FAIL: Remote destination was created during deploy --dry-run" >&2
     exit 1
 fi
 
 # Stage must not exist
-if ssh "$SSH_HOST_ALIAS" "test -e /tmp/signalk-lume-ti-stage"; then
+if ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "test -e /tmp/signalk-lume-ti-stage"; then
     echo "FAIL: Staging directory was left behind during deploy --dry-run" >&2
     exit 1
 fi
 
 # No shim calls logged
-SHIM_CALLS=$(ssh "$SSH_HOST_ALIAS" "wc -l < /var/log/shim_calls.log | tr -d ' '")
+SHIM_CALLS=$(ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "wc -l < /var/log/shim_calls.log | tr -d ' '")
 if [ "$SHIM_CALLS" -ne 0 ]; then
     echo "FAIL: Shim calls were made during deploy --dry-run ($SHIM_CALLS logged)" >&2
     exit 1
@@ -308,20 +306,20 @@ echo "PASS: deploy-pi.sh --dry-run touched nothing."
 echo
 echo "=== Test 2: pi-retire-ollama.sh --dry-run touches nothing ==="
 # Pre-create Ollama data dir and mock model
-ssh "$SSH_HOST_ALIAS" "sudo -n mkdir -p /var/lib/container-apps/marine-ollama-container/data/ollama/models && echo 'weights' | sudo -n tee /var/lib/container-apps/marine-ollama-container/data/ollama/models/test-model.bin >/dev/null"
+ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "sudo -n mkdir -p /var/lib/container-apps/marine-ollama-container/data/ollama/models && echo 'weights' | sudo -n tee /var/lib/container-apps/marine-ollama-container/data/ollama/models/test-model.bin >/dev/null"
 
 RETIRE_DRY_RUN=$(bash "$RETIRE_SCRIPT" "$SSH_HOST_ALIAS" --dry-run)
 echo "$RETIRE_DRY_RUN" | grep -q "Mode: DRY RUN" || { echo "FAIL: retire dry-run mode notice missing" >&2; exit 1; }
 
 # No shim calls logged
-SHIM_CALLS=$(ssh "$SSH_HOST_ALIAS" "wc -l < /var/log/shim_calls.log | tr -d ' '")
+SHIM_CALLS=$(ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "wc -l < /var/log/shim_calls.log | tr -d ' '")
 if [ "$SHIM_CALLS" -ne 0 ]; then
     echo "FAIL: Shim calls were made during retire --dry-run ($SHIM_CALLS logged)" >&2
     exit 1
 fi
 
 # Ollama data must still exist
-if ! ssh "$SSH_HOST_ALIAS" "test -f /var/lib/container-apps/marine-ollama-container/data/ollama/models/test-model.bin"; then
+if ! ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "test -f /var/lib/container-apps/marine-ollama-container/data/ollama/models/test-model.bin"; then
     echo "FAIL: Ollama data was modified during retire --dry-run" >&2
     exit 1
 fi
@@ -335,28 +333,28 @@ echo "=== Test 3: Real deploy-pi.sh execution ==="
 bash "$DEPLOY_SCRIPT" "$SSH_HOST_ALIAS" --lume-bin "$DUMMY_LUME"
 
 # Assert files landed
-ssh "$SSH_HOST_ALIAS" "test -f /var/lib/container-apps/marine-signalk-server-container/data/data/lume-plugin/signalk-lume-ti/package.json" || {
+ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "test -f /var/lib/container-apps/marine-signalk-server-container/data/data/lume-plugin/signalk-lume-ti/package.json" || {
     echo "FAIL: package.json missing in remote destination" >&2; exit 1;
 }
-ssh "$SSH_HOST_ALIAS" "test -f /var/lib/container-apps/marine-signalk-server-container/data/data/lume-plugin/signalk-lume-ti/index.js" || {
+ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "test -f /var/lib/container-apps/marine-signalk-server-container/data/data/lume-plugin/signalk-lume-ti/index.js" || {
     echo "FAIL: index.js missing in remote destination" >&2; exit 1;
 }
-ssh "$SSH_HOST_ALIAS" "test -d /var/lib/container-apps/marine-signalk-server-container/data/data/lume-plugin/signalk-lume-ti/lib" || {
+ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "test -d /var/lib/container-apps/marine-signalk-server-container/data/data/lume-plugin/signalk-lume-ti/lib" || {
     echo "FAIL: lib directory missing in remote destination" >&2; exit 1;
 }
 
 # Assert test directory excluded
-if ssh "$SSH_HOST_ALIAS" "test -e /var/lib/container-apps/marine-signalk-server-container/data/data/lume-plugin/signalk-lume-ti/test"; then
+if ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "test -e /var/lib/container-apps/marine-signalk-server-container/data/data/lume-plugin/signalk-lume-ti/test"; then
     echo "FAIL: test directory was copied but should have been excluded" >&2
     exit 1
 fi
 
 # Assert lume binary exists and has mode 755
 LUME_PATH="/var/lib/container-apps/marine-signalk-server-container/data/data/lume-plugin/signalk-lume-ti/bin/linux-arm64/lume"
-ssh "$SSH_HOST_ALIAS" "test -f '$LUME_PATH'" || {
+ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "test -f '$LUME_PATH'" || {
     echo "FAIL: lume binary missing at $LUME_PATH" >&2; exit 1;
 }
-LUME_MODE=$(ssh "$SSH_HOST_ALIAS" "stat -c %a '$LUME_PATH'")
+LUME_MODE=$(ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "stat -c %a '$LUME_PATH'")
 if [ "$LUME_MODE" != "755" ]; then
     echo "FAIL: Expected lume binary permissions 755, got '$LUME_MODE'" >&2
     exit 1
@@ -364,7 +362,7 @@ fi
 echo "Verified: lume binary landed with mode 755."
 
 # Assert restart call was made
-if ! ssh "$SSH_HOST_ALIAS" "grep -q 'systemctl restart marine-signalk-server-container' /var/log/shim_calls.log"; then
+if ! ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "grep -q 'systemctl restart marine-signalk-server-container' /var/log/shim_calls.log"; then
     echo "FAIL: systemctl restart marine-signalk-server-container was not called" >&2
     exit 1
 fi
@@ -377,24 +375,24 @@ echo "PASS: deploy-pi.sh deployed files, set mode 755, and restarted container."
 echo
 echo "=== Test 4: Real pi-retire-ollama.sh execution ==="
 # Reset shim calls log before retirement
-ssh "$SSH_HOST_ALIAS" "sudo -n truncate -s 0 /var/log/shim_calls.log"
+ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "sudo -n truncate -s 0 /var/log/shim_calls.log"
 
 bash "$RETIRE_SCRIPT" "$SSH_HOST_ALIAS"
 
 # Assert systemctl stop call
-if ! ssh "$SSH_HOST_ALIAS" "grep -q 'systemctl stop marine-ollama-container' /var/log/shim_calls.log"; then
+if ! ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "grep -q 'systemctl stop marine-ollama-container' /var/log/shim_calls.log"; then
     echo "FAIL: systemctl stop marine-ollama-container was not called" >&2
     exit 1
 fi
 
 # Assert systemctl disable call
-if ! ssh "$SSH_HOST_ALIAS" "grep -q 'systemctl disable marine-ollama-container' /var/log/shim_calls.log"; then
+if ! ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "grep -q 'systemctl disable marine-ollama-container' /var/log/shim_calls.log"; then
     echo "FAIL: systemctl disable marine-ollama-container was not called" >&2
     exit 1
 fi
 
 # Assert docker image rm call
-if ! ssh "$SSH_HOST_ALIAS" "grep -q 'docker image rm ollama/ollama' /var/log/shim_calls.log"; then
+if ! ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "grep -q 'docker image rm ollama/ollama' /var/log/shim_calls.log"; then
     echo "FAIL: docker image rm ollama/ollama was not called" >&2
     exit 1
 fi
@@ -402,9 +400,33 @@ echo "Verified: systemctl stop/disable and docker image rm calls were made."
 
 # Assert Ollama data directory was kept
 OLLAMA_MODEL_FILE="/var/lib/container-apps/marine-ollama-container/data/ollama/models/test-model.bin"
-if ! ssh "$SSH_HOST_ALIAS" "test -f '$OLLAMA_MODEL_FILE'"; then
+if ! ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "test -f '$OLLAMA_MODEL_FILE'"; then
     echo "FAIL: Ollama data directory was deleted or modified" >&2
     exit 1
 fi
 echo "Verified: Ollama data directory was preserved."
 echo "PASS: pi-retire-ollama.sh stopped, disabled, removed image, and preserved data."
+
+# --------------------------------------------------------------------------
+# Test 5: Assert ~/.ssh/config checksum unchanged
+# --------------------------------------------------------------------------
+echo
+echo "=== Test 5: Verify ~/.ssh/config was untouched ==="
+if [ "$ORIG_SSH_CONFIG_EXISTS" = true ]; then
+    if [ ! -f "$USER_SSH_CONFIG" ]; then
+        echo "FAIL: ~/.ssh/config was deleted during test run" >&2
+        exit 1
+    fi
+    CURRENT_CKSUM="$(sha256sum "$USER_SSH_CONFIG" | awk '{print $1}')"
+    if [ "$INITIAL_SSH_CONFIG_CKSUM" != "$CURRENT_CKSUM" ]; then
+        echo "FAIL: ~/.ssh/config checksum changed ($INITIAL_SSH_CONFIG_CKSUM vs $CURRENT_CKSUM)" >&2
+        exit 1
+    fi
+    echo "PASS: ~/.ssh/config checksum is unchanged ($INITIAL_SSH_CONFIG_CKSUM)."
+else
+    if [ -f "$USER_SSH_CONFIG" ]; then
+        echo "FAIL: ~/.ssh/config was created during test run" >&2
+        exit 1
+    fi
+    echo "PASS: ~/.ssh/config was not created or touched."
+fi
