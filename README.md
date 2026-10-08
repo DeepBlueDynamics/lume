@@ -113,7 +113,7 @@ To share a laptop's Ollama with the boat's LAN, set `OLLAMA_HOST=0.0.0.0` on the
 The Ask tab defaults to `https://ollama.com` with `glm-5.3:cloud`, so the Pi doesn't need a local model. On the Pi 5, a local `qwen3:1.7b` produced 0.34 tokens/s. To install your key, run this from the repo on your machine:
 
 ```bash
-scripts/pi-set-ollama-key.sh <ssh-host>      # e.g. pi@192.168.68.61
+scripts/pi-set-ollama-key.sh <ssh-host>      # e.g. pi@halos.local
 ```
 
 It prompts for the key with hidden input and sends it to the Pi only over SSH stdin, so it never appears in argv, shell history or logs. On the Pi it:

@@ -50,7 +50,7 @@ Setup and workflow: [SETUP.md](SETUP.md).
   - gap 4 results measured on the Pi 5 (`a47ff21`).
 
 **What runs on the Pi (2026-10-08):**
-- reachable at 192.168.68.61, a static IP on wlan0 set by firstrun.sh;
+- reachable as `halos.local` (mDNS); firstrun.sh also set 192.168.68.61 static on wlan0, but scripts and docs use the name, not the IP;
 - deploy key added;
 - Ollama retired (free space went from 4.5 GB to 8.4 GB);
 - Grub on the published image;
@@ -100,7 +100,7 @@ The plan is [next-phase-2026-10-08.md](next-phase-2026-10-08.md). Pane names are
   - **Done:** B15 `ti/status-refresh`: refresh `plan/STATUS.md` "Next phase" and Handoff sections through `fa37d06` (`631f5cd`, corrections `5f54592`).
   - **Now:** B16 `ti/status-refresh-2`: refresh `plan/STATUS.md` through `51080e9`. On standby for Pi reachability.
 - **Pi (2026-10-08):**
-  - reachable at 192.168.68.61, a static IP on wlan0 set by firstrun.sh;
+  - reachable as `halos.local` (mDNS); firstrun.sh also set 192.168.68.61 static on wlan0, but scripts and docs use the name, not the IP;
   - deploy key added;
   - Ollama retired (free space went from 4.5 GB to 8.4 GB);
   - Grub on the published image;
