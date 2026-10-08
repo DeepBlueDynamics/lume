@@ -114,7 +114,7 @@ lume ti repl --store <root> [--width <seconds>]
 **`lume serve` with TI** (`bce7779`, `39c0096`; needs `--features ti`):
 
 ```sh
-lume serve --ti-store <store> [--bind <IP>] [--port <PORT>] [--pg <port>]
+lume serve --ti-store <store> [--bind <IP>] [--port <PORT>] [--otlp] [--otlp-token-file <path>] [--pg <port>]
 ```
 
 - With `--ti-store`, the server binds to **loopback `127.0.0.1` by default**. Pass `--bind <IP>` to expose it. Plain `lume serve` (no TI) still binds `0.0.0.0`. `/ti` and the TI server's `/mcp` send no wildcard CORS.
@@ -135,7 +135,7 @@ lume serve --ti-store <store> [--bind <IP>] [--port <PORT>] [--pg <port>]
 **`lume ti ingest`: the live service** (`75a1a4f`; needs `--features ti`):
 
 ```sh
-lume ti ingest --signalk ws://<host>:3000 --store <root> [--config <path>] [--token <file|token>] [--self-urn <urn>] [--serve] [--bind <IP>] [--port <port>] [--pg <port>]
+lume ti ingest --signalk ws://<host>:3000 --store <root> [--config <path>] [--token <file|token>] [--self-urn <urn>] [--serve] [--bind <IP>] [--port <port>] [--otlp] [--otlp-token-file <path>] [--pg <port>]
 ```
 
 - It connects to the Signal K WebSocket, subscribes per spec/06 and commits under the D16 group-commit WAL. It reconnects with exponential backoff. Live timestamps use the receive time (`8d232ca`). Notification errors are not fatal; notifications become `alerts` documents (`d656dd4`).
@@ -145,6 +145,7 @@ lume ti ingest --signalk ws://<host>:3000 --store <root> [--config <path>] [--to
 - **Token:** pass a file path or a literal with `--token`, or set `[signal_k] token` in `ti.toml`. Without `--config`, `<store>/ti.toml` is used if it exists.
 - **`--serve`** runs the query server in the **same process**, because two processes must not open one live store. It binds loopback `127.0.0.1:5863` by default (`--bind`, `--port`), with the same `/ti` and `/mcp` surface as `lume serve --ti-store`. `--pg <port>` adds the read-only Postgres listener.
 - **Shutdown:** SIGTERM or Ctrl-C flushes open buckets and dirty shards, syncs the WALs, sets `"running": false` and exits.
+- **Self-telemetry:** records internal performance counters (ingest rate, RSS, lag, flush cost) under `<store>/stores/lume` and auto-registers SQL table `telemetry_lume` (entity `lume.urn:host:<hostname>`) on an independent bucketer, keeping vessel data isolated. Enabled by default; set `LUME_TI_SELF_TELEMETRY=0` (or `off`, `false`) to disable.
 - **Pi 5 systemd unit** (when not running under the Signal K plugin):
 
   ```ini
@@ -350,7 +351,7 @@ Then tell the lead the side branch name, its base commit, and which lane it shou
 
 ## 5. Reporting protocol
 
-- Report to the lead (**Industrial Pike**, pane `ee764a09`) by Hyperia mail. Agents may also mail each other directly.
+- Report to the lead (**Annual Echidna**, pane `7d2715e3`, formerly Industrial Pike `ee764a09`) by Hyperia mail. Agents may also mail each other directly.
 - A report should give your branch, the commit hash(es) ready to merge, what changed, which tests you ran (and on which rustc), **whether fmt and strict clippy ran, or that your container lacks them**, and anything blocked or decided. The field list is a suggestion *(unconfirmed)*.
 - The lead checks mail and agent panes **every 15 minutes**. Don't expect a faster reply.
 - Decisions that touch contracts, dependencies or scope go to the lead. They get recorded in the decisions log ([spec/11](spec/11-risks-decisions.md)), not only in mail.
@@ -463,7 +464,7 @@ py -3 -E tests/golden/gen_expected.py --data-dir <correctness> --output-dir <dir
 
 ## 10. How the lead merges
 
-The lead (Industrial Pike) is the only one who writes to `plan/lume-ti`.
+The lead (Annual Echidna, formerly Industrial Pike) is the only one who writes to `plan/lume-ti`.
 
 1. An agent reports a ready commit by mail.
 2. The lead fetches the branch straight from the clone, for example `git fetch .lanes/w1 ti/w1-core`.
@@ -672,7 +673,7 @@ Lume TI includes an OpenTelemetry Protocol (OTLP) receiver accepting metrics and
 - **Authentication**: Bearer token (`Authorization: Bearer <token>`). Optional when binding loopback (`127.0.0.1`), strictly required for any non-loopback bind. Token is read at startup from `--otlp-token-file <path>` (mode 0600 recommended).
 - **Storage and tables**:
   - Dedicated store at `<root>/stores/agents`.
-  - **`telemetry_agents`**: Numeric metrics. The resource attribute `service.instance.id` (or pane ID) maps to `vessel` as `agent.urn:<instance_id>` (fallback: `agent.urn:<service.name>`). Gauge and sum metrics populate metric columns (with `@mean` and `@last` aggregate profiles), while histogram metrics map to `<metric>.sum` and `<metric>.count`.
+  - **`telemetry_agents`**: Numeric metrics. The resource attribute `service.instance.id` (or pane ID) maps to `vessel` as `agent.urn:<instance_id>` (fallback: `agent.urn:<service.name>`). Monotonic sums (`isMonotonic: true`, such as token usage) compute running totals per entity and dimensional attribute path (`<metric>.<attr>@last`), with totals and cumulative segment state persisted across restarts in `<root>/stores/agents/otlp-counters.json`. Non-monotonic sums and gauges map to numeric aggregates (`@mean`, `@last`; no `@sum` aggregate is used). Histogram metrics map to `<metric>.sum@mean` and `<metric>.count@mean`.
   - **`docs`**: Log and span events. `vessel` is set to the agent URN, `title` to the event name (e.g. `file_edit`, `tool_call`, `hyperia.mail`), `kind` to `logbook`, and `body` to serialized JSON attributes, searchable via `match(body, '...')`.
 
 ### Signal K plugin configuration (Lume TI)
@@ -777,16 +778,15 @@ Hyperia manages multi-agent containers, pane terminals, and inter-agent messagin
 
 Query agent metrics and event logs with `POST /ti/query` on the serving process (default `127.0.0.1:5863`), the MCP `ti_query` tool, or pgwire (port 5864, when enabled). Rows have `ts` (the 10 s bucket start), `vessel` (the `agent.urn:` entity) and one column per `"<metric>@<profile>"`:
 
-1. **Tokens consumed per agent per hour (last 24 hours):**
+1. **Tokens consumed per agent in a window:**
    ```sql
-   SELECT date_trunc('hour', ts) AS hour, vessel,
-          sum("claude_code.token.usage@sum") AS tokens
+   SELECT vessel,
+          max("claude_code.token.usage.input.model.claude-sonnet@last") - min("claude_code.token.usage.input.model.claude-sonnet@last") AS tokens
    FROM telemetry_agents
-   WHERE ts >= now() - INTERVAL '24 hours'
-   GROUP BY 1, 2
-   ORDER BY 1 DESC;
+   WHERE ts >= TIMESTAMP '2026-10-08 00:00:00' AND ts < TIMESTAMP '2026-10-08 01:00:00'
+   GROUP BY vessel;
    ```
-   *(The profile suffix depends on A1's mapping for sum metrics. Check it with `SELECT * FROM telemetry_agents LIMIT 1`.)*
+   *(Monotonic counter usage over a time window is computed via `max(...) - min(...)` over `@last` on dimensional attribute paths; no `@sum` profile is added.)*
 
 2. **File edits matching a specific path:**
    ```sql

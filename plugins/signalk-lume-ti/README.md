@@ -8,11 +8,11 @@ Supervises `lume ti ingest --serve` as a managed child process inside the Signal
 
 ## Architecture
 
-- **Supervision**: Runs `lume ti ingest --signalk ws://127.0.0.1:3000 --store <dataDir>/lume-ti --serve --bind 127.0.0.1 --port 5863` as a child process. Automatically restarts on crash with exponential backoff and gracefully shuts down via `SIGTERM` (which flushes in-memory WAL buffers and bucket accumulators before exit).
+- **Supervision**: Runs `lume ti ingest --signalk ws://127.0.0.1:3000 --store <dataDir>/lume-ti --serve --bind 127.0.0.1 --port 5863` as a child process. Automatically restarts on crash with exponential backoff and gracefully shuts down via `SIGTERM` (which flushes in-memory WAL buffers and bucket accumulators before exit). Supports `--otlp` and `--otlp-token-file <path>` when OTLP is enabled, and `--pg`, `--pg-bind`, `--pg-auth-config`, `--pg-require-tls` when PostgreSQL is configured.
 - **Storage**: Columnar parquet-backed TI store located under `/home/node/.signalk/lume-ti` (via `app.getDataDirPath()`).
-- **Security & Loopback Proxy**: The query server binds `127.0.0.1` only. The browser communicates exclusively via the Signal K plugin router (`/plugins/signalk-lume-ti/api/query`, `/api/schema`, `/api/status`), avoiding open network ports or CORS exposure.
+- **Security & Loopback Proxy**: The query server binds `127.0.0.1` only. The browser communicates exclusively via the Signal K plugin router (`/plugins/signalk-lume-ti/api/query`, `/api/schema`, `/api/status`), avoiding open network ports or CORS exposure. Any configured `serveBind` is ignored for the query server to prevent unauthenticated network exposure.
 - **Authentication**: Supports Signal K device access-request flow (`POST /signalk/v1/access/requests`, poll until approved) with persistent token storage in `<dataDir>/token.txt`. If Signal K runs with anonymous read-only access enabled (`readOnlyAccess: true`, standard in local marine setups), ingest connects immediately without requiring a token.
-- **Webapp**: Full SQL console, preset queries, CSV export, and live schema browser accessible via Signal K Webapps menu (`/signalk-lume-ti/`).
+- **Webapp**: Full SQL console, preset queries, CSV export, live schema browser, and Ask tab accessible via Signal K Webapps menu (`/signalk-lume-ti/`).
 
 ---
 
@@ -44,8 +44,10 @@ container, as its usual user, and run:
 
 ```bash
 cd ~/.signalk
-npm install --save --ignore-scripts /path/to/signalk-lume-ti-0.1.0.tgz
+npm install --save --ignore-scripts /path/to/signalk-lume-ti-0.12.0.tgz
 ```
+
+Alternatively, deploy the plugin and arm64 binary directly from your workstation using `scripts/deploy-pi.sh <ssh-host>` or `scripts/provision-pi.sh <ssh-host>`.
 
 Restart Signal K if the new plugin is not listed. Install inside the container,
 where the runtime architecture and libc match the package, rather than copying
@@ -210,11 +212,13 @@ npm test
 ```
 
 Test coverage includes:
-- Process supervision and argument construction (`--signalk`, `--store`, `--serve`, `--port`, `--bind`, `--token`).
+- Process supervision and argument construction (`--signalk`, `--store`, `--serve`, `--port`, `--bind`, `--token`, `--otlp`, `--otlp-token-file`, and PostgreSQL flags).
 - Automatic crash recovery with exponential backoff.
 - Clean shutdown via `SIGTERM` triggering WAL synchronization.
 - Signal K device access-request flow and polling.
 - Status API and query/schema HTTP proxying.
+- Ask tab chat execution, schema defaults, and API key environment isolation (`OLLAMA_API_KEY` in child env only).
+- OTLP receiver schema defaults, loopback validation, and error reporting.
 - History provider registration, range forms, aggregate mapping, HR selection,
   position pairing, response alignment, truncation splitting and loopback JSON transport.
 
@@ -299,3 +303,17 @@ Runtime macro bounds use the last 24h. Unit tests replay the same twenty cases
 against real Lume on loopback and decode timestamp/double rows through
 tokio-postgres; the Node-derived deterministic verifier authenticates there.
 The live Pi/Grafana Save & Test and psql smoke remain deployment checks.
+
+## Ask Tab & Cloud LLM (`lume chat`)
+
+The plugin webapp includes an **Ask** tab (`lume chat`) enabling natural language questions over telemetry:
+- **Default model**: `glm-5.3:cloud` via `https://ollama.com` directly (`chatApiKeyFile` setting).
+- **Key security**: The plugin reads `chatApiKeyFile` (mode 0600 on the host) at spawn and passes `OLLAMA_API_KEY` in the child process environment only. The key is never placed on argv, in logs, or in configuration files (SETUP §13).
+- **Fallbacks**: Local Pi Ollama (`http://127.0.0.1:11434`) or a laptop on the LAN are supported via the comma-separated `chatOllamaUrl` setting.
+
+## OTLP Agent Telemetry Receiver
+
+When enabled, the supervisor passes `--otlp` to expose OpenTelemetry HTTP/JSON endpoints (`/v1/metrics`, `/v1/logs`) directly on the supervisor query server (`127.0.0.1:5863`):
+- **`otlpEnabled`** (boolean, default `false`): enables the OTLP receiver.
+- **`otlpTokenFile`** (string path, optional): optional bearer token file path (mode 0600).
+- **Loopback enforcement**: The supervisor query server is strictly pinned to `127.0.0.1`, ignoring any `serveBind` configuration, to prevent unauthenticated network exposure.

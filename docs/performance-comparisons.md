@@ -158,7 +158,7 @@ The saved native-256 report contains 20 per-query records; comparison.json
 records matching row counts and answer fingerprints for all 20. Its comparison.md
 is populated. The helper also accepts older class-only reports, explicitly marks
 their values as unchecked, and rejects empty reports rather than printing an empty
-table. Artifacts are under .lanes/data/query-cache/native-{256,64}, outside git.
+table. Artifacts are under local scratch data directories (query-cache/native-{256,64}), outside git.
 
 Q5's slow warm case is q5-002 (electric-only motoring intervals using motor power
 and IS DISTINCT FROM on diesel state): 299.98 ms, versus 6.76 ms for q5-001.
@@ -264,5 +264,4 @@ measurement remain pending. No new two-architecture tarball size is claimed.
 
 - Lume vs InfluxDB over a full hour or longer, and cold-cache (after restart) latency.
 - Grafana panel latency over Postgres. The 100k-row streaming change is merged; the Pi smoke rerun is pending.
-- Pi 1-hour ingest throughput and memory (M2 item 3).
 - The full 471-item library (fetch and index time).
