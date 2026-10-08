@@ -70,6 +70,59 @@ cargo build --release          # binary at target/release/lume
 
 The index is written to `.lume-index/` by default. Use `--db <dir>` to keep several indexes side by side.
 
+## Ollama setup
+
+Ollama is optional. Lume uses it for LLM entity extraction (`lume index -o`), `lume agent` / `lume chat`, summaries, and the Signal K plugin's **Ask** tab. Search, the graph and Lume TI SQL all work without it. There are two ways to run it.
+
+### Local Ollama (laptop or desktop)
+
+1. Install Ollama from [ollama.com/download](https://ollama.com/download) and start it. It listens on `http://localhost:11434`, which is Lume's default.
+2. Pull a model, for example `ollama pull qwen3:8b`.
+3. Point Lume at it:
+
+```bash
+lume index docs/ -o --ollama-model qwen3:8b
+lume chat --ti-store <store> --ollama-model qwen3:8b "What was the lowest battery voltage today?"
+```
+
+`--ollama-url` sets a different endpoint. Some commands also read `$OLLAMA_URL`.
+
+### Cloud models via ollama.com (no local GPU)
+
+Models with a `:cloud` tag, such as `glm-5.3:cloud`, run on Ollama's servers. Create an API key at [ollama.com](https://ollama.com/) and export it:
+
+```bash
+export OLLAMA_API_KEY=...        # read from the environment; never pass it as a flag
+lume chat --ti-store <store> --ollama-url https://ollama.com --ollama-model glm-5.3:cloud "Summarise today's engine hours"
+```
+
+Lume sends `OLLAMA_API_KEY` **only** to `ollama.com` hosts. A local or LAN Ollama never receives it.
+
+### Several endpoints with failover
+
+`--ollama-url` takes a comma-separated list. Lume tries each in order and uses the first reachable one that has the model:
+
+```bash
+lume chat --ollama-url https://ollama.com,http://192.168.1.20:11434 --ollama-model glm-5.3:cloud ...
+```
+
+To share a laptop's Ollama with the boat's LAN, set `OLLAMA_HOST=0.0.0.0` on the laptop, restart Ollama, and allow TCP 11434 for the private network only. Ollama itself has no authentication.
+
+### Ask tab on a Raspberry Pi (Signal K plugin)
+
+The Ask tab defaults to `https://ollama.com` with `glm-5.3:cloud`, so the Pi doesn't need a local model. On the Pi 5, a local `qwen3:1.7b` produced 0.34 tokens/s. To install your key, run this from the repo on your machine:
+
+```bash
+scripts/pi-set-ollama-key.sh <ssh-host>      # e.g. pi@192.168.68.61
+```
+
+It prompts for the key with hidden input and sends it to the Pi only over SSH stdin, so it never appears in argv, shell history or logs. On the Pi it:
+- writes `ollama.key` (owner 1000:1000, mode 600);
+- sets **Chat API Key File Path** in the plugin config;
+- restarts Signal K.
+
+`--check` shows the file's owner, mode and size, never its contents. To use a laptop's local models as a fallback, set **Chat Ollama API URLs** in the plugin config to, for example, `https://ollama.com,http://192.168.68.58:11434`. Manual steps are in [plan/SETUP.md §13](plan/SETUP.md).
+
 ## Features
 
 ### Hybrid search
