@@ -10,7 +10,7 @@
 
 use crate::cache::{self, CacheKey, Cached, FieldCache};
 use crate::shard::ShardView;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -490,6 +490,139 @@ impl Store {
             wal.truncate_after_flush()?;
         }
         Ok(())
+    }
+
+    /// OTLP metrics ack. One `LUMEOC01` frame per touched vessel, then an fsync
+    /// of every touched WAL, then the same open-shard apply as [`Store::apply`].
+    /// This does not publish snapshots or truncate. Vessel ingest stays on
+    /// [`ShardSink::apply`] and its 1-second `needs_sync`.
+    pub fn commit_otlp(
+        &mut self,
+        records: &[BucketRecord],
+        counters: &[(VesselOrd, Vec<u8>)],
+    ) -> Result<()> {
+        if records.is_empty() && counters.is_empty() {
+            return Ok(());
+        }
+
+        let retained;
+        let recs = if self.retention.cutoff.is_some() {
+            retained = records
+                .iter()
+                .filter(|rec| {
+                    !Self::record_expired(rec, self.width_seconds, self.retention.cutoff)
+                        || self.retention.active_open.contains(&ShardKey {
+                            vessel: rec.vessel,
+                            shard: rec.bucket >> 16,
+                        })
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            let dropped = records.len() - retained.len();
+            if dropped > 0 {
+                self.retention.dropped_late_records += dropped as u64;
+                crate::catalog::atomic_write_json(
+                    &self.root.join("retention.json"),
+                    &self.retention,
+                )?;
+            }
+            retained.as_slice()
+        } else {
+            records
+        };
+        if !recs.is_empty() {
+            ti_contracts::validate_clear_records(recs)?;
+            for rec in recs {
+                let spec = self.catalog.field(rec.field)?;
+                let key = ShardKey {
+                    vessel: rec.vessel,
+                    shard: rec.bucket >> 16,
+                };
+                if let std::collections::btree_map::Entry::Vacant(entry) =
+                    self.open_shards.entry(key)
+                {
+                    entry.insert(Self::restore_open(
+                        &self.root,
+                        key,
+                        self.catalog.as_ref(),
+                        &self.manifest,
+                    )?);
+                }
+                let shard = self.open_shards.get_mut(&key).expect("restored shard");
+                shard.register_field(spec)?;
+                if let FieldValue::SetValue(row_id) = rec.value {
+                    if let Ok(val) = self.catalog.set_value(rec.field, row_id) {
+                        let _ = shard.register_set_value(rec.field, row_id, &val);
+                    }
+                }
+            }
+        }
+
+        let mut by_vessel: BTreeMap<VesselOrd, Vec<BucketRecord>> = BTreeMap::new();
+        for rec in recs {
+            by_vessel.entry(rec.vessel).or_default().push(rec.clone());
+        }
+        let mut counter_json: BTreeMap<VesselOrd, Vec<u8>> = BTreeMap::new();
+        for (vessel, json) in counters {
+            if counter_json.insert(*vessel, json.clone()).is_some() {
+                return Err(Error::InvalidInput(
+                    "duplicate OTLP counter frame for one vessel".into(),
+                ));
+            }
+            self.catalog.vessel_urn(*vessel)?;
+        }
+        let mut touched: BTreeSet<VesselOrd> = by_vessel.keys().copied().collect();
+        touched.extend(counter_json.keys().copied());
+        if touched.is_empty() {
+            return Ok(());
+        }
+
+        let mut sequences = BTreeMap::new();
+        for vessel in &touched {
+            let v_recs = by_vessel.get(vessel).map(Vec::as_slice).unwrap_or(&[]);
+            let json = counter_json
+                .get(vessel)
+                .map(Vec::as_slice)
+                .unwrap_or(br#"{"version":1,"counters":[]}"#);
+            let wal = self.ensure_wal(*vessel)?;
+            sequences.insert(*vessel, wal.append_otlp(v_recs, json)?);
+        }
+        for vessel in &touched {
+            self.wals.get_mut(vessel).expect("otlp wal").sync()?;
+        }
+
+        let mut by_shard: BTreeMap<ShardKey, Vec<BucketRecord>> = BTreeMap::new();
+        for rec in recs {
+            let key = ShardKey {
+                vessel: rec.vessel,
+                shard: rec.bucket >> 16,
+            };
+            by_shard.entry(key).or_default().push(rec.clone());
+        }
+        for (key, shard_recs) in by_shard {
+            let shard = self.open_shards.get_mut(&key).unwrap();
+            shard.apply(&shard_recs)?;
+            for record in &shard_recs {
+                shard
+                    .checkpoints
+                    .insert(record.field, sequences[&key.vessel]);
+            }
+        }
+        Ok(())
+    }
+
+    /// Counter JSON carried by `LUMEOC01` frames, in vessel then sequence order.
+    pub fn otlp_counter_frames(&self) -> Result<Vec<(VesselOrd, u64, Vec<u8>)>> {
+        let mut vessels: Vec<VesselOrd> = self.wals.keys().copied().collect();
+        vessels.sort_unstable();
+        let mut out = Vec::new();
+        for vessel in vessels {
+            let path = self.wals[&vessel].path().to_path_buf();
+            for (sequence, bytes) in Wal::read_otlp_counters(&path)? {
+                out.push((vessel, sequence, bytes));
+            }
+        }
+        Ok(out)
     }
 
     fn ensure_wal(&mut self, vessel: VesselOrd) -> Result<&mut Wal> {

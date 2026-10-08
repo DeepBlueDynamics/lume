@@ -304,3 +304,34 @@ Phase times are nearest rank over the stderr lines, in microseconds. `open` is `
 | checkpoint | 2885 | 4236 |
 
 Open max is 34621 µs and upsert max is 6775 µs. The metrics phase p50/p95 is 156.188/177.390 ms. The log-commit phase p95 is 21.895 ms, and open p95 is 17.228 ms. The log POST p95 on this run is 311.767 ms, above the log-commit phase. The long section inside the group flush is the metrics shard flush. `flush_all`, `store.flush`, and `seal_and_retain` are not timed separately. `DocStore` was not changed.
+
+### Release, A16 (`e9ccbb0`)
+
+Same schedule, rate 1, seed 42, duration 300 s, measured 2026-10-08 against release `lume` and `ti-bench` (rustc 1.96.1, `lto` on). HEAD at measurement was `e9ccbb056e5c5acae5bcc67239506ac9a35350ed`, on `ti/otlp-wal`. Log and metrics POSTs use separate queues. An idle POST commits immediately, arrivals during that commit form the next group, and a group holds at most 32. A log 200 is the DocStore append. A metrics 200 is the fsync of one `LUMEOC01` frame per touched vessel: that vessel's samples and its changed counter series. Shard publication, the `otlp-counters.json` cache, and WAL truncate run on the background flusher, which holds the Store mutex across `syncfs`. The soak harness sets `LUME_OTLP_TRACE=1`. The receiver reads that variable once at open. The default is off, so the per-group docs byte line is present in these runs and absent otherwise. `sql.ok` is `lume ti query` after the spawned receiver stops. `docs_json.bytes` is the end length of `docs/documents.log`. Phase-timer fields in the artifacts are null. These three runs compacted zero times. `DocStore` was not changed.
+
+| Agents | Offered metrics / logs | Attempts metrics / logs | HTTP 200 metrics / logs | HTTP 503 metrics / logs | Tokens stored = sent | Docs = 2xx logs | load_wall_s | RSS start / end / peak (bytes) | Artifact |
+|---:|---|---|---|---|---|---|---:|---|---|
+| 10 | 300 / 3000 | 300 / 3000 | 300 / 3000 | 0 / 0 | 2632 = 2632 | 3000 = 3000 | 299.936 | 36868096 / 45973504 / 46157824 | [agents10](../../bench/results/2026-10-08-otlp-soak-e9ccbb0-agents10.json) |
+| 50 | 1500 / 15000 | 1500 / 15000 | 1500 / 15000 | 0 / 0 | 12871 = 12871 | 15000 = 15000 | 300.132 | 36765696 / 123645952 / 123645952 | [agents50](../../bench/results/2026-10-08-otlp-soak-e9ccbb0-agents50.json) |
+| 200 | 6000 / 60000 | 6000 / 60000 | 5996 / 59959 | 4 / 41 | 51037 = 51037 | 59959 = 59959 | 300.128 | 36859904 / 1452101632 / 1725038592 | [agents200](../../bench/results/2026-10-08-otlp-soak-e9ccbb0-agents200.json) |
+
+POST latency, nearest rank over every attempt, milliseconds:
+
+| Agents | `/v1/logs` p50 / p95 / p99 (n) | `/v1/metrics` p50 / p95 / p99 (n) |
+|---:|---|---|
+| 10 | 5.549 / 8.28 / 9.684 (3000) | 2.63 / 5.453 / 15.995 (300) |
+| 50 | 16.936 / 50.571 / 59.014 (15000) | 2.872 / 30.397 / 236.253 (1500) |
+| 200 | 78.204 / 188.795 / 228.523 (60000) | 2.824 / 559.595 / 1107.999 (6000) |
+
+`documents.log` end length, bytes written per log-bearing group, and `upsert_all` time:
+
+| Agents | End bytes | Log-group commits | Written p50 / p95 / max (bytes) | Compactions | Upsert p50 / p95 / max (µs) |
+|---:|---:|---:|---|---:|---|
+| 10 | 1382977 | 3000 | 452 / 491 / 493 | 0 | 1810 / 2958 / 7009 |
+| 50 | 6925436 | 13760 | 455 / 909 / 1396 | 0 | 1759 / 2659 / 17794 |
+| 200 | 26993427 | 10649 | 1390 / 8465 / 14415 | 0 | 1792 / 3560 / 63857 |
+
+HTTP 400, 413, `other`, and transport `error` are 0 in all three runs. Attempted/offered is 3300/3300, 16500/16500, and 66000/66000. At 10 agents every attempt is HTTP 200, both p95 values are under 250 ms (logs 8.28, metrics 5.453), and `sql.ok` is true. At 50 agents there are no 503s, every offered post was attempted, and `sql.ok` is true. Both p95 values are under 250 ms (logs 50.571, metrics 30.397). Metrics p99 is 236.253 ms. At 200 agents there is no numeric target. Every offered post was attempted. HTTP 200 is 5996/59959. HTTP 503 is 4 metric and 41 log, the 64-connection cap. Logs p95 is 188.795 ms. Metrics p50 is 2.824 ms and p95 is 559.595 ms. `sql.ok` is true, and tokens stored equal tokens sent.
+
+At 10 agents each log is its own group (3000 commits). At 50 agents, 15000 logs share 13760 log-bearing groups (about 1.09 documents each). At 200 agents, 59959 acknowledged logs share 10649 groups (about 5.63 documents each, under the cap of 32). Written p95 is 491, 909, and 8465 bytes. `upsert_all` p95 is 2.958 ms, 2.659 ms, and 3.560 ms. Peak RSS is 46157824, 123645952, and 1725038592 bytes. Beside `83badce`, 10-agent logs p95 is 8.28 ms (was 13.978) and metrics p95 is 5.453 ms (was 69.402). 50-agent logs p95 is 50.571 ms (was 330.487) and metrics p95 is 30.397 ms (was 275.951). Both 50-agent p95 values meet 250 ms. 200-agent logs p95 is 188.795 ms (was 1289.963) and metrics p95 is 559.595 ms (was 1299.212). 200-agent HTTP 503s are 4 metric and 41 log (were 4136 and 41966). 50-agent peak RSS is 123645952 bytes (was 402468864). 200-agent peak RSS is 1725038592 bytes (was 734072832), with 59959 stored logs against 16522. The background flush holds the Store mutex across `syncfs`. `DocStore` was not changed for this measurement.
+

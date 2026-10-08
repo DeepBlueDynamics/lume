@@ -1378,6 +1378,7 @@ fn spawn_lume(bin: &Path, store: &Path) -> Result<(Spawned, String), String> {
         .args(["ti", "otlp", "--store"])
         .arg(store)
         .args(["--bind", "127.0.0.1", "--port", "0"])
+        .env("LUME_OTLP_TRACE", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

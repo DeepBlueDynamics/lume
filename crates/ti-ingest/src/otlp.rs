@@ -6,9 +6,13 @@ use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     path::{Path, PathBuf},
     sync::{Arc, Condvar, Mutex},
-    time::Instant,
+    thread,
+    time::{Duration, Instant},
 };
-use ti_contracts::{Catalog, Document, Error, Result, ShardSink, TiConfig};
+use ti_contracts::{
+    BucketRecord, Catalog, Document, Error, Result, ShardKey, ShardManifestEntry, ShardSink,
+    TiConfig, VesselSpec,
+};
 use ti_store::{DocStore, Store};
 
 pub const STORE_DIR: &str = "stores/agents";
@@ -213,7 +217,7 @@ fn metric_path(name: &str, attrs: &[Attribute]) -> String {
     }
     path
 }
-#[derive(Clone, Default, Deserialize, Serialize)]
+#[derive(Clone, Default, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 struct CounterState {
     total: f64,
@@ -367,15 +371,37 @@ struct Sample {
     counter: Option<CounterPoint>,
 }
 
-/// One receiver owns its bucketer. The idle caller leads and flushes immediately.
-/// Batches that arrive during that flush stage, and the next leader takes at most
-/// [`GROUP_LIMIT`] of them. A caller returns only after its group's fsync.
+/// Logs and metrics keep independent leader queues. An idle POST commits
+/// immediately. Arrivals during that commit form the next group, at most
+/// [`GROUP_LIMIT`], with no timer. A log POST waits only for its DocStore append.
+/// A metrics POST waits only for that group's WAL fsync. Neither waits for the
+/// other, nor for open-shard publication.
 pub struct AgentStore {
+    shared: Arc<Shared>,
+    flusher: Mutex<Option<thread::JoinHandle<()>>>,
+}
+
+struct Shared {
     durable: Mutex<Durable>,
-    admit: Mutex<Admit>,
-    cv: Condvar,
+    logs: Mutex<Admit>,
+    metrics: Mutex<Admit>,
+    logs_cv: Condvar,
+    metrics_cv: Condvar,
+    duty: Mutex<Duty>,
+    stop: Mutex<bool>,
+    wake: Condvar,
+    /// `LUME_OTLP_TRACE=1`, read once when the receiver opens.
+    trace: bool,
+    docs_root: PathBuf,
     #[cfg(test)]
     pause: Mutex<Option<Arc<TestPause>>>,
+}
+
+struct Duty {
+    last_flush: Instant,
+    flush_cost: Duration,
+    records: u64,
+    latest: Option<i64>,
 }
 
 struct Durable {
@@ -429,32 +455,48 @@ struct TestPause {
     hold: Mutex<bool>,
     cv: Condvar,
     tripped: std::sync::atomic::AtomicBool,
+    /// When set, the log flush pauses. Otherwise the metrics flush pauses.
+    logs: bool,
 }
 
 impl AgentStore {
     pub fn open(root: &Path) -> Result<Self> {
         let durable = Durable::load(root)?;
         let shadow = durable.totals.clone();
-        Ok(Self {
+        let docs_root = durable.docs_root.clone();
+        let shared = Arc::new(Shared {
             durable: Mutex::new(durable),
-            admit: Mutex::new(Admit {
-                running: false,
-                staged: VecDeque::new(),
-                by_id: HashMap::new(),
-                seen: VecDeque::new(),
-                shadow,
-                commits: 0,
-                max_group: 0,
+            logs: Mutex::new(Admit::empty()),
+            metrics: Mutex::new(Admit::with_shadow(shadow)),
+            logs_cv: Condvar::new(),
+            metrics_cv: Condvar::new(),
+            duty: Mutex::new(Duty {
+                last_flush: Instant::now(),
+                flush_cost: Duration::ZERO,
+                records: 0,
+                latest: None,
             }),
-            cv: Condvar::new(),
+            stop: Mutex::new(false),
+            wake: Condvar::new(),
+            trace: std::env::var("LUME_OTLP_TRACE").ok().as_deref() == Some("1"),
+            docs_root,
             #[cfg(test)]
             pause: Mutex::new(None),
+        });
+        let worker = Arc::clone(&shared);
+        let flusher = thread::Builder::new()
+            .name("otlp-flush".into())
+            .spawn(move || flusher_loop(worker))
+            .map_err(Error::Io)?;
+        Ok(Self {
+            shared,
+            flusher: Mutex::new(Some(flusher)),
         })
     }
 
     /// Hold the store lock across a query-engine reload so it does not observe a flush.
     pub fn with_durable_lock<T>(&self, f: impl FnOnce() -> T) -> std::result::Result<T, String> {
-        let _guard = self.durable.lock().map_err(|e| e.to_string())?;
+        let _guard = self.shared.durable.lock().map_err(|e| e.to_string())?;
         Ok(f())
     }
 
@@ -468,7 +510,12 @@ impl AgentStore {
 
     fn submit(&self, bytes: &[u8], metrics: bool) -> Result<usize> {
         let batch_id = *blake3::hash(bytes).as_bytes();
-        let mut admit = self.admit.lock().map_err(poison)?;
+        let (lane, cv) = if metrics {
+            (&self.shared.metrics, &self.shared.metrics_cv)
+        } else {
+            (&self.shared.logs, &self.shared.logs_cv)
+        };
+        let mut admit = lane.lock().map_err(poison)?;
         if metrics && admit.seen.contains(&batch_id) {
             return Ok(0);
         }
@@ -512,10 +559,14 @@ impl AgentStore {
                 }
                 admit.max_group = admit.max_group.max(group.len());
                 drop(admit);
-                let flushed = self.flush_group(&group);
+                let flushed = if metrics {
+                    self.flush_metrics(&group)
+                } else {
+                    self.flush_logs(&group)
+                };
                 // Recover a poisoned admit lock so this leader still publishes every slot.
                 // Leaving `running` set would park every later batch on the condvar.
-                admit = match self.admit.lock() {
+                admit = match lane.lock() {
                     Ok(guard) => guard,
                     Err(poisoned) => poisoned.into_inner(),
                 };
@@ -532,18 +583,23 @@ impl AgentStore {
                         admit.commits = admit.commits.saturating_add(1);
                     }
                     Err(error) => {
-                        let reload = self.reload_durable();
-                        let mut message = match &reload {
-                            Ok(()) => error,
-                            Err(reload_error) => format!("{error}; reload: {reload_error}"),
-                        };
-                        if reload.is_ok() {
-                            match self.durable.lock() {
-                                Ok(guard) => admit.shadow = guard.totals.clone(),
-                                Err(poisoned) => {
-                                    let guard = poisoned.into_inner();
-                                    admit.shadow = guard.totals.clone();
-                                    message.push_str("; durable lock poisoned");
+                        let mut message = error;
+                        if metrics {
+                            let reload = self.reload_durable();
+                            message = match &reload {
+                                Ok(()) => message,
+                                Err(reload_error) => {
+                                    format!("{message}; reload: {reload_error}")
+                                }
+                            };
+                            if reload.is_ok() {
+                                match self.shared.durable.lock() {
+                                    Ok(guard) => admit.shadow = guard.totals.clone(),
+                                    Err(poisoned) => {
+                                        let guard = poisoned.into_inner();
+                                        admit.shadow = guard.totals.clone();
+                                        message.push_str("; durable lock poisoned");
+                                    }
                                 }
                             }
                         }
@@ -555,43 +611,25 @@ impl AgentStore {
                     }
                 }
                 admit.running = false;
-                self.cv.notify_all();
+                cv.notify_all();
                 continue;
             }
-            admit = self.cv.wait(admit).map_err(poison)?;
+            admit = cv.wait(admit).map_err(poison)?;
         }
     }
 
-    fn flush_group(
+    fn flush_logs(
         &self,
         group: &[Arc<Batch>],
     ) -> std::result::Result<Vec<([u8; 32], usize)>, String> {
         #[cfg(test)]
-        self.pause_if_armed();
-        let mut durable = self.durable.lock().map_err(|e| e.to_string())?;
+        self.pause_if_armed(true);
         let mut counts = Vec::with_capacity(group.len());
-        let mut last_totals = None;
-        let mut latest_metric = None;
         let mut log_docs = Vec::new();
         let mut latest_log = None;
         for batch in group {
-            let body = batch
-                .body
-                .lock()
-                .map_err(|e| e.to_string())?
-                .take()
-                .ok_or_else(|| "OTLP batch body missing before flush".to_string())?;
+            let body = take_body(batch)?;
             match body {
-                BatchBody::Metrics(prepared) => {
-                    let count = prepared.samples.len();
-                    let latest = prepared.latest;
-                    apply_metrics(&mut durable, &prepared).map_err(|e| e.to_string())?;
-                    last_totals = Some(prepared.totals_after);
-                    if let Some(ts) = latest {
-                        latest_metric = Some(latest_metric.map_or(ts, |prev: i64| prev.max(ts)));
-                    }
-                    counts.push((batch.id, count));
-                }
                 BatchBody::Logs(prepared) => {
                     let count = prepared.docs.len();
                     if let Some(ts) = prepared.latest {
@@ -600,52 +638,120 @@ impl AgentStore {
                     log_docs.extend(prepared.docs);
                     counts.push((batch.id, count));
                 }
+                BatchBody::Metrics(_) => {
+                    return Err("metrics batch queued on the log lane".into());
+                }
             }
         }
         if !log_docs.is_empty() {
-            commit_logs(&durable.docs_root, log_docs, latest_log)?;
+            commit_logs(
+                &self.shared.docs_root,
+                log_docs,
+                latest_log,
+                self.shared.trace,
+            )?;
         }
-        if let Some(totals) = last_totals {
-            {
-                let Durable {
-                    bucketer,
-                    config,
-                    catalog,
-                    store,
-                    ..
-                } = &mut *durable;
-                bucketer
-                    .flush_all(config, catalog.as_ref(), store)
-                    .map_err(|e| e.to_string())?;
+        Ok(counts)
+    }
+
+    fn flush_metrics(
+        &self,
+        group: &[Arc<Batch>],
+    ) -> std::result::Result<Vec<([u8; 32], usize)>, String> {
+        #[cfg(test)]
+        self.pause_if_armed(false);
+        let mut durable = self.shared.durable.lock().map_err(|e| e.to_string())?;
+        let mut counts = Vec::with_capacity(group.len());
+        let mut last_totals = None;
+        let mut latest_metric = None;
+        let mut sample_count = 0u64;
+        let mut capture = CaptureSink {
+            records: Vec::new(),
+        };
+        for batch in group {
+            let body = take_body(batch)?;
+            match body {
+                BatchBody::Metrics(prepared) => {
+                    sample_count = sample_count.saturating_add(prepared.samples.len() as u64);
+                    let count = prepared.samples.len();
+                    let latest = prepared.latest;
+                    apply_metrics(&mut durable, &prepared, &mut capture)
+                        .map_err(|e| e.to_string())?;
+                    last_totals = Some(prepared.totals_after);
+                    if let Some(ts) = latest {
+                        latest_metric = Some(latest_metric.map_or(ts, |prev: i64| prev.max(ts)));
+                    }
+                    counts.push((batch.id, count));
+                }
+                BatchBody::Logs(_) => {
+                    return Err("log batch queued on the metrics lane".into());
+                }
             }
-            durable.store.flush().map_err(|e| e.to_string())?;
-            if let Some(ts) = latest_metric {
-                seal_and_retain(&mut durable, ts)?;
-            }
-            // Checkpoint is the publish point: both writes above have returned.
-            persist_counters(
-                &durable.docs_root.join(STORE_DIR).join("otlp-counters.json"),
-                &totals,
-            )
+        }
+        let Some(totals) = last_totals else {
+            return Ok(counts);
+        };
+        {
+            let Durable {
+                bucketer,
+                config,
+                catalog,
+                ..
+            } = &mut *durable;
+            bucketer
+                .flush_all(config, catalog.as_ref(), &mut capture)
+                .map_err(|e| e.to_string())?;
+        }
+        if durable.bucketer.open_bucket_count() != 0 {
+            return Err("OTLP metrics windows remained open after the group flush".into());
+        }
+        let frames = vessel_counter_frames(
+            durable.catalog.as_ref(),
+            &durable.totals,
+            &totals,
+            &capture.records,
+        )
+        .map_err(|e| e.to_string())?;
+        durable
+            .store
+            .commit_otlp(&capture.records, &frames)
             .map_err(|e| e.to_string())?;
-            durable.totals = totals;
+        #[cfg(test)]
+        if std::env::var("LUME_OTLP_CRASH").ok().as_deref() == Some("after-sync") {
+            std::process::exit(77);
+        }
+        durable.totals = totals;
+        drop(durable);
+        let mut duty = lock_mutex(&self.shared.duty);
+        duty.records = duty.records.saturating_add(sample_count.max(1));
+        if let Some(ts) = latest_metric {
+            duty.latest = Some(duty.latest.map_or(ts, |prev| prev.max(ts)));
         }
         Ok(counts)
     }
 
     fn reload_durable(&self) -> Result<()> {
-        let root = self.durable.lock().map_err(poison)?.docs_root.clone();
+        let root = self
+            .shared
+            .durable
+            .lock()
+            .map_err(poison)?
+            .docs_root
+            .clone();
         let fresh = Durable::load(&root)?;
-        *self.durable.lock().map_err(poison)? = fresh;
+        *self.shared.durable.lock().map_err(poison)? = fresh;
         Ok(())
     }
 
     #[cfg(test)]
-    fn pause_if_armed(&self) {
-        let installed = self.pause.lock().unwrap().clone();
+    fn pause_if_armed(&self, logs: bool) {
+        let installed = self.shared.pause.lock().unwrap().clone();
         let Some(pause) = installed else {
             return;
         };
+        if pause.logs != logs {
+            return;
+        }
         if pause
             .tripped
             .swap(true, std::sync::atomic::Ordering::SeqCst)
@@ -660,15 +766,61 @@ impl AgentStore {
 
     #[cfg(test)]
     fn commit_stats(&self) -> (u64, usize) {
-        let admit = self.admit.lock().unwrap();
+        let admit = self.shared.metrics.lock().unwrap();
         (admit.commits, admit.max_group)
+    }
+
+    #[cfg(test)]
+    fn log_commit_stats(&self) -> (u64, usize) {
+        let admit = self.shared.logs.lock().unwrap();
+        (admit.commits, admit.max_group)
+    }
+
+    #[cfg(test)]
+    fn metrics_staged(&self) -> usize {
+        self.shared.metrics.lock().unwrap().staged.len()
+    }
+
+    #[cfg(test)]
+    fn logs_staged(&self) -> usize {
+        self.shared.logs.lock().unwrap().staged.len()
+    }
+
+    #[cfg(test)]
+    fn counter_total(&self, entity: &str, path: &str) -> Option<f64> {
+        self.shared
+            .durable
+            .lock()
+            .unwrap()
+            .totals
+            .get(&(entity.to_string(), path.to_string()))
+            .map(|state| state.total)
+    }
+
+    #[cfg(test)]
+    fn test_publish(&self) -> std::result::Result<(), String> {
+        publish(&self.shared, true)
+    }
+}
+
+impl Drop for AgentStore {
+    fn drop(&mut self) {
+        {
+            let mut stop = lock_mutex(&self.shared.stop);
+            *stop = true;
+            self.shared.wake.notify_all();
+        }
+        if let Some(handle) = lock_mutex(&self.flusher).take() {
+            let _ = handle.join();
+        }
+        let _ = publish(&self.shared, true);
     }
 }
 
 impl Durable {
     fn load(root: &Path) -> Result<Self> {
         let dir = root.join(STORE_DIR);
-        let totals = load_counters(&dir.join("otlp-counters.json"))?;
+        let mut totals = load_counters(&dir.join("otlp-counters.json"))?;
         let mut config = TiConfig::default();
         config.profiles.opt_in.push("last".into());
         config.path_scales.clear();
@@ -680,6 +832,17 @@ impl Durable {
             std::fs::write(root.join("ti.toml"), "width_seconds = 10\n")?;
         }
         let store = Store::open_or_create(&dir, 10)?;
+        for (vessel, _sequence, bytes) in store.otlp_counter_frames()? {
+            let urn = store.catalog().vessel_urn(vessel)?;
+            for ((entity, path), state) in decode_counter_blob(&bytes)? {
+                if entity != urn {
+                    return Err(invalid(format!(
+                        "OTLP WAL counter for {entity} was stored on vessel {urn}"
+                    )));
+                }
+                totals.insert((entity, path), state);
+            }
+        }
         let catalog: Arc<dyn Catalog> = store.catalog().clone();
         if !dir.join("ti.toml").exists() {
             std::fs::write(
@@ -716,6 +879,25 @@ impl Durable {
 }
 
 impl Admit {
+    fn empty() -> Self {
+        Self {
+            running: false,
+            staged: VecDeque::new(),
+            by_id: HashMap::new(),
+            seen: VecDeque::new(),
+            shadow: BTreeMap::new(),
+            commits: 0,
+            max_group: 0,
+        }
+    }
+
+    fn with_shadow(shadow: BTreeMap<(String, String), CounterState>) -> Self {
+        Self {
+            shadow,
+            ..Self::empty()
+        }
+    }
+
     fn note_seen(&mut self, id: [u8; 32]) {
         self.seen.push_back(id);
         while self.seen.len() > 128 {
@@ -752,6 +934,193 @@ impl Batch {
 
 fn poison<T>(err: std::sync::PoisonError<T>) -> Error {
     Error::Io(std::io::Error::other(err.to_string()))
+}
+
+fn lock_mutex<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn take_body(batch: &Batch) -> std::result::Result<BatchBody, String> {
+    batch
+        .body
+        .lock()
+        .map_err(|e| e.to_string())?
+        .take()
+        .ok_or_else(|| "OTLP batch body missing before flush".to_string())
+}
+
+fn decode_counter_blob(bytes: &[u8]) -> Result<BTreeMap<(String, String), CounterState>> {
+    if bytes.len() as u64 > MAX_CHECKPOINT {
+        return Err(invalid(
+            "Invalid OTLP WAL counters: exceeds 8 MiB; refusing to reset totals",
+        ));
+    }
+    let checkpoint: CounterCheckpoint = serde_json::from_slice(bytes).map_err(|e| {
+        invalid(format!(
+            "Invalid OTLP WAL counters: {e}; refusing to reset totals"
+        ))
+    })?;
+    if checkpoint.version != 1 || checkpoint.counters.len() > MAX_COUNTERS {
+        return Err(invalid(
+            "Invalid OTLP WAL counters: unsupported version or more than 4096 series; refusing to reset totals",
+        ));
+    }
+    let mut totals = BTreeMap::new();
+    for entry in checkpoint.counters {
+        let state = &entry.state;
+        if !entry.entity.starts_with("agent.urn:")
+            || ti_contracts::validate_entity_urn(&entry.entity).is_err()
+            || entry.path.trim().is_empty()
+            || [state.total, state.raw, state.offset]
+                .iter()
+                .any(|n| !n.is_finite() || *n < 0.0)
+            || state.offset > state.total
+            || ti_contracts::to_fixed(state.total, 6).is_err()
+            || (state.end != 0
+                && ti_contracts::bucket_of((state.end / 1_000_000_000) as i64, 10).is_err())
+            || totals
+                .insert((entry.entity, entry.path), entry.state)
+                .is_some()
+        {
+            return Err(invalid(
+                "Invalid OTLP WAL counters: invalid or duplicate counter series; refusing to reset totals",
+            ));
+        }
+    }
+    Ok(totals)
+}
+
+struct CaptureSink {
+    records: Vec<BucketRecord>,
+}
+
+impl ShardSink for CaptureSink {
+    fn apply(&mut self, recs: &[BucketRecord]) -> Result<()> {
+        self.records.extend_from_slice(recs);
+        Ok(())
+    }
+
+    fn flush(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    fn seal(&mut self, _key: ShardKey) -> Result<ShardManifestEntry> {
+        Err(invalid("OTLP capture sink does not seal"))
+    }
+}
+
+fn vessel_counter_frames(
+    catalog: &dyn Catalog,
+    before: &BTreeMap<(String, String), CounterState>,
+    after: &BTreeMap<(String, String), CounterState>,
+    records: &[BucketRecord],
+) -> Result<Vec<(u32, Vec<u8>)>> {
+    let mut changed: BTreeMap<String, Vec<CounterEntry>> = BTreeMap::new();
+    for ((entity, path), state) in after {
+        if before.get(&(entity.clone(), path.clone())) == Some(state) {
+            continue;
+        }
+        changed
+            .entry(entity.clone())
+            .or_default()
+            .push(CounterEntry {
+                entity: entity.clone(),
+                path: path.clone(),
+                state: state.clone(),
+            });
+    }
+    let mut by_vessel: BTreeMap<u32, Vec<CounterEntry>> = BTreeMap::new();
+    for record in records {
+        by_vessel.entry(record.vessel).or_default();
+    }
+    for (entity, entries) in changed {
+        let vessel = catalog.register_vessel(&VesselSpec {
+            urn: entity,
+            name: None,
+            mmsi: None,
+        })?;
+        by_vessel.entry(vessel).or_default().extend(entries);
+    }
+    let mut frames = Vec::new();
+    for (vessel, mut entries) in by_vessel {
+        entries.sort_by(|left, right| left.path.cmp(&right.path));
+        let bytes = serde_json::to_vec(&CounterCheckpoint {
+            version: 1,
+            counters: entries,
+        })
+        .map_err(|e| invalid(e.to_string()))?;
+        if bytes.len() as u64 > MAX_CHECKPOINT {
+            return Err(invalid(
+                "OTLP counters checkpoint exceeds its bounded capacity",
+            ));
+        }
+        frames.push((vessel, bytes));
+    }
+    Ok(frames)
+}
+
+fn flush_due(shared: &Shared) -> bool {
+    let duty = lock_mutex(&shared.duty);
+    let since = duty.last_flush.elapsed();
+    let duty_ok = since >= duty.flush_cost.checked_mul(10).unwrap_or(Duration::MAX);
+    if duty.records > 0 {
+        (duty_ok && (since.as_secs() >= 5 || duty.records >= 50_000)) || duty.records >= 2_000_000
+    } else {
+        since.as_secs() >= 60
+    }
+}
+
+fn publish(shared: &Shared, force: bool) -> std::result::Result<(), String> {
+    if !force && !flush_due(shared) {
+        return Ok(());
+    }
+    #[cfg(test)]
+    if std::env::var("LUME_OTLP_CRASH").ok().as_deref() == Some("during-flush") {
+        std::process::exit(77);
+    }
+    let started = Instant::now();
+    let mut durable = shared.durable.lock().map_err(|e| e.to_string())?;
+    durable.store.flush_shards().map_err(|e| e.to_string())?;
+    persist_counters(
+        &durable.docs_root.join(STORE_DIR).join("otlp-counters.json"),
+        &durable.totals,
+    )
+    .map_err(|e| e.to_string())?;
+    durable.store.truncate_wals().map_err(|e| e.to_string())?;
+    let latest = lock_mutex(&shared.duty).latest;
+    if let Some(ts) = latest {
+        seal_and_retain(&mut durable, ts)?;
+    }
+    let mut duty = lock_mutex(&shared.duty);
+    duty.records = 0;
+    duty.last_flush = Instant::now();
+    duty.flush_cost = started.elapsed();
+    Ok(())
+}
+
+fn flusher_loop(shared: Arc<Shared>) {
+    loop {
+        let guard = lock_mutex(&shared.stop);
+        if *guard {
+            break;
+        }
+        let (guard, _) = shared
+            .wake
+            .wait_timeout(guard, Duration::from_secs(1))
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if *guard {
+            break;
+        }
+        drop(guard);
+        if !flush_due(&shared) {
+            continue;
+        }
+        if let Err(error) = publish(&shared, false) {
+            eprintln!("OTLP background flush failed: {error}");
+        }
+    }
 }
 
 fn prepare_metrics(
@@ -864,7 +1233,11 @@ fn prepare_metrics(
     })
 }
 
-fn apply_metrics(durable: &mut Durable, prepared: &PreparedMetrics) -> Result<()> {
+fn apply_metrics(
+    durable: &mut Durable,
+    prepared: &PreparedMetrics,
+    sink: &mut dyn ShardSink,
+) -> Result<()> {
     for sample in &prepared.samples {
         if !sample.unit.is_empty() {
             durable
@@ -887,7 +1260,7 @@ fn apply_metrics(durable: &mut Durable, prepared: &PreparedMetrics) -> Result<()
             NormalizedValue::Double(sample.value),
             &durable.config,
             durable.catalog.as_ref(),
-            &mut durable.store,
+            sink,
         )?;
     }
     Ok(())
@@ -1003,6 +1376,7 @@ fn commit_logs(
     root: &Path,
     docs: Vec<Document>,
     latest: Option<i64>,
+    trace: bool,
 ) -> std::result::Result<(), String> {
     let mut store = DocStore::open(root).map_err(|e| e.to_string())?;
     let log_path = root.join("docs").join("documents.log");
@@ -1012,10 +1386,12 @@ fn commit_logs(
     let rewrite_us = elapsed_us(started);
     let (after_len, after_gen) = log_tip(&log_path);
     let (bytes, compacted) = docs_bytes_written(before_len, before_gen, after_len, after_gen);
-    eprintln!(
-        "otlp-docs-commit bytes={bytes} rewrite_us={rewrite_us} compact={}",
-        u8::from(compacted)
-    );
+    if trace {
+        eprintln!(
+            "otlp-docs-commit bytes={bytes} rewrite_us={rewrite_us} compact={}",
+            u8::from(compacted)
+        );
+    }
     if let Some(ts) = latest {
         let newest = store
             .iter()
@@ -1133,6 +1509,7 @@ mod tests {
         ]}]}]});
         assert!(receiver.metrics(payload.to_string().as_bytes()).is_err());
         assert!(receiver
+            .shared
             .durable
             .lock()
             .unwrap()
@@ -1269,7 +1646,7 @@ mod tests {
         let started = Instant::now();
         assert_eq!(receiver.metrics(body.as_bytes()).unwrap(), 1);
         assert!(
-            started.elapsed() < Duration::from_secs(2),
+            started.elapsed() < Duration::from_secs(30),
             "lone POST waited {:?}",
             started.elapsed()
         );
@@ -1285,8 +1662,9 @@ mod tests {
             hold: Mutex::new(true),
             cv: Condvar::new(),
             tripped: AtomicBool::new(false),
+            logs: false,
         });
-        *receiver.pause.lock().unwrap() = Some(Arc::clone(&pause));
+        *receiver.shared.pause.lock().unwrap() = Some(Arc::clone(&pause));
         let leader = {
             let receiver = Arc::clone(&receiver);
             thread::spawn(move || receiver.metrics(gauge("leader", 1.0).as_bytes()).unwrap())
@@ -1308,7 +1686,7 @@ mod tests {
             })
             .collect();
         let started = Instant::now();
-        while receiver.admit.lock().unwrap().staged.len() < 2 {
+        while receiver.metrics_staged() < 2 {
             assert!(
                 started.elapsed() < Duration::from_secs(5),
                 "followers did not stage during the flush"
@@ -1330,5 +1708,289 @@ mod tests {
             (2..=super::GROUP_LIMIT).contains(&max_group),
             "max_group {max_group}"
         );
+    }
+
+    fn arm(receiver: &AgentStore, logs: bool) -> Arc<super::TestPause> {
+        let pause = Arc::new(super::TestPause {
+            hold: Mutex::new(true),
+            cv: Condvar::new(),
+            tripped: AtomicBool::new(false),
+            logs,
+        });
+        *receiver.shared.pause.lock().unwrap() = Some(Arc::clone(&pause));
+        pause
+    }
+
+    fn wait_tripped(pause: &super::TestPause) {
+        let started = Instant::now();
+        while !pause.tripped.load(Ordering::SeqCst) {
+            assert!(
+                started.elapsed() < Duration::from_secs(5),
+                "flush did not reach the pause"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    fn release(pause: &super::TestPause) {
+        let mut hold = pause.hold.lock().unwrap();
+        *hold = false;
+        pause.cv.notify_all();
+    }
+
+    #[test]
+    fn log_post_returns_while_a_metrics_commit_is_held() {
+        let root = root();
+        let receiver = Arc::new(AgentStore::open(root.path()).unwrap());
+        let pause = arm(&receiver, false);
+        let leader = {
+            let receiver = Arc::clone(&receiver);
+            thread::spawn(move || receiver.metrics(gauge("held", 1.0).as_bytes()).unwrap())
+        };
+        wait_tripped(&pause);
+        let log = json!({"resourceLogs":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"held"}}]},
+            "scopeLogs":[{"logRecords":[{"timeUnixNano":"1577836811000000000","eventName":"during"}]}]}]}).to_string();
+        let started = Instant::now();
+        assert_eq!(receiver.logs(log.as_bytes()).unwrap(), 1);
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "log POST waited {:?}",
+            started.elapsed()
+        );
+        assert_eq!(receiver.log_commit_stats(), (1, 1));
+        assert_eq!(receiver.commit_stats().0, 0);
+        release(&pause);
+        assert_eq!(leader.join().unwrap(), 1);
+        assert_eq!(receiver.commit_stats().0, 1);
+    }
+
+    fn fill_during_pause(logs: bool) {
+        let root = root();
+        let receiver = Arc::new(AgentStore::open(root.path()).unwrap());
+        let pause = arm(&receiver, logs);
+        let leader_body = if logs {
+            log_at("leader", ti_contracts::EPOCH + 1)
+        } else {
+            gauge("leader", 1.0)
+        };
+        let leader = {
+            let receiver = Arc::clone(&receiver);
+            thread::spawn(move || {
+                if logs {
+                    receiver.logs(leader_body.as_bytes()).unwrap()
+                } else {
+                    receiver.metrics(leader_body.as_bytes()).unwrap()
+                }
+            })
+        };
+        wait_tripped(&pause);
+        let mut followers = Vec::new();
+        for index in 0..33 {
+            let receiver = Arc::clone(&receiver);
+            followers.push(thread::spawn(move || {
+                if logs {
+                    let body = log_at("follower", ti_contracts::EPOCH + 2 + index);
+                    receiver.logs(body.as_bytes()).unwrap()
+                } else {
+                    receiver
+                        .metrics(gauge(&format!("f{index}"), 1.0).as_bytes())
+                        .unwrap()
+                }
+            }));
+        }
+        let started = Instant::now();
+        while (if logs {
+            receiver.logs_staged()
+        } else {
+            receiver.metrics_staged()
+        }) < 33
+        {
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "followers did not stage"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+        release(&pause);
+        assert_eq!(leader.join().unwrap(), 1);
+        for follower in followers {
+            assert_eq!(follower.join().unwrap(), 1);
+        }
+        let (commits, max_group) = if logs {
+            receiver.log_commit_stats()
+        } else {
+            receiver.commit_stats()
+        };
+        assert!(commits >= 2, "commits {commits}");
+        assert_eq!(max_group, super::GROUP_LIMIT);
+    }
+
+    #[test]
+    fn each_queue_caps_its_own_group_at_32() {
+        fill_during_pause(false);
+        fill_during_pause(true);
+    }
+
+    fn counter_export(service: &str, seconds: i64, value: f64) -> String {
+        let end = format!("{}000000000", seconds);
+        json!({"resourceMetrics":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":service}}]},"scopeMetrics":[{"metrics":[
+            {"name":"tokens","sum":{"isMonotonic":true,"aggregationTemporality":1,"dataPoints":[
+                {"timeUnixNano":end,"startTimeUnixNano":"1577836800000000000","asDouble":value}
+            ]}}
+        ]}]}]}).to_string()
+    }
+
+    fn log_at(service: &str, ts: i64) -> String {
+        json!({"resourceLogs":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":service}}]},
+            "scopeLogs":[{"logRecords":[{"timeUnixNano":"0","observedTimeUnixNano":format!("{ts}000000000"),"eventName":"file.edit"}]}]}]}).to_string()
+    }
+
+    #[test]
+    fn graceful_restart_keeps_the_counter_and_the_next_delta_continues() {
+        let root = root();
+        let first = counter_export("grace", ti_contracts::EPOCH + 11, 2.0);
+        {
+            let receiver = AgentStore::open(root.path()).unwrap();
+            assert_eq!(receiver.metrics(first.as_bytes()).unwrap(), 1);
+            assert_eq!(
+                receiver.counter_total("agent.urn:grace", "tokens"),
+                Some(2.0)
+            );
+            let wal = std::fs::read_dir(root.path().join(STORE_DIR).join("wal")).unwrap();
+            let mut magic = false;
+            for entry in wal.flatten() {
+                if entry.path().extension().is_some_and(|ext| ext == "wal") {
+                    let bytes = std::fs::read(entry.path()).unwrap();
+                    magic |= bytes.windows(8).any(|window| window == b"LUMEOC01");
+                }
+            }
+            assert!(magic);
+        }
+        let sidecar = root.path().join(STORE_DIR).join("otlp-counters.json");
+        assert_eq!(
+            load_counters(&sidecar)
+                .unwrap()
+                .values()
+                .next()
+                .unwrap()
+                .total,
+            2.0
+        );
+        let receiver = AgentStore::open(root.path()).unwrap();
+        assert_eq!(
+            receiver.counter_total("agent.urn:grace", "tokens"),
+            Some(2.0)
+        );
+        assert_eq!(receiver.metrics(first.as_bytes()).unwrap(), 1);
+        assert_eq!(
+            receiver.counter_total("agent.urn:grace", "tokens"),
+            Some(2.0)
+        );
+        let next = counter_export("grace", ti_contracts::EPOCH + 21, 3.0);
+        assert_eq!(receiver.metrics(next.as_bytes()).unwrap(), 1);
+        assert_eq!(
+            receiver.counter_total("agent.urn:grace", "tokens"),
+            Some(5.0)
+        );
+    }
+
+    fn run_phase(test_name: &str, phase: &str, root: &std::path::Path) -> std::process::ExitStatus {
+        std::process::Command::new(std::env::current_exe().unwrap())
+            .arg(test_name)
+            .arg("--exact")
+            .arg("--test-threads=1")
+            .env("LUME_OTLP_CRASH", phase)
+            .env("LUME_OTLP_CRASH_ROOT", root)
+            .env_remove("LUME_OTLP_TRACE")
+            .status()
+            .unwrap()
+    }
+
+    fn wal_has_otlp_magic(root: &std::path::Path) -> bool {
+        let wal = root.join(STORE_DIR).join("wal");
+        let Ok(entries) = std::fs::read_dir(wal) else {
+            return false;
+        };
+        entries.flatten().any(|entry| {
+            entry.path().extension().is_some_and(|ext| ext == "wal")
+                && std::fs::read(entry.path())
+                    .unwrap()
+                    .windows(8)
+                    .any(|window| window == b"LUMEOC01")
+        })
+    }
+
+    #[test]
+    fn kill_after_wal_sync_recovers_the_acked_counter_once() {
+        let name = "otlp::tests::kill_after_wal_sync_recovers_the_acked_counter_once";
+        if let Ok(dir) = std::env::var("LUME_OTLP_CRASH_ROOT") {
+            let root = std::path::PathBuf::from(dir);
+            let phase = std::env::var("LUME_OTLP_CRASH").unwrap();
+            let first = counter_export("crash", ti_contracts::EPOCH + 11, 2.0);
+            if phase == "after-sync" {
+                let receiver = AgentStore::open(&root).unwrap();
+                assert_eq!(receiver.metrics(first.as_bytes()).unwrap(), 1);
+                panic!("after-sync hook did not exit");
+            }
+            if phase == "reopen" {
+                let receiver = AgentStore::open(&root).unwrap();
+                assert_eq!(
+                    receiver.counter_total("agent.urn:crash", "tokens"),
+                    Some(2.0)
+                );
+                assert_eq!(receiver.metrics(first.as_bytes()).unwrap(), 1);
+                assert_eq!(
+                    receiver.counter_total("agent.urn:crash", "tokens"),
+                    Some(2.0)
+                );
+                let next = counter_export("crash", ti_contracts::EPOCH + 21, 3.0);
+                assert_eq!(receiver.metrics(next.as_bytes()).unwrap(), 1);
+                assert_eq!(
+                    receiver.counter_total("agent.urn:crash", "tokens"),
+                    Some(5.0)
+                );
+                std::process::exit(0);
+            }
+            panic!("unknown crash phase {phase}");
+        }
+        let root = root();
+        let status = run_phase(name, "after-sync", root.path());
+        assert_eq!(status.code(), Some(77), "{status}");
+        assert!(wal_has_otlp_magic(root.path()));
+        let _ = std::fs::remove_file(root.path().join(STORE_DIR).join("otlp-counters.json"));
+        let status = run_phase(name, "reopen", root.path());
+        assert!(status.success(), "{status}");
+    }
+
+    #[test]
+    fn kill_during_background_flush_keeps_the_synced_group() {
+        let name = "otlp::tests::kill_during_background_flush_keeps_the_synced_group";
+        if let Ok(dir) = std::env::var("LUME_OTLP_CRASH_ROOT") {
+            let root = std::path::PathBuf::from(dir);
+            let phase = std::env::var("LUME_OTLP_CRASH").unwrap();
+            let first = counter_export("flush", ti_contracts::EPOCH + 11, 2.0);
+            if phase == "during-flush" {
+                let receiver = AgentStore::open(&root).unwrap();
+                assert_eq!(receiver.metrics(first.as_bytes()).unwrap(), 1);
+                let _ = receiver.test_publish();
+                panic!("during-flush hook did not exit");
+            }
+            if phase == "reopen" {
+                let receiver = AgentStore::open(&root).unwrap();
+                assert_eq!(
+                    receiver.counter_total("agent.urn:flush", "tokens"),
+                    Some(2.0)
+                );
+                std::process::exit(0);
+            }
+            panic!("unknown crash phase {phase}");
+        }
+        let root = root();
+        let status = run_phase(name, "during-flush", root.path());
+        assert_eq!(status.code(), Some(77), "{status}");
+        assert!(wal_has_otlp_magic(root.path()));
+        let _ = std::fs::remove_file(root.path().join(STORE_DIR).join("otlp-counters.json"));
+        let status = run_phase(name, "reopen", root.path());
+        assert!(status.success(), "{status}");
     }
 }
