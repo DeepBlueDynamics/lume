@@ -3,6 +3,7 @@ pub mod gen;
 pub mod harness;
 pub mod layout;
 pub mod model;
+pub mod otlp_soak;
 pub mod rng;
 pub mod robots;
 pub mod sk_feed;

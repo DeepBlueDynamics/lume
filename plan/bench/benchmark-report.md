@@ -193,3 +193,23 @@ HTTP/WS for loopback measurement and rejects embedded URL credentials.
 5. **The CI p95-regression gate.** Committed Q1–Q8 results are now available (§8).
 
 Recorded as D48 in `plan/spec/11-risks-decisions.md` (`a33035e`, 2026-10-08). The five follow-ups above remain measurement conditions; startup warming addresses item 3 and must report any misses it leaves.
+
+## 10. OTLP receiver capacity
+
+Measured 2026-10-08 on this container against a debug `lume` binary (`target/debug/lume`, rustc 1.96.1) started as `lume ti otlp --bind 127.0.0.1 --port 0`. Command: `ti-bench otlp-soak --spawn --agents N --rate 1 --duration 300 --seed 42`. The three artifacts record HEAD `36e57fc8bc3dd711def96fe920fb4b05efe0dc65`. Each simulated agent posts `/v1/metrics` every 10 s and `/v1/logs` once per second, with the first post of agent `i` delayed by `i * interval / N`. A thread starts a post only while elapsed wall time is under 300 s. `load_wall_s` is the time until those in-flight posts finish. `offered_*` is the full schedule; `metrics_posts` and `log_posts` are attempts inside the window. These rows are this debug build at rate 1 for 300 s.
+
+| Agents | Offered metrics / logs | Attempts metrics / logs | HTTP 200 metrics / logs | HTTP 503 metrics / logs | Tokens stored = sent | Docs = 2xx logs | load_wall_s | RSS start / end / peak (bytes) | Artifact |
+|---:|---|---|---|---|---|---|---:|---|---|
+| 10 | 300 / 3000 | 68 / 678 | 68 / 678 | 0 / 0 | 584 = 584 | 678 = 678 | 304.171 | 98336768 / 155844608 / 156295168 | [agents10](../../bench/results/2026-10-08-otlp-soak-36e57fc-agents10.json) |
+| 50 | 1500 / 15000 | 78 / 764 | 78 / 764 | 0 / 0 | 659 = 659 | 764 = 764 | 319.758 | 96321536 / 352731136 / 368250880 | [agents50](../../bench/results/2026-10-08-otlp-soak-36e57fc-agents50.json) |
+| 200 | 6000 / 60000 | 4437 / 44274 | 89 / 747 | 4348 / 43527 | 790 = 790 | 747 = 747 | 347.162 | 97959936 / 469258240 / 472272896 | [agents200](../../bench/results/2026-10-08-otlp-soak-36e57fc-agents200.json) |
+
+POST latency, nearest rank over every attempt, milliseconds:
+
+| Agents | `/v1/logs` p50 / p95 / p99 (n) | `/v1/metrics` p50 / p95 / p99 (n) |
+|---:|---|---|
+| 10 | 4032.505 / 4493.178 / 4727.223 (678) | 4051.03 / 4527.455 / 4879.871 (68) |
+| 50 | 18721.98 / 20889.91 / 21070.918 (764) | 18548.505 / 20773.838 / 20835.533 (78) |
+| 200 | 0.145 / 0.309 / 24470.47 (44274) | 0.156 / 0.365 / 24456.366 (4437) |
+
+HTTP 400, 413, `other`, and transport `error` are 0 on both endpoints in all three runs. At 10 and 50 agents every attempt is HTTP 200. At 200 agents the remaining attempts are HTTP 503 (4348 metric, 43527 log). The accept path writes that 503 when active connections are already at `MAX_CONCURRENT_CONNECTIONS` (64, `src/agent.rs`). Those rejects return in well under a millisecond, so the 200-agent p50 and p95 are 503 latency and the p99 includes the accepted posts. `sql.ok` is true in each artifact: the sum of per-vessel `max("claude_code.token.usage")` equals the token deltas in HTTP 200 metric posts, and `count(*)` from `docs` equals the HTTP 200 log posts.

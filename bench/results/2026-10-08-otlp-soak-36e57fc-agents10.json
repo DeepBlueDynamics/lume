@@ -1,0 +1,71 @@
+{
+  "sha": "36e57fc8bc3dd711def96fe920fb4b05efe0dc65",
+  "seed": 42,
+  "agents": 10,
+  "rate": 1.0,
+  "duration_s": 300,
+  "load_wall_s": 304.171,
+  "url": "http://127.0.0.1:37999",
+  "spawned": true,
+  "schedule": {
+    "metrics_every_s": 10,
+    "log_interval_ns": 1000000000,
+    "phase": "agent * interval / agents",
+    "metric_temporality": 1,
+    "token_column": "claude_code.token.usage"
+  },
+  "sent": {
+    "offered_metrics": 300,
+    "offered_logs": 3000,
+    "metrics_posts": 68,
+    "log_posts": 678,
+    "metrics_2xx": 68,
+    "log_2xx": 678,
+    "tokens": 584,
+    "logs": 678
+  },
+  "latency_ms": {
+    "/v1/logs": {
+      "n": 678,
+      "p50": 4032.505,
+      "p95": 4493.178,
+      "p99": 4727.223
+    },
+    "/v1/metrics": {
+      "n": 68,
+      "p50": 4051.03,
+      "p95": 4527.455,
+      "p99": 4879.871
+    }
+  },
+  "status": {
+    "/v1/logs": {
+      "200": 678,
+      "400": 0,
+      "413": 0,
+      "503": 0,
+      "error": 0,
+      "other": 0
+    },
+    "/v1/metrics": {
+      "200": 68,
+      "400": 0,
+      "413": 0,
+      "503": 0,
+      "error": 0,
+      "other": 0
+    }
+  },
+  "rss_bytes": {
+    "start": 98336768,
+    "end": 155844608,
+    "peak": 156295168
+  },
+  "sql": {
+    "token_totals": 584.0,
+    "tokens_sent": 584,
+    "docs": 678,
+    "logs_sent": 678,
+    "ok": true
+  }
+}
