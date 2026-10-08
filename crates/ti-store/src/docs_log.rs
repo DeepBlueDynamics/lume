@@ -34,6 +34,20 @@ impl Drop for Lock {
 fn corrupt(message: impl Into<String>) -> Error {
     Error::Corrupt(message.into())
 }
+// A power loss can leave an allocated, zero-filled suffix. Inspect it without
+// allocating from the suspect frame length; callers hold the document lock.
+fn zero_filled_tail(file: &mut File, mut remaining: u64) -> Result<bool> {
+    let mut scratch = [0u8; 4096];
+    while remaining > 0 {
+        let count = remaining.min(scratch.len() as u64) as usize;
+        file.read_exact(&mut scratch[..count])?;
+        if scratch[..count].iter().any(|&byte| byte != 0) {
+            return Ok(false);
+        }
+        remaining -= count as u64;
+    }
+    Ok(true)
+}
 fn sync_directory(directory: &Path) -> Result<()> {
     #[cfg(unix)]
     File::open(directory)?.sync_all()?;
@@ -209,6 +223,12 @@ impl Persistence {
             if crc32fast::hash(&prefix[..12])
                 != u32::from_le_bytes(prefix[12..16].try_into().unwrap())
             {
+                if prefix.iter().all(|&byte| byte == 0)
+                    && zero_filled_tail(&mut file, length - offset - 16)?
+                {
+                    torn = true;
+                    break;
+                }
                 return Err(corrupt(format!(
                     "document frame header checksum mismatch at offset {offset}"
                 )));
