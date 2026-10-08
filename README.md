@@ -26,12 +26,14 @@ The default build has **four runtime dependencies** (`tantivy-fst`, `ureq`, `ser
 
 ## Highlights
 
-- **Documents and time series in one SQL query (Lume TI):** 10-second and 1-second buckets stored as roaring bitmaps; filters, aggregates, geography (`within_nm`), "held for N minutes" (`intervals()`) and full-text `match()` push down into bitmap operations. Queried from SQL, a REPL, MCP tools or HTTP. [See below.](#lume-ti-telemetry-index)
+- **Documents and time series in one SQL query (Lume TI):** 10-second and 1-second buckets stored as roaring bitmaps; filters, aggregates, geography (`within_nm`), "held for N minutes" (`intervals()`) and full-text `match()` push down into bitmap operations. Queried from SQL, a REPL, MCP tools, HTTP or pgwire. [See below.](#lume-ti-telemetry-index)
 - **Hybrid retrieval:** BM25 (classic, plus and L variants), dense vectors and a graph boost, blended per query with one `--alpha` knob.
 - **Index-native knowledge graph:** entity co-occurrence is computed from roaring-bitmap intersections ("counting the counts"). Edges are scored by statistical significance, so hub entities don't drown out real associations.
 - **Deterministic or LLM entities:** build the graph from a local FST dictionary with no model at all, or extract entities with Ollama. The graph math is identical either way.
 - **Agentic tools:** a planning and retrieval agent with structured failure recovery, a graph-guided document summarizer, and cited answers.
-- **MCP server:** exposes indexing and search to any MCP-capable agent over HTTP.
+- **MCP server:** exposes indexing, search, and time-series query tools to any MCP-capable agent over HTTP.
+- **OTLP telemetry receiver:** ingests OpenTelemetry metrics and logs directly from coding agents (Claude Code, Codex, Gemini) into dedicated `telemetry_agents` and `docs` tables.
+- **Postgres wire & Grafana:** native read-only pgwire protocol (`--pg`) with SCRAM-SHA-256 for psql and Grafana, with prebuilt dashboards for agent telemetry.
 - **Measured quality:** `lume eval` reports Hit@k, MRR and nDCG@k against Q&A files, without hand labels.
 
 ## Install
@@ -116,7 +118,7 @@ lume serve                 # default port 5863 ("LUME" on a phone keypad)
 lume serve --port 8080
 ```
 
-This exposes `lume_index`, `lume_search`, `lume_generate` and `lume_not_found` as MCP tools over HTTP. Search runs in-process through the `lume::search` library API. Built with `--features ti`, `lume serve --ti-store <store>` adds the [Lume TI](#lume-ti-telemetry-index) tools.
+This exposes `lume_index`, `lume_search`, `lume_generate` and `lume_not_found` as MCP tools over HTTP. Search runs in-process through the `lume::search` library API. Built with `--features ti`, `lume serve --ti-store <store>` adds the [Lume TI](#lume-ti-telemetry-index) tools, OTLP ingestion (`--otlp`), and PostgreSQL wire access (`--pg`).
 
 ### Text generation
 
@@ -177,8 +179,9 @@ graph LR
 | `lume answer <question>` | Cited answer, streamed | `--model` |
 | `lume generate <seed>` | Style-faithful generation | `--steer` |
 | `lume crawl <url>` | Save a page as Markdown | `GRUB_BASE_URL`, `NUTS_SERVICES_TOKEN` |
-| `lume serve` | MCP server over HTTP | `-p`/`--port` (5863), `--ti-store` (with `--features ti`) |
-| `lume ti <cmd>` | Telemetry SQL: `repl`, `query`, `explain`, `status`, `import-docs`, `verify` | `--store`, `--json`, `--width` (needs `--features ti`) |
+| `lume serve` | MCP, TI HTTP, OTLP and pgwire server | `-p`/`--port` (5863), `--ti-store`, `--otlp`, `--otlp-token-file`, `--pg`, `--pg-bind` |
+| `lume ti otlp` | Standalone OTLP metrics & logs receiver | `--store`, `--bind` (127.0.0.1), `--port` (4318), `--otlp-token-file` |
+| `lume ti <cmd>` | Telemetry SQL: `repl`, `query`, `explain`, `status`, `import-docs`, `ingest`, `otlp`, `verify` | `--store`, `--json`, `--width` (needs `--features ti`) |
 | `lume stream <query>` | NDJSON search dynamics for `viz/` | |
 
 Run `lume <command> --help` for the full option list.
@@ -215,7 +218,9 @@ WHERE match(notes, 'leak OR water')
 ```
 
 - **`telemetry`**: one row per vessel and 10-second bucket. Each Signal K path becomes columns such as `path@min`, `path@max`, `path@mean` and `path@last`, plus single-valued state columns (`navigation.state`, `propulsion.port.state`). A second store keeps navigation, wind and depth at **1-second** resolution as `telemetry_hr`, with its own retention (default 90 days).
-- **`docs`**: notes, logbook entries and alerts. Each covers its time range `[ts_start, ts_end)`, and `score` is the Lume BM25 score when the query uses `match()`.
+- **`telemetry_lume`**: Lume's own operational self-telemetry in `<store>/stores/lume` (entity `lume.urn:host:<hostname>`). It tracks ingest rates (`lume.ingest.valuesPerSecond@mean`), process RSS (`lume.process.rssBytes@max`), lag, and flush cost on its own independent bucketer, keeping vessel data isolated.
+- **`telemetry_agents`**: Agent metrics received via OTLP (`POST /v1/metrics`) in `<store>/stores/agents`. Monotonic sums (token counts) compute running totals per entity and dimensional attribute (`claude_code.token.usage.input.model.<model>@last`), with counter state persisted across restarts. Gauges and non-monotonic sums populate `@mean` profiles.
+- **`docs`**: notes, logbook entries, alerts, and agent event logs (`kind = 'logbook'`). Each covers its time range `[ts_start, ts_end)`, and `score` is the Lume BM25 score when the query uses `match()`.
 - **`match(notes|logbook|alerts, 'q')`** filters telemetry buckets by the documents that cover them. `match(body, 'q')` filters the `docs` table itself. Both are lexical Lume BM25 and run locally.
 - **`within_nm(lat, lon, nm)`** and **`in_bbox(...)`** use H3 cell bitmaps. **`intervals()`** returns runs where a condition held for at least N minutes.
 - **`vessels`**, **`paths`** and **`shards`** are catalog tables, and **`raw`** is an exact view over the source Parquet.
@@ -232,7 +237,7 @@ WHERE match(notes, 'leak OR water')
 | Documents joined with telemetry | `match()` is another bitmap; `docs` is a table | no text index | no | text only |
 | Geography | H3 cell bitmaps (`in_bbox`, `within_nm`) | functions over scans | limited | limited |
 | "Runs where X held for N minutes" | `intervals()` straight from bitmap runs | window-function SQL | difficult | no |
-| Interfaces | SQL, REPL, MCP tools, HTTP (Arrow IPC / JSON) | SQL | InfluxQL / Flux | query DSL |
+| Interfaces | SQL, REPL, MCP tools, HTTP (Arrow IPC / JSON), pgwire | SQL | InfluxQL / Flux | query DSL |
 | Runs beside the chartplotter on a Pi | designed for it | DuckDB yes | yes | yes |
 
 ### Use it
@@ -245,12 +250,20 @@ cargo run --release -p ti-ingest --example backfill_store -- <data>/tier=raw <st
 
 lume ti repl --store <store>                      # interactive SQL: .help, .examples, .schema, .explain
 lume ti query "SELECT vessel, count(*) FROM telemetry GROUP BY vessel" --store <store> [--json]
+lume ti query "SELECT vessel, max(\"lume.ingest.valuesPerSecond@mean\") AS vps FROM telemetry_lume GROUP BY vessel" --store <store>
 lume ti explain "<sql>" --store <store>           # which filters ran as bitmaps
 lume ti status --store <store>
 lume ti import-docs <docs_dir> --store <store>
 lume ti verify --store <store> --corpus tests/golden
 
-lume serve --ti-store <store> [--bind <IP>]       # MCP tools and /ti HTTP endpoints
+# Standalone OTLP receiver (HTTP/JSON on default port 4318)
+lume ti otlp --store <store> [--bind 127.0.0.1] [--port 4318] [--otlp-token-file <path>]
+
+# MCP tools, /ti HTTP endpoints, OTLP receiver and PostgreSQL wire access
+lume serve --ti-store <store> [--bind <IP>] [--otlp] [--pg 5864]
+
+# Stream live Signal K deltas into the store with supervised HTTP, OTLP and pgwire
+lume ti ingest --signalk ws://127.0.0.1:3000 --store <store> --serve --otlp --pg 5864
 ```
 
 `lume serve --ti-store` adds five MCP tools for agents:
@@ -259,13 +272,39 @@ lume serve --ti-store <store> [--bind <IP>]       # MCP tools and /ti HTTP endpo
 
 It also adds HTTP endpoints:
 - `POST /ti/query`, answering in Arrow IPC or, with `Accept: application/json`, JSON;
-- `GET /ti/schema`, `POST /ti/explain`, `GET /ti/status`, `GET /ti/resolve?q=`.
+- `GET /ti/schema`, `POST /ti/explain`, `GET /ti/status`, `GET /ti/resolve?q=`;
+- With `--otlp`: `POST /v1/metrics` and `POST /v1/logs` (HTTP/JSON).
 
-Results are capped at 500 rows and 64 KiB, with a hint to aggregate or narrow the time range. The server listens on `127.0.0.1` and sends no wildcard CORS headers; `--bind` opens it to a LAN you trust.
+With `--pg <port>`, it exposes read-only PostgreSQL protocol access (pgwire) for psql and Grafana, with SCRAM authentication configured via `--pg-auth-config <path>` and optional TLS. Results on HTTP are capped at 500 rows and 64 KiB, with a hint to aggregate or narrow the time range. The server listens on `127.0.0.1` and sends no wildcard CORS headers; `--bind` opens it to a LAN you trust.
+
+### Agent telemetry & Grafana dashboards
+
+Lume TI includes an OpenTelemetry Protocol (OTLP) HTTP/JSON receiver (`POST /v1/metrics`, `POST /v1/logs`, D50) to ingest telemetry from coding agents (Claude Code, Codex CLI, Gemini CLI):
+- **Metrics** populate `telemetry_agents` in `<store>/stores/agents`. Monotonic sums (token counts) compute running totals per entity and dimensional attribute path (`claude_code.token.usage.input.model.<model>@last`), with counter totals persisted across restarts (`otlp_counters.json`). Non-monotonic sums and gauges map to numeric aggregates (`@mean`, `@last`).
+- **Logs** populate `docs` with `kind = 'logbook'`, event names in `title`, and structured attributes in `body`, searchable via `match(body, '...')`.
+- **Grafana dashboard**: `bench/grafana/lume-agents-dashboard.json` connects to the `lume-ti` datasource (pgwire), visualizing:
+  - Tokens over time by agent using D50 dimensional paths (`claude_code.token.usage@last`).
+  - Active time in seconds from `claude_code.active_time`.
+  - Active 10-second buckets per agent entity (`vessel AS entity`, `count(DISTINCT ts)`).
+  - Recent logbook documents table from `docs` with interactive text-search filtering via `${q:sqlstring}`.
+
+See [`bench/grafana/README.md`](bench/grafana/README.md) for import and provisioning steps.
+
+### Raspberry Pi deployment & Signal K plugin
+
+- **Signal K plugin (`plugins/signalk-lume-ti`)**: embeds Lume TI into Signal K.
+  - The **Ask** tab defaults to calling `https://ollama.com` directly (`glm-5.3:cloud`) via `chatApiKeyFile` (passing `OLLAMA_API_KEY` in the child environment only; no local model container needed, freeing ~4.2 GB disk).
+  - Supervised ingestion manages the `lume` child process and exposes an `otlpEnabled` receiver setting, pinning query endpoints to loopback `127.0.0.1` to prevent unauthenticated network access.
+- **Deployment scripts**:
+  - `scripts/provision-pi.sh <ssh-host> [--dry-run] [--lume-bin <path>] [--debs <dir>] [--with-ollama]`: idempotent host provisioner configuring memory cgroups (`cgroup_enable=memory cgroup_memory=1` in `cmdline.txt`), pinning self vessel UUID, installing HaLOS `.deb` packages, and deploying the plugin.
+  - `scripts/deploy-pi.sh <ssh-host> [--dry-run] [--lume-bin <path>]`: stages the plugin and arm64 `lume` binary (mode 755) to `/var/lib/container-apps/.../signalk-lume-ti` and restarts the service.
+  - `scripts/pi-retire-ollama.sh <ssh-host> [--dry-run]`: stops and disables `marine-ollama-container` and removes the 4.2 GB Docker image while keeping persistent models and data.
+  - All scripts support `LUME_DEPLOY_SSH_CONFIG` to isolate SSH configurations without modifying `~/.ssh/config`.
+- **HaLOS container packages (`deploy/halos/`)**: Debian packages for Grub Crawler (`marine-grubcrawler-container`) and Ollama gateway (`marine-ollama-container`) feature dynamic RAM auto-sizing via `app-prestart.sh` (`MEMORY_LIMIT=auto`).
 
 ### Measured
 
-Every number below comes from a test or command in this repository, run on an x86 Windows development host with release builds. The dataset is the deterministic generated fleet from `ti-bench gen`: 5 vessels × 90 days around Monterey Bay, 95.9 M values in 11,500 `signalk-parquet` files, plus 1,610 notes, logbook entries and alerts. Being deterministic means every answer can be checked exactly against an independent DuckDB run over the same files.
+Every number below comes from a test or command in this repository, run on an x86 Windows development host with release builds. The dataset is the deterministic generated fleet from `ti-bench gen`: 5 vessels × 90 days around Monterey Bay, 95.9 M values in 11,500 `signalk-parquet` files, plus 1,610 notes, logbook entries and alerts. Being deterministic means every answer can be checked exactly against an independent DuckDB run over the same files. Numbers cite [`plan/bench/benchmark-report.md`](plan/bench/benchmark-report.md).
 
 **Correctness**
 
@@ -294,7 +333,6 @@ Every number below comes from a test or command in this repository, run on an x8
 
 - **Any time-series Parquet:** a column-mapped reader (`--entity`, `--time`, long or wide format) next to the Signal K one.
 - **Fleet sync:** resumable, hash-verified shard shipping from boat to shore, and a shore node that queries the whole fleet.
-- **Postgres wire** for psql and Grafana, and an always-on `lume ti serve` with shore authentication.
 - **On-device numbers:** Pi 5 ingest and query benchmarks, and Q1–Q8 p95 against DuckDB on the reference machine.
 
 ## Performance
@@ -338,7 +376,7 @@ python lib/lume_extractor.py qna my_doc.txt output_qna.json --model gemma4:31b-c
 
 ## Roadmap
 
-- Lume TI: a column-mapped reader for any time-series Parquet, fleet sync to shore, Postgres wire, an always-on `lume ti serve`, and Pi 5 benchmarks.
+- Lume TI: a column-mapped reader for any time-series Parquet, fleet sync to shore, and Pi 5 benchmarks.
 - Specs from documents: extract operating limits from manuals and datasheets in the document index and monitor telemetry against them.
 - `lume sql`: the same DataFusion engine over any ordinary Lume index (`sections`, `entities`, `entity_edges`).
 - On-the-fly fine-tuning of open embedding models, so the semantic space adapts to your corpus.
