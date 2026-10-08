@@ -85,8 +85,14 @@ jobs:
         working-directory: plugins/signalk-lume-ti
         run: npm test
 
+      - name: Build lume binary for live dashboard tests
+        run: cargo build --locked --features ti --bin lume
+
       - name: Test benchmark scripts
+        env:
+          LUME_BIN: target/debug/lume
         run: |
+          export LUME_BIN=target/debug/lume
           python3 -m unittest discover -s bench -p 'test_*.py'
           python3 -m unittest discover -s bench/grafana -p 'test_*.py'
 
