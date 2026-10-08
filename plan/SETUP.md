@@ -509,3 +509,54 @@ The Python harness test for it (`bench/grafana/test_pg_smoke.py`) skips on Windo
 authenticates a Node-derived verifier and decodes typed timestamp/double rows.
 Pi Save & Test and the actual psql run are deployment checks, not claimed by
 container mocks.
+
+## 12. HaLOS container apps on the Pi
+
+Two auxiliary services run beside Signal K and Lume as HaLOS container apps:
+
+1. **Grub Crawler** (`deploy/halos/marine-grubcrawler-container/`, `127.0.0.1:6792`):
+   fetches web pages and PDFs for the offline cruiser library (`lume crawl --list`,
+   `GRUB_BASE_URL`). Uses `deepbluedynamics/grubcrawler:latest-lite` (v0.16.1, multi-arch
+   Chromium-only lite build, ~2.8 GB unpacked on arm64). Auth is disabled, so it binds
+   loopback only and is never exposed to the LAN. Memory is capped at 1.5 GB.
+2. **Ollama** (`deploy/halos/marine-ollama-container/`, `127.0.0.1:11434`):
+   runs local language models on the boat for the Signal K plugin's Ask tab (`lume chat`).
+   Uses `ollama/ollama:latest` (4.2 GB arm64 image). Default model is `qwen3:1.7b` (~1 GB;
+   `qwen3:4b` at ~2.5 GB also fits if SD card headroom allows). Runs with flash attention
+   and 8-bit KV cache (`q8_0`) within a 4 GB memory ceiling. Has no authentication, so it
+   binds loopback only.
+
+Both apps can be installed on the Pi either from their `.deb` packages (which register with
+Cockpit's container store) or manually via `install.sh`:
+
+```sh
+# Option A: install via HaLOS .deb package (built by scripts/build-halos-debs.sh into dist/halos/)
+sudo dpkg -i marine-grubcrawler-container_0.16.1-1_arm64.deb
+sudo dpkg -i marine-ollama-container_0.1.0-1_arm64.deb
+
+# Option B: manual install script (mimics container-packaging-tools layout)
+cd deploy/halos/marine-grubcrawler-container && sudo ./install.sh
+cd deploy/halos/marine-ollama-container && sudo ./install.sh
+```
+
+**Settings and configuration:**
+- Settings live in `/etc/container-apps/<pkg>/env` and override `/etc/container-apps/<pkg>/env.defaults`.
+  - Grub: `GRUB_IMAGE`, `GRUB_MEMORY_LIMIT`, `GRUB_MAX_CONCURRENT_CRAWLS`, `GRUB_CRAWL_TIMEOUT`, `GRUB_BROWSER_ENGINE`.
+  - Ollama: `OLLAMA_IMAGE`, `OLLAMA_MEMORY_LIMIT`, `OLLAMA_KEEP_ALIVE`, `OLLAMA_DEFAULT_MODEL`.
+- Persistent data lives under `/var/lib/container-apps/<pkg>/data/` (Grub storage: `data/storage`; Ollama models: `data/ollama`).
+- Both services require `HALOS_SYSTEMD_STARTED=1` and are supervised by systemd (`marine-grubcrawler-container.service`, `marine-ollama-container.service`).
+
+**Ask tab model resolution (three-way failover):**
+The Ask tab's **Chat Ollama API URLs** setting accepts a comma-separated list of endpoints, tried in order:
+1. **Local Pi Ollama:** `http://127.0.0.1:11434` (offline, uses local `qwen3:1.7b`).
+   After `.deb` installation, pull the offline model once:
+   ```sh
+   docker exec ollama ollama pull qwen3:1.7b
+   ```
+2. **Cloud models via Pi Ollama:** whenever the boat has internet, `:cloud` models (e.g. `glm-5.3:cloud`) work through the same loopback endpoint after a one-time signin:
+   ```sh
+   docker exec -it ollama ollama signin
+   docker exec ollama ollama pull glm-5.3:cloud
+   ```
+   Lume holds no API keys.
+3. **Laptop Ollama over the LAN:** e.g. `http://192.168.68.58:11434` (requires `OLLAMA_HOST=0.0.0.0` on the laptop and private-network firewall access).
