@@ -148,6 +148,7 @@ if [ "$DRY_RUN" = true ]; then
     run_remote "sudo -n chown -R 1000:1000 ${REMOTE_DEST}"
     run_remote "rm -rf ${REMOTE_STAGE}"
     run_remote "sudo -n systemctl restart marine-signalk-server-container"
+    # shellcheck disable=SC2016 # Expression in single quotes intentionally expands on remote host
     run_remote 'echo "Waiting for marine-signalk-server-container health..."; for i in $(seq 1 30); do if sudo -n systemctl is-active --quiet marine-signalk-server-container && curl -fsS -m 3 http://127.0.0.1:3000/signalk >/dev/null 2>&1; then echo "Signal K is healthy (attempt $i/30)"; exit 0; fi; sleep 2; done; echo "Timed out waiting for Signal K health" >&2; exit 1'
     echo
     echo "Dry run complete."
@@ -191,6 +192,7 @@ echo "Restarting marine-signalk-server-container..."
 run_remote "sudo -n systemctl restart marine-signalk-server-container"
 
 echo "Polling Signal K for health..."
+# shellcheck disable=SC2016 # Expression in single quotes intentionally expands on remote host
 run_remote 'echo "Waiting for marine-signalk-server-container health..."; for i in $(seq 1 30); do if sudo -n systemctl is-active --quiet marine-signalk-server-container && curl -fsS -m 3 http://127.0.0.1:3000/signalk >/dev/null 2>&1; then echo "Signal K is healthy (attempt $i/30)"; exit 0; fi; sleep 2; done; echo "Timed out waiting for Signal K health" >&2; exit 1'
 
 echo "Deployment complete and verified healthy."
