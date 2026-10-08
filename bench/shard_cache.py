@@ -9,6 +9,7 @@ import subprocess
 QUERY_IDS = """q1-001 q1-002 q1-004 q2-002 q2-003 q2-005
 q3-001 q3-002 q3-004 q4-001 q4-002 q4-005 q5-001 q5-002
 q7-001 q7-002 q7-006 q8-001 q8-002 q8-006""".split()
+TEXT_QUERY_IDS = [f"q6-{index:03d}" for index in range(1, 7)]
 
 
 def compare(before, after):
@@ -38,6 +39,8 @@ def compare(before, after):
         rows.append({"id": qid, "rows": b["rows"], "values_match": same,
                      "off_cold_ms": a["cold_ms"], "on_cold_ms": b["cold_ms"],
                      "off_p50_ms": a["p50_ms"], "on_p50_ms": b["p50_ms"],
+                     "off_p95_ms": a.get("p95_ms"), "on_p95_ms": b.get("p95_ms"),
+                     "off_p99_ms": a.get("p99_ms"), "on_p99_ms": b.get("p99_ms"),
                      "warm_speedup": a["p50_ms"] / max(b["p50_ms"], 1e-9),
                      "cache_stats": stats})
     return rows
@@ -91,6 +94,8 @@ def main():
     p.add_argument("--cache-mode", choices=("both", "on"), default="both",
                    help="on measures a release profile without an unnecessary cache-off run")
     p.add_argument("--ids", nargs="+", default=QUERY_IDS)
+    p.add_argument("--include-q6", action="store_true",
+                   help="add all Q6 queries; use the LumeText-enabled ti-query-bench runner")
     p.add_argument("--toolchain", required=True, help="record rustc version/build profile")
     args = p.parse_args()
     if args.iterations < 1 or args.cache_bytes < 1:
@@ -98,7 +103,8 @@ def main():
     binary, store, out = args.binary.resolve(), args.store.resolve(), args.out.resolve()
     corpus = json.loads(args.corpus.read_text(encoding="utf-8"))
     entries = {e["id"]: e for e in corpus["entries"]}
-    chosen = [entries[qid] for qid in args.ids]
+    ids = args.ids + [qid for qid in TEXT_QUERY_IDS if qid not in args.ids] if args.include_q6 else args.ids
+    chosen = [entries[qid] for qid in ids]
     if any(e.get("exclude") for e in chosen):
         p.error("selected query is excluded")
     out.mkdir(parents=True, exist_ok=True)
