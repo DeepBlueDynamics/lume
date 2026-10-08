@@ -111,9 +111,11 @@ Reserved, and written by the owning lane at merge (agreed among the lanes on 202
 | D51 | **PROPOSED — awaiting user approval:** bearer authentication and read/index roles for non-loopback HTTP, MCP and SSE; loopback plain-serve default; separate from SCRAM; TLS/proxy for shore | [Proposal](../decisions/D51-http-auth.md). Opt-in flag implemented in A11; default changes and roles still PROPOSED |
 | D52 | **DocStore append-only CRC-framed transactions**, fsync before publication, incremental refresh, tombstones and atomic compaction; legacy JSON migrated with `.bak` retained; no new dependencies or public API/SQL-schema change | Lead approved 2026-10-08 under the user's standing autonomy. Removes whole-document-set rewrites for OTLP and vessel documents. **User-facing format change:** downgrade requires explicitly restoring the backup; older binaries cannot write the new versioned log. [Decision](../decisions/D52-docstore-append.md) |
 
+| D53 | **Per-field WAL checkpoints in open snapshots**, WAL sync before publication, monotonic sequence floors before truncation, legacy scalar reset/final-group fallback | Lead approved 2026-10-08. Fixes flushed-snapshot/WAL overlap without weakening replacement validation or changing sealed bytes/hashes. Downgrade requires sealing or re-deriving open shards; retain sequence sidecars. [Decision and reader audit](../decisions/D53-wal-checkpoint.md) |
+
 D44 approves bundled Linux arm64 and x64 plugin binaries, with no install-time scripts; see [the packaging decision](../decisions/D44-plugin-package.md).
 
-D45 (release binary size) and D46 (pgwire TLS) have their own records in `plan/decisions/`. The next free number is **D53**. Ask the lead before taking one. Every new runtime dependency needs a line here
+D45 (release binary size) and D46 (pgwire TLS) have their own records in `plan/decisions/`. The next free number is **D54**. Ask the lead before taking one. Every new runtime dependency needs a line here
 (PR rule, [10-contracts](10-contracts.md)).
 
 ## Sources (from spec)

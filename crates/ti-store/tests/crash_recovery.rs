@@ -344,18 +344,24 @@ fn test_crash_recovery_1000_runs() {
         return;
     }
 
-    const TOTAL_RUNS: usize = 1_000;
+    // Test-only replay control; the default 1,000-run schedule is unchanged.
+    let seed_override = env::var("CRASH_SEED")
+        .ok()
+        .map(|value| value.parse::<u64>().expect("CRASH_SEED must be a u64"));
+    let total_runs: usize = if seed_override.is_some() { 1 } else { 1_000 };
     let exe = env::current_exe().unwrap();
 
-    println!("Starting 1,000 kill -9 crash recovery iterations...");
+    println!("Starting {total_runs} kill -9 crash recovery iterations...");
     let test_start = Instant::now();
 
     let mut count_mid_apply = 0usize;
     let mut count_mid_flush = 0usize;
     let mut count_between_flush_truncate = 0usize;
 
-    for run_idx in 0..TOTAL_RUNS {
-        let seed = 0x9e3779b97f4a7c15u64.wrapping_mul((run_idx + 1) as u64) ^ 0x517cc1b727220a95;
+    for run_idx in 0..total_runs {
+        let seed = seed_override.unwrap_or_else(|| {
+            0x9e3779b97f4a7c15u64.wrapping_mul((run_idx + 1) as u64) ^ 0x517cc1b727220a95
+        });
         let mut rng = Rng::new(seed);
 
         let kill_mode = rng.gen_range(0, 3);
@@ -367,6 +373,9 @@ fn test_crash_recovery_1000_runs() {
 
         let target_step = rng.gen_range(1, 30) as u32;
         let target_flush = rng.gen_range(1, 5);
+        if seed_override.is_some() {
+            println!("Replay seed {seed}, mode {kill_mode_name}, target_step {target_step}, target_flush {target_flush}");
+        }
 
         let dir = tempdir().unwrap();
 
@@ -457,8 +466,9 @@ fn test_crash_recovery_1000_runs() {
         let store = match Store::open_or_create(dir.path(), 10) {
             Ok(s) => s,
             Err(e) => {
+                let evidence = dir.keep();
                 panic!(
-                    "Run {run_idx} (seed {seed}, mode {kill_mode_name}) failed to reopen store: {e}"
+                    "Run {run_idx} (seed {seed}, mode {kill_mode_name}) failed to reopen store: {e}; retained evidence at {}", evidence.display()
                 );
             }
         };
@@ -531,7 +541,7 @@ fn test_crash_recovery_1000_runs() {
         }
 
         if (run_idx + 1).is_multiple_of(200) {
-            println!("Completed {}/1000 crash iterations...", run_idx + 1);
+            println!("Completed {}/{total_runs} crash iterations...", run_idx + 1);
         }
     }
 
@@ -539,7 +549,7 @@ fn test_crash_recovery_1000_runs() {
     println!("--------------------------------------------------");
     println!("Crash recovery test completed successfully!");
     println!("Total runtime: {:?}", elapsed);
-    println!("Kill point distribution (total {}):", TOTAL_RUNS);
+    println!("Kill point distribution (total {}):", total_runs);
     println!("  mid-apply:                  {}", count_mid_apply);
     println!("  mid-flush:                  {}", count_mid_flush);
     println!(

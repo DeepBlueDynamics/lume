@@ -2,7 +2,8 @@
 //!
 //! Envelopes and framing follow plan/spec/14-semantics.md §gap 6:
 //! - Segment Header: `WAL_MAGIC` (LUMETIW1), version u16 LE, URN length u32 LE, URN bytes.
-//! - Record Frame: payload_len u32 LE, sequence u64 LE (starts at 1), IEEE CRC32 u32 LE, payload bytes.
+//! - Record Frame: payload_len u32 LE, sequence u64 LE, IEEE CRC32 u32 LE, payload bytes.
+//! - D53: sequence starts at 1 for a new store and stays monotonic across truncation/restart.
 //! - CRC covers sequence bytes followed by payload bytes.
 //! - Payload is a complete apply slice `Vec<BucketRecord>` serialized via bincode 1.x (fixed-int, LE).
 //! - Replay stops cleanly at the first torn or CRC-bad record.
@@ -62,7 +63,19 @@ impl Wal {
             file.set_len(valid_end_offset)?;
             file.seek(SeekFrom::End(0))?;
 
-            let next_sequence = records.last().map(|(seq, _)| seq + 1).unwrap_or(1);
+            let recovered_next = match records.last() {
+                Some((seq, _)) => seq.checked_add(1).ok_or(Error::Overflow("WAL sequence"))?,
+                None => 1,
+            };
+            let floor = read_sequence_floor(&path)?;
+            let next_sequence = recovered_next.max(floor);
+            if floor > recovered_next {
+                // The floor acknowledges a complete flush. A shortened old tail
+                // must not precede a new higher sequence and create a replay gap.
+                file.set_len(header_len)?;
+                file.seek(SeekFrom::Start(header_len))?;
+                file.sync_all()?;
+            }
 
             let wal = Self {
                 file,
@@ -89,14 +102,16 @@ impl Wal {
             let header_bytes = header.encode()?;
             file.write_all(&header_bytes)?;
             file.sync_all()?;
+            #[cfg(unix)]
+            File::open(wal_dir)?.sync_all()?;
 
             let header_len = header_bytes.len() as u64;
 
             let wal = Self {
                 file,
+                next_sequence: read_sequence_floor(&path)?,
                 path,
                 vessel_urn: vessel_urn.to_string(),
-                next_sequence: 1,
                 last_sync: Instant::now(),
                 has_unsynced: false,
                 header_len,
@@ -120,6 +135,7 @@ impl Wal {
             .map_err(|e| Error::InvalidInput(format!("bincode serialization error: {}", e)))?;
 
         let seq = self.next_sequence;
+        let next = seq.checked_add(1).ok_or(Error::Overflow("WAL sequence"))?;
         let mut hasher = Hasher::new();
         hasher.update(&seq.to_le_bytes());
         hasher.update(&payload);
@@ -137,7 +153,7 @@ impl Wal {
         self.file.flush()?;
 
         self.has_unsynced = true;
-        self.next_sequence += 1;
+        self.next_sequence = next;
         Ok(seq)
     }
 
@@ -175,10 +191,10 @@ impl Wal {
     /// Truncate the WAL to the header point after a successful flush.
     pub fn truncate_after_flush(&mut self) -> Result<()> {
         self.file.flush()?;
+        write_sequence_floor(&self.path, self.next_sequence)?;
         self.file.set_len(self.header_len)?;
         self.file.seek(SeekFrom::Start(self.header_len))?;
         self.file.sync_all()?;
-        self.next_sequence = 1;
         self.has_unsynced = false;
         self.last_sync = Instant::now();
         Ok(())
@@ -222,7 +238,7 @@ impl Wal {
         let header_len = 8 + 2 + 4 + (urn_len as u64);
         let mut valid_end_offset = header_len;
         let mut records = Vec::new();
-        let mut expected_seq = 1u64;
+        let mut expected_seq = None;
 
         loop {
             let mut frame_bytes = [0u8; 16];
@@ -239,7 +255,7 @@ impl Wal {
             let sequence = u64::from_le_bytes(frame_bytes[4..12].try_into().unwrap());
             let stored_crc = u32::from_le_bytes(frame_bytes[12..16].try_into().unwrap());
 
-            if sequence != expected_seq {
+            if sequence == 0 || expected_seq.is_some_and(|expected| sequence != expected) {
                 // Sequence discontinuity -> stop cleanly
                 break;
             }
@@ -272,12 +288,61 @@ impl Wal {
             };
 
             records.push((sequence, batch));
-            expected_seq += 1;
+            expected_seq = Some(
+                sequence
+                    .checked_add(1)
+                    .ok_or(Error::Overflow("WAL sequence"))?,
+            );
             valid_end_offset += 16 + (payload_len as u64);
         }
 
         Ok((vessel_urn, header_len, records, valid_end_offset))
     }
+}
+
+// The floor is published before truncation, so a crash cannot reuse a checkpointed sequence.
+const SEQUENCE_MAGIC: &[u8; 8] = b"LUMESEQ1";
+
+fn read_sequence_floor(path: &Path) -> Result<u64> {
+    let path = path.with_extension("seq");
+    let mut file = match File::open(&path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(1),
+        Err(e) => return Err(e.into()),
+    };
+    let mut bytes = Vec::new();
+    (&mut file).take(21).read_to_end(&mut bytes)?;
+    if bytes.len() != 20
+        || &bytes[..8] != SEQUENCE_MAGIC
+        || crc32fast::hash(&bytes[..16]) != u32::from_le_bytes(bytes[16..20].try_into().unwrap())
+    {
+        return Err(Error::Corrupt("invalid WAL sequence floor".into()));
+    }
+    let sequence = u64::from_le_bytes(bytes[8..16].try_into().unwrap());
+    if sequence == 0 {
+        return Err(Error::Corrupt("zero WAL sequence floor".into()));
+    }
+    Ok(sequence)
+}
+
+fn write_sequence_floor(path: &Path, sequence: u64) -> Result<()> {
+    let target = path.with_extension("seq");
+    let tmp = path.with_extension(format!("seq.tmp.{}", std::process::id()));
+    let mut bytes = SEQUENCE_MAGIC.to_vec();
+    bytes.extend_from_slice(&sequence.to_le_bytes());
+    bytes.extend_from_slice(&crc32fast::hash(&bytes).to_le_bytes());
+    let mut file = File::create(&tmp)?;
+    file.write_all(&bytes)?;
+    file.sync_all()?;
+    drop(file);
+    std::fs::rename(tmp, target)?;
+    #[cfg(unix)]
+    File::open(
+        path.parent()
+            .ok_or_else(|| Error::InvalidInput("WAL has no parent".into()))?,
+    )?
+    .sync_all()?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -333,6 +398,58 @@ mod tests {
         // Re-open after truncate
         let (_wal3, replayed_after_trunc) = Wal::open_or_create(dir.path(), 0, urn).unwrap();
         assert!(replayed_after_trunc.is_empty());
+    }
+
+    #[test]
+    fn floor_publication_before_truncate_survives_restart() {
+        let dir = tempdir().unwrap();
+        let (mut wal, _) = Wal::open_or_create(dir.path(), 0, "vessels.urn:floor").unwrap();
+        for value in [1, 2] {
+            wal.append(&[make_test_record(0, 3, 0, value)]).unwrap();
+        }
+        wal.sync().unwrap();
+        // Crash after the atomic floor publication but before truncation.
+        write_sequence_floor(wal.path(), wal.next_sequence).unwrap();
+        drop(wal);
+        let (mut wal, records) = Wal::open_or_create(dir.path(), 0, "vessels.urn:floor").unwrap();
+        assert_eq!(records.len(), 2);
+        assert_eq!(wal.append(&[make_test_record(0, 3, 0, 3)]).unwrap(), 3);
+    }
+
+    #[test]
+    fn floor_ahead_of_shortened_tail_cannot_create_a_replay_gap() {
+        let dir = tempdir().unwrap();
+        let (mut wal, _) = Wal::open_or_create(dir.path(), 0, "vessels.urn:floor").unwrap();
+        wal.append(&[make_test_record(0, 3, 0, 1)]).unwrap();
+        wal.sync().unwrap();
+        // Durable floor from a completed flush, with only an earlier old frame
+        // left in the WAL after interrupted truncation.
+        write_sequence_floor(wal.path(), 10).unwrap();
+        drop(wal);
+        let (mut wal, records) = Wal::open_or_create(dir.path(), 0, "vessels.urn:floor").unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(wal.append(&[make_test_record(0, 4, 0, 2)]).unwrap(), 10);
+        wal.sync().unwrap();
+        drop(wal);
+        let (_, records) = Wal::open_or_create(dir.path(), 0, "vessels.urn:floor").unwrap();
+        assert_eq!(
+            records.iter().map(|(seq, _)| *seq).collect::<Vec<_>>(),
+            vec![10]
+        );
+    }
+
+    #[test]
+    fn orphan_floor_temp_is_ignored_and_exhaustion_is_explicit() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("0.seq.tmp.abandoned"), b"torn").unwrap();
+        let (mut wal, _) = Wal::open_or_create(dir.path(), 0, "vessels.urn:floor").unwrap();
+        assert_eq!(wal.append(&[make_test_record(0, 3, 0, 1)]).unwrap(), 1);
+        wal.next_sequence = u64::MAX;
+        assert!(matches!(
+            wal.append(&[make_test_record(0, 3, 0, 2)]),
+            Err(Error::Overflow(_))
+        ));
+        assert_eq!(Wal::recover(wal.path()).unwrap().2.len(), 1);
     }
 
     #[test]

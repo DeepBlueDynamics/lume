@@ -139,6 +139,7 @@ fn kill_during_sealed_repair_recovers_wal_and_preserves_authoritative_seal() {
                     dirty: true,
                     has_data: true,
                     dirty_fields: Default::default(),
+                    checkpoints: Default::default(),
                 };
                 staged
                     .seal_to(Path::new(&root), "vessels.urn:repair", 2, 10)

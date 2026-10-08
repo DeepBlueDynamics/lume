@@ -512,6 +512,8 @@ pub struct OpenShard {
     pub has_data: bool,
     /// Fields changed since the last flush. Empty while `dirty` means every field.
     pub dirty_fields: BTreeSet<u32>,
+    /// Highest applied WAL sequence, atomically persisted with each open field.
+    pub checkpoints: BTreeMap<u32, u64>,
 }
 
 /// A field file written to a temporary path; `commit_staged` makes it durable and publishes it.
@@ -560,9 +562,7 @@ pub fn commit_staged(staged: Vec<StagedFile>) -> Result<()> {
     }
     #[cfg(unix)]
     for dir in dirs {
-        if let Ok(dir_file) = File::open(&dir) {
-            let _ = dir_file.sync_all();
-        }
+        File::open(&dir)?.sync_all()?;
     }
     #[cfg(not(unix))]
     let _ = dirs;
@@ -610,6 +610,24 @@ fn encode_field_file(
     Ok(bytes)
 }
 
+/// Consume and validate the optional open-only trailer after decoding the rows.
+/// All disk reads of open fields pass through load_open and this function.
+fn read_open_checkpoint(reader: &mut impl Read) -> Result<Option<u64>> {
+    let mut trailer = Vec::new();
+    reader.take(21).read_to_end(&mut trailer)?;
+    if trailer.is_empty() {
+        return Ok(None);
+    }
+    if trailer.len() != 20
+        || &trailer[..8] != b"LUMECP01"
+        || crc32fast::hash(&trailer[..16])
+            != u32::from_le_bytes(trailer[16..20].try_into().unwrap())
+    {
+        return Err(Error::Corrupt("invalid open-field WAL checkpoint".into()));
+    }
+    Ok(Some(u64::from_le_bytes(trailer[8..16].try_into().unwrap())))
+}
+
 impl OpenShard {
     pub fn new(key: ShardKey) -> Self {
         Self {
@@ -617,6 +635,7 @@ impl OpenShard {
             dirty: false,
             has_data: false,
             dirty_fields: BTreeSet::new(),
+            checkpoints: BTreeMap::new(),
         }
     }
 
@@ -754,13 +773,19 @@ impl OpenShard {
             if !all && !self.dirty_fields.contains(field_id) {
                 continue;
             }
-            let bytes = encode_field_file(
+            let mut bytes = encode_field_file(
                 self.data.key,
                 *field_id,
                 field_data,
                 vessel_urn,
                 width_seconds,
             )?;
+            if let Some(sequence) = self.checkpoints.get(field_id) {
+                let mut trailer = b"LUMECP01".to_vec();
+                trailer.extend_from_slice(&sequence.to_le_bytes());
+                trailer.extend_from_slice(&crc32fast::hash(&trailer).to_le_bytes());
+                bytes.extend_from_slice(&trailer);
+            }
             staged.push(stage_file(&open_dir, *field_id, &bytes)?);
         }
         Ok(staged)
@@ -795,6 +820,7 @@ impl OpenShard {
         };
         let mut data = ShardData::new(key);
         let mut loaded_any = false;
+        let mut checkpoints = BTreeMap::new();
 
         for entry in fs::read_dir(&open_dir)? {
             let entry = entry?;
@@ -871,6 +897,9 @@ impl OpenShard {
                         dict.as_ref(),
                         is_multi,
                     ) {
+                        if let Some(sequence) = read_open_checkpoint(&mut file)? {
+                            checkpoints.insert(field_id, sequence);
+                        }
                         data.fields.insert(field_id, field_data);
                         data.specs.insert(field_id, spec);
                         loaded_any = true;
@@ -885,6 +914,7 @@ impl OpenShard {
                 dirty: false,
                 has_data: true,
                 dirty_fields: BTreeSet::new(),
+                checkpoints,
             }))
         } else {
             Ok(None)

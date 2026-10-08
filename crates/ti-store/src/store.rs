@@ -84,8 +84,8 @@ impl Store {
                                 if let Ok(s_no) =
                                     s_entry.file_name().to_string_lossy().parse::<u32>()
                                 {
-                                    if let Ok(Some(open_shard)) =
-                                        OpenShard::load_open(root, v_ord, s_no, catalog.as_ref())
+                                    if let Some(open_shard) =
+                                        OpenShard::load_open(root, v_ord, s_no, catalog.as_ref())?
                                     {
                                         let key = open_shard.data.key;
                                         let end = i128::from(EPOCH)
@@ -107,6 +107,7 @@ impl Store {
                                         };
                                         restored.data.fields.extend(open_shard.data.fields);
                                         restored.data.specs.extend(open_shard.data.specs);
+                                        restored.checkpoints.extend(open_shard.checkpoints);
                                         restored.has_data = true;
                                         open_shards.insert(key, restored);
                                     }
@@ -166,8 +167,8 @@ impl Store {
                                 if let Ok(s_no) =
                                     s_entry.file_name().to_string_lossy().parse::<u32>()
                                 {
-                                    if let Ok(Some(open_shard)) =
-                                        OpenShard::load_open(root, v_ord, s_no, catalog.as_ref())
+                                    if let Some(open_shard) =
+                                        OpenShard::load_open(root, v_ord, s_no, catalog.as_ref())?
                                     {
                                         let key = open_shard.data.key;
                                         let end = i128::from(EPOCH)
@@ -189,6 +190,7 @@ impl Store {
                                         };
                                         restored.data.fields.extend(open_shard.data.fields);
                                         restored.data.specs.extend(open_shard.data.specs);
+                                        restored.checkpoints.extend(open_shard.checkpoints);
                                         restored.has_data = true;
                                         open_shards.insert(key, restored);
                                     }
@@ -206,13 +208,21 @@ impl Store {
             let (wal, replayed_batches) = Wal::open_or_create(&wal_dir, vessel_ord, &urn)?;
             wals.insert(vessel_ord, wal);
 
-            for (_seq, batch) in replayed_batches {
+            let legacy_groups = legacy_replay_groups(&replayed_batches, &open_shards);
+            for (seq, batch) in replayed_batches {
                 let mut by_shard: BTreeMap<ShardKey, Vec<BucketRecord>> = BTreeMap::new();
                 for rec in batch {
                     let replay_key = ShardKey {
                         vessel: rec.vessel,
                         shard: rec.bucket >> 16,
                     };
+                    if open_shards
+                        .get(&replay_key)
+                        .and_then(|shard| shard.checkpoints.get(&rec.field))
+                        .is_some_and(|covered| seq <= *covered)
+                    {
+                        continue;
+                    }
                     if Self::record_expired(&rec, width_seconds, retention.cutoff)
                         && !retention.active_open.contains(&replay_key)
                     {
@@ -229,6 +239,19 @@ impl Store {
                         entry.insert(Self::restore_open(root, key, catalog.as_ref(), &manifest)?);
                     }
                     let shard = open_shards.get_mut(&key).expect("restored shard");
+                    if shard
+                        .checkpoints
+                        .get(&rec.field)
+                        .is_some_and(|covered| seq <= *covered)
+                    {
+                        continue;
+                    }
+                    let group_key = (key, rec.bucket, rec.field);
+                    if let Some((reset, final_seq)) = legacy_groups.get(&group_key) {
+                        if seq != *final_seq && Some(seq) != *reset {
+                            continue;
+                        }
+                    }
                     shard.register_field(catalog.field(rec.field)?)?;
                     if let FieldValue::SetValue(row_id) = rec.value {
                         shard.register_set_value(
@@ -240,10 +263,11 @@ impl Store {
                     by_shard.entry(key).or_default().push(rec);
                 }
                 for (key, records) in by_shard {
-                    open_shards
-                        .get_mut(&key)
-                        .expect("restored shard")
-                        .apply(&records)?;
+                    let shard = open_shards.get_mut(&key).expect("restored shard");
+                    shard.apply(&records)?;
+                    for record in &records {
+                        shard.checkpoints.insert(record.field, seq);
+                    }
                 }
             }
 
@@ -291,6 +315,7 @@ impl Store {
                 dirty: false,
                 has_data,
                 dirty_fields: Default::default(),
+                checkpoints: Default::default(),
             })
         } else {
             Ok(OpenShard::new(key))
@@ -442,6 +467,8 @@ impl Store {
 
     /// Flush dirty open shards to disk.
     pub fn flush_shards(&mut self) -> Result<()> {
+        // A published checkpoint must never cover WAL bytes that are not durable.
+        self.shutdown()?;
         // Stage every dirty shard first so one sync covers the whole flush.
         let mut staged = Vec::new();
         for (key, shard) in &self.open_shards {
@@ -545,6 +572,46 @@ impl Store {
     }
 }
 
+// Old snapshots contain no transaction boundary. Only their scalar groups are
+// coalesced: retain the most recent reset and the final group, in WAL order.
+// New checkpointed fields and ordered multi-value fields never use this fallback.
+type LegacyGroupKey = (ShardKey, BucketIx, u32);
+fn legacy_replay_groups(
+    batches: &[crate::wal::WalReplayRecord],
+    shards: &BTreeMap<ShardKey, OpenShard>,
+) -> BTreeMap<LegacyGroupKey, (Option<u64>, u64)> {
+    let mut groups = BTreeMap::new();
+    for (sequence, records) in batches {
+        for record in records {
+            let key = ShardKey {
+                vessel: record.vessel,
+                shard: record.bucket >> 16,
+            };
+            let Some(shard) = shards.get(&key) else {
+                continue;
+            };
+            if shard.checkpoints.contains_key(&record.field) {
+                continue;
+            }
+            let scalar = match shard.data.fields.get(&record.field) {
+                Some(crate::row::FieldData::Bsi(_) | crate::row::FieldData::Count(_)) => true,
+                Some(crate::row::FieldData::Set(field)) => !field.is_multi(),
+                _ => false,
+            };
+            if scalar {
+                let group = groups
+                    .entry((key, record.bucket, record.field))
+                    .or_insert((None, *sequence));
+                if record.rewrite {
+                    group.0 = Some(*sequence);
+                }
+                group.1 = *sequence;
+            }
+        }
+    }
+    groups
+}
+
 impl Drop for Store {
     fn drop(&mut self) {
         for wal in self.wals.values_mut() {
@@ -619,9 +686,10 @@ impl ShardSink for Store {
             by_vessel.entry(rec.vessel).or_default().push(rec.clone());
         }
 
+        let mut sequences = BTreeMap::new();
         for (vessel, v_recs) in by_vessel {
             let wal = self.ensure_wal(vessel)?;
-            wal.append(&v_recs)?;
+            sequences.insert(vessel, wal.append(&v_recs)?);
             if wal.needs_sync() {
                 wal.sync()?;
             }
@@ -640,6 +708,11 @@ impl ShardSink for Store {
         for (key, shard_recs) in by_shard {
             let shard = self.open_shards.get_mut(&key).unwrap();
             shard.apply(&shard_recs)?;
+            for record in &shard_recs {
+                shard
+                    .checkpoints
+                    .insert(record.field, sequences[&key.vessel]);
+            }
         }
 
         Ok(())
