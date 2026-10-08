@@ -143,7 +143,9 @@ if [ "$DRY_RUN" = true ]; then
     echo
     echo "--- Remote Commands ---"
     run_remote "sudo -n mkdir -p ${REMOTE_DEST}"
-    run_remote "sudo -n cp -r ${REMOTE_STAGE}/* ${REMOTE_DEST}/"
+    # The running binary cannot be overwritten in place (ETXTBSY): install it as lume.new,
+    # keep the old one as lume.prev, then rename over it.
+    run_remote "sudo -n mkdir -p ${REMOTE_DEST}/bin/linux-arm64 && if [ -f ${REMOTE_STAGE}/bin/linux-arm64/lume ]; then sudo -n mv ${REMOTE_STAGE}/bin/linux-arm64/lume ${REMOTE_DEST}/bin/linux-arm64/lume.new; fi && sudo -n cp -r ${REMOTE_STAGE}/* ${REMOTE_DEST}/ && if [ -f ${REMOTE_DEST}/bin/linux-arm64/lume.new ]; then if [ -f ${REMOTE_DEST}/bin/linux-arm64/lume ]; then sudo -n cp -p ${REMOTE_DEST}/bin/linux-arm64/lume ${REMOTE_DEST}/bin/linux-arm64/lume.prev; fi; sudo -n mv -f ${REMOTE_DEST}/bin/linux-arm64/lume.new ${REMOTE_DEST}/bin/linux-arm64/lume; fi"
     run_remote "sudo -n chmod 755 ${REMOTE_DEST}/bin/linux-arm64/lume 2>/dev/null || true"
     run_remote "sudo -n chown -R 1000:1000 ${REMOTE_DEST}"
     run_remote "rm -rf ${REMOTE_STAGE}"
@@ -183,7 +185,9 @@ fi
 
 echo "Installing files into ${REMOTE_DEST}..."
 run_remote "sudo -n mkdir -p ${REMOTE_DEST}"
-run_remote "sudo -n cp -r ${REMOTE_STAGE}/* ${REMOTE_DEST}/"
+# The running binary cannot be overwritten in place (ETXTBSY): install it as lume.new,
+# keep the old one as lume.prev, then rename over it.
+run_remote "sudo -n mkdir -p ${REMOTE_DEST}/bin/linux-arm64 && if [ -f ${REMOTE_STAGE}/bin/linux-arm64/lume ]; then sudo -n mv ${REMOTE_STAGE}/bin/linux-arm64/lume ${REMOTE_DEST}/bin/linux-arm64/lume.new; fi && sudo -n cp -r ${REMOTE_STAGE}/* ${REMOTE_DEST}/ && if [ -f ${REMOTE_DEST}/bin/linux-arm64/lume.new ]; then if [ -f ${REMOTE_DEST}/bin/linux-arm64/lume ]; then sudo -n cp -p ${REMOTE_DEST}/bin/linux-arm64/lume ${REMOTE_DEST}/bin/linux-arm64/lume.prev; fi; sudo -n mv -f ${REMOTE_DEST}/bin/linux-arm64/lume.new ${REMOTE_DEST}/bin/linux-arm64/lume; fi"
 run_remote "sudo -n chmod 755 ${REMOTE_DEST}/bin/linux-arm64/lume 2>/dev/null || true"
 run_remote "sudo -n chown -R 1000:1000 ${REMOTE_DEST}"
 run_remote "rm -rf ${REMOTE_STAGE}"
