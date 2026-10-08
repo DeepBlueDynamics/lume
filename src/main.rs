@@ -75,6 +75,13 @@ fn lume_main() {
         }
         #[cfg(feature = "ti")]
         "ti" => {
+            if args.len() >= 3 && args[2] == "otlp" {
+                if let Err(e) = lume::ti_otlp::run(&args[3..]) {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+                return;
+            }
             if args.len() >= 3 && args[2] == "ingest" {
                 if let Err(e) = handle_ti_ingest(&args[3..]) {
                     eprintln!("Error: {e}");
@@ -204,6 +211,15 @@ fn lume_main() {
                     eprintln!("--docs-index requires an index path"); std::process::exit(2);
                 })
             });
+            if args.iter().any(|a| a == "--otlp") && ti_store.is_none() {
+                eprintln!("--otlp requires --ti-store");
+                std::process::exit(2);
+            }
+            if args.iter().any(|a| a == "--otlp-token-file") && !args.iter().any(|a| a == "--otlp")
+            {
+                eprintln!("--otlp-token-file requires --otlp");
+                std::process::exit(2);
+            }
             if docs_index.is_some() && ti_store.is_none() {
                 eprintln!("--docs-index requires --ti-store"); std::process::exit(2);
             }
@@ -273,6 +289,28 @@ fn lume_main() {
             };
             #[cfg(feature = "ti")]
             let result=match ti_store{
+                Some(root) if args.iter().any(|a| a == "--otlp") => (|| {
+                    let token = lume::ti_otlp::token(&args)?;
+                    let address = bind.unwrap_or("127.0.0.1");
+                    lume::ti_otlp::validate_bind(address, &token)?;
+                    let mut server =
+                        lume::ti_http::TiServer::open_with_width(Path::new(root), Some(10))?
+                            .with_otlp(token)?;
+                    if let Some(path) = docs_index {
+                        server = server.with_docs_index(path)?;
+                    }
+                    if let Some(path) = pg_auth_config {
+                        server = server.with_pg_auth_config(path)?;
+                    }
+                    lume::agent::serve_with_ti_server_pg_options(
+                        port,
+                        std::sync::Arc::new(server),
+                        address,
+                        pg,
+                        pg_bind,
+                        &pg_options,
+                    )
+                })(),
                 Some(root)=>lume::agent::serve_with_ti_pg_tls_config(port,std::path::Path::new(root),bind.unwrap_or("127.0.0.1"),pg,pg_bind,pg_auth_config,docs_index,&pg_options),
                 None=>lume::agent::serve_on(port,bind.unwrap_or("0.0.0.0")),
             };
@@ -364,7 +402,7 @@ fn lume_main() {
 #[cfg(feature = "ti")]
 fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
     if args.iter().any(|a| a == "-h" || a == "--help") {
-        println!("Usage: lume ti ingest --signalk <url> --store <root> [--config <path>] [--token <file|token>] [--serve] [--bind <IP>] [--port <port>] [--pg <port>] [--pg-bind <IP>] [--pg-auth-config <path>] [--pg-tls-cert <path>] [--pg-tls-key <path>] [--pg-require-tls[=<bool>]] [--pg-allow-plaintext] [--docs-index <index>] [--self-urn <urn>]");
+        println!("Usage: lume ti ingest --signalk <url> --store <root> [--config <path>] [--token <file|token>] [--serve] [--bind <IP>] [--port <port>] [--pg <port>] [--pg-bind <IP>] [--pg-auth-config <path>] [--pg-tls-cert <path>] [--pg-tls-key <path>] [--pg-require-tls[=<bool>]] [--pg-allow-plaintext] [--docs-index <index>] [--self-urn <urn>] [--otlp] [--otlp-token-file <path>]");
         println!("--pg-bind defaults to --bind; HTTP bind is independent. --pg-auth-config replaces store auth without merging; other sections are ignored. Unix file must be private (chmod 600).");
         return Ok(());
     }
@@ -415,6 +453,13 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
             "--self-urn" => {
                 let val = args.get(i + 1).ok_or("--self-urn requires a URN")?;
                 self_urn = Some(val.clone());
+                i += 2;
+            }
+            "--otlp" => {
+                i += 1;
+            }
+            "--otlp-token-file" => {
+                args.get(i + 1).ok_or("--otlp-token-file requires a path")?;
                 i += 2;
             }
             "--serve" => {
@@ -480,6 +525,13 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
         }
     }
 
+    if args
+        .iter()
+        .any(|a| a == "--otlp" || a == "--otlp-token-file")
+        && !serve
+    {
+        return Err("--otlp and --otlp-token-file require --serve".into());
+    }
     if docs_index.is_some() && !serve { return Err("--docs-index requires --serve".into()); }
     if pg.is_some() && !serve { return Err("--pg requires --serve".into()); }
     if pg.is_none() && (pg_bind.is_some() || pg_auth_config.is_some()) {
@@ -534,6 +586,13 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
         let width = service.config.width_seconds;
         match lume::ti_http::TiServer::open_with_width(&store_path, Some(width)) {
             Ok(server) => {
+                let server = if args.iter().any(|a| a == "--otlp") {
+                    let token = lume::ti_otlp::token(args)?;
+                    lume::ti_otlp::validate_bind(&serve_bind, &token)?;
+                    server.with_otlp(token)?
+                } else {
+                    server
+                };
                 let server = if let Some(path) = &docs_index {
                     server.with_docs_index(Path::new(path))?
                 } else { server };
@@ -2597,6 +2656,8 @@ OPTIONS:
   -p, --port <PORT>      Port to bind the HTTP server to [default: 5863 — "LUME" on a phone keypad]
   --ti-store <ROOT>     Open one shared TI engine for /ti and MCP (requires feature ti)
   --docs-index <INDEX>  Add sections/entities tables; reload on index publication
+  --otlp               Enable OTLP HTTP/JSON /v1/metrics and /v1/logs (requires --ti-store)
+  --otlp-token-file <PATH> Read optional bearer at startup; required off loopback
   --pg <PORT>          Enable read-only Postgres; requires --ti-store [off by default]
   --pg-bind <IP>       Postgres bind only [defaults to --bind]
   --pg-auth-config <PATH>  Private ti.toml: auth replaces store auth, no merging;

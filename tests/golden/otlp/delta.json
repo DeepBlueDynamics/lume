@@ -1,0 +1,89 @@
+{
+  "resourceMetrics": [
+    {
+      "resource": {
+        "attributes": [
+          {
+            "key": "service.instance.id",
+            "value": {
+              "stringValue": "delta"
+            }
+          }
+        ]
+      },
+      "scopeMetrics": [
+        {
+          "metrics": [
+            {
+              "name": "claude_code.token.usage",
+              "unit": "{token}",
+              "sum": {
+                "isMonotonic": true,
+                "aggregationTemporality": 1,
+                "dataPoints": [
+                  {
+                    "timeUnixNano": "1577836811000000000",
+                    "startTimeUnixNano": "1577836800000000000",
+                    "asInt": "0",
+                    "attributes": [
+                      {
+                        "key": "type",
+                        "value": {
+                          "stringValue": "input"
+                        }
+                      },
+                      {
+                        "key": "model",
+                        "value": {
+                          "stringValue": "claude-sonnet"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "timeUnixNano": "1577836821000000000",
+                    "startTimeUnixNano": "1577836800000000000",
+                    "asInt": "10",
+                    "attributes": [
+                      {
+                        "key": "type",
+                        "value": {
+                          "stringValue": "input"
+                        }
+                      },
+                      {
+                        "key": "model",
+                        "value": {
+                          "stringValue": "claude-sonnet"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "timeUnixNano": "1577836822000000000",
+                    "startTimeUnixNano": "1577836800000000000",
+                    "asInt": "20",
+                    "attributes": [
+                      {
+                        "key": "type",
+                        "value": {
+                          "stringValue": "input"
+                        }
+                      },
+                      {
+                        "key": "model",
+                        "value": {
+                          "stringValue": "claude-sonnet"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

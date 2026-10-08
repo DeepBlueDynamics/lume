@@ -39,6 +39,7 @@ struct RetryState {
 
 pub struct WatermarkBucketer {
     width_seconds: u64,
+    retain_numeric_snapshots: bool,
     store_name: String,
     store_aggs: BTreeMap<String, Vec<String>>,
     paths: Option<Vec<String>>,
@@ -64,6 +65,7 @@ impl WatermarkBucketer {
     pub fn new(config: &TiConfig) -> Self {
         Self {
             width_seconds: config.width_seconds,
+            retain_numeric_snapshots: false,
             store_name: "default".into(),
             store_aggs: BTreeMap::new(),
             paths: None,
@@ -89,6 +91,7 @@ impl WatermarkBucketer {
         let width_seconds = store.width_seconds()?;
         Ok(Self {
             width_seconds,
+            retain_numeric_snapshots: false,
             store_name: name.to_string(),
             store_aggs: store.aggs.clone(),
             paths: store.paths.clone(),
@@ -108,6 +111,12 @@ impl WatermarkBucketer {
             window_charged: BTreeMap::new(),
             retained_bytes: 0,
         })
+    }
+
+    /// Retain the latest 128 closed snapshots for exporters that flush several times
+    /// within one bucket. Late writes outside this repair cache are explicitly rejected.
+    pub fn retain_numeric_snapshots(&mut self) {
+        self.retain_numeric_snapshots = true;
     }
 
     /// Install or detach the rule evaluator without introducing a SQL dependency.
@@ -278,7 +287,7 @@ impl WatermarkBucketer {
             .retained_bytes
             .saturating_sub(self.window_bytes.remove(&key).unwrap_or(0));
         self.window_charged.remove(&key);
-        if !window.event_counts.is_empty() {
+        if self.retain_numeric_snapshots || !window.event_counts.is_empty() {
             Self::remember_event_window(
                 &mut self.closed_event_windows,
                 &mut self.closed_event_buckets,

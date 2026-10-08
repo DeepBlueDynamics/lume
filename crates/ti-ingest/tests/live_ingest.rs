@@ -30,6 +30,7 @@ fn test_live_ingest_service_stream_seal_and_replay() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let local_port = listener.local_addr().unwrap().port();
 
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
     let server_handle = thread::spawn(move || {
         let (stream, _) = listener.accept().unwrap();
         let mut ws = tungstenite::accept(stream).unwrap();
@@ -39,6 +40,7 @@ fn test_live_ingest_service_stream_seal_and_replay() {
         assert!(msg1.is_text());
         let msg2 = ws.read().unwrap();
         assert!(msg2.is_text());
+        ready_tx.send(()).unwrap();
 
         // Send hello frame with self URN
         let hello = serde_json::json!({
@@ -123,15 +125,38 @@ fn test_live_ingest_service_stream_seal_and_replay() {
     // 3. Run IngestService in a thread
     let service_handle = thread::spawn(move || service.run());
 
-    // Let service process Delta 1 and Delta 2
-    thread::sleep(Duration::from_millis(200));
+    // Initialization on a Windows bind mount can exceed the old 600 ms total
+    // lifetime. Start the test clock only after the subscription handshake.
+    ready_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    let status = || {
+        std::fs::read(store_root.join("ingest_status.json"))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+    };
+    // Consume every event before jumping the clock: otherwise the 300 s skew
+    // guard correctly moves early events into the later receive-time shard.
+    let started = std::time::Instant::now();
+    while started.elapsed() < Duration::from_secs(10) {
+        clock_time.store(
+            1578492000 + started.elapsed().as_secs() as i64,
+            Ordering::Relaxed,
+        );
+        if status().is_some_and(|s| s["records_ingested"].as_u64().unwrap_or(0) >= 3) {
+            break;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    let stamp = status().map(|s| s["updated_at"].clone());
 
-    // Advance injected clock past shard 0 end + 1 hour (shard 0 ends at 1578492160)
-    // 1578492160 + 3601 = 1578495761
+    // Advance past shard 0 end + 1 hour; status is written after seal maintenance.
     clock_time.store(1578495761, Ordering::Relaxed);
-
-    // Wait for maintenance tick in service to seal shard 0
-    thread::sleep(Duration::from_millis(400));
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while std::time::Instant::now() < deadline {
+        if status().is_some_and(|s| Some(s["updated_at"].clone()) != stamp) {
+            break;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
 
     // 4. Request clean shutdown
     running.store(false, Ordering::Relaxed);

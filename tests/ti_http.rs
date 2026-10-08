@@ -197,6 +197,13 @@ impl Server {
             std::fs::write(dir.join("manual.md"), "## Bilge manual\n\nA bilge pump original procedure. Inspect the inlet, strainer, float switch and discharge hose. Test operation and keep the boat safe before departure.\n").unwrap();
             rebuild_manual(&root);
         }
+        // Snapshot tests deliberately rename the live catalog. Do not race that
+        // operation against the optional startup warm-up's Windows file handles.
+        let config_path = store_root.join("ti.toml");
+        let mut config =
+            std::fs::read_to_string(&config_path).unwrap_or_else(|_| "width_seconds=10\n".into());
+        config.push_str("\n[query]\nwarm_on_open=false\n");
+        std::fs::write(config_path, config).unwrap();
         let mut command = Command::new(env!("CARGO_BIN_EXE_lume"));
         command
             .args(["serve", "--port", "0", "--ti-store"])

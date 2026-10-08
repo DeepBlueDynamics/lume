@@ -1,0 +1,67 @@
+{
+  "resourceLogs": [
+    {
+      "resource": {
+        "attributes": [
+          {
+            "key": "pane",
+            "value": {
+              "stringValue": "pane-123"
+            }
+          },
+          {
+            "key": "service.name",
+            "value": {
+              "stringValue": "claude-code"
+            }
+          }
+        ]
+      },
+      "scopeLogs": [
+        {
+          "logRecords": [
+            {
+              "timeUnixNano": "1577836811000000000",
+              "eventName": "file.edit",
+              "body": {
+                "stringValue": "edited service.rs"
+              },
+              "attributes": [
+                {
+                  "key": "file.path",
+                  "value": {
+                    "stringValue": "src/service.rs"
+                  }
+                },
+                {
+                  "key": "op",
+                  "value": {
+                    "stringValue": "edit"
+                  }
+                },
+                {
+                  "key": "tool",
+                  "value": {
+                    "stringValue": "nuts_edit"
+                  }
+                },
+                {
+                  "key": "lines.added",
+                  "value": {
+                    "intValue": "4"
+                  }
+                },
+                {
+                  "key": "lines.removed",
+                  "value": {
+                    "intValue": "2"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
