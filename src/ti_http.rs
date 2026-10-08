@@ -45,6 +45,7 @@ pub struct TiServer {
     sync_token: Option<String>,
     otlp: Option<Mutex<ti_ingest::otlp::AgentStore>>,
     otlp_token: Option<String>,
+    otlp_only: bool,
     docs_index: Option<Mutex<crate::ti_docs_index::DocsIndex>>,
     docs_reload: Mutex<()>,
     query_limits: RwLock<ti_contracts::QueryLimits>,
@@ -124,6 +125,7 @@ impl TiServer {
             sync_token,
             otlp: None,
             otlp_token: None,
+            otlp_only: false,
             docs_index: None,
             docs_reload: Mutex::new(()),
             query_limits: RwLock::new(query_limits),
@@ -173,6 +175,17 @@ impl TiServer {
         self.otlp_token = token;
         self.force_reload_engine()?;
         Ok(self)
+    }
+
+    /// Standalone exporter listener: no TI query or MCP surfaces share this port.
+    pub fn with_otlp_only(self, token: Option<String>) -> Result<Self, String> {
+        let mut server = self.with_otlp(token)?;
+        server.otlp_only = true;
+        Ok(server)
+    }
+
+    pub(crate) fn otlp_only(&self) -> bool {
+        self.otlp_only
     }
 
     /// Register an ordinary index; an absent index starts with an empty sections table.

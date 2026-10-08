@@ -120,6 +120,8 @@ lume serve --port 8080
 
 This exposes `lume_index`, `lume_search`, `lume_generate` and `lume_not_found` as MCP tools over HTTP. Search runs in-process through the `lume::search` library API. Built with `--features ti`, `lume serve --ti-store <store>` adds the [Lume TI](#lume-ti-telemetry-index) tools, OTLP ingestion (`--otlp`), and PostgreSQL wire access (`--pg`).
 
+Plain `lume serve` defaults to `0.0.0.0` and exposes unauthenticated MCP tools, including indexing. Use `--bind 127.0.0.1` for local access. TI serving defaults to loopback; an explicit non-loopback bind exposes unauthenticated `/ti` and MCP on a trusted LAN and prints a startup warning. The OTLP bearer protects ingestion routes only on a shared server; it does not authenticate TI or MCP. Standalone `lume ti otlp` exposes only its two ingestion endpoints.
+
 ### Text generation
 
 `lume generate` synthesizes text in the corpus's style with a trigram Markov chain. It steers the chain toward concept tags (`--steer "revenge,castle"`) or, with an embedding endpoint, toward a target vector, using GTR-T5 inversion to hill-climb candidates.
@@ -256,7 +258,7 @@ lume ti status --store <store>
 lume ti import-docs <docs_dir> --store <store>
 lume ti verify --store <store> --corpus tests/golden
 
-# Standalone OTLP receiver (HTTP/JSON on default port 4318)
+# Standalone OTLP-only receiver (POST /v1/metrics and /v1/logs; all other routes return 404)
 lume ti otlp --store <store> [--bind 127.0.0.1] [--port 4318] [--otlp-token-file <path>]
 
 # MCP tools, /ti HTTP endpoints, OTLP receiver and PostgreSQL wire access
@@ -279,7 +281,8 @@ With `--pg <port>`, it exposes read-only PostgreSQL protocol access (pgwire) for
 
 ### Agent telemetry & Grafana dashboards
 
-Lume TI includes an OpenTelemetry Protocol (OTLP) HTTP/JSON receiver (`POST /v1/metrics`, `POST /v1/logs`, D50) to ingest telemetry from coding agents (Claude Code, Codex CLI, Gemini CLI):
+Lume TI includes an OpenTelemetry Protocol (OTLP) HTTP/JSON receiver (`POST /v1/metrics`, `POST /v1/logs`, D50) to ingest telemetry from coding agents (Claude Code, Codex CLI, Gemini CLI). Standalone `lume ti otlp` exposes only these two POST endpoints; `/ti`, MCP, SSE and all other routes return 404. A non-loopback standalone listener requires `--otlp-token-file`. Query its store using a separate loopback TI server or the local CLI:
+
 - **Metrics** populate `telemetry_agents` in `<store>/stores/agents`. Monotonic sums (token counts) compute running totals per entity and dimensional attribute path (`claude_code.token.usage.input.model.<model>@last`), with counter totals persisted across restarts (`otlp-counters.json`). Non-monotonic sums and gauges map to numeric aggregates (`@mean`, `@last`).
 - **Logs** populate `docs` with `kind = 'logbook'`, event names in `title`, and structured attributes in `body`, searchable via `match(body, '...')`.
 - **Grafana dashboard**: `bench/grafana/lume-agents-dashboard.json` connects to the `lume-ti` datasource (pgwire), visualizing:
