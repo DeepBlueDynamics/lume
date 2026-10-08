@@ -1,0 +1,217 @@
+# A15: q6-004 document range join
+
+The Pi benchmark reported 308.53 ms p95 against the 200 ms edge target.
+That is lead-reported; the host was about 65 ms. Native release and Pi acceptance
+remain separate from container debug timing.
+
+The initial Rust 1.96 debug profile over dist/pi-bench/store found that the
+existing CollectLeft hash join already builds from the small matching docs input.
+It nevertheless materializes 257,588 telemetry rows before the vessel/time range
+residual selects 193 joined rows. Warm execution was 605–643 ms, with planning
+about 17–24 ms. The original seven-run total p50 was 631.18 ms and p95 667.03 ms.
+Artifact: .lanes/data/query-cache/q6-004-before.json.
+
+## Native A/B follow-up (lead-reported, 2026-10-08)
+
+The lead ran the full 61-query corpus twice per release binary, alternating
+0430f11 and d6b1304 (0430f11 + A15), on the same owned Pi fixture copy.
+q6-004 p95 improved 63.80 → 3.96 ms. However, qx-011 (telemetry ORDER BY/LIMIT,
+no docs) regressed from 15.52/16.31 to 20.46/21.91 ms p95. This blocks acceptance.
+The earlier PI_QUERY_IDS 26-query selection did not include qx-011/012/013.
+qx-012 had one known last-bit avg() fingerprint difference in four runs;
+qx-013 overlapped baseline timing variance. The 16× join gain does not waive the no-regression gate.
+
+The untouched A15 same-binary Rust 1.96 fat-LTO/CGU1 release profile, 31 warm
+iterations, did not reproduce the 5 ms penalty: pruning disabled/enabled qx-011
+p50 16.24/15.62 ms, p95 19.38/17.66 ms, 10 rows and 250,560 materialized in both.
+Median logical/physical/execute times were 0.492/0.804/14.866 versus
+0.532/0.777/14.211 ms. Physical plans and complete rows matched. Artifact:
+`.test-tmp/qx011-a15-release.json`. This isolates rule execution within one binary;
+it does not invalidate the host's separate-binary result or identify its cause.
+
+The follow-up removes unconditional physical-rule registration. Only frames
+whose logical plan contains both a join and a docs scan get the rule, after the
+bitmap aggregate rule. The shared context retains its original optimizer list;
+ordinary queries return their original frame without rebuilding session state.
+query(), prepare(), and explain() use this same path. Before rebasing, three
+integration tests passed, including an assertion that ORDER BY/LIMIT, telemetry self-joins, and
+docs-only reads have exactly the disabled variant's optimizer names, while a
+docs join installs the rule.
+
+Rebased onto c30f902. Linux Rust 1.96, shipped fat-LTO/CGU1, 256 MiB cache:
+the 61-query same-binary release check passed (662.79 s, seven warm runs).
+60 queries matched exactly across both variants and every warm run; qx-012
+matched after the disclosed 12-significant-digit float normalization only.
+The profiler reports `exact_rows_match` separately so this is not hidden.
+Artifact: `.test-tmp/q6-full-release-fixed.json`.
+
+| Query | p50 disabled → enabled ms | p95 disabled → enabled ms |
+|---|---:|---:|
+| q6-004 | 49.64 → 9.34 | 50.42 → 11.91 |
+| qx-011 | 14.49 → 14.00 | 16.33 → 14.84 |
+| qx-012 | 19.17 → 18.36 | 19.72 → 19.45 |
+| qx-013 | 24.82 → 22.17 | 25.47 → 26.36 |
+
+The union of p50 and p95 (>1.15× AND >2 ms) flagged q2-001, q3-002,
+q6-001, q6-003, q8-004, qx-004, and q8-006. A 31-warm-run repeat, including
+qx-011, passed row comparisons (142.73 s):
+
+| Query | p50 disabled → enabled ms | p95 disabled → enabled ms |
+|---|---:|---:|
+| q2-001 | 60.96 → 60.24 | 82.64 → 72.75 |
+| q3-002 | 1.36 → 1.45 | 1.79 → 2.76 |
+| q6-001 | 24.23 → 24.95 | 28.04 → 37.91 |
+| q6-003 | 26.32 → 22.87 | 32.67 → 26.51 |
+| q8-004 | 15.97 → 15.38 | 19.79 → 16.26 |
+| qx-004 | 57.80 → 60.67 | 66.56 → 67.80 |
+| q8-006 | 12.90 → 13.79 | 14.37 → 17.18 |
+| qx-011 | 14.39 → 14.84 | 16.19 → 16.31 |
+
+Q6-001 and Q8-006 still flag on p95 in this repeat; neither installs the new
+physical rule. They remain unresolved timing flags, not silently waived.
+Qx-011 shows no penalty in either paired release run. The lead will run the separate-executable historical-base/candidate comparison
+natively, alternating all 61 queries and repeating q6-001, q8-006 and qx-011.
+The container standalone build was stopped at the lead's request. Linux
+bind-mount timings do not close the Windows native gate.
+
+## Post-rebase validation
+
+On c30f902 plus this follow-up, Rust 1.96 and CARGO_INCREMENTAL=0:
+
+- `cargo test --locked --features ti -- --skip concurrent_readers_never_observe_a_partial_index`: exit 0; declared fixture tests remain ignored.
+- `cargo test --locked -p ti-sql --test doc_ranges`: 3 passed, exit 0.
+- `cargo clippy --locked -p lume --features ti --all-targets -- -D warnings`: exit 0.
+- Strict `--all-targets` clippy for ti-contracts, ti-core, ti-store, ti-ingest, ti-sql, ti-sync, ti-bench and ti-geo: exit 0.
+- Eight-crate `cargo fmt --check` and the CI root TI-file `rustfmt --check` list: exit 0.
+- Default `cargo build --locked` without TI: exit 0.
+
+Debug/test compilation used local CARGO_PROFILE_DEV_DEBUG=0 and
+CARGO_PROFILE_TEST_DEBUG=0 overrides; release timings used the shipped profile.
+The native host separate-binary no-regression gate remains pending, owned by
+the lead. No container result is presented as its substitute.
+
+## Pruning
+
+A physical optimizer recognizes inner joins with a direct telemetry input,
+an equality on vessel/entity, and conjunctive timestamp lower and upper bounds
+against a materialized memory input. It derives an inclusive, per-vessel union
+of bucket ranges, merges overlaps, prunes impossible shards, and intersects the
+range bitmap before telemetry value reconstruction. The original HashJoinExec
+and filter remain unchanged: duplicate document matches, scores, strict bounds,
+and all residual conditions still run normally.
+
+This does not use document text-cover bitmaps: those are half-open, whereas
+q6-004 explicitly includes ts_end. Off-grid starts round up to the first bucket;
+ends round down. Strict comparisons conservatively retain their endpoints.
+
+The memory-input row cap is 4,096, checked before building ranges. Any NULL range
+disables pruning entirely. Unrecognized joins, outer joins, OR bounds, one-sided
+bounds, computed telemetry inputs, and non-memory inputs remain ordinary plans.
+Memory projections preserve column indices. Residual docs filters and fetch
+limits are ignored for bounds, producing a safe superset without evaluating
+arbitrary predicates during planning.
+
+The diagnostic SqlSession constructor can disable only document range pruning;
+bitmap aggregates and all other optimizer rules remain enabled in both A/B sides.
+
+## Reproduction
+
+First copy the fixture into the lane's `.test-tmp/pi-bench-store`; opening a legacy
+store can migrate its document persistence even for a query. The initial profile
+did migrate the shared fixture; the lead confirmed that migration was intended
+and authorized leaving it in place. Subsequent profiling uses only the owned copy.
+
+From the lane, on the native host with Rust 1.96, set these environment variables
+(PowerShell: use $env:NAME). Use a fresh output filename:
+
+```sh
+CARGO_INCREMENTAL=0
+TI_Q6_STORE=<repo>/.lanes/w4/.test-tmp/pi-bench-store
+TI_Q6_OUTPUT=<repo>/.lanes/data/query-cache/q6-native-paired.json
+TI_Q6_RUNS=7
+# Optional: all 26 benchmark queries, including q6-004
+TI_Q6_ALL=1
+cargo +1.96.0 test --locked --release --features ti --test ti_q6_profile \
+  q6_document_range_join_profile -- --ignored --nocapture
+```
+
+In sh, export the variables before running cargo. Set TMPDIR and
+CARGO_TARGET_TMPDIR to the lane scratch directory as usual. Both sides share the
+same immutable source and lexical document index. Each query/mode starts with
+the decoded bitmap cache cleared, followed by seven warm runs. OS cache is
+uncontrolled. Canonical complete rows must match both sides and every warm run.
+The JSON includes phase times, physical plans, row counts, materialization and
+cache counters, and complete answers; raw JSON stays in .lanes/data.
+
+## Validation
+
+Targeted pushed/residual integration tests pass, covering inclusive and strict
+endpoints, reversed operands/input order, overlapping docs, two vessels, an
+off-grid start and the 65,536-bucket shard boundary. NULL ends, 4,097-row inputs,
+OR/outer/arithmetic/one-sided shapes preserve ordinary execution and rows.
+
+## Same-process lane A/B
+
+Rust 1.96 debug, Pi fixture, 256 MiB cache, seven warm iterations:
+
+| q6-004 metric | Pruning disabled | Pruning enabled |
+|---|---:|---:|
+| Warm total p50 | 640.48 ms | 35.24 ms |
+| Warm total p95 | 660.40 ms | 43.13 ms |
+| Cold total | 14,287.28 ms | 14,282.26 ms |
+| Materialized telemetry rows | 257,588 | 193 |
+| Joined rows | 193 | 193 |
+
+Warm p50 improves 18.17 times. Every complete row matches across both variants
+and all warm runs, and the earlier unchanged-code profile's 193 rows match too.
+The original inclusive hash-join filter remains in both plans. Cold decoding
+still visits the same 13 shards and is unchanged; this is a warm join improvement.
+Artifact: .lanes/data/query-cache/q6-004-paired.json (raw reply not committed).
+
+The owned-copy 26-query debug check passed complete row equality for every query
+and all seven warm iterations (296.80 s). q6-004 materialization is 257,588 → 193;
+its warm p50 is 640.40 → 34.15 ms and p95 720.60 → 43.76 ms.
+Raw output: `.lanes/w4/.test-tmp/q6-26-owned.json`.
+
+| Query | Disabled p50 ms | Enabled p50 ms | >1.15× and >2 ms |
+|---|---:|---:|---|
+| q1-001 | 4.62 | 5.16 | — |
+| q1-002 | 5.44 | 4.26 | — |
+| q1-004 | 5.35 | 5.17 | — |
+| q2-002 | 8.05 | 7.05 | — |
+| q2-003 | 10.55 | 10.01 | — |
+| q2-005 | 15.71 | 15.42 | — |
+| q3-001 | 9.39 | 8.44 | — |
+| q3-002 | 11.14 | 11.05 | — |
+| q3-004 | 8.22 | 6.10 | — |
+| q4-001 | 18.34 | 18.66 | — |
+| q4-002 | 29.95 | 26.24 | — |
+| q4-005 | 22.36 | 22.74 | — |
+| q5-001 | 13.97 | 13.49 | — |
+| q5-002 | 14.81 | 15.07 | — |
+| q6-001 | 27.11 | 33.41 | FLAG |
+| q6-002 | 28.86 | 33.20 | FLAG |
+| q6-003 | 33.80 | 33.48 | — |
+| q6-004 | 640.40 | 34.15 | — |
+| q6-005 | 29.22 | 30.84 | — |
+| q7-001 | 18.11 | 18.68 | — |
+| q7-002 | 15.37 | 16.36 | — |
+| q8-001 | 110.33 | 107.13 | — |
+| q8-002 | 77.47 | 77.17 | — |
+| q8-006 | 80.43 | 80.34 | — |
+| q7-006 | 25.83 | 21.02 | — |
+| q6-006 | 30.49 | 29.71 | — |
+
+Q6-001 and Q6-002 have identical physical plan text before/after and do not use
+the pruning. Their timing flags require repeat/native checks; they are not
+silently accepted as noise. A 21-warm-run repeat on the owned fixture found
+Q6-001 27.86 → 29.43 ms (+1.57 ms) and Q6-002 31.60 → 29.96 ms; neither
+triggers the rule, and all rows match. Artifact: `.test-tmp/q6-repeat-owned.json`.
+Full ti-sql tests, scoped fmt, and the locked root TI test command with the
+approved atomic-reader skip passed. Whole-package and all eight TI crates'
+strict clippy (`--all-targets -- -D warnings`) passed with Rust 1.96. Both CI
+formatting checks passed. The default `cargo +1.96.0 build --locked` passed.
+Target usage remained below 8 GiB (5.9 GiB at the final build). Native release p95,
+the CI regression rule (greater than 1.15 times AND more than 2 ms absolute),
+and the Pi target are pending lead measurements. No native PASS is inferred
+from these debug timings.

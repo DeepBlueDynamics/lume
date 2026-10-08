@@ -18,6 +18,8 @@ When obsolete operations (superseded upserts plus tombstones) exceed 50% of logg
 
 For legacy stores, validate documents.json, make a synced documents.json.bak without overwriting an existing backup, build and sync segment 0, then atomically publish it and sync the directory. Until log publication the legacy snapshot remains authoritative; afterward the log is authoritative. Retain the backup, retire the legacy active JSON only after publication, and retry interrupted finalization safely on subsequent open. Do not keep rewriting a compatibility JSON snapshot. Older Lume binaries cannot safely write a migrated store without explicit restoration from backup.
 
+Opening a legacy store migrates it even through read-only commands (`lume ti query`, `lume ti explain`, or `TiEngine::open`); migration acquires the document writer lock. Copy legacy fixtures into an owned lane before opening them for profiling.
+
 ## Acceptance after approval
 
 - Existing upsert/delete/reconcile, ordering, version and docs-schema tests, plus two-instance/cross-process refresh and writer tests.

@@ -163,6 +163,29 @@ pub struct TelemetryExec {
     report_id: usize,
 }
 impl TelemetryExec {
+    pub(crate) fn prune_document_ranges(&self, predicate: PlannedPredicate) -> Result<Self> {
+        let mut scan = self.clone();
+        scan.keys.retain(|key| predicate.may_match(*key));
+        scan.predicates.push(predicate);
+        scan.properties = Arc::new(PlanProperties::new(
+            EquivalenceProperties::new(scan.schema.clone()),
+            Partitioning::UnknownPartitioning(scan.keys.len().max(1)),
+            EmissionType::Incremental,
+            Boundedness::Bounded,
+        ));
+        let mut reports = scan
+            .reports
+            .lock()
+            .map_err(|_| DataFusionError::Execution("scan report lock poisoned".into()))?;
+        reports[scan.report_id].scanned_shards = scan.keys.len();
+        reports[scan.report_id].filters.push((
+            "document join vessel/time range union".into(),
+            "Exact".into(),
+            "conservative pruning; original inclusive range join retained".into(),
+        ));
+        drop(reports);
+        Ok(scan)
+    }
     fn evaluate_bitmap(&self, key: ShardKey) -> Result<(RoaringBitmap, Vec<u64>)> {
         let mut cols = self.source.eval(key, &Predicate::All).map_err(core_error)?;
         let mut counts = vec![cols.len()];
