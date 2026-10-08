@@ -1,0 +1,5 @@
+{
+  "placeholder": true,
+  "runner": "ubuntu-22.04",
+  "note": "Placeholder baseline; gate reports 'no baseline, recording only' until a real run is committed via update_baseline: true."
+}
