@@ -586,14 +586,28 @@ fn http_error(stream: &mut TcpStream, status: &str) -> std::io::Result<()> {
     )
 }
 
-fn handle_connection(stream: TcpStream, ti: &TiState) -> std::io::Result<()> {
-    handle_connection_with_timeout(stream, ti, HTTP_IO_TIMEOUT)
+fn handle_connection(
+    stream: TcpStream,
+    ti: &TiState,
+    auth: Option<&crate::http_auth::HttpBearer>,
+) -> std::io::Result<()> {
+    handle_connection_with_auth(stream, ti, HTTP_IO_TIMEOUT, auth)
 }
 
+#[cfg(test)]
 fn handle_connection_with_timeout(
+    stream: TcpStream,
+    ti: &TiState,
+    timeout: std::time::Duration,
+) -> std::io::Result<()> {
+    handle_connection_with_auth(stream, ti, timeout, None)
+}
+
+fn handle_connection_with_auth(
     mut stream: TcpStream,
     _ti: &TiState,
     timeout: std::time::Duration,
+    auth: Option<&crate::http_auth::HttpBearer>,
 ) -> std::io::Result<()> {
     stream.set_read_timeout(Some(timeout))?;
     stream.set_write_timeout(Some(timeout))?;
@@ -637,6 +651,16 @@ fn handle_connection_with_timeout(
     let method = parts[0];
     let path = parts[1];
 
+    if let Some(auth) = auth {
+        #[cfg(feature = "ti")]
+        let route_token = _ti.as_ref().and_then(|server| server.route_http_token(path));
+        #[cfg(not(feature = "ti"))]
+        let route_token = None;
+        if !auth.accepts(req_str, route_token) {
+            return http_error(&mut stream, "401 Unauthorized");
+        }
+    }
+
     #[cfg(feature = "ti")]
     if _ti.as_ref().is_some_and(|server| server.otlp_only())
         && !(method == "POST" && matches!(path.split('?').next(), Some("/v1/metrics" | "/v1/logs")))
@@ -647,7 +671,15 @@ fn handle_connection_with_timeout(
 
     #[cfg(feature = "ti")]
     if path.starts_with("/ti/") || path.starts_with("/v1/") {
-        return crate::ti_http::handle(&mut stream,_ti.as_deref(),method,path,req_str,&buffer[header_end+4..bytes_read]);
+        return crate::ti_http::handle_authenticated(
+            &mut stream,
+            _ti.as_deref(),
+            method,
+            path,
+            req_str,
+            &buffer[header_end + 4..bytes_read],
+            auth.is_some(),
+        );
     }
     #[cfg(feature = "ti")]
     let cors=if _ti.is_some(){""}else{"Access-Control-Allow-Origin: *\r\n"};
@@ -786,13 +818,22 @@ const MAX_CONCURRENT_CONNECTIONS: usize = 64;
 pub fn serve(port: u16) -> Result<(), String> {
     serve_on(port,"0.0.0.0")
 }
-pub fn serve_on(port:u16,bind:&str)->Result<(),String>{
-    let bind=bind.parse::<std::net::IpAddr>().map_err(|e|format!("Invalid bind address: {e}"))?;
+pub fn serve_on(port: u16, bind: &str) -> Result<(), String> {
+    serve_on_with_http_auth(port, bind, None)
+}
+pub fn serve_on_with_http_auth(
+    port: u16,
+    bind: &str,
+    auth: Option<crate::http_auth::HttpBearer>,
+) -> Result<(), String> {
+    let bind = bind
+        .parse::<std::net::IpAddr>()
+        .map_err(|e| format!("Invalid bind address: {e}"))?;
     #[cfg(feature = "ti")]
     let ti = None;
     #[cfg(not(feature = "ti"))]
     let ti = ();
-    serve_configured(port,ti,bind)
+    serve_configured(port, ti, bind, auth)
 }
 #[cfg(feature = "ti")]
 pub fn serve_with_ti(port:u16,root:&std::path::Path)->Result<(),String>{
@@ -816,10 +857,39 @@ pub fn serve_with_ti_pg_config(
 #[cfg(feature = "ti")]
 #[allow(clippy::too_many_arguments)]
 pub fn serve_with_ti_pg_tls_config(
-    port: u16, root: &std::path::Path, bind: &str, pg: Option<u16>,
-    pg_bind: Option<&str>, pg_auth_config: Option<&std::path::Path>,
+    port: u16,
+    root: &std::path::Path,
+    bind: &str,
+    pg: Option<u16>,
+    pg_bind: Option<&str>,
+    pg_auth_config: Option<&std::path::Path>,
     docs_index: Option<&std::path::Path>,
     pg_options: &crate::ti_pg::PgOptions,
+) -> Result<(), String> {
+    serve_with_ti_pg_tls_http_config(
+        port,
+        root,
+        bind,
+        pg,
+        pg_bind,
+        pg_auth_config,
+        docs_index,
+        pg_options,
+        None,
+    )
+}
+#[cfg(feature = "ti")]
+#[allow(clippy::too_many_arguments)]
+pub fn serve_with_ti_pg_tls_http_config(
+    port: u16,
+    root: &std::path::Path,
+    bind: &str,
+    pg: Option<u16>,
+    pg_bind: Option<&str>,
+    pg_auth_config: Option<&std::path::Path>,
+    docs_index: Option<&std::path::Path>,
+    pg_options: &crate::ti_pg::PgOptions,
+    auth: Option<crate::http_auth::HttpBearer>,
 ) -> Result<(), String> {
     let mut ti = crate::ti_http::TiServer::open(root)?;
     if let Some(path) = docs_index {
@@ -828,7 +898,15 @@ pub fn serve_with_ti_pg_tls_config(
     if let Some(path) = pg_auth_config {
         ti = ti.with_pg_auth_config(path)?;
     }
-    serve_with_ti_server_pg_options(port, std::sync::Arc::new(ti), bind, pg, pg_bind, pg_options)
+    serve_with_ti_server_pg_http_options(
+        port,
+        std::sync::Arc::new(ti),
+        bind,
+        pg,
+        pg_bind,
+        pg_options,
+        auth,
+    )
 }
 #[cfg(feature = "ti")]
 pub fn serve_with_ti_pg_docs_config(
@@ -866,14 +944,35 @@ pub fn serve_with_ti_server_pg_options(
     pg_bind: Option<&str>,
     pg_options: &crate::ti_pg::PgOptions,
 ) -> Result<(), String> {
-    let http_bind = bind.parse::<std::net::IpAddr>()
+    serve_with_ti_server_pg_http_options(port, ti, bind, pg, pg_bind, pg_options, None)
+}
+#[cfg(feature = "ti")]
+pub fn serve_with_ti_server_pg_http_options(
+    port: u16,
+    ti: std::sync::Arc<crate::ti_http::TiServer>,
+    bind: &str,
+    pg: Option<u16>,
+    pg_bind: Option<&str>,
+    pg_options: &crate::ti_pg::PgOptions,
+    auth: Option<crate::http_auth::HttpBearer>,
+) -> Result<(), String> {
+    let http_bind = bind
+        .parse::<std::net::IpAddr>()
         .map_err(|e| format!("Invalid bind address: {e}"))?;
-    let pg_bind = pg_bind.unwrap_or(bind).parse::<std::net::IpAddr>()
+    let pg_bind = pg_bind
+        .unwrap_or(bind)
+        .parse::<std::net::IpAddr>()
         .map_err(|e| format!("Invalid pg bind address: {e}"))?;
     let _pg = pg
-        .map(|port| crate::ti_pg::start_with_options(ti.clone(), std::net::SocketAddr::new(pg_bind, port), pg_options))
+        .map(|port| {
+            crate::ti_pg::start_with_options(
+                ti.clone(),
+                std::net::SocketAddr::new(pg_bind, port),
+                pg_options,
+            )
+        })
         .transpose()?;
-    serve_configured(port, Some(ti), http_bind)
+    serve_configured(port, Some(ti), http_bind, auth)
 }
 struct ActiveConnection(std::sync::Arc<std::sync::atomic::AtomicUsize>);
 
@@ -887,8 +986,9 @@ fn unauthenticated_http_warning(
     bind: std::net::IpAddr,
     ti_enabled: bool,
     otlp_only: bool,
+    http_authenticated: bool,
 ) -> Option<&'static str> {
-    if bind.is_loopback() || otlp_only {
+    if bind.is_loopback() || otlp_only || http_authenticated {
         None
     } else if ti_enabled {
         Some("WARNING: /ti and MCP are unauthenticated on this non-loopback HTTP listener; use only a trusted LAN or an authenticated proxy.")
@@ -897,7 +997,12 @@ fn unauthenticated_http_warning(
     }
 }
 
-fn serve_configured(port:u16,_ti:TiState,bind:std::net::IpAddr)->Result<(),String>{
+fn serve_configured(
+    port: u16,
+    _ti: TiState,
+    bind: std::net::IpAddr,
+    auth: Option<crate::http_auth::HttpBearer>,
+) -> Result<(), String> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     #[cfg(feature = "ti")]
@@ -907,19 +1012,28 @@ fn serve_configured(port:u16,_ti:TiState,bind:std::net::IpAddr)->Result<(),Strin
     );
     #[cfg(not(feature = "ti"))]
     let (ti_enabled, otlp_only) = (false, false);
-    if let Some(warning) = unauthenticated_http_warning(bind, ti_enabled, otlp_only) {
+    if let Some(warning) = unauthenticated_http_warning(bind, ti_enabled, otlp_only, auth.is_some())
+    {
         eprintln!("{warning}");
     }
-    let address=std::net::SocketAddr::new(bind,port);
-    let listener=TcpListener::bind(address).map_err(|e|format!("Failed to bind to {address}: {e}"))?;
-    println!("Lume MCP HTTP server listening on http://{}",listener.local_addr().map_err(|e|e.to_string())?);
+    let address = std::net::SocketAddr::new(bind, port);
+    let listener =
+        TcpListener::bind(address).map_err(|e| format!("Failed to bind to {address}: {e}"))?;
+    println!(
+        "Lume MCP HTTP server listening on http://{}",
+        listener.local_addr().map_err(|e| e.to_string())?
+    );
 
     let active = Arc::new(AtomicUsize::new(0));
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
-                stream.set_read_timeout(Some(HTTP_IO_TIMEOUT)).map_err(|e| e.to_string())?;
-                stream.set_write_timeout(Some(HTTP_IO_TIMEOUT)).map_err(|e| e.to_string())?;
+                stream
+                    .set_read_timeout(Some(HTTP_IO_TIMEOUT))
+                    .map_err(|e| e.to_string())?;
+                stream
+                    .set_write_timeout(Some(HTTP_IO_TIMEOUT))
+                    .map_err(|e| e.to_string())?;
                 if active.load(Ordering::Acquire) >= MAX_CONCURRENT_CONNECTIONS {
                     let busy = "HTTP/1.1 503 Service Unavailable\r\n\
                                 Retry-After: 1\r\n\
@@ -933,9 +1047,10 @@ fn serve_configured(port:u16,_ti:TiState,bind:std::net::IpAddr)->Result<(),Strin
                 let ti = _ti.clone();
                 #[cfg(not(feature = "ti"))]
                 let ti = ();
+                let auth = auth.clone();
                 std::thread::spawn(move || {
                     let _slot = slot;
-                    if let Err(e) = handle_connection(stream, &ti) {
+                    if let Err(e) = handle_connection(stream, &ti, auth.as_ref()) {
                         eprintln!("Error handling connection: {}", e);
                     }
                 });
@@ -1594,14 +1709,16 @@ mod http_limits_tests {
     fn non_loopback_warning_covers_ti_and_plain_mcp_without_binding() {
         let lan = "192.0.2.1".parse().unwrap();
         let loopback = "127.0.0.1".parse().unwrap();
-        assert!(unauthenticated_http_warning(lan, true, false)
+        assert!(unauthenticated_http_warning(lan, true, false, false)
             .unwrap()
             .contains("/ti and MCP"));
-        assert!(unauthenticated_http_warning(lan, false, false)
+        assert!(unauthenticated_http_warning(lan, false, false, false)
             .unwrap()
             .contains("indexing"));
-        assert!(unauthenticated_http_warning(loopback, true, false).is_none());
-        assert!(unauthenticated_http_warning(lan, true, true).is_none());
+        assert!(unauthenticated_http_warning(loopback, true, false, false).is_none());
+        assert!(unauthenticated_http_warning(lan, true, true, false).is_none());
+        assert!(unauthenticated_http_warning(lan, true, false, true).is_none());
+        assert!(unauthenticated_http_warning(lan, false, false, true).is_none());
     }
 
     #[test]
