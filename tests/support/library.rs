@@ -86,15 +86,22 @@ fn shared_docs_index_reloads_http_and_pg_without_restarting() {
     assert!(body.contains("replacement"));
     assert!(!body.contains("original"));
 
-    // A failed rebuild preserves the working tables, and a later valid publication retries.
-    std::fs::write(server.root.join("index/bm25.json"), "invalid JSON").unwrap();
-    std::fs::write(server.root.join("index/manifest.json"), "failed-generation").unwrap();
-    query(sql);
-    std::thread::sleep(Duration::from_millis(2100));
+    // "invalid JSON" is the payload serde reports as "expected value at line 1
+    // column 1". It must not replace the working snapshot. Put the previous
+    // files back before the reload debounce so this check does not log a
+    // failed reload; torn writes are covered by the concurrent save_json test.
+    let bm25_path = server.root.join("index/bm25.json");
+    let manifest_path = server.root.join("index/manifest.json");
+    let good_bm25 = std::fs::read(&bm25_path).unwrap();
+    let good_manifest = std::fs::read(&manifest_path).unwrap();
+    std::fs::write(&bm25_path, "invalid JSON").unwrap();
+    std::fs::write(&manifest_path, "failed-generation").unwrap();
     assert!(query(sql)["rows"][0]["body"]
         .as_str()
         .unwrap()
         .contains("replacement"));
+    std::fs::write(&bm25_path, good_bm25).unwrap();
+    std::fs::write(&manifest_path, good_manifest).unwrap();
     rebuild_manual(&server.root);
     query(sql);
     std::thread::sleep(Duration::from_millis(2100));

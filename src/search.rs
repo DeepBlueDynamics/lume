@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs::File;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
@@ -167,9 +167,66 @@ pub struct SearchResults {
 }
 
 pub fn save_json<T: Serialize>(path: &Path, val: &T) -> Result<(), String> {
-    let file = File::create(path).map_err(|e| format!("Failed to create file {}: {}", path.display(), e))?;
-    let writer = io::BufWriter::new(file);
-    serde_json::to_writer_pretty(writer, val).map_err(|e| format!("Failed to write JSON to {}: {}", path.display(), e))?;
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let file_name = path.file_name().ok_or_else(|| {
+        format!(
+            "Failed to create file {}: path has no file name",
+            path.display()
+        )
+    })?;
+    let seq = {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    };
+    let mut tmp_name = file_name.to_os_string();
+    tmp_name.push(format!(".{}.{}.tmp", std::process::id(), seq));
+    let tmp_path = parent.join(tmp_name);
+
+    let written = (|| {
+        let file = File::create(&tmp_path).map_err(|e| {
+            format!("Failed to create file {}: {}", tmp_path.display(), e)
+        })?;
+        let mut writer = io::BufWriter::new(file);
+        serde_json::to_writer_pretty(&mut writer, val).map_err(|e| {
+            format!("Failed to write JSON to {}: {}", path.display(), e)
+        })?;
+        writer.flush().map_err(|e| format!("Failed to flush {}: {}", tmp_path.display(), e))?;
+        let file = writer
+            .into_inner()
+            .map_err(|e| format!("Failed to flush {}: {}", tmp_path.display(), e))?;
+        file.sync_all()
+            .map_err(|e| format!("Failed to sync {}: {}", tmp_path.display(), e))?;
+        drop(file);
+        std::fs::rename(&tmp_path, path).map_err(|e| {
+            format!(
+                "Failed to rename {} to {}: {}",
+                tmp_path.display(),
+                path.display(),
+                e
+            )
+        })?;
+        Ok(())
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp_path);
+        return written;
+    }
+
+    // A same-directory rename is atomic. The directory entry itself is durable
+    // only after the parent directory is synced. Windows replaces via rename;
+    // it has no directory fsync.
+    #[cfg(unix)]
+    {
+        let dir = File::open(parent).map_err(|e| {
+            format!("Failed to open directory {}: {}", parent.display(), e)
+        })?;
+        dir.sync_all()
+            .map_err(|e| format!("Failed to sync directory {}: {}", parent.display(), e))?;
+    }
     Ok(())
 }
 
@@ -738,5 +795,77 @@ mod tests {
         let results = search(&index, "treasure", &opts).expect("Lexical search from parts should succeed");
         assert_eq!(results.hits.len(), 1);
         assert_eq!(results.hits[0].title, "Chapter 2");
+    }
+
+    #[test]
+    fn concurrent_readers_never_observe_a_partial_index() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        use std::sync::Arc;
+        use std::thread;
+
+        let dir = std::env::temp_dir().join(format!(
+            "lume-atomic-index-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("bm25.json");
+        let generations = 40u64;
+        save_json(&path, &serde_json::json!({"generation": 0, "sections": 1})).unwrap();
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let errors = Arc::new(AtomicUsize::new(0));
+        let mut readers = Vec::new();
+        for _ in 0..2 {
+            let path = path.clone();
+            let stop = Arc::clone(&stop);
+            let errors = Arc::clone(&errors);
+            readers.push(thread::spawn(move || {
+                while !stop.load(Ordering::Acquire) {
+                    match load_json::<serde_json::Value>(&path) {
+                        Ok(value) => {
+                            let generation = value.get("generation").and_then(|v| v.as_u64());
+                            let sections = value.get("sections").and_then(|v| v.as_u64());
+                            if generation.is_none() || sections != Some(1) {
+                                errors.fetch_add(1, Ordering::Relaxed);
+                            }
+                        }
+                        Err(_) => {
+                            errors.fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
+                }
+            }));
+        }
+
+        for generation in 1..generations {
+            save_json(
+                &path,
+                &serde_json::json!({"generation": generation, "sections": 1}),
+            )
+            .unwrap();
+        }
+        stop.store(true, Ordering::Release);
+        for reader in readers {
+            reader.join().unwrap();
+        }
+
+        let final_doc: serde_json::Value = load_json(&path).unwrap();
+        assert_eq!(final_doc["generation"], generations - 1);
+        assert_eq!(final_doc["sections"], 1);
+        assert_eq!(
+            errors.load(Ordering::Relaxed),
+            0,
+            "a reader observed a partial or unreadable index file"
+        );
+        let names: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(names, vec![std::ffi::OsString::from("bm25.json")]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

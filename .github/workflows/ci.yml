@@ -70,6 +70,9 @@ jobs:
       - name: Strict TI crate clippy
         run: cargo clippy --locked -p ti-contracts -p ti-core -p ti-store -p ti-ingest -p ti-sql -p ti-sync -p ti-bench -p ti-geo --all-targets -- -D warnings
 
+      - name: Strict lume clippy
+        run: cargo clippy --locked -p lume --features ti --all-targets -- -D warnings
+
       - name: Test TI feature
         run: cargo test --locked --features ti
 
