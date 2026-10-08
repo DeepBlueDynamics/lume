@@ -12,7 +12,7 @@ Store (host). ROOT/parquet is the gen output. ROOT/store is what the harness ope
 
 That runs:
   ti-bench gen --root ROOT/parquet --seed 42 --vessels 1 --days 90
-  backfill_store ROOT/parquet/tier=raw ROOT/store
+  TI_OPT_IN=last backfill_store ROOT/parquet/tier=raw ROOT/store
   import_docs ROOT/parquet/docs ROOT/store
 
 Cross-build (host, inside rust:bookworm, /src = this repo, /out mounted):
@@ -46,7 +46,8 @@ ROOT=$2
 export CARGO_INCREMENTAL=0
 cargo run --locked --release -p ti-bench -- gen \
   --root "$ROOT/parquet" --seed 42 --vessels 1 --days 90
-cargo run --locked --release -p ti-ingest --example backfill_store -- \
+# The committed query set reads @last (Q1, Q8); the CI bench gate opts in the same way.
+TI_OPT_IN=last cargo run --locked --release -p ti-ingest --example backfill_store -- \
   "$ROOT/parquet/tier=raw" "$ROOT/store"
 cargo run --locked --release -p ti-ingest --example import_docs -- \
   "$ROOT/parquet/docs" "$ROOT/store"
