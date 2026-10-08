@@ -74,7 +74,23 @@ fn q2_comparison_reads_append_documents_through_real_sql() {
         serde_json::to_vec(&serde_json::json!({"rows":rows})).unwrap(),
     )
     .unwrap();
-    let output = Command::new(if cfg!(windows) { "python" } else { "python3" })
+    // Windows may only have the Store stub as `python`; probe for an interpreter that runs.
+    let Some(python) = [&["python3"][..], &["python"], &["py", "-3"]]
+        .into_iter()
+        .find(|cmd| {
+            Command::new(cmd[0])
+                .args(&cmd[1..])
+                .arg("--version")
+                .output()
+                .is_ok_and(|out| out.status.success())
+        })
+    else {
+        eprintln!("skipping: no working Python interpreter (python3, python or py -3)");
+        std::fs::remove_dir_all(root).unwrap();
+        return;
+    };
+    let output = Command::new(python[0])
+        .args(&python[1..])
         .arg(repository.join("tests/golden/count_paths_q2_compare.py"))
         .arg("--lume-bin")
         .arg(env!("CARGO_BIN_EXE_lume"))
