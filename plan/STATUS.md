@@ -1,14 +1,14 @@
 # Lume TI — Status board
 
-Last updated: **2026-10-08** (docs keeper, after `3633d9a`: **HaLOS container .debs** (`471f810`, `3633d9a`), **Q6 bench PASS** (`5750e1d`, warm p95 78.4 ms), **Ollama HaLOS app** (`724fb0b`, `d7ca3ef`), **Grub published image** (`09f2c4f`), **library search via server** (`a5be3f8`), **plugin TLS options** (`c769d23`), **M6 item 3 report & proposed D48** (`83fcce7`), **M6 item 1 PASSED** (`3024cb9`); earlier at `78c913d`: **M2 item 3 PASSED** on the Pi, **D46 pgwire TLS merged** (`45ae6ff`), release pipeline (`2a456bb`), PR #4 open with CI green; earlier: D45, Pi 20k values/s fixes, D47 flush, M5 items 1 and 2 passed)
+Last updated: **2026-10-08** (docs keeper, after `fa37d06`: **CI dashboard SQL build** (`fa37d06`), **Pi bringup script** (`ee64f93`, `67afe75`), **docs audit** (`6cf1458`), **README & CHANGELOG** (`aaadb1b`, `7422cee`), **atomic index & clippy gate** (`36e57fc`), **agents dashboard** (`b6836a3`, `755562b`), **OTLP persist** (`985008f`), **plugin OTLP** (`c852b6d`, `1b02096`), **OTLP receiver** (`1947f88`), **deploy CI** (`bbb59fc`), **provision-pi** (`207919d`); earlier at `3633d9a`: HaLOS container .debs, Q6 bench PASS, Ollama HaLOS app, Grub image, library search, plugin TLS, M6 items 1-3; earlier: M2 item 3 on Pi, D46 pgwire TLS, release pipeline)
 
-Integration branch `plan/lume-ti` is at `3633d9a`. **PR #4** (`plan/lume-ti` to `main` on public GitHub DeepBlueDynamics/lume) is open, with CI green on all 4 checks. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46 at `8e87a11`; `cargo test --features ti` was 55 at `39c0096` (not recounted since). Plugin `npm test` 39/39 (at `a5be3f8` / `c769d23`) and `cargo test` `ti_http` 8/8 at `e09bb87`.
+Integration branch `plan/lume-ti` is at `fa37d06`. **PR #4** (`plan/lume-ti` to `main` on public GitHub DeepBlueDynamics/lume) is open, with CI green on all checks. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46 at `8e87a11`; `cargo test --features ti` was 55 at `39c0096` (not recounted since). Plugin `npm test` 39/39 (at `a5be3f8` / `c769d23`) and `cargo test` `ti_http` 8/8 at `e09bb87`.
 Workspace members: `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench`, `ti-geo`, `ti-sync`. Signal K plugin: `plugins/signalk-lume-ti/`. Next free decision: **D50** (D49: D48 follow-ups — gap 3 accepted, gap 1 deferred, gap 2 by the user, gap 4 by the lead, gap 5 done) (D48 approved 2026-10-08: GO for the single-boat pilot, NO-GO on shore scale and contention until measured). D45 (binary size) is merged and recorded in [decisions/D45-binary-size.md](decisions/D45-binary-size.md). D46 (pgwire TLS, Option 2) is merged (`45ae6ff`, Artificial Shark, `ti/pg-tls` `66e2bbb`). D47 (open-shard flush) is in [spec/11](spec/11-risks-decisions.md). All measured numbers: [docs/performance-comparisons.md](../docs/performance-comparisons.md).
 Setup and workflow: [SETUP.md](SETUP.md).
 
 ## Handoff (2026-10-08, lead session)
 
-`plan/lume-ti` is at `3633d9a` and pushed. PR #4 is open, with CI green through `7dc7c48`.
+`plan/lume-ti` is at `fa37d06` and pushed. PR #4 is open, with CI green.
 
 **Done since `78c913d`:**
 - **Self-telemetry:** `6e84992`, then its own store and table `telemetry_lume` (`ed02ff4`).
@@ -26,48 +26,68 @@ Setup and workflow: [SETUP.md](SETUP.md).
 - **Ollama HaLOS app:** container app for Ask tab, loopback `127.0.0.1:11434`, 4 GB cap, flash attention + q8 KV (`724fb0b`), `qwen3:1.7b` default (~1 GB) with 4.2 GB arm64 image and SD headroom notes (`d7ca3ef`, `3633d9a`).
 - **Q6 bench passed:** Q6 in native query-class bench, recorded in `bench/results`, warm p95 78.4 ms PASS (`64929b9`, `5750e1d`).
 - **HaLOS container .debs:** Grub and Ollama packaged as arm64 `.deb` packages via `container-packaging-tools` (`marine-grubcrawler-container_0.16.1-1_arm64.deb` 7,452 B, `marine-ollama-container_0.1.0-1_arm64.deb` 7,228 B); build script `scripts/build-halos-debs.sh` outputs to gitignored `dist/halos/` (`471f810`, `3633d9a`).
+- **OTLP agent telemetry receiver & persistence (A1, A4):** loopback OTLP http/json receiver (`1947f88`, D50), `telemetry_agents` table and doc logs; monotonic counter totals persist across restarts via `otlp-counters.json` (`985008f`).
+- **Atomic library index & clippy gate (A5):** atomic index replacement (`search_index.tmp` renamed to `search_index`) and whole-package clippy `-D warnings` on `lume` in CI (`36e57fc`).
+- **Signal K plugin OTLP & Ask tab (B1, B9):** cloud-direct Ask tab via `ollama.com` and `glm-5.3:cloud` with `chatApiKeyFile` (`7aebf7c`); `otlpEnabled` and `otlpTokenFile` settings with supervisor `--otlp` argv forwarding and non-loopback token validation, loopback query server pinned (`eb270dd`, `1b02096`).
+- **Grafana agent telemetry dashboard (B10, B14):** `bench/grafana/lume-agents-dashboard.json` on pgwire (tokens over time by model, cost, sessions per entity, logbook docs search), test suite (`test_agents_dashboard.py`, `test_agents_dashboard_sql.py`), and CI builds `lume` with `--features ti` so live SQL tests run (`b6836a3`, `755562b`, `fa37d06`).
+- **Documentation audit & changelog (B3, B5, B11, B12):** README and CHANGELOG Unreleased sections updated (`aaadb1b`, `7422cee`); stale-statement audit across SETUP, HaLOS, plugin, and performance docs (`6cf1458`).
+- **Pi provisioning & bring-up automation (B4, B6, B7, B8, B13):** `scripts/provision-pi.sh` (`207919d`, `2cc4bbb`), CI deploy tests (`bbb59fc`, `a1a7790`), and `scripts/pi-bringup.sh` single-command orchestrator for provisioning, retiring Ollama, Grub image pull, and gap 4 store sync/bench (`ee64f93`, `67afe75`).
 
 **What runs on the Pi:** the plugin binary is the host cross-built arm64 `lume` at `5aa7fa0` (thin LTO, 16 codegen units, 135 MB, GLIBC_2.35), with `lume.prev` kept for rollback. It includes `telemetry_lume` and the Ask tab failover. Self samples have gone to `telemetry_lume` since 17:45:50Z. The older `lume.urn:host:halos` rows in `telemetry`, up to 17:44:20Z, stay until retention expires them.
 - Grub is installed and healthy at `127.0.0.1:6792`, still on the locally loaded `lite-arm64` image until switched to the published image or `.deb` package.
-- Ollama is installed as a HaLOS container app at `127.0.0.1:11434`; model pulling is in progress.
+- Ollama is retired per B4/B13 to free ~4.2 GB disk; Ask tab uses cloud-direct `glm-5.3:cloud` via `ollama.com`.
 - A fan is fitted: the Pi runs at 62–66 °C with no throttling.
 
 **Next:**
-1. Ollama model pull completion on the Pi, then verify Ask tab queries through loopback.
-2. Rerun the 40k values/s step now that the Pi has a fan.
-3. Rerun pg smoke on the Pi and Grafana Save & Test.
+1. Restore SSH access to the Pi (new host key, deploy key rejected).
+2. Run `scripts/pi-bringup.sh <host> --lume-bin <arm64 lume> --bench-bin <arm64 ti-query-bench> --bench-store dist/pi-bench --debs dist/halos`.
+3. Provide the `ollama.key` file for cloud-direct Ask tab.
+4. Run the gap 2 OpenCPN session.
+5. In parallel: Codex completing A6 contention harness and Grok completing A7 OTLP soak.
 
 **Agents:**
-- Better Platypus = Codex in `.lanes/w4` on `ti/cache-warm`.
-- Compact Echidna = Antigravity in `.lanes/w3`.
+- Better Platypus / Inland Tarantula = Codex in `.lanes/w4` on A6 contention harness (in progress).
+- Burning Gerbil = Grok 4.7 in `.lanes/w5` on A7 OTLP soak (in progress).
+- Compact Echidna / Panicky Parrot = Antigravity in `.lanes/w3`: finished B1–B14, B15 `ti/status-refresh`. Standing by for Pi reachability.
 
-**Waiting on the user:**
-- Maintainer email for the .debs (`kord@deepbluedynamics.com` is a placeholder until the user confirms one).
-- Approve the Signal K access request.
-- Enter the PG password for the pg smoke rerun and Grafana Save & Test.
-- Provide `icon.png`.
+**Waiting on the user and the Pi:**
+- restore SSH (new host key, deploy key rejected);
+- then `scripts/pi-bringup.sh <host> --lume-bin <arm64 lume> --bench-bin <arm64 ti-query-bench> --bench-store dist/pi-bench --debs dist/halos`;
+- the `ollama.key` file;
+- the gap 2 OpenCPN session;
+- Approve the Signal K access request;
+- Enter the PG password for the pg smoke rerun and Grafana Save & Test;
+- Provide `icon.png`;
+- Confirm Maintainer email for the `.deb`s (`kord@deepbluedynamics.com` is currently used).
 
 ## Next phase (approved 2026-10-08)
 
 The plan is [next-phase-2026-10-08.md](next-phase-2026-10-08.md). Pane names are as of the 2026-10-08 Hyperia restart; the lead is Annual Echidna.
 - **Codex (Inland Tarantula, `.lanes/w4`):**
   - **Done:** A1 `ti/otlp`, an OTLP http/json receiver for agent telemetry (Hyperia and n8), recorded as D50, merged as `1947f88`.
-  - **Now:** A4 `ti/otlp-persist` (in progress).
+  - **Done:** A4 `ti/otlp-persist`, merged as `985008f`: OTLP monotonic counter totals survive receiver restarts via `otlp-counters.json` (`stores/agents/`).
+  - **Now:** A6 contention harness (in progress).
 - **Grok 4.7 (Burning Gerbil, `.lanes/w5`, joined 2026-10-08):**
   - **Done:** A2 `ti/pi-bench`, D48 gap 4 (moved over from Codex). It adds the `scripts/cross-arm64.sh ti-query-bench` variant, the `scripts/pi-bench-recipe.sh store` 1-vessel × 90-day seed-42 store, and `ti-query-bench bench --pi`, which writes `bench/results/<date>-pi-<sha>.json`. The run on the Pi waits for Pi access.
   - **Done:** A3 `ti/lint-lib` merged, with the lead fix `e0b6b1d` (clearing strict-clippy errors in the `lume` lib).
-  - **Now:** A5 `ti/index-atomic` (in progress).
+  - **Done:** A5 `ti/index-atomic` plus the lume clippy CI gate, merged as `36e57fc`: atomic library index writes (`search_index.tmp` renamed to `search_index`), and whole-package clippy `-D warnings` enforcement on `lume` in CI.
+  - **Now:** A7 OTLP soak (in progress).
 - **Antigravity (Panicky Parrot, `.lanes/w3`):**
-  - **Done:** B1 `ti/plugin-cloud`, merged as 7aebf7c. The Ask tab defaults to `https://ollama.com` and `glm-5.3:cloud`. The `chatApiKeyFile` key is passed in the child env only.
+  - **Done:** B1 `ti/plugin-cloud`, merged as `7aebf7c`. The Ask tab defaults to `https://ollama.com` and `glm-5.3:cloud`. The `chatApiKeyFile` key is passed in the child env only.
   - **Done:** B2. Both HaLOS `.deb`s were rebuilt with the Maintainer `kord@deepbluedynamics.com` and the auto memory hooks.
-  - **Done:** B3 docs, merged as 0f22550. SETUP §13 covers the Ask tab with ollama.com (the key is written from a hidden prompt, dd318b5), and §14 is an OTLP placeholder.
+  - **Done:** B3 docs, merged as `0f22550`. SETUP §13 covers the Ask tab with ollama.com (the key is written from a hidden prompt, `dd318b5`), and §14 is an OTLP placeholder.
   - **Done:** B4 `ti/pi-deploy`: `scripts/deploy-pi.sh` and `scripts/pi-retire-ollama.sh`, both with `--dry-run`.
-  - **Done:** B5, SETUP §14 OTLP exporter configs for Claude Code, Codex and Gemini, corrected in f56d0f3.
-  - **Done:** B6 `ti/deploy-test`, merged as 2365406. It tests the deploy scripts against a throwaway local sshd container.
-  - **Done:** B7 `ti/provision-pi`, merged as 207919d. `scripts/provision-pi.sh <host> [--dry-run] [--lume-bin P] [--debs DIR] [--with-ollama]` re-provisions a new or reflashed Pi: memcg, a UUID report, the .debs without Ollama, the plugin deploy and the key-file instructions. Lead fix 2cc4bbb: `--lume-bin` always redeploys, and the test runs without a host `dpkg-deb`.
+  - **Done:** B5, SETUP §14 OTLP exporter configs for Claude Code, Codex and Gemini, corrected in `f56d0f3`.
+  - **Done:** B6 `ti/deploy-test`, merged as `2365406`. It tests the deploy scripts against a throwaway local sshd container.
+  - **Done:** B7 `ti/provision-pi`, merged as `207919d`. `scripts/provision-pi.sh <host> [--dry-run] [--lume-bin P] [--debs DIR] [--with-ollama]` re-provisions a new or reflashed Pi: memcg, a UUID report, the .debs without Ollama, the plugin deploy and the key-file instructions. Lead fix `2cc4bbb`: `--lume-bin` always redeploys, and the test runs without a host `dpkg-deb`.
   - **Done:** B8 `ti/ci-deploy-test`, merged as `bbb59fc` / `a1a7790`, running the deploy-script integration test and shellcheck in CI.
   - **Done:** B9 `ti/plugin-otlp`, merged as `eb270dd` / `1b02096`: Signal K plugin OTLP receiver configuration (`otlpEnabled`, `otlpTokenFile`), supervisor argv handling, validation, tests, and pinned loopback query server.
-  - **Now:** B10 `ti/agents-dashboard`: Grafana dashboard (`lume-agents-dashboard.json`) on pgwire for agent telemetry (tokens over time, cost, sessions per entity, logbook docs table with text search), unittest suite, and README import instructions.
+  - **Done:** B10 `ti/agents-dashboard`, merged as `b6836a3` / `755562b`: Grafana dashboard (`lume-agents-dashboard.json`) on pgwire for agent telemetry (tokens over time by model, cost, sessions per entity, logbook docs table with text search), unittest suite (`test_agents_dashboard.py`, `test_agents_dashboard_sql.py`), and README import instructions.
+  - **Done:** B11 `ti/readme-changelog`, merged as `aaadb1b` / `7422cee`: updated top-level README.md and CHANGELOG.md Unreleased section covering TI features, OTLP ingestion, Grafana dashboard, cloud Ask tab, HaLOS .debs, deployment scripts, and plugin updates.
+  - **Done:** B12 `ti/docs-audit`, merged as `6cf1458`: stale-statement audit across SETUP.md, HaLOS container READMEs, plugin README, Grafana README, and performance comparisons.
+  - **Done:** B13 `ti/pi-bringup`, merged as `ee64f93` / `67afe75`: `scripts/pi-bringup.sh <ssh-host>` chaining provisioning, retiring Ollama, Grub image pull, gap 4 store sync/bench, and summary.
+  - **Done:** B14 `ti/ci-dashboard-sql`, merged as `fa37d06`: CI builds `lume` with `--features ti` before running Grafana unittests, and `test_agents_dashboard_sql.py` fails rather than skips when `LUME_BIN` is set but unusable.
+  - **Now:** B15 `ti/status-refresh`: refresh `plan/STATUS.md` "Next phase" and Handoff sections for everything merged through `fa37d06`. Standing by for Pi reachability.
 - **Pi (2026-10-08 07:50Z):** still blocked on its SSH host key (back on DHCP at 192.168.68.61, where it answers as Signal K 2.31.1; its SSH host key changed and the deploy key is rejected, which suggests a reflash. Waiting for the user to restore the key; the Pi steps below wait on it).
 - **Lead:**
   - remove the Ollama container from the Pi, which frees about 4.2 GB (4.5 GB is free now);
@@ -172,6 +192,24 @@ Commit messages, the decisions log and older docs use the former names. Re-check
 
 | Commit | What |
 |---|---|
+| `fa37d06` | **CI dashboard SQL build** (`247cf71`, Compact Echidna / Antigravity): CI builds `lume` with `--features ti` before running Grafana unittests so `test_agents_dashboard_sql.py` runs live; fails when `LUME_BIN` is invalid (B14) |
+| `67afe75`, `ee64f93` | **Pi bringup script** (`958036b`, `447547a`, Compact Echidna / Antigravity): `scripts/pi-bringup.sh` single-command orchestrator (provision Pi, retire Ollama, pull Grub image, gap 4 store sync and bench, system summary); clears partial remote store before `scp -r` (B13) |
+| `6cf1458` | **Docs audit** (`a417646`, Compact Echidna / Antigravity): stale-statement audit across SETUP, HaLOS container READMEs, plugin README, Grafana README, and performance comparisons (B12) |
+| `7422cee`, `aaadb1b` | **README & CHANGELOG** (`53443a6`, Compact Echidna / Antigravity): update README.md and CHANGELOG.md Unreleased section for TI, OTLP ingestion, Grafana dashboard, cloud Ask tab, HaLOS .debs, deployment scripts; fix `otlp-counters.json` and self-telemetry switch (B11) |
+| `36e57fc` | **Atomic index & clippy gate** (`497b0ee`, Grok 4.7 / Burning Gerbil): atomic library index writes (`search_index.tmp` renamed to `search_index`), and whole-package clippy `-D warnings` enforcement on `lume` in CI (A5) |
+| `755562b`, `b6836a3` | **Agents dashboard** (`f5c4135`, `e4d7759`, Compact Echidna / Antigravity): Grafana dashboard `lume-agents-dashboard.json` on pgwire for agent telemetry (tokens over time, cost, sessions per entity, logbook docs search), unittest suite (`test_agents_dashboard.py`, `test_agents_dashboard_sql.py`), and README instructions (B10) |
+| `985008f` | **OTLP counter persistence** (`199b4ae`, Codex / Inland Tarantula): monotonic counter totals survive receiver restarts via `stores/agents/otlp-counters.json` (A4, D50) |
+| `1b02096`, `c852b6d` | **Plugin OTLP settings** (`eb270dd`, Compact Echidna / Antigravity): Signal K plugin `otlpEnabled` / `otlpTokenFile` settings, supervisor `--otlp` argv forwarding and non-loopback validation; query server pinned to loopback (B9) |
+| `e0b6b1d`, `d8d38b1` | **Lint lib** (`a312e75`, Grok 4.7 / Burning Gerbil): clear strict clippy across lume lib, bin and tests (A3) |
+| `a1a7790`, `bbb59fc` | **CI deploy test** (`5513fe9`, Compact Echidna / Antigravity): CI deploy-script integration test and shellcheck run unconditionally (B8) |
+| `1947f88` | **OTLP agent telemetry receiver** (`856524a`, Codex / Inland Tarantula): OTLP http/json receiver on loopback for agent telemetry (Hyperia and n8), `telemetry_agents` table and doc logs (A1, D50) |
+| `2cc4bbb`, `207919d` | **Provision Pi** (`cf57077`, Compact Echidna / Antigravity): `scripts/provision-pi.sh` for new or reflashed HaLOS Pis (memcg, UUID report, container .debs, plugin deploy) (B7) |
+| `2365406` | **Deploy test** (`4dfcfd8`, Compact Echidna / Antigravity): deploy-script integration test against a throwaway local sshd container (B6) |
+| `f51e9d4` | **Pi query bench** (`c9735d4`, Grok 4.7 / Burning Gerbil): arm64 `ti-query-bench` variant, `scripts/pi-bench-recipe.sh store`, and `ti-query-bench bench --pi` (A2, D48 gap 4) |
+| `f56d0f3`, `e4a5b82` | **OTLP docs** (`3d6a2f4`, Compact Echidna / Antigravity): SETUP §14 OTLP receiver and exporter configuration for Claude Code, Codex, and Gemini (B5) |
+| `6bc62d6` | **Pi deploy scripts** (`3ef3824`, Compact Echidna / Antigravity): `scripts/deploy-pi.sh` and `scripts/pi-retire-ollama.sh` (B4) |
+| `dd318b5`, `0f22550` | **Docs cloud Ask tab** (`c7d42cf`, Compact Echidna / Antigravity): SETUP §13 Ask tab with ollama.com, hidden prompt key entry, optional Ollama app (B3) |
+| `7aebf7c` | **Plugin cloud Ask tab & debs** (`ea48cb3`, Compact Echidna / Antigravity): Ask tab cloud-direct with ollama.com and glm-5.3:cloud, rebuilt HaLOS debs with auto memory (B1, B2) |
 | `3633d9a` | deploy: Ollama config.yml and .deb install notes default to qwen3:1.7b like metadata.yaml |
 | `471f810` | **HaLOS container .debs** (`138f974`, Compact Echidna / Antigravity): Grub and Ollama as arm64 HaLOS container .debs via `container-packaging-tools`; package layout matches `marine-questdb-container`; build script `scripts/build-halos-debs.sh` outputs to gitignored `dist/halos/` |
 | `d7ca3ef` | deploy: Ollama app defaults to qwen3:1.7b; README records the 4.2 GB arm64 image and SD headroom |
