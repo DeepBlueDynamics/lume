@@ -202,3 +202,98 @@ console.log(JSON.stringify({
   fs.rmSync(tmpDir, {recursive: true, force: true});
   fs.rmSync(app.tmpDir, {recursive: true, force: true});
 });
+
+test('chatApiKeyFile passes OLLAMA_API_KEY in env only, never in argv', {skip: process.platform === 'win32' && 'fake lume is a shebang script; Windows cannot spawn it'}, async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lume-chat-apikey-'));
+  const recordFile = path.join(tmpDir, 'captured.json');
+  const mockScript = path.join(tmpDir, 'mock_lume.js');
+  fs.writeFileSync(
+    mockScript,
+    `#!/usr/bin/env node
+const fs = require('fs');
+fs.writeFileSync(${JSON.stringify(recordFile)}, JSON.stringify({
+  argv: process.argv.slice(2),
+  apiKey: process.env.OLLAMA_API_KEY || null,
+}));
+console.log(JSON.stringify({answer: "Mock answer", sql: [], tool_calls: []}));
+`
+  );
+  fs.chmodSync(mockScript, 0o755);
+
+  const keyFile = path.join(tmpDir, 'ollama.key');
+  fs.writeFileSync(keyFile, 'sk-ollama-secret-key-12345\n', {mode: 0o600});
+
+  // 1. When chatApiKeyFile is set: env has key, argv does not
+  {
+    const chatManager = new ChatManager({
+      binary: mockScript,
+      dataDir: tmpDir,
+      getOptions: () => ({
+        chatApiKeyFile: keyFile,
+        chatOllamaUrl: 'https://ollama.com',
+        chatModel: 'glm-5.3:cloud',
+      }),
+    });
+
+    const res = await chatManager.ask('test question');
+    assert.equal(res.answer, 'Mock answer');
+
+    const captured = JSON.parse(fs.readFileSync(recordFile, 'utf8'));
+    assert.equal(captured.apiKey, 'sk-ollama-secret-key-12345');
+    // Ensure key is NOT in argv
+    assert.ok(!captured.argv.some(arg => arg.includes('sk-ollama-secret-key-12345')));
+    assert.ok(!captured.argv.includes('--api-key'));
+  }
+
+  // 2. When chatApiKeyFile is unset: env does NOT have OLLAMA_API_KEY
+  {
+    const chatManager = new ChatManager({
+      binary: mockScript,
+      dataDir: tmpDir,
+      getOptions: () => ({
+        chatOllamaUrl: 'https://ollama.com',
+        chatModel: 'glm-5.3:cloud',
+      }),
+    });
+
+    const res = await chatManager.ask('test question without key');
+    assert.equal(res.answer, 'Mock answer');
+
+    const captured = JSON.parse(fs.readFileSync(recordFile, 'utf8'));
+    assert.equal(captured.apiKey, null);
+  }
+
+  // 3. When chatApiKeyFile is unreadable or missing: throws error naming chatApiKeyFile
+  {
+    const missingKeyFile = path.join(tmpDir, 'nonexistent.key');
+    const chatManager = new ChatManager({
+      binary: mockScript,
+      dataDir: tmpDir,
+      getOptions: () => ({
+        chatApiKeyFile: missingKeyFile,
+      }),
+    });
+
+    await assert.rejects(
+      chatManager.ask('question with missing key file'),
+      err => /chatApiKeyFile/.test(err.message) && (/ENOENT/.test(err.message) || /Failed to read/.test(err.message))
+    );
+  }
+
+  fs.rmSync(tmpDir, {recursive: true, force: true});
+});
+
+test('plugin schema defaults reflect ollama.com cloud direct and chatApiKeyFile', () => {
+  const pluginFactory = require('../index');
+  const app = createMockApp();
+  const plugin = pluginFactory(app);
+  const props = plugin.schema().properties;
+
+  assert.equal(props.chatOllamaUrl.default, 'https://ollama.com');
+  assert.equal(props.chatModel.default, 'glm-5.3:cloud');
+  assert.ok(props.chatApiKeyFile, 'chatApiKeyFile setting exists in schema');
+  assert.equal(props.chatApiKeyFile.default, '');
+
+  fs.rmSync(app.tmpDir, {recursive: true, force: true});
+});
+
