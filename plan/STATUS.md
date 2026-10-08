@@ -63,14 +63,14 @@ Setup and workflow: [SETUP.md](SETUP.md).
 - Grub on the published image;
 - running the `f4422f6` build (D52 and D53 migrated; A15 pruning);
 - gap 4: all 8 classes pass at `f4422f6` (Q6 13.35 ms p95, `ffe648a`);
-- gap 2 contention test passed on Signal K (gap p95 max +2.7%, latency ~0%, no drop increase at `f4422f6` / `9334f18`); OpenCPN observation pending from the user;
+- gap 2 contention test passed on Signal K (gap p95 max +2.7%, latency ~0%, no drop increase at `f4422f6` / `9334f18`); user saw no OpenCPN stutter: gap 2 CLOSED;
 - A fan is fitted: the Pi runs at 62–66 °C with no throttling.
 
 **In progress:**
 - gap 2 OpenCPN observation (user observation pending).
 
 **Waiting on the user:**
-- the gap 2 OpenCPN observation.
+- nothing blocking; gap 2 closed (no OpenCPN stutter, user 2026-10-08).
 
 **Agents:**
 - Codex (Inland Tarantula, `.lanes/w4`): A15 (q6-004) merged (`f4422f6`, closing D48 gap 4 at `ffe648a`).
@@ -112,9 +112,9 @@ The plan is [next-phase-2026-10-08.md](next-phase-2026-10-08.md). Pane names are
   - Grub on the published image;
   - running the `f4422f6` build (D52 and D53 migrated; A15 pruning);
   - gap 4: all 8 classes pass at `f4422f6` (Q6 13.35 ms p95, `ffe648a`);
-  - gap 2 contention test passed on Signal K (gap p95 max +2.7%, latency ~0%, no drop increase at `f4422f6` / `9334f18`); OpenCPN observation pending from the user.
+  - gap 2 contention test passed on Signal K (gap p95 max +2.7%, latency ~0%, no drop increase at `f4422f6` / `9334f18`); user saw no OpenCPN stutter: gap 2 CLOSED.
 - **Waiting on the user:**
-  - the gap 2 OpenCPN observation.
+  - nothing blocking; gap 2 closed (no OpenCPN stutter, user 2026-10-08).
 - **Lead:**
   - gap 4 on the Pi measured (`a47ff21`) and closed (`ffe648a`);
   - gap 2 contention test on the Pi measured (`9334f18`);

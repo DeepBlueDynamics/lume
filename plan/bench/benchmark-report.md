@@ -147,7 +147,7 @@ Caveats: the Pi had no fan and was soft-throttling (75–82 °C). A fan has sinc
 
 ## 7. Single-box contention test (gates M6)
 
-**Measured 2026-10-08 on the Pi (`f4422f6`). Signal K criteria pass; the OpenCPN observation is the user's.**
+**PASS, measured 2026-10-08 on the Pi (`f4422f6`). Gap 2 closed: Signal K met every criterion, and the user saw no OpenCPN chart stutter.**
 
 The targets are:
 - Signal K latency +< 10 %;
@@ -167,7 +167,7 @@ The targets are:
 | Signal K timestamp latency p95 change | ≈ 0 % |
 | "Drops" (gaps over 2× the median) | 6.65/s with no load, 6.44/s under load. No stream got worse; these come from the irregular sample-data replay, not from load |
 | Missing under load | 3 one-shot notification/defaults streams that are only sent on subscribe |
-| OpenCPN | *pending the user's pan/zoom report* |
+| OpenCPN | =={green}no chart stutter== (user, panning and zooming through remote desktop). OpenCPN had no data connection configured, so no AIS targets were drawn during the test |
 
 What exists: the 1-hour load run kept the production Signal K, InfluxDB and Lume plugin running on the same Pi. It did not measure their latency, and no OpenCPN pan-and-zoom load was applied.
 
