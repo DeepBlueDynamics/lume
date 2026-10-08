@@ -147,10 +147,27 @@ Caveats: the Pi had no fan and was soft-throttling (75–82 °C). A fan has sinc
 
 ## 7. Single-box contention test (gates M6)
 
-**PENDING.** This test has not been run:
+**Measured 2026-10-08 on the Pi (`f4422f6`). Signal K criteria pass; the OpenCPN observation is the user's.**
+
+The targets are:
 - Signal K latency +< 10 %;
 - no dropped deltas;
 - no OpenCPN stutter, with Q4 and Q8 back to back for 10 min.
+
+**Setup.** The test ran 120 s with no query load, then 600 s of Q4 and Q8 back to back at concurrency 1. Signal K, InfluxDB, Grafana, OpenCPN and the plugin's ingest all kept running. The user panned and zoomed OpenCPN through a remote-desktop view, which adds its own encode load.
+
+**Query load.** The live store only holds days of a different boat's paths, and the committed queries name `batteries.house` and `wind.speedTrue`. So the load ran against the 90-day gap 4 store, served by a second `lume serve` on `127.0.0.1:5873` on the same Pi. Results are in `bench/results/2026-10-08-contention-f4422f6.json`.
+
+| Measure | Result |
+|---|---|
+| Queries | 21,659 queries over 600 s (6 queries, about 3,610 each), with 1 HTTP timeout |
+| Q4 p95 | 6.1, 73.5 and 7.0 ms |
+| Q8 p95 | 54.2, 30.9 and 32.3 ms |
+| Signal K inter-arrival gap p95 change | median +0.26 %, max +2.7 % across 36 streams (=={green}< 10 %==) |
+| Signal K timestamp latency p95 change | ≈ 0 % |
+| "Drops" (gaps over 2× the median) | 6.65/s with no load, 6.44/s under load. No stream got worse; these come from the irregular sample-data replay, not from load |
+| Missing under load | 3 one-shot notification/defaults streams that are only sent on subscribe |
+| OpenCPN | *pending the user's pan/zoom report* |
 
 What exists: the 1-hour load run kept the production Signal K, InfluxDB and Lume plugin running on the same Pi. It did not measure their latency, and no OpenCPN pan-and-zoom load was applied.
 
