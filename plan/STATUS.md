@@ -47,6 +47,25 @@ Setup and workflow: [SETUP.md](SETUP.md).
 - Enter the PG password for the pg smoke rerun and Grafana Save & Test.
 - Provide `icon.png`.
 
+## Next phase (approved 2026-10-08)
+
+The plan is [next-phase-2026-10-08.md](next-phase-2026-10-08.md):
+- **Codex (Better Platypus, `.lanes/w4`):**
+  - `ti/otlp`, an OTLP http/json receiver for agent telemetry (Hyperia and n8), recorded as D50;
+  - then `ti/pi-bench`, D48 gap 4.
+- **Antigravity (Compact Echidna, `.lanes/w3`):**
+  - `ti/plugin-cloud`: the Ask tab calls ollama.com directly with a key file, defaulting to `glm-5.3:cloud`;
+  - then a `.deb` rebuild, which picks up the Maintainer `kord@deepbluedynamics.com` and the auto memory hooks;
+  - then docs.
+- **Lead:**
+  - remove the Ollama container from the Pi, which frees about 4.2 GB (4.5 GB is free now);
+  - deploy the plugin and pull the published Grub image;
+  - run gap 4 on the Pi, and support the user's gap 2 OpenCPN test;
+  - merge.
+- **Pi state:**
+  - memory cgroups are enabled (`cgroup_enable=memory`, with `cmdline.txt.bak-pre-memcg` kept as the backup);
+  - the auto memory caps are Grub 1611 MiB, Ollama 966 MiB and QuestDB 768 MiB.
+
 ## Critical path right now
 
 - **🚢 Deploying to the user's Raspberry Pi 5** (HaLOS Marine RPI, no HAT, Signal K v2.31.1 in a container, Ubuntu 24.04 with glibc 2.39).
