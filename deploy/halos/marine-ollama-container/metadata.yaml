@@ -1,0 +1,31 @@
+name: Ollama
+app_id: ollama
+version: 0.1.0-1
+description: Local language models for the Lume TI Ask tab
+long_description: |
+  Ollama runs language models on the boat. The Signal K Lume TI plugin's Ask tab
+  uses it to answer questions about telemetry and the cruiser library with SQL,
+  fully offline with a small local model.
+
+  After `ollama signin`, the same endpoint also serves Ollama's `:cloud` models
+  whenever the boat has internet, without Lume holding any key.
+
+  It listens on 127.0.0.1:11434 only and has no authentication.
+homepage: https://ollama.com/
+maintainer: DeepBlue Dynamics
+license: MIT
+tags:
+  - role::container-app
+  - field::marine
+  - interface::daemon
+debian_section: net
+architecture: arm64
+depends:
+  - docker.io (>= 20.10) | docker-ce (>= 20.10)
+web_ui:
+  enabled: false
+default_config:
+  OLLAMA_IMAGE: ollama/ollama:latest
+  OLLAMA_MEMORY_LIMIT: 4g
+  OLLAMA_KEEP_ALIVE: 10m
+  OLLAMA_DEFAULT_MODEL: qwen3:4b
