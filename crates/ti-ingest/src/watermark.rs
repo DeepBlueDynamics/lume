@@ -119,6 +119,28 @@ impl WatermarkBucketer {
         self.retain_numeric_snapshots = true;
     }
 
+    /// Restore a counter's last observation so its first post-restart update in the
+    /// same bucket is an explicit rewrite. Full aggregate snapshots remain memory-only.
+    pub(crate) fn restore_counter_observation(
+        &mut self,
+        vessel: VesselOrd,
+        path: &str,
+        ts: i64,
+        value: f64,
+    ) -> Result<()> {
+        let key = (vessel, bucket_of(ts, self.width_seconds)?);
+        let mut window = self.closed_event_windows.remove(&key).unwrap_or_default();
+        window.add_numeric(path, value, 6, "otlp", ts);
+        Self::remember_event_window(
+            &mut self.closed_event_windows,
+            &mut self.closed_event_buckets,
+            key,
+            window,
+        );
+        self.closed_buckets.insert(key);
+        Ok(())
+    }
+
     /// Install or detach the rule evaluator without introducing a SQL dependency.
     pub fn set_closed_bucket_observer(&mut self, observer: Option<Box<dyn ClosedBucketObserver>>) {
         self.closed_observer = observer;

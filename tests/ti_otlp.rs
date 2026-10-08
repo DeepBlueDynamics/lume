@@ -23,11 +23,11 @@ impl Drop for Server {
 }
 impl Server {
     fn start(standalone: bool, enabled: bool, auth: bool) -> Self {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!(
-            "otlp-{}-{}-{}",
+            "otlp-{}-{}",
             std::process::id(),
-            standalone,
-            auth
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&root).unwrap();
         let store = root.join("store");
@@ -64,6 +64,24 @@ impl Server {
         server.url = line.split_whitespace().last().unwrap().to_string();
         assert!(server.url.starts_with("http://127.0.0.1:"), "{line}");
         server
+    }
+    fn restart(&mut self) {
+        self.child.kill().unwrap();
+        self.child.wait().unwrap();
+        self.child = Command::new(env!("CARGO_BIN_EXE_lume"))
+            .args(["ti", "otlp", "--store"])
+            .arg(self.root.join("store"))
+            .args(["--port", "0", "--otlp-token-file"])
+            .arg(self.root.join("token"))
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .unwrap();
+        let mut output = BufReader::new(self.child.stdout.take().unwrap());
+        let mut line = String::new();
+        output.read_line(&mut line).unwrap();
+        self.url = line.split_whitespace().last().unwrap().to_string();
+        assert!(self.url.starts_with("http://127.0.0.1:"), "{line}");
     }
     // The test helper hands ureq's own error back so tests can match status codes.
     #[allow(clippy::result_large_err)]
@@ -232,4 +250,75 @@ fn monotonic_delta_cumulative_reset_and_dimensions_have_correct_window_totals() 
         .into_json::<Value>()
         .unwrap();
     assert!(metadata.to_string().contains("{token}"));
+}
+
+#[test]
+fn monotonic_totals_survive_receiver_and_exporter_restarts() {
+    for (mode, payload, expected) in [
+        ("delta", include_str!("golden/otlp/delta.json"), 30.0),
+        (
+            "cumulative",
+            include_str!("golden/otlp/cumulative.json"),
+            35.0,
+        ),
+    ] {
+        // Split at a bucket boundary: samples within a closed bucket cannot be repaired
+        // after restart because the bounded numeric snapshot cache is memory-only.
+        for split in [1, 3] {
+            let mut server = Server::start(true, true, true);
+            let mut first: Value = serde_json::from_str(payload).unwrap();
+            let mut rest = first.clone();
+            let points = first["resourceMetrics"][0]["scopeMetrics"][0]["metrics"][0]["sum"]
+                ["dataPoints"]
+                .as_array_mut()
+                .unwrap();
+            let remaining = points.split_off(split.min(points.len() - 1));
+            rest["resourceMetrics"][0]["scopeMetrics"][0]["metrics"][0]["sum"]["dataPoints"] =
+                json!(remaining);
+            server
+                .post("/v1/metrics", &first.to_string(), Some("test-otlp-token"))
+                .unwrap();
+            let checkpoint = server.root.join("store/stores/agents/otlp-counters.json");
+            assert!(checkpoint.exists());
+            assert!(!checkpoint.with_extension("json.tmp").exists());
+            server.restart();
+            server
+                .post("/v1/metrics", &rest.to_string(), Some("test-otlp-token"))
+                .unwrap();
+            let sql = format!("SELECT max(\"claude_code.token.usage.input.model.claude-sonnet@last\") - min(\"claude_code.token.usage.input.model.claude-sonnet@last\") AS tokens FROM telemetry_agents WHERE vessel = 'agent.urn:{mode}'");
+            assert_eq!(
+                server.sql(&sql)["rows"][0]["tokens"],
+                expected,
+                "{mode}, split {split}"
+            );
+        }
+    }
+}
+#[test]
+fn corrupt_checkpoint_fails_startup_without_silent_reset() {
+    let server = Server::start(true, true, true);
+    server
+        .post(
+            "/v1/metrics",
+            include_str!("golden/otlp/delta.json"),
+            Some("test-otlp-token"),
+        )
+        .unwrap();
+    let checkpoint = server.root.join("store/stores/agents/otlp-counters.json");
+    std::fs::write(&checkpoint, "{corrupt").unwrap();
+    // The currently running receiver owns the store, so stop it before reopening.
+    let mut server = server;
+    server.child.kill().unwrap();
+    server.child.wait().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_lume"))
+        .args(["ti", "otlp", "--store"])
+        .arg(server.root.join("store"))
+        .args(["--port", "0"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(error.contains("Invalid OTLP counters file"), "{error}");
+    assert!(error.contains("refusing to reset totals"), "{error}");
+    assert_eq!(std::fs::read_to_string(checkpoint).unwrap(), "{corrupt");
 }

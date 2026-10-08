@@ -1,6 +1,6 @@
 //! Hand-written OTLP/HTTP JSON subset. No protobuf runtime or exporter dependency.
 use crate::{normalize::NormalizedValue, WatermarkBucketer};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
@@ -212,13 +212,108 @@ fn metric_path(name: &str, attrs: &[Attribute]) -> String {
     }
     path
 }
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct CounterState {
     total: f64,
     raw: f64,
     start: u64,
     offset: f64,
     end: u64,
+}
+const MAX_COUNTERS: usize = 4096;
+const MAX_CHECKPOINT: u64 = 8 * 1024 * 1024;
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct CounterCheckpoint {
+    version: u32,
+    counters: Vec<CounterEntry>,
+}
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct CounterEntry {
+    entity: String,
+    path: String,
+    state: CounterState,
+}
+fn load_counters(path: &Path) -> Result<BTreeMap<(String, String), CounterState>> {
+    let file = match std::fs::File::open(path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
+        Err(e) => return Err(e.into()),
+    };
+    let corrupt = |reason: String| {
+        invalid(format!(
+            "Invalid OTLP counters file {}: {reason}; refusing to reset totals",
+            path.display()
+        ))
+    };
+    if file.metadata()?.len() > MAX_CHECKPOINT {
+        return Err(corrupt("exceeds 8 MiB".into()));
+    }
+    let checkpoint: CounterCheckpoint =
+        serde_json::from_reader(file).map_err(|e| corrupt(e.to_string()))?;
+    if checkpoint.version != 1 || checkpoint.counters.len() > MAX_COUNTERS {
+        return Err(corrupt(
+            "unsupported version or more than 4096 series".into(),
+        ));
+    }
+    let mut totals = BTreeMap::new();
+    for entry in checkpoint.counters {
+        let state = &entry.state;
+        if !entry.entity.starts_with("agent.urn:")
+            || ti_contracts::validate_entity_urn(&entry.entity).is_err()
+            || entry.path.trim().is_empty()
+            || [state.total, state.raw, state.offset]
+                .iter()
+                .any(|n| !n.is_finite() || *n < 0.0)
+            || state.offset > state.total
+            || ti_contracts::to_fixed(state.total, 6).is_err()
+            || (state.end != 0
+                && ti_contracts::bucket_of((state.end / 1_000_000_000) as i64, 10).is_err())
+            || totals
+                .insert((entry.entity, entry.path), entry.state)
+                .is_some()
+        {
+            return Err(corrupt("invalid or duplicate counter series".into()));
+        }
+    }
+    Ok(totals)
+}
+fn persist_counters(path: &Path, totals: &BTreeMap<(String, String), CounterState>) -> Result<()> {
+    use std::io::Write;
+    let checkpoint = CounterCheckpoint {
+        version: 1,
+        counters: totals
+            .iter()
+            .map(|((entity, path), state)| CounterEntry {
+                entity: entity.clone(),
+                path: path.clone(),
+                state: state.clone(),
+            })
+            .collect(),
+    };
+    let bytes = serde_json::to_vec(&checkpoint).map_err(|e| invalid(e.to_string()))?;
+    if totals.len() > MAX_COUNTERS || bytes.len() as u64 > MAX_CHECKPOINT {
+        return Err(invalid(
+            "OTLP counters checkpoint exceeds its bounded capacity",
+        ));
+    }
+    let temp = path.with_extension("json.tmp");
+    let result = (|| -> Result<()> {
+        let mut file = std::fs::File::create(&temp)?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&temp, path)?;
+        #[cfg(unix)]
+        std::fs::File::open(path.parent().expect("checkpoint has a parent"))?.sync_all()?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    result
 }
 struct CounterPoint {
     temporality: u32,
@@ -284,6 +379,7 @@ pub struct AgentStore {
 impl AgentStore {
     pub fn open(root: &Path) -> Result<Self> {
         let dir = root.join(STORE_DIR);
+        let totals = load_counters(&dir.join("otlp-counters.json"))?;
         let mut config = TiConfig::default();
         config.profiles.opt_in.push("last".into());
         config.path_scales.clear();
@@ -306,13 +402,28 @@ impl AgentStore {
         }
         let mut bucketer = WatermarkBucketer::new(&config);
         bucketer.retain_numeric_snapshots();
+        for ((entity, path), state) in &totals {
+            if state.end != 0 {
+                let vessel = catalog.register_vessel(&ti_contracts::VesselSpec {
+                    urn: entity.clone(),
+                    name: None,
+                    mmsi: None,
+                })?;
+                bucketer.restore_counter_observation(
+                    vessel,
+                    path,
+                    (state.end / 1_000_000_000) as i64,
+                    state.total,
+                )?;
+            }
+        }
         Ok(Self {
             store,
             catalog,
             bucketer,
             config,
             docs_root: root.into(),
-            totals: BTreeMap::new(),
+            totals,
             seen_batches: std::collections::VecDeque::new(),
         })
     }
@@ -415,7 +526,7 @@ impl AgentStore {
         for sample in &mut samples {
             if let Some(point) = &sample.counter {
                 let key = (sample.entity.clone(), sample.path.clone());
-                if !totals.contains_key(&key) && totals.len() >= 4096 {
+                if !totals.contains_key(&key) && totals.len() >= MAX_COUNTERS {
                     return Err(invalid("OTLP counter series limit (4096) reached"));
                 }
                 sample.value = counter_value(totals.entry(key).or_default(), point, sample.value)?;
@@ -453,6 +564,10 @@ impl AgentStore {
         self.bucketer
             .flush_all(&self.config, self.catalog.as_ref(), &mut self.store)?;
         self.store.flush()?;
+        persist_counters(
+            &self.docs_root.join(STORE_DIR).join("otlp-counters.json"),
+            &totals,
+        )?;
         self.totals = totals;
         self.seen_batches.push_back(batch_id);
         if self.seen_batches.len() > 128 {
@@ -549,6 +664,59 @@ mod tests {
         let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.test-tmp");
         std::fs::create_dir_all(&base).unwrap();
         tempfile::tempdir_in(base).unwrap()
+    }
+    #[test]
+    fn checkpoint_validation_and_failed_publish_preserve_previous_state() {
+        let root = root();
+        let path = root.path().join("otlp-counters.json");
+        assert!(load_counters(&path).unwrap().is_empty());
+        let mut totals = BTreeMap::new();
+        totals.insert(
+            ("agent.urn:test".into(), "tokens".into()),
+            CounterState {
+                total: 12.0,
+                raw: 2.0,
+                start: 10,
+                offset: 10.0,
+                end: 1577836820000000000,
+            },
+        );
+        persist_counters(&path, &totals).unwrap();
+        assert_eq!(
+            load_counters(&path)
+                .unwrap()
+                .values()
+                .next()
+                .unwrap()
+                .offset,
+            10.0
+        );
+        let before = std::fs::read(&path).unwrap();
+        std::fs::create_dir(path.with_extension("json.tmp")).unwrap();
+        assert!(persist_counters(&path, &totals).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        std::fs::remove_dir(path.with_extension("json.tmp")).unwrap();
+        let entry = json!({"entity":"agent.urn:test","path":"tokens","state":{"total":12,"raw":2,"start":10,"offset":10,"end":1577836820000000000u64}});
+        for bad in [
+            json!({"version":2,"counters":[]}),
+            json!({"version":1,"counters":[entry.clone(),entry.clone()]}),
+            json!({"version":1,"counters":vec![entry; MAX_COUNTERS + 1]}),
+            json!({"version":1,"counters":[{"entity":"agent.urn:test","path":"tokens","state":{"total":-1,"raw":2,"start":10,"offset":0,"end":20}}]}),
+        ] {
+            std::fs::write(&path, bad.to_string()).unwrap();
+            assert!(load_counters(&path)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("refusing to reset totals"));
+        }
+        let file = std::fs::File::create(&path).unwrap();
+        file.set_len(MAX_CHECKPOINT + 1).unwrap();
+        assert!(load_counters(&path)
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("exceeds 8 MiB"));
     }
     #[test]
     fn identity_precedence_and_integer_encodings() {
