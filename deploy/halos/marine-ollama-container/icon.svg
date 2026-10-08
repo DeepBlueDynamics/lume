@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="ollamaBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="llamaGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#e2e8f0"/>
+    </linearGradient>
+  </defs>
+  <!-- Background Card -->
+  <rect width="128" height="128" rx="28" fill="url(#ollamaBg)"/>
+
+  <!-- Halo Ring / AI Circle -->
+  <circle cx="64" cy="64" r="44" fill="none" stroke="#38bdf8" stroke-width="1.5" stroke-opacity="0.25" stroke-dasharray="4 4"/>
+
+  <!-- Stylized Ollama Llama Silhouette -->
+  <!-- Ears -->
+  <path d="M 50 32 C 48 24 54 22 56 28 L 58 38 Z" fill="url(#llamaGrad)"/>
+  <path d="M 72 32 C 70 24 76 22 78 28 L 76 38 Z" fill="url(#llamaGrad)"/>
+
+  <!-- Head & Neck -->
+  <path d="M 52 38 
+           C 52 34 76 34 76 38 
+           C 80 44 82 52 80 58 
+           C 78 64 74 68 74 74
+           L 74 96 
+           C 74 99 71 102 68 102
+           L 60 102
+           C 57 102 54 99 54 96
+           L 54 74
+           C 54 68 50 64 48 58
+           C 46 52 48 44 52 38 Z" fill="url(#llamaGrad)"/>
+
+  <!-- Snout / Muzzle -->
+  <ellipse cx="64" cy="56" rx="10" ry="8" fill="#cbd5e1"/>
+  
+  <!-- Eyes -->
+  <circle cx="56" cy="46" r="2.5" fill="#0f172a"/>
+  <circle cx="72" cy="46" r="2.5" fill="#0f172a"/>
+
+  <!-- Nostrils -->
+  <circle cx="61" cy="56" r="1.2" fill="#475569"/>
+  <circle cx="67" cy="56" r="1.2" fill="#475569"/>
+
+  <!-- AI / Sparkle Accent -->
+  <path d="M 94 36 L 96 42 L 102 44 L 96 46 L 94 52 L 92 46 L 86 44 L 92 42 Z" fill="#38bdf8"/>
+</svg>

@@ -22,8 +22,24 @@ of telemetry and the cruiser library in plain words and get SQL-backed answers.
   loaded and one request handled at a time, and the model unloads after 10 minutes
   idle.
 - **Layout:** `install.sh` writes the same files and systemd unit that HaLOS's
-  container-packaging-tools write for `marine-*-container` packages. It does not
-  appear in Cockpit's container store until it is packaged as a `.deb`.
+  container-packaging-tools write for `marine-*-container` packages. It can also
+  be installed directly as a `.deb` package to appear in Cockpit's container store.
+
+## Installing the .deb
+
+Build the package with `scripts/build-halos-debs.sh` or copy the `.deb` from `dist/halos/`:
+
+```sh
+# on the Pi
+sudo docker pull ollama/ollama:latest
+sudo dpkg -i marine-ollama-container_0.1.0-1_arm64.deb
+sudo systemctl status marine-ollama-container
+# Pull the default offline model (qwen3:4b):
+docker exec ollama ollama pull qwen3:4b
+sudo docker exec ollama ollama list
+```
+
+## Manual installation (via install.sh)
 
 ```sh
 # on the Pi

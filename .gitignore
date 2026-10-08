@@ -30,3 +30,6 @@ __pycache__/
 
 # Per-agent lane clones (integrator fetches branches from these)
 .lanes/
+
+# Distribution output
+dist/

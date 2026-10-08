@@ -1,6 +1,7 @@
 name: Ollama
 app_id: ollama
 version: 0.1.0-1
+upstream_version: 0.1.0
 description: Local language models for the Lume TI Ask tab
 long_description: |
   Ollama runs language models on the boat. The Signal K Lume TI plugin's Ask tab
@@ -12,7 +13,7 @@ long_description: |
 
   It listens on 127.0.0.1:11434 only and has no authentication.
 homepage: https://ollama.com/
-maintainer: DeepBlue Dynamics
+maintainer: DeepBlue Dynamics <info@deepbluedynamics.com>
 license: MIT
 tags:
   - role::container-app
