@@ -34,8 +34,8 @@ Build the package with `scripts/build-halos-debs.sh` or copy the `.deb` from `di
 sudo docker pull ollama/ollama:latest
 sudo dpkg -i marine-ollama-container_0.1.0-1_arm64.deb
 sudo systemctl status marine-ollama-container
-# Pull the default offline model (qwen3:4b):
-docker exec ollama ollama pull qwen3:4b
+# Pull the default offline model (qwen3:1.7b; qwen3:4b if you have 4 GB to spare):
+sudo docker exec ollama ollama pull qwen3:1.7b
 sudo docker exec ollama ollama list
 ```
 
