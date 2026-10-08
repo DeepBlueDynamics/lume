@@ -21,8 +21,9 @@ A11's static HTTP bearer. No design checkpoint was required.
 - Normal HTTP refuses a non-loopback bind without nuts auth or a static HTTP
   token, before binding; integrated ingest validates this before telemetry starts.
   Standalone OTLP retains its existing separately authenticated, OTLP-only listener.
-- Plain serve retains its existing `0.0.0.0` bind, and now fails without auth.
-  **Open for the user: default plain serve to 127.0.0.1?** TI still defaults to loopback.
+- All serve paths default to `127.0.0.1`, including plain serve (A18).
+  The open question was resolved by the user on 2026-10-08: loopback default.
+  See [Network exposure](../../docs/OPERATIONS.md#1-network-exposure).
   Unauthenticated loopback access remains unchanged when neither flag is supplied.
   PostgreSQL SCRAM/TLS is separate.
 
