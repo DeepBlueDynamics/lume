@@ -22,24 +22,27 @@ extrapolated. Statuses:
 
 ## 2. Query classes, edge targets (1 vessel, 1 year)
 
-**Host p95**, Rust 1.96 release, 7 iterations, `store-full` (5 vessels × 90 days), sealed-shard cache 256 MiB. Artifact: `.lanes/data/query-cache/native-256-distinct-2/` at `cebf5ea`. Each class lists its slowest query.
+**Host p95**, Rust 1.96.1 release (fat LTO, CGU=1), 7 warm iterations plus one cold query, `store-full` (5 vessels × 90 days), sealed-shard cache off / 256 MiB. Rerun on 2026-10-08 at `0eff8df`, adding all six `q6-*` queries to the previous 20-query selection. Committed artifacts: [JSON](../../bench/results/2026-10-08-0eff8df.json) and [Markdown](../../bench/results/2026-10-08-0eff8df.md). The previous run is retained under `.lanes/data/query-cache/native-256-distinct-2/` at `cebf5ea`. Each class reports the maximum per-query metric, not a pooled percentile.
 
 | Class | Target | Warm, cache on | Cache off | Cold, cache on | Status |
 |---|---:|---:|---:|---:|---|
-| Q1 point lookup | ≤ 20 ms | 1.0 ms | 130.6 ms | 30.6 ms | **PASS** warm; **MISS** cold and cache off |
-| Q2 selective multi-predicate | ≤ 150 ms | 2.4 ms | 910 ms | 129 ms | **PASS** warm and cold; **MISS** cache off |
-| Q3 count with filters | ≤ 50 ms | 2.0 ms | 737 ms | 126 ms | **PASS** warm; **MISS** cold and cache off |
-| Q4 windowed aggregate | ≤ 400 ms | 4.9 ms | 3,494 ms | 301 ms | **PASS** warm and cold; **MISS** cache off |
-| Q5 intervals | ≤ 150 ms | 8.6 ms | 4,349 ms | 1,589 ms | **PASS** warm; **MISS** cold and cache off |
-| Q6 text + telemetry | ≤ 200 ms | not in this run | — | — | **PENDING**: rerun with the q6 queries |
-| Q7 geo + telemetry | ≤ 300 ms | 59.1 ms | 725 ms | 179 ms | **PASS** warm and cold; **MISS** cache off |
-| Q8 broad scan | DuckDB parity ±50 % | 24.6 ms | 681 ms | 125 ms | **PENDING**: no DuckDB timing (`duckdb_baseline: null`) |
+| Q1 point lookup | ≤ 20 ms | 2.35 ms | 174.76 ms | 29.32 ms | **PASS** warm; **MISS** cold and cache off |
+| Q2 selective multi-predicate | ≤ 150 ms | 4.61 ms | 1222.88 ms | 126.59 ms | **PASS** warm and cold; **MISS** cache off |
+| Q3 count with filters | ≤ 50 ms | 1.99 ms | 972.15 ms | 122.62 ms | **PASS** warm; **MISS** cold and cache off |
+| Q4 windowed aggregate | ≤ 400 ms | 6.25 ms | 4559.72 ms | 323.35 ms | **PASS** warm and cold; **MISS** cache off |
+| Q5 intervals | ≤ 150 ms | 15.35 ms | 5079.14 ms | 1993.69 ms | **PASS** warm; **MISS** cold and cache off |
+| Q6 text + telemetry | ≤ 200 ms | 78.36 ms | 1345.87 ms | 485.29 ms | **PASS** warm; **MISS** cold and cache off |
+| Q7 geo + telemetry | ≤ 300 ms | 82.34 ms | 958.09 ms | 194.27 ms | **PASS** warm and cold; **MISS** cache off |
+| Q8 broad scan | DuckDB parity ±50 % | 26.04 ms | 910.67 ms | 154.99 ms | **PENDING**: no DuckDB timing (`duckdb_baseline: null`) |
+
+Q6's slowest query is `q6-004` (alerts joined to telemetry, 231 rows): warm cache-on p50 **73.62 ms**, p95/p99 **78.36 ms**. The other five Q6 queries have warm cache-on p95 **1.90–2.60 ms**. All 26 queries have identical row counts and answer fingerprints across cache modes and cold/warm runs. This is a same-binary consistency check, not a new DuckDB correctness run.
 
 Caveats:
-- **Hardware:** host x86, not the edge HALPI2 or Pi 5.
-- **Data:** 5 vessels × 90 days, not 1 vessel × 1 year.
-- **Cold timings:** "cold" clears only Lume's decoded cache; the OS page cache is not controlled.
-- **What passes:** the targets hold for a warm, resident server, which is how the Signal K plugin runs. The first query after a restart and a cache-disabled build miss Q1, Q3 and Q5.
+- **Hardware:** native Windows x64 host, not the edge HALPI2 or Pi 5. No compiler processes or release-profile environment overrides were active at measurement start.
+- **Data:** 5 vessels × 90 days, not 1 vessel × 1 year; 1,610 documents (920 notes, 460 logbook entries, 230 alerts).
+- **Cold timings:** "cold" clears only Lume's sealed bitmap cache; the OS page cache is not controlled, and document index/query caches keep their normal lifecycle.
+- **Sampling:** seven warm samples per query; p95 and p99 both equal the maximum sample. The committed artifacts include one cold measurement and warm p50/p95/p99 per query with both cache settings.
+- **What passes:** Q1–Q7 meet their warm cache-on targets on this host. Cold cache-on and warm cache-off miss Q1, Q3, Q5 and Q6; warm cache-off also misses Q2, Q4 and Q7.
 
 **On the Pi**, this is the only per-query evidence. Same live Signal K data in both stores, 20 runs each, warm p50 (`docs/performance-comparisons.md` §1):
 
@@ -98,8 +101,8 @@ What exists: the 1-hour load run kept the production Signal K, InfluxDB and Lume
 
 | Spec requirement | Status |
 |---|---|
-| p50/p95/p99 per class, cold and warm | **PASS** for the host store (§2) |
-| `bench/results/<date>-<sha>.json` plus a markdown summary | partial: written under `.lanes/data/query-cache/...`, not committed to `bench/results/` |
+| p50/p95/p99 per class, cold and warm | warm **PASS** on the host (§2); one cold measurement per query, so cold percentile distributions remain **PENDING** |
+| `bench/results/<date>-<sha>.json` plus a markdown summary | **PASS**: `bench/results/2026-10-08-0eff8df.json` and `.md`, complete Q1–Q8 cache off/on results |
 | CI fails on a > 15 % p95 regression | **PENDING**: not implemented |
 
 ## 9. Go / no-go (proposed D48, for the user to approve)
@@ -115,8 +118,8 @@ What exists: the 1-hour load run kept the production Signal K, InfluxDB and Lume
 **Why NO-GO beyond the pilot until these are measured:**
 1. **Shore-scale latencies:** generate the 50-vessel × 365-day fleet and add the DuckDB timing that the "≥ 5×" rule needs.
 2. **The contention test**, with OpenCPN on a HALPI2 or Pi 5.
-3. **The cold start:** the first query after a restart misses Q1, Q3 and Q5. Either warm the cache at serve start or accept it in writing.
+3. **The cold cache:** sealed bitmap-cache cold queries miss Q1, Q3, Q5 and Q6 on the host. Process/OS cold-start timings remain unmeasured. Either warm the cache at serve start or accept the measured misses in writing.
 4. **Edge p95 per class** on the Pi, ideally against a 1-vessel × 1-year store.
-5. **The CI p95-regression gate and committed `bench/results/`.**
+5. **The CI p95-regression gate.** Committed Q1–Q8 results are now available (§8).
 
 Recording D48 in `plan/spec/11-risks-decisions.md` waits for the user's approval.
