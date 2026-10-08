@@ -65,7 +65,7 @@ jobs:
         run: cargo fmt --check -p ti-contracts -p ti-core -p ti-store -p ti-ingest -p ti-sql -p ti-sync -p ti-bench -p ti-geo
 
       - name: Check root TI formatting
-        run: rustfmt --check --edition 2021 src/ti_*.rs src/chat_sql.rs src/sql.rs src/document_extract.rs src/crawl_list.rs src/http_auth.rs tests/ti_*.rs tests/chat_sql.rs tests/support/*.rs
+        run: rustfmt --check --edition 2021 src/ti_*.rs src/chat_sql.rs src/sql.rs src/document_extract.rs src/crawl_list.rs src/http_auth.rs src/nuts_auth.rs tests/ti_*.rs tests/chat_sql.rs tests/support/*.rs
 
       - name: Strict TI crate clippy
         run: cargo clippy --locked -p ti-contracts -p ti-core -p ti-store -p ti-ingest -p ti-sql -p ti-sync -p ti-bench -p ti-geo --all-targets -- -D warnings

@@ -1,9 +1,12 @@
-//! Opt-in HTTP bearer authentication; compatibility defaults are unchanged.
+//! HTTP bearer authentication with static tokens and nuts.services verification.
 use std::{path::Path, sync::Arc};
 
 /// Startup credential, deliberately without Debug or a public token accessor.
 #[derive(Clone)]
-pub struct HttpBearer(Arc<str>);
+pub struct HttpBearer {
+    token: Option<Arc<str>>,
+    nuts: Option<Arc<crate::nuts_auth::NutsAuth>>,
+}
 
 impl HttpBearer {
     pub fn from_file(path: &Path) -> Result<Self, String> {
@@ -13,7 +16,10 @@ impl HttpBearer {
         if token.is_empty() {
             return Err("HTTP token file is empty".into());
         }
-        Ok(Self(Arc::from(token)))
+        Ok(Self {
+            token: Some(Arc::from(token)),
+            nuts: None,
+        })
     }
 
     pub fn from_args(args: &[String]) -> Result<Option<Self>, String> {
@@ -34,7 +40,36 @@ impl HttpBearer {
         Self::from_file(Path::new(path)).map(Some)
     }
 
+    /// Nuts and a static token may coexist; either grants access, while route
+    /// credentials override both. The static token retains its full-access role.
+    pub fn from_server_args(args: &[String], root: &Path) -> Result<Option<Self>, String> {
+        let mut auth = Self::from_args(args)?;
+        if let Some(config) = crate::nuts_auth::NutsConfig::from_args(args)? {
+            let nuts = crate::nuts_auth::NutsAuth::open(config, root)?;
+            let value = auth.get_or_insert(Self {
+                token: None,
+                nuts: None,
+            });
+            value.nuts = Some(nuts);
+        }
+        Ok(auth)
+    }
+
+    pub(crate) fn public_health(&self) -> bool {
+        self.nuts.is_some()
+    }
+
+    #[cfg(test)]
     pub(crate) fn accepts(&self, headers: &str, override_token: Option<&str>) -> bool {
+        self.accepts_scope(headers, override_token, "read")
+    }
+
+    pub(crate) fn accepts_scope(
+        &self,
+        headers: &str,
+        override_token: Option<&str>,
+        scope: &str,
+    ) -> bool {
         let mut authorization = headers.lines().filter_map(|line| {
             let (name, value) = line.split_once(':')?;
             name.trim()
@@ -51,12 +86,34 @@ impl HttpBearer {
         let Some((scheme, token)) = value.split_once(' ') else {
             return false;
         };
-        scheme.eq_ignore_ascii_case("bearer")
-            && constant_time_eq(
-                token.trim().as_bytes(),
-                override_token.unwrap_or(&self.0).as_bytes(),
-            )
+        if !scheme.eq_ignore_ascii_case("bearer") {
+            return false;
+        }
+        let token = token.trim();
+        if let Some(expected) = override_token {
+            return constant_time_eq(token.as_bytes(), expected.as_bytes());
+        }
+        self.token
+            .as_ref()
+            .is_some_and(|expected| constant_time_eq(token.as_bytes(), expected.as_bytes()))
+            || self
+                .nuts
+                .as_ref()
+                .is_some_and(|nuts| nuts.accepts(token, scope))
     }
+}
+
+/// Fail before binding or starting ingest; plain serve's existing bind is retained.
+pub fn validate_bind(bind: &str, authenticated: bool) -> Result<(), String> {
+    let ip = bind
+        .parse::<std::net::IpAddr>()
+        .map_err(|_| "Invalid HTTP bind IP address")?;
+    if !ip.is_loopback() && !authenticated {
+        return Err(
+            "Non-loopback HTTP requires --nuts-auth with --nuts-allow or --http-token-file".into(),
+        );
+    }
+    Ok(())
 }
 
 // Work depends on lengths, never the first mismatching byte. black_box keeps the
@@ -81,7 +138,10 @@ mod tests {
             assert!(!constant_time_eq(value.as_bytes(), b"secret"));
         }
         assert!(constant_time_eq(b"secret", b"secret"));
-        let auth = HttpBearer(Arc::from("secret"));
+        let auth = HttpBearer {
+            token: Some(Arc::from("secret")),
+            nuts: None,
+        };
         assert!(auth.accepts("Authorization: Bearer secret", None));
         assert!(auth.accepts("authorization: bEaReR secret", None));
         assert!(!auth.accepts("Authorization: Bearer wrong", None));

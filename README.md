@@ -167,15 +167,17 @@ lume answer "Who betrayed Dantès, and why?"
 ### MCP server
 
 ```bash
-lume serve                 # default port 5863 ("LUME" on a phone keypad)
-lume serve --port 8080
+lume serve --bind 127.0.0.1 # local, default port 5863 ("LUME" on a phone keypad)
+lume serve --bind 127.0.0.1 --port 8080
 ```
 
 This exposes `lume_index`, `lume_search`, `lume_generate` and `lume_not_found` as MCP tools over HTTP. Search runs in-process through the `lume::search` library API. Built with `--features ti`, `lume serve --ti-store <store>` adds the [Lume TI](#lume-ti-telemetry-index) tools, OTLP ingestion (`--otlp`), and PostgreSQL wire access (`--pg`).
 
-Plain `lume serve` defaults to `0.0.0.0` and exposes unauthenticated MCP tools, including indexing. Use `--bind 127.0.0.1` for local access. TI serving defaults to loopback; an explicit non-loopback bind exposes unauthenticated `/ti` and MCP on a trusted LAN and prints a startup warning.
+Plain `lume serve` retains its `0.0.0.0` default bind, but now refuses to start off loopback without `--nuts-auth` or `--http-token-file`. For local access use `lume serve --bind 127.0.0.1`. TI serving still defaults to loopback.
 
-Opt in with `--http-token-file /path/to/token` on plain/TI `serve` or `ti ingest --serve` to require a bearer on every HTTP route, including MCP and SSE. The file is trimmed, must be nonempty, and is read at startup; restart to rotate it. Missing or wrong credentials return 401 with an empty body. Configured sync and OTLP tokens take precedence on their respective routes, so they can differ from the HTTP token; routes without their own token use the HTTP token. Use HTTPS through a trusted proxy for remote access: cleartext HTTP does not protect the bearer. No-flag defaults stay unchanged.
+Use `--nuts-auth --nuts-allow sailor@example.com,user-17` on plain/TI `serve` or `ti ingest --serve`. The optional auth URL defaults to `https://auth.nuts.services`; an allowlist may also be supplied as `--nuts-allow @/path/to/allowlist`. Send a nuts RS256 JWT or an `ahp_` token in `Authorization: Bearer <token>`. JWTs verify offline using startup/12-hour JWKS refresh and a public-key cache at `<store>/auth/jwks.json` (plain serve: `.lume-index/auth/jwks.json`); AHP tokens exchange online and cache their verified JWT in memory until expiry. Allowlist membership is mandatory. Read scope covers TI/MCP/SSE; write covers OTLP and indexing (MCP indexing needs both). GET `/health` is public when nuts auth is on. No key cache plus no network refuses startup.
+
+`--http-token-file /path/to/token` remains a full-access static alternative, checked in constant time. It may coexist with nuts auth. Configured sync/OTLP tokens override global auth on their own routes. Missing, wrong or unauthorized credentials return empty-body 401. Never put credentials in a URL; use HTTPS through a trusted reverse proxy for remote access. Loopback without either flag retains local access. See [D51](plan/decisions/D51-http-auth.md) for the policy and bounds.
 
 The OTLP bearer protects ingestion routes only on a shared server; it does not authenticate TI or MCP. Standalone `lume ti otlp` exposes only its two ingestion endpoints.
 
@@ -334,7 +336,7 @@ It also adds HTTP endpoints:
 - `GET /ti/schema`, `POST /ti/explain`, `GET /ti/status`, `GET /ti/resolve?q=`;
 - With `--otlp`: `POST /v1/metrics` and `POST /v1/logs` (HTTP/JSON).
 
-With `--pg <port>`, it exposes read-only PostgreSQL protocol access (pgwire) for psql and Grafana, with SCRAM authentication configured via `--pg-auth-config <path>` and optional TLS. Results on HTTP are capped at 500 rows and 64 KiB, with a hint to aggregate or narrow the time range. The server listens on `127.0.0.1` and sends no wildcard CORS headers; `--bind` opens it to a LAN you trust.
+With `--pg <port>`, it exposes read-only PostgreSQL protocol access (pgwire) for psql and Grafana, with SCRAM authentication configured via `--pg-auth-config <path>` and optional TLS. Results on HTTP are capped at 500 rows and 64 KiB, with a hint to aggregate or narrow the time range. The server listens on `127.0.0.1` and sends no wildcard CORS headers; a non-loopback `--bind` requires `--nuts-auth` or `--http-token-file`.
 
 ### Agent telemetry & Grafana dashboards
 
