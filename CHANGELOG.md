@@ -15,7 +15,7 @@
   - Bearer token authentication is supported via `--otlp-token-file`; loopback binds allow
     unauthenticated requests while non-loopback binds strictly require a token.
 - **Monotonic counter persistence (A4)**: cumulative and delta monotonic counter running totals
-  are maintained in memory and persisted across receiver restarts in `<root>/stores/agents/otlp_counters.json`.
+  are maintained in memory and persisted across receiver restarts in `<root>/stores/agents/otlp-counters.json`.
 - **Dimensional paths**: counter metrics with attributes are indexed as dimensional columns
   (`<name>.<type>.model.<model>@last`), enabling windowed usage queries via `max(...) - min(...)`.
 - **Log records in `docs`**: OTLP logs are ingested into the shared document catalog as `kind = 'logbook'`,
@@ -68,7 +68,7 @@
   process RSS, CPU usage, lag, and flush cost every 10 seconds under `<store>/stores/lume`.
   Auto-registered in the SQL engine as `telemetry_lume` (entity `lume.urn:host:<hostname>`).
   Maintains an independent bucketer and watermark to ensure vessel bucket boundaries are never affected.
-  Configurable or disabled via `LUME_TI_SELF_TELEMETRY`.
+  Disabled with `LUME_TI_SELF_TELEMETRY=0` (or `off`, `false`).
 
 ### HaLOS container applications
 - **Offline container packages**: `deploy/halos/` packages `marine-grubcrawler-container` (v0.16.1-1, offline
