@@ -3,7 +3,7 @@
 Last updated: **2026-10-08** (docs keeper, after `3633d9a`: **HaLOS container .debs** (`471f810`, `3633d9a`), **Q6 bench PASS** (`5750e1d`, warm p95 78.4 ms), **Ollama HaLOS app** (`724fb0b`, `d7ca3ef`), **Grub published image** (`09f2c4f`), **library search via server** (`a5be3f8`), **plugin TLS options** (`c769d23`), **M6 item 3 report & proposed D48** (`83fcce7`), **M6 item 1 PASSED** (`3024cb9`); earlier at `78c913d`: **M2 item 3 PASSED** on the Pi, **D46 pgwire TLS merged** (`45ae6ff`), release pipeline (`2a456bb`), PR #4 open with CI green; earlier: D45, Pi 20k values/s fixes, D47 flush, M5 items 1 and 2 passed)
 
 Integration branch `plan/lume-ti` is at `3633d9a`. **PR #4** (`plan/lume-ti` to `main` on public GitHub DeepBlueDynamics/lume) is open, with CI green on all 4 checks. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46 at `8e87a11`; `cargo test --features ti` was 55 at `39c0096` (not recounted since). Plugin `npm test` 39/39 (at `a5be3f8` / `c769d23`) and `cargo test` `ti_http` 8/8 at `e09bb87`.
-Workspace members: `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench`, `ti-geo`, `ti-sync`. Signal K plugin: `plugins/signalk-lume-ti/`. Next free decision: **D49** (D48 proposed: M6 fleet sync go/no-go, `83fcce7`). D45 (binary size) is merged and recorded in [decisions/D45-binary-size.md](decisions/D45-binary-size.md). D46 (pgwire TLS, Option 2) is merged (`45ae6ff`, Artificial Shark, `ti/pg-tls` `66e2bbb`). D47 (open-shard flush) is in [spec/11](spec/11-risks-decisions.md). All measured numbers: [docs/performance-comparisons.md](../docs/performance-comparisons.md).
+Workspace members: `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench`, `ti-geo`, `ti-sync`. Signal K plugin: `plugins/signalk-lume-ti/`. Next free decision: **D49** (D48 approved 2026-10-08: GO for the single-boat pilot, NO-GO on shore scale and contention until measured). D45 (binary size) is merged and recorded in [decisions/D45-binary-size.md](decisions/D45-binary-size.md). D46 (pgwire TLS, Option 2) is merged (`45ae6ff`, Artificial Shark, `ti/pg-tls` `66e2bbb`). D47 (open-shard flush) is in [spec/11](spec/11-risks-decisions.md). All measured numbers: [docs/performance-comparisons.md](../docs/performance-comparisons.md).
 Setup and workflow: [SETUP.md](SETUP.md).
 
 ## Handoff (2026-10-08, lead session)
@@ -19,7 +19,7 @@ Setup and workflow: [SETUP.md](SETUP.md).
 - **CI fix:** `AuthConfig::new` tests and the live-serve test (`2282261`).
 - **Release pipeline:** `release.yml` and `bump-version.yml` with installers (`2a456bb`).
 - **M6 item 1 passed:** mid-shard outage resumes within shore session TTL (`3024cb9`, `5fe23f1`). 20% loss HTTP link (seed 7) with 3-chunk drop; resumes missing chunks within TTL; resent in full past TTL; byte-identical hashes.
-- **M6 item 3 & proposed D48:** benchmark report against spec/13 and proposed D48 go/no-go (`83fcce7`). Warm p95 meets every measured edge class; proposed D48: GO for the single-boat pilot, NO-GO beyond it until scale/contention gates land.
+- **M6 item 3 and D48 (approved 2026-10-08):** benchmark report against spec/13 and proposed D48 go/no-go (`83fcce7`). Warm p95 meets every measured edge class; proposed D48: GO for the single-boat pilot, NO-GO beyond it until scale/contention gates land.
 - **Plugin TLS options:** D46 pgwire TLS options in the Signal K plugin (`pgRequireTls`, `pgTlsCert`, `pgTlsKey`, `pgAllowPlaintext`), Grafana sslmode docs, and W10 rules oracle 30 s hold text fix (`c769d23`).
 - **Library search via server:** supervisor starts `lume ti ingest --serve` with `--docs-index`; `Library.search()` POSTs to `/ti/query` on loopback with fallback to `lume sql` (8 ms in server vs ~575 ms per query process start) (`a5be3f8`).
 - **Grub published image:** HaLOS container app updated to use published `deepbluedynamics/grubcrawler:latest-lite` (v0.16.1, multi-arch) (`09f2c4f`).
@@ -42,7 +42,6 @@ Setup and workflow: [SETUP.md](SETUP.md).
 - Compact Echidna = Antigravity in `.lanes/w3`.
 
 **Waiting on the user:**
-- Approve proposed D48 (M6 fleet sync go/no-go).
 - Maintainer email for the .debs (`info@deepbluedynamics.com` is a placeholder until the user confirms one).
 - Approve the Signal K access request.
 - Enter the PG password for the pg smoke rerun and Grafana Save & Test.

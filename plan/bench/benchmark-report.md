@@ -105,9 +105,9 @@ What exists: the 1-hour load run kept the production Signal K, InfluxDB and Lume
 | `bench/results/<date>-<sha>.json` plus a markdown summary | **PASS**: `bench/results/2026-10-08-0eff8df.json` and `.md`, complete Q1–Q8 cache off/on results |
 | CI fails on a > 15 % p95 regression | **PENDING**: not implemented |
 
-## 9. Go / no-go (proposed D48, for the user to approve)
+## 9. Go / no-go (D48, approved by the user 2026-10-08)
 
-**Proposed decision: GO for the single-boat pilot; NO-GO, for now, on shore-scale and contention claims.**
+**Decision (D48): GO for the single-boat pilot; NO-GO, for now, on shore-scale and contention claims.**
 
 **Why GO for the pilot (one vessel, Signal K on a Pi 5 or HALPI2, the plugin as History API provider):**
 - Correctness gates pass, including crash safety and byte-identical reseals.
@@ -122,4 +122,4 @@ What exists: the 1-hour load run kept the production Signal K, InfluxDB and Lume
 4. **Edge p95 per class** on the Pi, ideally against a 1-vessel × 1-year store.
 5. **The CI p95-regression gate.** Committed Q1–Q8 results are now available (§8).
 
-Recording D48 in `plan/spec/11-risks-decisions.md` waits for the user's approval.
+Recorded as D48 in `plan/spec/11-risks-decisions.md`.
