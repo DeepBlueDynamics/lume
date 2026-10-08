@@ -1,14 +1,14 @@
 # Lume TI — Status board
 
-Last updated: **2026-10-07** (docs keeper, after `78c913d`: **M2 item 3 PASSED** on the Pi, **D46 pgwire TLS merged** (`45ae6ff`), release pipeline (`2a456bb`), PR #4 open with CI green; earlier at `80c7f7e`: D45 release profile shipped (`8e7fcfe`), Pi 20k values/s load-run fixes (`7ea727d`), backfill 150,510 rows/s, **D47** flush (`80c7f7e`); earlier at `2df24b5`: **M5 items 1 and 2 PASSED**, sealed-shard query cache, `IS [NOT] DISTINCT FROM` pushdown (all classes meet p95), History `:last` default with `@mean` fallback, Pi 1-hour stability run, `ti-bench sk-feed` for the M2 load gate; earlier: M4 item 1 passed, MCP ergonomics, `lume chat`, M6 item 2 passed)
+Last updated: **2026-10-08** (docs keeper, after `3633d9a`: **HaLOS container .debs** (`471f810`, `3633d9a`), **Q6 bench PASS** (`5750e1d`, warm p95 78.4 ms), **Ollama HaLOS app** (`724fb0b`, `d7ca3ef`), **Grub published image** (`09f2c4f`), **library search via server** (`a5be3f8`), **plugin TLS options** (`c769d23`), **M6 item 3 report & proposed D48** (`83fcce7`), **M6 item 1 PASSED** (`3024cb9`); earlier at `78c913d`: **M2 item 3 PASSED** on the Pi, **D46 pgwire TLS merged** (`45ae6ff`), release pipeline (`2a456bb`), PR #4 open with CI green; earlier: D45, Pi 20k values/s fixes, D47 flush, M5 items 1 and 2 passed)
 
-Integration branch `plan/lume-ti` is at `78c913d`. **PR #4** (`plan/lume-ti` to `main` on public GitHub DeepBlueDynamics/lume) is open, with CI green on all 4 checks. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46 at `8e87a11`; `cargo test --features ti` was 55 at `39c0096` (not recounted since). Plugin `npm test` 17/17 and `cargo test` `ti_http` 8/8 at `e09bb87`.
-Workspace members: `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench`, `ti-geo`, `ti-sync`. Signal K plugin: `plugins/signalk-lume-ti/`. Next free decision: **D48**. D45 (binary size) is merged and recorded in [decisions/D45-binary-size.md](decisions/D45-binary-size.md). D46 (pgwire TLS, Option 2) is merged (`45ae6ff`, Artificial Shark, `ti/pg-tls` `66e2bbb`). D47 (open-shard flush) is in [spec/11](spec/11-risks-decisions.md). All measured numbers: [docs/performance-comparisons.md](../docs/performance-comparisons.md).
+Integration branch `plan/lume-ti` is at `3633d9a`. **PR #4** (`plan/lume-ti` to `main` on public GitHub DeepBlueDynamics/lume) is open, with CI green on all 4 checks. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46 at `8e87a11`; `cargo test --features ti` was 55 at `39c0096` (not recounted since). Plugin `npm test` 39/39 (at `a5be3f8` / `c769d23`) and `cargo test` `ti_http` 8/8 at `e09bb87`.
+Workspace members: `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench`, `ti-geo`, `ti-sync`. Signal K plugin: `plugins/signalk-lume-ti/`. Next free decision: **D49** (D48 proposed: M6 fleet sync go/no-go, `83fcce7`). D45 (binary size) is merged and recorded in [decisions/D45-binary-size.md](decisions/D45-binary-size.md). D46 (pgwire TLS, Option 2) is merged (`45ae6ff`, Artificial Shark, `ti/pg-tls` `66e2bbb`). D47 (open-shard flush) is in [spec/11](spec/11-risks-decisions.md). All measured numbers: [docs/performance-comparisons.md](../docs/performance-comparisons.md).
 Setup and workflow: [SETUP.md](SETUP.md).
 
-## Handoff (2026-10-07, lead session, before a Hyperia restart)
+## Handoff (2026-10-08, lead session)
 
-`plan/lume-ti` is at `ed02ff4` and pushed. PR #4 is open, with CI green through `7dc7c48`.
+`plan/lume-ti` is at `3633d9a` and pushed. PR #4 is open, with CI green through `7dc7c48`.
 
 **Done since `78c913d`:**
 - **Self-telemetry:** `6e84992`, then its own store and table `telemetry_lume` (`ed02ff4`).
@@ -18,29 +18,32 @@ Setup and workflow: [SETUP.md](SETUP.md).
   - Query responses carry units for their own columns only (`0b01eff`).
 - **CI fix:** `AuthConfig::new` tests and the live-serve test (`2282261`).
 - **Release pipeline:** `release.yml` and `bump-version.yml` with installers (`2a456bb`).
-- **Grub on the Pi:** a HaLOS app in `deploy/halos/marine-grubcrawler-container` (`495cbc5`). It is installed and healthy, at `127.0.0.1:6792`, running the lite arm64 image.
-- **Ask tab:** `lume chat` takes comma-separated Ollama failover URLs and `OLLAMA_API_KEY` for ollama.com (`cc291ea`, `7dc7c48`).
+- **M6 item 1 passed:** mid-shard outage resumes within shore session TTL (`3024cb9`, `5fe23f1`). 20% loss HTTP link (seed 7) with 3-chunk drop; resumes missing chunks within TTL; resent in full past TTL; byte-identical hashes.
+- **M6 item 3 & proposed D48:** benchmark report against spec/13 and proposed D48 go/no-go (`83fcce7`). Warm p95 meets every measured edge class; proposed D48: GO for the single-boat pilot, NO-GO beyond it until scale/contention gates land.
+- **Plugin TLS options:** D46 pgwire TLS options in the Signal K plugin (`pgRequireTls`, `pgTlsCert`, `pgTlsKey`, `pgAllowPlaintext`), Grafana sslmode docs, and W10 rules oracle 30 s hold text fix (`c769d23`).
+- **Library search via server:** supervisor starts `lume ti ingest --serve` with `--docs-index`; `Library.search()` POSTs to `/ti/query` on loopback with fallback to `lume sql` (8 ms in server vs ~575 ms per query process start) (`a5be3f8`).
+- **Grub published image:** HaLOS container app updated to use published `deepbluedynamics/grubcrawler:latest-lite` (v0.16.1, multi-arch) (`09f2c4f`).
+- **Ollama HaLOS app:** container app for Ask tab, loopback `127.0.0.1:11434`, 4 GB cap, flash attention + q8 KV (`724fb0b`), `qwen3:1.7b` default (~1 GB) with 4.2 GB arm64 image and SD headroom notes (`d7ca3ef`, `3633d9a`).
+- **Q6 bench passed:** Q6 in native query-class bench, recorded in `bench/results`, warm p95 78.4 ms PASS (`64929b9`, `5750e1d`).
+- **HaLOS container .debs:** Grub and Ollama packaged as arm64 `.deb` packages via `container-packaging-tools` (`marine-grubcrawler-container_0.16.1-1_arm64.deb` 7,452 B, `marine-ollama-container_0.1.0-1_arm64.deb` 7,228 B); build script `scripts/build-halos-debs.sh` outputs to gitignored `dist/halos/` (`471f810`, `3633d9a`).
 
 **What runs on the Pi:** the plugin binary is the host cross-built arm64 `lume` at `5aa7fa0` (thin LTO, 16 codegen units, 135 MB, GLIBC_2.35), with `lume.prev` kept for rollback. It includes `telemetry_lume` and the Ask tab failover. Self samples have gone to `telemetry_lume` since 17:45:50Z. The older `lume.urn:host:halos` rows in `telemetry`, up to 17:44:20Z, stay until retention expires them.
-- The Pi's `~/lume/target` was cleared for disk space. Build arm64 on the host instead, in about 5 minutes:
-  - Run `scripts/cross-arm64.sh` in `rust:1.96-bookworm`, with the `lume-cross-target` and `lume-cross-registry` volumes.
-  - Copy the binary over, then `chmod 755` it (scp drops the executable bit).
-  - Swap it into the plugin's `bin/linux-arm64` and run `docker restart signalk-server`.
+- Grub is installed and healthy at `127.0.0.1:6792`, still on the locally loaded `lite-arm64` image until switched to the published image or `.deb` package.
+- Ollama is installed as a HaLOS container app at `127.0.0.1:11434`; model pulling is in progress.
 - A fan is fitted: the Pi runs at 62–66 °C with no throttling.
 
 **Next:**
-1. Ollama on the Pi as a HaLOS app (`ollama/ollama` arm64, `127.0.0.1:11434`, offline model `qwen3:4b`, waiting on the user's go-ahead). Then set the Ask tab URLs to the Pi first, then the user's PC. The user runs `ollama signin` on the Pi for `:cloud` models, and sets `OLLAMA_HOST=0.0.0.0` plus a firewall rule on the PC.
-2. Library search through the running server, not a `lume sql` process per query: about 575 ms today, against 7–38 µs of pruning. Waiting on the user's OK.
-3. Rerun the 40k values/s step now that the Pi has a fan. `ti-bench` needs a cross-build, the same way as `lume`.
+1. Ollama model pull completion on the Pi, then verify Ask tab queries through loopback.
+2. Rerun the 40k values/s step now that the Pi has a fan.
+3. Rerun pg smoke on the Pi and Grafana Save & Test.
 
 **Agents:**
-- The Hyperia restart closed both agent panes; their sessions must be restarted.
-- Long Horse has the M6 items 1 and 3 scope (`ti/m6-report`) in its mailbox. The lead has since done item 1 (`3024cb9`); only item 3, the benchmark report plus the D48 draft, remains for it.
-- Artificial Shark has the `ti/plugin-tls` scope in its mailbox.
-- Both need a human to type "run msg_check" until Hyperia PR #311 (n8 pane detection) ships.
+- Better Platypus = Codex in `.lanes/w4` on `ti/cache-warm`.
+- Compact Echidna = Antigravity in `.lanes/w3`.
 
 **Waiting on the user:**
-- Tag Grub `v0.16.1` to publish `deepbluedynamics/grubcrawler:latest-lite`.
+- Approve proposed D48 (M6 fleet sync go/no-go).
+- Maintainer email for the .debs (`info@deepbluedynamics.com` is a placeholder until the user confirms one).
 - Approve the Signal K access request.
 - Enter the PG password for the pg smoke rerun and Grafana Save & Test.
 - Provide `icon.png`.
@@ -111,8 +114,8 @@ Setup and workflow: [SETUP.md](SETUP.md).
   - `lume ti repl` (`f1bb15a`).
   - The `signalk-lume-ti` plugin (`31841c3`).
 - **In flight:**
-  - Long Horse: **M6 items 1 and 3** on `ti/m6-report` (lossy-sync gate, benchmark report, D48 go/no-go draft). Not started yet.
-  - Artificial Shark: next scope **`ti/plugin-tls`** (plugin options for D46, plus the `tests/golden/README.md` 30 s hold fix).
+  - Better Platypus (Codex): `ti/cache-warm` in `.lanes/w4`.
+  - Compact Echidna (Antigravity): `ti/docs-refresh` in `.lanes/w3`.
   - Lead: PR #4 review and merge, Pi pg smoke and Grafana rerun.
   - **Hyperia:** mail notices and `pane_send` to n8 (Docker) panes are fixed in Hyperia PR #311, not built yet. Until then a human types "run msg_check".
   - `.gitattributes` (`a1b631d`) now keeps `*.sh` LF; CRLF checkouts had broken bash on the Pi.
@@ -128,8 +131,8 @@ Setup and workflow: [SETUP.md](SETUP.md).
 
 | Role | Now | Formerly |
 |---|---|---|
-| W4–W7, W9, W10 SQL, surfaces, Parquet, alerts | **Long Horse** `888bff45`, nemesis8/n8-hazy-badger | Rigid Roadrunner `d58ca1b1`, n8-sly-viper |
-| W3 ingest, W8 sync and bench, plugin | **Artificial Shark** `fd91f4b1`, nemesis8/n8-quiet-crane | Romantic Pike `90fc608c`, n8-keen-kiwi |
+| W4 cache warm | **Better Platypus** (Codex) in `.lanes/w4` on `ti/cache-warm` | Long Horse `888bff45` / Rigid Roadrunner `d58ca1b1` |
+| W3 ingest, W8 sync, HaLOS debs, plugin | **Compact Echidna** (Antigravity) in `.lanes/w3` | Artificial Shark `fd91f4b1` / Romantic Pike `90fc608c` |
 | Corpus and generator | Lead took it over and merged it (`c65e515`) | Zygomorphic Prawn `eccaf836`, n8-noble-toad: **retired** (permanently offline, per the user) |
 | Host build pane | **Compact Echidna** `6914c38e` | Regular Pheasant `364a3fc7` (gone) |
 
@@ -139,6 +142,16 @@ Commit messages, the decisions log and older docs use the former names. Re-check
 
 | Commit | What |
 |---|---|
+| `3633d9a` | deploy: Ollama config.yml and .deb install notes default to qwen3:1.7b like metadata.yaml |
+| `471f810` | **HaLOS container .debs** (`138f974`, Compact Echidna / Antigravity): Grub and Ollama as arm64 HaLOS container .debs via `container-packaging-tools`; package layout matches `marine-questdb-container`; build script `scripts/build-halos-debs.sh` outputs to gitignored `dist/halos/` |
+| `d7ca3ef` | deploy: Ollama app defaults to qwen3:1.7b; README records the 4.2 GB arm64 image and SD headroom |
+| `5750e1d` | **Q6 bench PASS** (`64929b9`, Better Platypus / Codex): Q6 in the native query-class bench; results in `bench/results`; Q6 warm p95 78.4 ms PASS |
+| `724fb0b` | **Ollama HaLOS app**: local LLM container app for Ask tab, loopback 127.0.0.1:11434, 4 GB cap, flash attention + q8 KV, qwen3:4b default (1.7b in d7ca3ef), documented 3-way failover |
+| `09f2c4f` | **Grub published image**: uses published `deepbluedynamics/grubcrawler:latest-lite` (v0.16.1, multi-arch) |
+| `c769d23` | **Plugin TLS options** (`4f8ec3d`, Compact Echidna / Antigravity): D46 pgwire TLS options in Signal K plugin (`pgRequireTls`, `pgTlsCert`, `pgTlsKey`, `pgAllowPlaintext`), Grafana sslmode docs; tests/golden/README.md 30 s hold text fix |
+| `a5be3f8` | **Library search via server**: supervisor passes `--docs-index` to `lume ti ingest --serve`, `Library.search()` POSTs to `/ti/query` loopback, fallback to `lume sql` (8 ms vs 575 ms per query) |
+| `83fcce7` | **M6 item 3 benchmark report & proposed D48**: benchmark report against spec/13; proposed D48 go/no-go (single-boat pilot GO, multi-boat NO-GO until scale/contention gates land) |
+| `5fe23f1`, `3024cb9` | **M6 item 1 passed** (lead): mid-shard outage resumes within shore session TTL (20% loss HTTP seed 7, 30-min outage compressed to 60 ms vs 120 ms resumes missing chunks, past TTL resent in full; byte-identical hashes) |
 | `78c913d` | **M2 item 3 passed** on the Pi: 20k values/s for 60 min at 19,916 mean, 14.2 % / 24.2 % CPU, 65.6 MB peak RSS; ramp to 38,508 values/s at 25.1 % CPU; 100.4 M values, 0 rejected/blocked/failed |
 | `45ae6ff` | **D46 pgwire TLS** (`66e2bbb`, `72d39e6`, Artificial Shark): Option 2, tokio-rustls with permissive licences, rcgen auto self-signed `<store>/pg_cert.pem`, TLS required off loopback, docker0 trust narrowed to exactly `172.17.0.1`. Flags `--pg-require-tls[=bool]`, `--pg-tls-cert`, `--pg-tls-key`, `--pg-allow-plaintext`, `[bind] pg_require_tls`. `pg_tls`, `pg_limits`, `ti_http` pass on the host |
 | `2a456bb` | **Release pipeline**: `release.yml` (5 targets, `--features ti`, glibc <= 2.39 gate, plugin .tgz, SHA256SUMS, `install.sh`, `install.ps1`) and one-click `bump-version.yml`; plugin version synced to 0.12.0 |
