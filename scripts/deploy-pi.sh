@@ -89,12 +89,25 @@ elif [ -f "${PLUGIN_DIR}/bin/linux-arm64/lume" ]; then
     LUME_BIN="${PLUGIN_DIR}/bin/linux-arm64/lume"
 fi
 
+SSH_CMD=(ssh)
+SCP_CMD=(scp)
+RSYNC_RSH=()
+if [ -n "${LUME_DEPLOY_SSH_CONFIG:-}" ]; then
+    SSH_CMD=(ssh -F "$LUME_DEPLOY_SSH_CONFIG")
+    SCP_CMD=(scp -F "$LUME_DEPLOY_SSH_CONFIG")
+    RSYNC_RSH=(-e "ssh -F ${LUME_DEPLOY_SSH_CONFIG}")
+fi
+
 run_remote() {
     local cmd="$1"
     if [ "$DRY_RUN" = true ]; then
-        echo "[dry-run] ssh ${SSH_HOST} '${cmd}'"
+        if [ -n "${LUME_DEPLOY_SSH_CONFIG:-}" ]; then
+            echo "[dry-run] ssh -F ${LUME_DEPLOY_SSH_CONFIG} ${SSH_HOST} '${cmd}'"
+        else
+            echo "[dry-run] ssh ${SSH_HOST} '${cmd}'"
+        fi
     else
-        ssh "$SSH_HOST" "$cmd"
+        "${SSH_CMD[@]}" "$SSH_HOST" "$cmd"
     fi
 }
 
@@ -108,12 +121,24 @@ echo
 if [ "$DRY_RUN" = true ]; then
     echo "--- Transfer Stage ---"
     if command -v rsync >/dev/null 2>&1; then
-        echo "[dry-run] rsync -avz --exclude 'node_modules' --exclude 'test' ${PLUGIN_DIR}/ ${SSH_HOST}:${REMOTE_STAGE}/"
+        if [ -n "${LUME_DEPLOY_SSH_CONFIG:-}" ]; then
+            echo "[dry-run] rsync -e 'ssh -F ${LUME_DEPLOY_SSH_CONFIG}' -avz --exclude 'node_modules' --exclude 'test' ${PLUGIN_DIR}/ ${SSH_HOST}:${REMOTE_STAGE}/"
+        else
+            echo "[dry-run] rsync -avz --exclude 'node_modules' --exclude 'test' ${PLUGIN_DIR}/ ${SSH_HOST}:${REMOTE_STAGE}/"
+        fi
     else
-        echo "[dry-run] scp -r (excluding node_modules, test) ${PLUGIN_DIR}/* ${SSH_HOST}:${REMOTE_STAGE}/"
+        if [ -n "${LUME_DEPLOY_SSH_CONFIG:-}" ]; then
+            echo "[dry-run] scp -F ${LUME_DEPLOY_SSH_CONFIG} -r (excluding node_modules, test) ${PLUGIN_DIR}/* ${SSH_HOST}:${REMOTE_STAGE}/"
+        else
+            echo "[dry-run] scp -r (excluding node_modules, test) ${PLUGIN_DIR}/* ${SSH_HOST}:${REMOTE_STAGE}/"
+        fi
     fi
     if [ -n "$LUME_BIN" ]; then
-        echo "[dry-run] scp ${LUME_BIN} ${SSH_HOST}:${REMOTE_STAGE}/bin/linux-arm64/lume"
+        if [ -n "${LUME_DEPLOY_SSH_CONFIG:-}" ]; then
+            echo "[dry-run] scp -F ${LUME_DEPLOY_SSH_CONFIG} ${LUME_BIN} ${SSH_HOST}:${REMOTE_STAGE}/bin/linux-arm64/lume"
+        else
+            echo "[dry-run] scp ${LUME_BIN} ${SSH_HOST}:${REMOTE_STAGE}/bin/linux-arm64/lume"
+        fi
     fi
     echo
     echo "--- Remote Commands ---"
@@ -150,9 +175,9 @@ echo "Uploading staged files to ${SSH_HOST}:${REMOTE_STAGE}..."
 run_remote "rm -rf ${REMOTE_STAGE} && mkdir -p ${REMOTE_STAGE}"
 
 if command -v rsync >/dev/null 2>&1; then
-    rsync -avz "${STAGE_DIR}/" "${SSH_HOST}:${REMOTE_STAGE}/"
+    rsync "${RSYNC_RSH[@]}" -avz "${STAGE_DIR}/" "${SSH_HOST}:${REMOTE_STAGE}/"
 else
-    scp -r "${STAGE_DIR}/." "${SSH_HOST}:${REMOTE_STAGE}/"
+    "${SCP_CMD[@]}" -r "${STAGE_DIR}/." "${SSH_HOST}:${REMOTE_STAGE}/"
 fi
 
 echo "Installing files into ${REMOTE_DEST}..."
