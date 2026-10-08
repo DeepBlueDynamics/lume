@@ -19,7 +19,7 @@ LOGS_FIXTURE = ROOT / "tests/golden/otlp/logs.json"
 def find_lume_binary():
     """Locate a lume built from this checkout specified by LUME_BIN.
 
-    When LUME_BIN is set, it must point to a usable binary with `ti otlp`, or an
+    When LUME_BIN is set, it must point to a usable binary whose `serve` supports `--otlp`, or an
     AssertionError is raised so CI cannot silently skip.
     When LUME_BIN is not set, returns None so local runs skip live SQL execution.
     """
@@ -42,15 +42,15 @@ def find_lume_binary():
         raise AssertionError(f"LUME_BIN is set to '{lume_env}', but file is not executable")
 
     try:
-        probe = subprocess.run([str(candidate), "ti", "otlp", "--help"], capture_output=True, timeout=30)
+        probe = subprocess.run([str(candidate), "serve", "--help"], capture_output=True, timeout=30)
     except OSError as e:
         raise AssertionError(f"LUME_BIN '{candidate}' failed to execute: {e}")
 
     if probe.returncode != 0:
         err = probe.stderr.decode("utf-8", errors="replace")
-        raise AssertionError(f"LUME_BIN '{candidate}' failed 'ti otlp --help' probe (code {probe.returncode}): {err}")
+        raise AssertionError(f"LUME_BIN '{candidate}' failed 'serve --help' probe (code {probe.returncode}): {err}")
     stdout_text = probe.stdout.decode("utf-8", errors="replace")
-    if "lume ti otlp" not in stdout_text and "Usage: lume" not in stdout_text:
+    if "--otlp" not in stdout_text:
         raise AssertionError(f"LUME_BIN '{candidate}' does not appear to be a lume binary (unexpected help output)")
 
     return str(candidate)
@@ -100,7 +100,9 @@ class TestAgentsDashboardSql(unittest.TestCase):
             raise AssertionError("Golden OTLP fixtures missing")
 
         cls.tmp_dir = tempfile.mkdtemp(prefix="otlp-dash-test-")
-        command = [cls.lume_bin, "ti", "otlp", "--store", cls.tmp_dir, "--port", "0"]
+        # Standalone `lume ti otlp` is ingestion-only (A8), so use the integrated loopback
+        # server, which serves both /v1/* and /ti/query.
+        command = [cls.lume_bin, "serve", "--ti-store", cls.tmp_dir, "--otlp", "--port", "0"]
         cls.proc = subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
@@ -113,7 +115,7 @@ class TestAgentsDashboardSql(unittest.TestCase):
         if not line:
             stderr = cls.proc.stderr.read()
             cls.tearDownClass()
-            raise RuntimeError(f"lume ti otlp failed to start: {stderr}")
+            raise RuntimeError(f"lume serve --otlp failed to start: {stderr}")
 
         cls.server_url = line.strip().split()[-1]
         assert cls.server_url.startswith("http://127.0.0.1:"), f"Unexpected url: {cls.server_url}"
