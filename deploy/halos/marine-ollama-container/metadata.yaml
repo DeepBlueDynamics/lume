@@ -28,4 +28,4 @@ default_config:
   OLLAMA_IMAGE: ollama/ollama:latest
   OLLAMA_MEMORY_LIMIT: 4g
   OLLAMA_KEEP_ALIVE: 10m
-  OLLAMA_DEFAULT_MODEL: qwen3:4b
+  OLLAMA_DEFAULT_MODEL: qwen3:1.7b

@@ -4,16 +4,21 @@ Runs [Ollama](https://ollama.com/) on a HaLOS Pi next to the Lume TI Signal K
 plugin. The plugin's **Ask** tab sends `lume chat` to it, so you can ask questions
 of telemetry and the cruiser library in plain words and get SQL-backed answers.
 
-- **Image:** `ollama/ollama:latest` (multi-arch, arm64 on the Pi). Pin a version
+- **Image:** `ollama/ollama:latest` (multi-arch). The arm64 image is **4.2 GB**
+  (Ollama 0.40.1, measured on the Pi 2026-10-08), most of it GPU libraries the Pi
+  does not use, and it pulled at about 1 MB/s. Check free space first. Pin a version
   through `OLLAMA_IMAGE` for reproducible installs.
 - **Network:** `127.0.0.1:11434` only. Ollama has no auth, so it must not be
   published to the LAN. The Signal K container uses the host network and reaches it
   on loopback, which is the Ask tab's default URL.
 - **Models:** stored in `/var/lib/container-apps/marine-ollama-container/data/ollama`
   and kept across image updates. The installer pulls `OLLAMA_DEFAULT_MODEL`
-  (`qwen3:4b`, about 2.5 GB). Pass `OLLAMA_DEFAULT_MODEL=-` to skip that.
+  (`qwen3:1.7b`, about 1.4 GB). Pass `OLLAMA_DEFAULT_MODEL=-` to skip it. With
+  4 GB or more to spare, `qwen3:4b` (about 2.5 GB) writes better SQL:
+  `sudo docker exec ollama ollama pull qwen3:4b`, then select it in the Ask tab.
+  Keep a few GB free on an SD card shared with Signal K and InfluxDB.
 - **Memory:** `lume chat` asks for a 16k context. Flash attention with an 8-bit KV
-  cache keeps a 4B model plus that context within a 4 GB cap. Only one model is
+  cache keeps a 1.7B or 4B model plus that context within a 4 GB cap. Only one model is
   loaded and one request handled at a time, and the model unloads after 10 minutes
   idle.
 - **Layout:** `install.sh` writes the same files and systemd unit that HaLOS's
@@ -23,7 +28,7 @@ of telemetry and the cruiser library in plain words and get SQL-backed answers.
 ```sh
 # on the Pi
 sudo docker pull ollama/ollama:latest
-sudo ./install.sh                         # installs, enables, waits, pulls qwen3:4b
+sudo ./install.sh                         # installs, enables, waits, pulls qwen3:1.7b
 sudo systemctl status marine-ollama-container
 sudo docker exec ollama ollama list
 ```
