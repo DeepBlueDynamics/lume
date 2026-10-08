@@ -1,5 +1,6 @@
 'use strict';
 
+const fs = require('node:fs');
 const path = require('node:path');
 const {spawn} = require('node:child_process');
 const {adminStatus, readJson} = require('./pg');
@@ -44,6 +45,23 @@ class ChatManager {
     const docsIndex = path.join(this.dataDir, 'library', 'index');
     const options = (typeof this.getOptions === 'function' ? this.getOptions() : {}) || {};
 
+    let apiKey = null;
+    if (typeof options.chatApiKeyFile === 'string' && options.chatApiKeyFile.trim()) {
+      const keyFile = options.chatApiKeyFile.trim();
+      try {
+        apiKey = fs.readFileSync(keyFile, 'utf8').trim();
+      } catch (readErr) {
+        const err = new Error(`Failed to read chatApiKeyFile (${keyFile}): ${readErr.message}`);
+        err.status = 400;
+        throw err;
+      }
+      if (!apiKey) {
+        const err = new Error(`chatApiKeyFile (${keyFile}) is empty`);
+        err.status = 400;
+        throw err;
+      }
+    }
+
     // Build arguments array: question is passed directly as an argv element, NEVER evaluated through a shell
     const args = ['chat', '--json', '--ti-store', store, '--docs-index', docsIndex];
     if (options.chatOllamaUrl) {
@@ -54,10 +72,17 @@ class ChatManager {
     }
     args.push(trimmedQuestion);
 
+    const childEnv = {...process.env};
+    if (apiKey) {
+      childEnv.OLLAMA_API_KEY = apiKey;
+    } else {
+      delete childEnv.OLLAMA_API_KEY;
+    }
+
     return new Promise((resolve, reject) => {
       let child;
       try {
-        child = spawn(this.binary, args, {stdio: ['ignore', 'pipe', 'pipe']});
+        child = spawn(this.binary, args, {stdio: ['ignore', 'pipe', 'pipe'], env: childEnv});
       } catch (err) {
         return reject(err);
       }

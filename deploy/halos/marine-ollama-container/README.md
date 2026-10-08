@@ -1,4 +1,6 @@
-# Ollama as a HaLOS container app (cloud models for the Ask tab)
+# Ollama as a HaLOS container app (optional: laptop/shore local models)
+
+> Optional (laptop/shore local models); the Pi uses ollama.com directly.
 
 Runs [Ollama](https://ollama.com/) on a HaLOS Pi next to the Lume TI Signal K
 plugin, **as a gateway to Ollama's cloud models**. The plugin's **Ask** tab sends
