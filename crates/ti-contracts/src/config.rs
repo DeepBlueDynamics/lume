@@ -142,6 +142,12 @@ pub struct ScramUser {
 pub struct QueryLimits {
     /// Retained decoded sealed-field cache bytes per store; 0 disables it. Default 256 MiB.
     pub sealed_cache_bytes: u64,
+    /// Warm newest sealed shards on server open without delaying requests.
+    pub warm_on_open: bool,
+    /// Maximum newly admitted warm-up bytes; omitted means the sealed cache budget.
+    pub warm_budget_bytes: Option<u64>,
+    /// Empty selects all fields; bare paths select all aggregates, @suffix selects one.
+    pub warm_fields: Vec<String>,
     /// Per-query timeout.
     pub timeout_seconds: u64,
     /// Per-query memory pool bytes.
@@ -453,6 +459,9 @@ impl Default for QueryLimits {
     fn default() -> Self {
         Self {
             sealed_cache_bytes: 256 * 1024 * 1024,
+            warm_on_open: true,
+            warm_budget_bytes: None,
+            warm_fields: Vec::new(),
             timeout_seconds: 30,
             memory_bytes: 1 << 30,
             unit_memory_bytes: 1536 << 20,

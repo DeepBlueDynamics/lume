@@ -5,6 +5,108 @@ use ti_contracts::{
 };
 use ti_store::Store;
 const BUDGET: u64 = 64 * 1024 * 1024;
+
+#[test]
+fn preload_first_query_hits_without_full_load_and_preserves_universe() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_writer, shard, field, _) = fixture(dir.path());
+    let control = ti_store::QueryCacheControl::open(dir.path()).unwrap();
+    control.set_budget(BUDGET).unwrap();
+    let report = control
+        .warm(
+            dir.path(),
+            None,
+            &["navigation.speedOverGround@mean".into()],
+        )
+        .unwrap();
+    assert_eq!((report.shards, report.fields), (1, 1));
+    assert!(report.bytes > 0 && report.bytes <= BUDGET as usize);
+    let reader = Store::open_readonly_with_cache(dir.path(), 10, BUDGET).unwrap();
+    assert_eq!(
+        reader
+            .eval(shard, &predicate(field))
+            .unwrap()
+            .iter()
+            .collect::<Vec<_>>(),
+        vec![2]
+    );
+    assert_eq!(
+        reader
+            .eval(shard, &Predicate::All)
+            .unwrap()
+            .iter()
+            .collect::<Vec<_>>(),
+        vec![1, 2, 3]
+    );
+    let stats = reader.query_cache_stats().unwrap();
+    assert!(stats.hits > 0);
+    assert_eq!((stats.full_loads, stats.field_loads), (0, 0));
+}
+
+#[test]
+fn preload_budget_stops_newest_first_without_evicting_request_entries() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut writer, old, field, _) = fixture(dir.path());
+    let newer = ShardKey {
+        vessel: old.vessel,
+        shard: 1,
+    };
+    writer
+        .apply(&[BucketRecord {
+            vessel: old.vessel,
+            bucket: 65538,
+            field,
+            value: FieldValue::Int(4000),
+            rewrite: false,
+        }])
+        .unwrap();
+    writer.seal(newer).unwrap();
+    let reader = Store::open_readonly_with_cache(dir.path(), 10, BUDGET).unwrap();
+    let control = ti_store::QueryCacheControl::open(dir.path()).unwrap();
+    control.set_budget(BUDGET).unwrap();
+    reader.eval(newer, &predicate(field)).unwrap();
+    let charge = control.stats().unwrap().used_bytes as u64;
+    control.clear().unwrap();
+    let report = control.warm(dir.path(), Some(charge), &[]).unwrap();
+    assert_eq!((report.shards, report.fields), (1, 1));
+    assert_eq!(report.bytes, charge as usize);
+    assert!(report.stopped_at_budget);
+    let before = control.stats().unwrap();
+    assert_eq!(reader.eval(newer, &predicate(field)).unwrap().len(), 1);
+    assert_eq!(control.stats().unwrap().full_loads, before.full_loads);
+    control.set_budget(charge).unwrap();
+    let report = control.warm(dir.path(), Some(BUDGET), &[]).unwrap();
+    assert_eq!(report.bytes, 0);
+    assert!(report.stopped_at_budget);
+    assert_eq!(control.stats().unwrap().evictions, before.evictions);
+    assert_eq!(reader.eval(newer, &predicate(field)).unwrap().len(), 1);
+    assert_eq!(control.stats().unwrap().full_loads, before.full_loads);
+}
+
+#[test]
+fn preload_configuration_defaults_and_disabled_budget_are_explicit() {
+    let defaults = ti_contracts::QueryLimits::default();
+    assert!(defaults.warm_on_open);
+    assert_eq!(defaults.warm_budget_bytes, None);
+    assert!(defaults.warm_fields.is_empty());
+    let config = ti_contracts::TiConfig::from_toml(
+        "[query]\nwarm_on_open=false\nwarm_budget_bytes=4096\nwarm_fields=['navigation.speedOverGround']\n"
+    ).unwrap();
+    assert!(!config.query.warm_on_open);
+    assert_eq!(config.query.warm_budget_bytes, Some(4096));
+    assert!(ti_contracts::TiConfig::from_toml("[query]\nwarm_field=[]\n").is_err());
+    let dir = tempfile::tempdir().unwrap();
+    let (_writer, _, _, _) = fixture(dir.path());
+    let control = ti_store::QueryCacheControl::open(dir.path()).unwrap();
+    control.set_budget(0).unwrap();
+    let report = control.warm(dir.path(), Some(BUDGET), &[]).unwrap();
+    assert_eq!((report.bytes, report.budget_bytes), (0, 0));
+    assert!(report.stopped_at_budget);
+    control.set_budget(BUDGET).unwrap();
+    assert!(control
+        .warm(dir.path(), None, &["no.such.path".into()])
+        .is_err());
+}
 fn fixture(root: &std::path::Path) -> (Store, ShardKey, u32, u32) {
     let mut store = Store::open_or_create(root, 10).unwrap();
     let vessel = store

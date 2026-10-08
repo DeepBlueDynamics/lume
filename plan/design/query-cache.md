@@ -96,3 +96,52 @@ See plan/design/q5-profile.md; no classifier fix or native post-fix claim is inc
 build against the count_paths store: 61 passed / 0 failed / 1 excluded, with all
 20 A/B fingerprints matching.
 
+
+
+## Optional startup warm-up
+
+TI HTTP/pgwire/MCP servers start a detached worker after opening the engine.
+There is no join at startup, engine/query-gate lock, or store lock in the worker.
+Requests can run immediately; requests arriving before completion may still be cold.
+It runs once at open, not on every live-bucket engine reload.
+
+```toml
+[query]
+sealed_cache_bytes = 67108864 # Pi: 64 MiB; default is 256 MiB
+warm_on_open = true          # default; false disables the worker
+# warm_budget_bytes = 67108864 # omitted: current sealed-cache budget
+# warm_fields = ["navigation.speedOverGround", "environment.depth.belowTransducer@min"]
+```
+
+An empty/omitted field list selects all fields. Bare paths select all retained
+aggregates; a path with an @suffix selects that aggregate only. Unknown fields
+produce one worker error log and leave the server running. Budgets are clamped
+to cache capacity; zero disables admissions. Configuration uses the existing
+deny_unknown_fields validation.
+
+The worker visits manifest entries newest first, with vessel/shard ordering as
+the tie-break. It derives each shard's complete bucket universe one field at a
+time, including unselected fields, then decodes selected fields one at a time.
+Admission holds only the cache mutex, after decoding and byte charging. It
+never evicts request-loaded entries or replaces a different cached version.
+It stops at the first entry that exceeds remaining warm-up allowance or free
+cache capacity. Shard serialization and seals are untouched.
+
+The budget bounds conservative charges for newly retained decoded entries,
+not RSS: catalog state and a transient field decoder add memory. The completion
+log reports shards (including a partially warmed shard), fields, bytes, elapsed
+time and budget stop. Historical queries outside the newest warmed shards may
+still miss; warm-up does not infer fields or dates from benchmark queries.
+
+`bench/native_cache_warm.py` measures all 26 query-class queries after clearing
+the decoded cache and awaiting this same preload, at both 256 MiB and 64 MiB.
+The server never awaits it. A separate fresh-process warm-only run records
+warm-up time, Windows peak working set (including engine startup), and sampled
+warm-phase RSS at 50 ms intervals. First-query measurements are observations,
+not a statistically sampled cold p95 distribution.
+
+Native Rust 1.96.1 checks for this slice passed: 36 ti-store tests (including
+1,000 crash runs), 7 ti-bench tests, 11 root ti_http tests, and 10 Python helper
+tests. Explicit rustfmt checks cover the touched Rust files; strict clippy covers
+ti-contracts/ti-store/ti-bench all targets and the standalone runner with
+--no-deps (the root package has unrelated legacy lint failures).

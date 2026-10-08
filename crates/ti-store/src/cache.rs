@@ -31,7 +31,7 @@ pub(crate) enum Cached {
     Missing,
 }
 impl Cached {
-    fn bytes(&self) -> usize {
+    pub(crate) fn bytes(&self) -> usize {
         // Include Arc, key, LRU indexes, B-tree node slack and enum storage.
         4096usize.saturating_add(match self {
             Self::Universe(bitmap) => bitmap_bytes(bitmap),
@@ -205,6 +205,9 @@ impl FieldCache {
         while self.stats.used_bytes > self.stats.budget_bytes - bytes {
             self.evict();
         }
+        self.insert_charged(key, value, bytes);
+    }
+    fn insert_charged(&mut self, key: CacheKey, value: Arc<Cached>, bytes: usize) {
         let stamp = self.stamp();
         self.items.insert(
             key,
@@ -216,6 +219,37 @@ impl FieldCache {
         );
         self.order.insert(stamp, key);
         self.stats.used_bytes += bytes;
+    }
+    pub(crate) fn contains(&self, key: CacheKey) -> bool {
+        self.items.contains_key(&key)
+    }
+    /// Background admission must never evict a request's entries or newer versions.
+    pub(crate) fn warm_insert(
+        &mut self,
+        key: CacheKey,
+        value: Arc<Cached>,
+        bytes: usize,
+        remaining: usize,
+    ) -> Option<usize> {
+        if self.items.contains_key(&key) {
+            return Some(0);
+        }
+        if self.items.keys().any(|other| {
+            other.shard == key.shard && (other.version != key.version || other.hash != key.hash)
+        }) {
+            return Some(0);
+        }
+        if bytes > remaining
+            || bytes
+                > self
+                    .stats
+                    .budget_bytes
+                    .saturating_sub(self.stats.used_bytes)
+        {
+            return None;
+        }
+        self.insert_charged(key, value, bytes);
+        Some(bytes)
     }
     pub fn full_load(&mut self) {
         self.stats.full_loads = self.stats.full_loads.saturating_add(1);
@@ -266,7 +300,7 @@ pub(crate) fn configured_budget(root: &Path) -> Result<u64> {
 
 /// Explicit controls for reproducible cold/warm query measurements.
 #[derive(Clone)]
-pub struct QueryCacheControl(Arc<Mutex<FieldCache>>);
+pub struct QueryCacheControl(pub(crate) Arc<Mutex<FieldCache>>);
 impl QueryCacheControl {
     /// Attach to the same cache used by opened Store snapshots.
     pub fn open(root: &Path) -> Result<Self> {
@@ -302,6 +336,25 @@ mod tests {
             bytes: 0,
             hash: [version as u8; 32],
         }
+    }
+    #[test]
+    fn warm_admission_never_evicts_or_replaces_a_newer_snapshot() {
+        let mut cache = FieldCache::new(4096);
+        let newer = CacheKey::new(&entry(0, 2), Some(1));
+        cache.insert(newer, Arc::new(Cached::Missing));
+        let old = CacheKey::new(&entry(0, 1), Some(2));
+        assert_eq!(
+            cache.warm_insert(old, Arc::new(Cached::Missing), 4096, 4096),
+            Some(0)
+        );
+        let other = CacheKey::new(&entry(1, 1), Some(1));
+        assert_eq!(
+            cache.warm_insert(other, Arc::new(Cached::Missing), 4096, 4096),
+            None
+        );
+        assert_eq!(cache.stats().evictions, 0);
+        assert!(cache.get(newer).is_some());
+        assert_eq!(cache.stats().used_bytes, 4096);
     }
     #[test]
     fn lru_hits_refresh_recency_and_budget_is_never_exceeded() {

@@ -1,7 +1,9 @@
 //! Storage engine for the Lume Telemetry Index (`ti-store`).
 
 mod cache;
+mod warm;
 pub use cache::{QueryCacheControl, QueryCacheStats};
+pub use warm::CacheWarmReport;
 pub mod catalog;
 pub mod docs;
 pub mod manifest;
