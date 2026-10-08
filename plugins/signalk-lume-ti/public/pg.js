@@ -11,6 +11,12 @@ document.addEventListener('DOMContentLoaded', () => {
       for (const key of ['pgPort', 'pgUser', 'pgBind']) form.elements[key].value = data[key];
       form.elements.enablePg.checked = data.enablePg;
       message.textContent = data.passwordConfigured ? 'Password configured. Leave blank to keep it.' : 'Set a password before enabling PostgreSQL.';
+      const tlsElement = document.getElementById('pg-tls-status');
+      if (tlsElement) {
+        const activeText = data.tlsActive ? 'TLS is active' : 'TLS is inactive';
+        const certPath = data.pgTlsCert ? data.pgTlsCert : (data.autoCertPath || '<store>/pg_cert.pem');
+        tlsElement.textContent = `${activeText}. Certificate: ${certPath}`;
+      }
     } catch (error) { message.textContent = error.message; }
   }
   form.addEventListener('submit', async event => {

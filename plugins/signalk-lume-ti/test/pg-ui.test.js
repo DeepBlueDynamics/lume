@@ -34,3 +34,61 @@ test('password form clears immediately on both successful and failed saves', asy
     assert.ok(message.textContent.includes(ok ? 'Saved.' : 'Save failed.'));
   }
 });
+
+test('PostgreSQL form shows whether TLS is active and auto-generated cert path when no cert configured', async () => {
+  const inputs = Object.fromEntries(['enablePg', 'pgPort', 'pgUser', 'pgBind', 'pgPassword']
+    .map(key => [key, {value: '', checked: false}]));
+  const elements = {
+    'pg-config': {elements: inputs, addEventListener: () => {}},
+    'pg-message': {textContent: ''},
+    'pg-tls-status': {textContent: ''},
+  };
+  let ready, loadFn;
+  const context = {
+    document: {
+      addEventListener: (_, fn) => { ready = fn; },
+      getElementById: id => elements[id] || {textContent: ''},
+      querySelector: () => ({
+        addEventListener: (event, fn) => {
+          if (event === 'click') loadFn = fn;
+        },
+      }),
+    },
+    fetch: () => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({
+        enablePg: true,
+        pgPort: 5864,
+        pgUser: 'grafana',
+        pgBind: '172.17.0.1',
+        passwordConfigured: true,
+        tlsActive: false,
+        autoCertPath: '/var/lib/signalk/lume-ti/pg_cert.pem',
+        pgTlsCert: null,
+      }),
+    }),
+  };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../public/pg.js'), 'utf8'), context);
+  ready();
+  await loadFn();
+  assert.ok(elements['pg-tls-status'].textContent.includes('inactive'));
+  assert.ok(elements['pg-tls-status'].textContent.includes('/var/lib/signalk/lume-ti/pg_cert.pem'));
+
+  // And when TLS is active with custom cert
+  context.fetch = () => Promise.resolve({
+    ok: true,
+    json: () => Promise.resolve({
+      enablePg: true,
+      pgPort: 5864,
+      pgUser: 'grafana',
+      pgBind: '192.168.1.100',
+      passwordConfigured: true,
+      tlsActive: true,
+      autoCertPath: '/var/lib/signalk/lume-ti/pg_cert.pem',
+      pgTlsCert: '/custom/cert.pem',
+    }),
+  });
+  await loadFn();
+  assert.ok(elements['pg-tls-status'].textContent.includes('active'));
+  assert.ok(elements['pg-tls-status'].textContent.includes('/custom/cert.pem'));
+});

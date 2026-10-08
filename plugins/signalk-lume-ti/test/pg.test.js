@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
-const {deriveVerifier, pgOptions, writePgConfig, registerPgRoutes} = require('../lib/pg');
+const {deriveVerifier, pgOptions, writePgConfig, registerPgRoutes, isLoopbackOrDocker0, isTlsActive} = require('../lib/pg');
 const {withNodeStub, waitFor} = require('./stubs/node-stub');
 const {Supervisor} = withNodeStub(() => require('../lib/supervisor'));
 const pluginFactory = require('../index');
@@ -136,6 +136,242 @@ test('plugin saved safe options become supervised pg flags while HTTP stays loop
   } finally {
     plugin.stop();
     // Wait for stop before deleting the child fixture's directory.
+    await new Promise(resolve => setTimeout(resolve, 100));
+    delete process.env.MOCK_LUME_LOG_ARGS;
+    fs.rmSync(root, {recursive: true, force: true});
+  }
+});
+
+test('Supervisor builds correct argv for every TLS option combination and passes nothing when unset', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pg-argv-'));
+  try {
+    const auth = path.join(root, 'ti.toml');
+    fs.writeFileSync(auth, 'auth');
+
+    // 1. All unset / defaults: no TLS flags present
+    const base = new Supervisor({
+      binaryPath: process.execPath,
+      storeDir: root,
+      pgPort: 5864,
+      pgBind: '127.0.0.1',
+      pgAuthConfig: auth,
+    });
+    const baseArgs = base.buildArgs();
+    assert.ok(baseArgs.includes('--pg'));
+    assert.equal(baseArgs.includes('--pg-require-tls'), false);
+    assert.equal(baseArgs.some(a => a.startsWith('--pg-require-tls')), false);
+    assert.equal(baseArgs.includes('--pg-tls-cert'), false);
+    assert.equal(baseArgs.includes('--pg-tls-key'), false);
+    assert.equal(baseArgs.includes('--pg-allow-plaintext'), false);
+
+    // 2. pgRequireTls: 'auto' (explicit) -> no TLS flag
+    const autoSup = new Supervisor({
+      binaryPath: process.execPath,
+      storeDir: root,
+      pgPort: 5864,
+      pgBind: '127.0.0.1',
+      pgAuthConfig: auth,
+      pgRequireTls: 'auto',
+    });
+    const autoArgs = autoSup.buildArgs();
+    assert.equal(autoArgs.some(a => a.startsWith('--pg-require-tls')), false);
+
+    // 3. pgRequireTls: true -> --pg-require-tls
+    for (const val of [true, 'true']) {
+      const sup = new Supervisor({
+        binaryPath: process.execPath,
+        storeDir: root,
+        pgPort: 5864,
+        pgBind: '127.0.0.1',
+        pgAuthConfig: auth,
+        pgRequireTls: val,
+      });
+      const args = sup.buildArgs();
+      assert.ok(args.includes('--pg-require-tls'));
+      assert.equal(args.includes('--pg-require-tls=false'), false);
+    }
+
+    // 4. pgRequireTls: false -> --pg-require-tls=false
+    for (const val of [false, 'false']) {
+      const sup = new Supervisor({
+        binaryPath: process.execPath,
+        storeDir: root,
+        pgPort: 5864,
+        pgBind: '127.0.0.1',
+        pgAuthConfig: auth,
+        pgRequireTls: val,
+      });
+      const args = sup.buildArgs();
+      assert.ok(args.includes('--pg-require-tls=false'));
+    }
+
+    // 5. pgAllowPlaintext: true -> --pg-allow-plaintext
+    const plainSup = new Supervisor({
+      binaryPath: process.execPath,
+      storeDir: root,
+      pgPort: 5864,
+      pgBind: '127.0.0.1',
+      pgAuthConfig: auth,
+      pgAllowPlaintext: true,
+    });
+    assert.ok(plainSup.buildArgs().includes('--pg-allow-plaintext'));
+
+    // 6. pgAllowPlaintext: false -> no --pg-allow-plaintext
+    const noPlainSup = new Supervisor({
+      binaryPath: process.execPath,
+      storeDir: root,
+      pgPort: 5864,
+      pgBind: '127.0.0.1',
+      pgAuthConfig: auth,
+      pgAllowPlaintext: false,
+    });
+    assert.equal(noPlainSup.buildArgs().includes('--pg-allow-plaintext'), false);
+
+    // 7. pgTlsCert & pgTlsKey -> --pg-tls-cert and --pg-tls-key
+    const certSup = new Supervisor({
+      binaryPath: process.execPath,
+      storeDir: root,
+      pgPort: 5864,
+      pgBind: '127.0.0.1',
+      pgAuthConfig: auth,
+      pgTlsCert: '/path/to/cert.pem',
+      pgTlsKey: '/path/to/key.pem',
+    });
+    const certArgs = certSup.buildArgs();
+    assert.equal(certArgs[certArgs.indexOf('--pg-tls-cert') + 1], '/path/to/cert.pem');
+    assert.equal(certArgs[certArgs.indexOf('--pg-tls-key') + 1], '/path/to/key.pem');
+
+    // 8. Individual cert / key
+    const onlyCert = new Supervisor({
+      binaryPath: process.execPath,
+      storeDir: root,
+      pgPort: 5864,
+      pgBind: '127.0.0.1',
+      pgAuthConfig: auth,
+      pgTlsCert: '/path/to/cert.pem',
+    });
+    assert.ok(onlyCert.buildArgs().includes('--pg-tls-cert'));
+    assert.equal(onlyCert.buildArgs().includes('--pg-tls-key'), false);
+
+    // 9. All TLS options set together
+    const allSup = new Supervisor({
+      binaryPath: process.execPath,
+      storeDir: root,
+      pgPort: 5864,
+      pgBind: '172.17.0.1',
+      pgAuthConfig: auth,
+      pgRequireTls: true,
+      pgTlsCert: '/custom/cert.pem',
+      pgTlsKey: '/custom/key.pem',
+      pgAllowPlaintext: true,
+    });
+    const allArgs = allSup.buildArgs();
+    assert.ok(allArgs.includes('--pg-require-tls'));
+    assert.equal(allArgs[allArgs.indexOf('--pg-tls-cert') + 1], '/custom/cert.pem');
+    assert.equal(allArgs[allArgs.indexOf('--pg-tls-key') + 1], '/custom/key.pem');
+    assert.ok(allArgs.includes('--pg-allow-plaintext'));
+
+    // 10. Disabled PostgreSQL (pgPort: null) -> no pg flags even if TLS options provided
+    const disabledSup = new Supervisor({
+      binaryPath: process.execPath,
+      storeDir: root,
+      pgPort: null,
+      pgRequireTls: true,
+      pgTlsCert: '/custom/cert.pem',
+      pgTlsKey: '/custom/key.pem',
+      pgAllowPlaintext: true,
+    });
+    const disabledArgs = disabledSup.buildArgs();
+    assert.equal(disabledArgs.some(a => a.startsWith('--pg')), false);
+  } finally {
+    fs.rmSync(root, {recursive: true, force: true});
+  }
+});
+
+test('pgOptions and TLS helpers validate options and reflect active TLS status', () => {
+  // Defaults
+  const def = pgOptions({});
+  assert.equal(def.pgRequireTls, 'auto');
+  assert.equal(def.pgTlsCert, null);
+  assert.equal(def.pgTlsKey, null);
+  assert.equal(def.pgAllowPlaintext, false);
+
+  // Accepted options
+  const opt = pgOptions({
+    pgRequireTls: true,
+    pgTlsCert: '/path/to/cert.pem',
+    pgTlsKey: '/path/to/key.pem',
+    pgAllowPlaintext: true,
+  });
+  assert.equal(opt.pgRequireTls, true);
+  assert.equal(opt.pgTlsCert, '/path/to/cert.pem');
+  assert.equal(opt.pgTlsKey, '/path/to/key.pem');
+  assert.equal(opt.pgAllowPlaintext, true);
+
+  // Invalid values throw
+  assert.throws(() => pgOptions({pgRequireTls: 'invalid'}));
+  assert.throws(() => pgOptions({pgAllowPlaintext: 'yes'}));
+
+  // isLoopbackOrDocker0
+  assert.equal(isLoopbackOrDocker0('127.0.0.1'), true);
+  assert.equal(isLoopbackOrDocker0('127.0.0.2'), true);
+  assert.equal(isLoopbackOrDocker0('::1'), true);
+  assert.equal(isLoopbackOrDocker0('172.17.0.1'), true);
+  assert.equal(isLoopbackOrDocker0('172.17.5.5'), false);
+  assert.equal(isLoopbackOrDocker0('192.168.1.10'), false);
+
+  // isTlsActive policy
+  // Plaintext allowed overrides all
+  assert.equal(isTlsActive({pgBind: '192.168.1.1', pgAllowPlaintext: true}), false);
+  // Explicit require overrides bind
+  assert.equal(isTlsActive({pgBind: '127.0.0.1', pgRequireTls: true}), true);
+  assert.equal(isTlsActive({pgBind: '192.168.1.1', pgRequireTls: false}), false);
+  // Auto policy: loopback and docker0 gateway do not require TLS; external does
+  assert.equal(isTlsActive({pgBind: '127.0.0.1', pgRequireTls: 'auto'}), false);
+  assert.equal(isTlsActive({pgBind: '172.17.0.1', pgRequireTls: 'auto'}), false);
+  assert.equal(isTlsActive({pgBind: '172.17.5.5', pgRequireTls: 'auto'}), true);
+  assert.equal(isTlsActive({pgBind: '192.168.1.1', pgRequireTls: 'auto'}), true);
+});
+
+test('plugin exposes schema options and passes TLS options to supervisor', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pg-plugin-tls-'));
+  const argsLog = path.join(root, 'args.json');
+  process.env.MOCK_LUME_LOG_ARGS = argsLog;
+  const config = {
+    enablePg: true,
+    pgPort: 5864,
+    pgUser: 'grafana',
+    pgBind: '172.17.0.1',
+    pgVerifier: EXPECTED,
+    pgRequireTls: true,
+    pgTlsCert: '/custom/cert.pem',
+    pgTlsKey: '/custom/key.pem',
+    pgAllowPlaintext: true,
+    lumePath: process.execPath,
+    servePort: 0,
+    autoRequestToken: false,
+  };
+  const plugin = pluginFactory({getDataDirPath: () => root, debug: () => {}});
+  try {
+    const schemaProps = plugin.schema().properties;
+    assert.ok(Object.hasOwn(schemaProps, 'pgRequireTls'));
+    assert.equal(schemaProps.pgRequireTls.default, 'auto');
+    assert.ok(Object.hasOwn(schemaProps, 'pgTlsCert'));
+    assert.ok(Object.hasOwn(schemaProps, 'pgTlsKey'));
+    assert.ok(Object.hasOwn(schemaProps, 'pgAllowPlaintext'));
+    assert.equal(schemaProps.pgAllowPlaintext.default, false);
+
+    plugin.start(config);
+    await waitFor(() => fs.existsSync(argsLog));
+    const args = JSON.parse(fs.readFileSync(argsLog, 'utf8'));
+    assert.equal(args[args.indexOf('--pg') + 1], '5864');
+    assert.equal(args[args.indexOf('--pg-bind') + 1], '172.17.0.1');
+    assert.ok(args.includes('--pg-require-tls'));
+    assert.equal(args[args.indexOf('--pg-tls-cert') + 1], '/custom/cert.pem');
+    assert.equal(args[args.indexOf('--pg-tls-key') + 1], '/custom/key.pem');
+    assert.ok(args.includes('--pg-allow-plaintext'));
+  } finally {
+    plugin.stop();
     await new Promise(resolve => setTimeout(resolve, 100));
     delete process.env.MOCK_LUME_LOG_ARGS;
     fs.rmSync(root, {recursive: true, force: true});

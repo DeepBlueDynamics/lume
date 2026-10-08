@@ -42,6 +42,10 @@ class Supervisor {
     this.pgPort = options.pgPort ?? null;
     this.pgBind = options.pgBind || '127.0.0.1';
     this.pgAuthConfig = options.pgAuthConfig || null;
+    this.pgRequireTls = options.pgRequireTls ?? 'auto';
+    this.pgTlsCert = options.pgTlsCert || null;
+    this.pgTlsKey = options.pgTlsKey || null;
+    this.pgAllowPlaintext = options.pgAllowPlaintext === true;
     this.extraArgs = options.extraArgs || [];
     // Cruiser library index served next to telemetry; a missing index is served empty and
     // picked up when it is first published.
@@ -92,6 +96,20 @@ class Supervisor {
     if (this.pgPort !== null) {
       if (!this.pgAuthConfig || !fs.existsSync(this.pgAuthConfig)) throw new Error('PostgreSQL auth config is missing');
       args.push('--pg', String(this.pgPort), '--pg-bind', this.pgBind, '--pg-auth-config', this.pgAuthConfig);
+      if (this.pgRequireTls === true || this.pgRequireTls === 'true') {
+        args.push('--pg-require-tls');
+      } else if (this.pgRequireTls === false || this.pgRequireTls === 'false') {
+        args.push('--pg-require-tls=false');
+      }
+      if (this.pgTlsCert) {
+        args.push('--pg-tls-cert', this.pgTlsCert);
+      }
+      if (this.pgTlsKey) {
+        args.push('--pg-tls-key', this.pgTlsKey);
+      }
+      if (this.pgAllowPlaintext) {
+        args.push('--pg-allow-plaintext');
+      }
     }
 
     if (this.docsIndex) {
