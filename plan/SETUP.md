@@ -648,6 +648,12 @@ Signal K binds `/var/lib/container-apps/marine-signalk-server-container/data/dat
    ```
    The plugin reads `chatApiKeyFile` at spawn time and passes `OLLAMA_API_KEY` in the child environment only.
 
+## SQL working-memory budget
+
+Each TI or ordinary-index SQL session shares a bounded DataFusion operator memory pool across its queries. The default is the smaller of 512 MiB and one quarter of detectable physical/container RAM. Linux checks MemTotal and cgroup limits; when RAM cannot be detected, the ceiling is 512 MiB. Override at process startup with a positive byte count in `LUME_TI_QUERY_MEMORY_BYTES`, for example `67108864` for 64 MiB on a Pi. Invalid or zero values refuse session creation.
+
+An operator that cannot reserve memory returns DataFusion's resource-exhaustion error, including allocation/budget details, rather than expanding an unbounded pool. This budgets tracked query-operator memory, not total RSS: catalog/input buffers, custom providers/UDF allocations and the separately configured sealed-shard cache remain outside it. Some DataFusion operations do not track every allocation; this is not a complete process memory sandbox. [DataFusion runtime memory documentation](https://docs.rs/datafusion/latest/datafusion/execution/runtime_env/struct.RuntimeEnvBuilder.html).
+
 ## 14. OTLP telemetry receiver
 
 > [!NOTE]
