@@ -5,7 +5,10 @@ use std::{
     io::{Read, Write},
     net::TcpStream,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, RwLock},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex, RwLock,
+    },
     time::{Duration, Instant},
 };
 use ti_contracts::Catalog;
@@ -43,9 +46,12 @@ pub struct TiServer {
     store: Arc<Mutex<ti_store::Store>>,
     receiver: Arc<ti_sync::ShoreReceiver>,
     sync_token: Option<String>,
-    otlp: Option<Mutex<ti_ingest::otlp::AgentStore>>,
+    otlp: Option<Arc<ti_ingest::otlp::AgentStore>>,
     otlp_token: Option<String>,
     otlp_only: bool,
+    /// Set on each durable OTLP 200. The next query reloads the engine; a standalone
+    /// receiver has no query path, so it never reloads.
+    otlp_dirty: AtomicBool,
     docs_index: Option<Mutex<crate::ti_docs_index::DocsIndex>>,
     docs_reload: Mutex<()>,
     query_limits: RwLock<ti_contracts::QueryLimits>,
@@ -126,6 +132,7 @@ impl TiServer {
             otlp: None,
             otlp_token: None,
             otlp_only: false,
+            otlp_dirty: AtomicBool::new(false),
             docs_index: None,
             docs_reload: Mutex::new(()),
             query_limits: RwLock::new(query_limits),
@@ -169,7 +176,7 @@ impl TiServer {
         if token.as_ref().is_some_and(|s| s.trim().is_empty()) {
             return Err("OTLP bearer token must not be empty".into());
         }
-        self.otlp = Some(Mutex::new(
+        self.otlp = Some(Arc::new(
             ti_ingest::otlp::AgentStore::open(&self.root).map_err(|e| e.to_string())?,
         ));
         self.otlp_token = token;
@@ -339,7 +346,30 @@ impl TiServer {
         }
         Ok(())
     }
+
+    /// OTLP posts stay durable without rebuilding the query engine. A later query
+    /// reloads once, under the store lock, so it cannot observe a flush in progress.
+    fn refresh_otlp_snapshot(&self) -> Result<(), String> {
+        let Some(otlp) = self.otlp.clone() else {
+            return Ok(());
+        };
+        if !self.otlp_dirty.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        otlp.with_durable_lock(|| {
+            if !self.otlp_dirty.swap(false, Ordering::AcqRel) {
+                return Ok(());
+            }
+            if let Err(error) = self.force_reload_engine() {
+                self.otlp_dirty.store(true, Ordering::Release);
+                return Err(error);
+            }
+            Ok(())
+        })?
+    }
+
     pub(crate) fn pg_describe(&self, sql: &str, hints: &[String]) -> Result<Value, String> {
+        self.refresh_otlp_snapshot()?;
         self.refresh_docs_index();
         let engine = self.engine.read().map_err(|e| e.to_string())?.clone();
         let _guard = self.gate.lock().map_err(|e| e.to_string())?;
@@ -357,6 +387,7 @@ impl TiServer {
         sql: &str,
         parameters: Vec<ti_sql::postgres::Parameter>,
     ) -> Result<Value, String> {
+        self.refresh_otlp_snapshot()?;
         self.refresh_docs_index();
         let engine = self.engine.read().map_err(|e| e.to_string())?.clone();
         let _guard = self.gate.lock().map_err(|e| e.to_string())?;
@@ -408,6 +439,7 @@ impl TiServer {
                 return Err("store must match the server's --ti-store".into());
             }
         }
+        self.refresh_otlp_snapshot()?;
         self.refresh_docs_index();
         let engine = self.engine.read().map_err(|e| e.to_string())?.clone();
         if let Some(width) = args.get("width_seconds") {
@@ -454,7 +486,7 @@ impl TiServer {
         let req_headers = RequestHeaders(headers_raw);
 
         if path == "/v1/metrics" || path == "/v1/logs" {
-            let Some(receiver) = &self.otlp else {
+            let Some(receiver) = self.otlp.clone() else {
                 return Ok(Reply::error(404, "OTLP is disabled; start with --otlp"));
             };
             if method != "POST" {
@@ -482,7 +514,6 @@ impl TiServer {
                     "lume accepts OTLP http/json only; set protocol json",
                 ));
             }
-            let mut receiver = receiver.lock().map_err(|e| e.to_string())?;
             let result = if path == "/v1/metrics" {
                 receiver.metrics(body)
             } else {
@@ -490,7 +521,9 @@ impl TiServer {
             };
             match result {
                 Ok(_) => {
-                    self.force_reload_engine()?;
+                    // The batch's group is flushed and the counter checkpoint fsynced.
+                    // Rebuilding the engine here held the store lock for tens of milliseconds.
+                    self.otlp_dirty.store(true, Ordering::Release);
                     return Ok(Reply::json(200, json!({})));
                 }
                 Err(ti_contracts::Error::InvalidInput(error)) => {
@@ -781,6 +814,7 @@ impl TiServer {
         if !args.is_object() {
             return Err("body must be a JSON object".into());
         }
+        self.refresh_otlp_snapshot()?;
         self.refresh_docs_index();
         let engine = self.engine.read().map_err(|e| e.to_string())?.clone();
         let _guard = self.gate.lock().map_err(|e| e.to_string())?;

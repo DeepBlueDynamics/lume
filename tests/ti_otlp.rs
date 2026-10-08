@@ -5,7 +5,12 @@ use std::{
     net::TcpStream,
     path::PathBuf,
     process::{Child, Command, Stdio},
-    time::Duration,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Barrier, Mutex,
+    },
+    thread,
+    time::{Duration, Instant},
 };
 const METRICS: &str = include_str!("golden/otlp/metrics.json");
 const LOGS: &str = include_str!("golden/otlp/logs.json");
@@ -376,4 +381,83 @@ fn corrupt_checkpoint_fails_startup_without_silent_reset() {
     assert!(error.contains("Invalid OTLP counters file"), "{error}");
     assert!(error.contains("refusing to reset totals"), "{error}");
     assert_eq!(std::fs::read_to_string(checkpoint).unwrap(), "{corrupt");
+}
+fn log_with_marker(marker: &str, seconds: i64) -> String {
+    json!({"resourceLogs":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"kill-agent"}}]},
+        "scopeLogs":[{"logRecords":[{
+            "timeUnixNano": format!("{seconds}000000000"),
+            "eventName": marker,
+            "body": {"stringValue": marker}
+        }]}]}]}).to_string()
+}
+#[test]
+fn lone_otlp_post_is_not_held_for_a_batch_window() {
+    let server = Server::start(true, true, false);
+    let started = Instant::now();
+    server
+        .post(
+            "/v1/logs",
+            &log_with_marker("lone-post", 1_577_836_811),
+            None,
+        )
+        .unwrap();
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "lone POST waited {:?}",
+        started.elapsed()
+    );
+    assert_eq!(
+        server.sql("SELECT title FROM docs WHERE title = 'lone-post'")["row_count"],
+        1
+    );
+}
+#[test]
+fn acked_logs_survive_kill_before_the_next_group() {
+    let mut server = Server::start(true, true, false);
+    let url = server.url.clone();
+    let pid = server.child.id();
+    let acked = Arc::new(Mutex::new(Vec::new()));
+    let killed = Arc::new(AtomicBool::new(false));
+    let barrier = Arc::new(Barrier::new(16));
+    let mut handles = Vec::new();
+    for i in 0..16 {
+        let url = url.clone();
+        let acked = Arc::clone(&acked);
+        let killed = Arc::clone(&killed);
+        let barrier = Arc::clone(&barrier);
+        handles.push(thread::spawn(move || {
+            barrier.wait();
+            let marker = format!("kill-marker-{i}");
+            let body = log_with_marker(&marker, 1_577_836_820 + i);
+            let posted = ureq::post(&format!("{url}/v1/logs"))
+                .set("Content-Type", "application/json")
+                .set("Accept", "application/json")
+                .timeout(Duration::from_secs(30))
+                .send_string(&body);
+            if posted.is_ok() {
+                acked.lock().unwrap().push(marker);
+                if !killed.swap(true, Ordering::SeqCst) {
+                    let _ = Command::new("kill").args(["-9", &pid.to_string()]).status();
+                }
+            }
+        }));
+    }
+    for handle in handles {
+        handle.join().unwrap();
+    }
+    let _ = server.child.kill();
+    let _ = server.child.wait();
+    let acked = acked.lock().unwrap().clone();
+    assert!(
+        !acked.is_empty(),
+        "expected at least one acknowledged batch before the kill"
+    );
+    let docs = ti_store::DocStore::open(&server.root.join("store")).unwrap();
+    let titles: Vec<String> = docs.iter().map(|doc| doc.title.clone()).collect();
+    for marker in &acked {
+        assert!(
+            titles.iter().any(|title| title == marker),
+            "acked {marker} missing after kill; have {titles:?}"
+        );
+    }
 }
