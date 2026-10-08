@@ -110,6 +110,23 @@ pub fn parse_tar(bytes: &[u8]) -> Result<Vec<(String, Vec<u8>)>> {
             .map_err(|e| Error::Corrupt(format!("invalid tar file name: {e}")))?
             .to_string();
 
+        // Only regular files with portable relative paths are valid shard entries.
+        if !matches!(header[156], 0 | b'0') {
+            return Err(Error::Corrupt("tar entry is not a regular file".into()));
+        }
+        if name.is_empty()
+            || name.contains('\\')
+            || name.contains(':')
+            || name
+                .split('/')
+                .any(|part| part.is_empty() || part == "." || part == "..")
+            || header[345..500].iter().any(|&byte| byte != 0)
+        {
+            return Err(Error::Corrupt(
+                "tar entry path is not confined to the shard".into(),
+            ));
+        }
+
         // Extract size
         let size_str = std::str::from_utf8(&header[124..136])
             .map_err(|e| Error::Corrupt(format!("invalid tar size field: {e}")))?;
@@ -135,6 +152,14 @@ pub fn parse_tar(bytes: &[u8]) -> Result<Vec<(String, Vec<u8>)>> {
             )));
         }
 
+        // Validate untrusted lengths before allocating, including the upload cap.
+        let remaining = bytes.len().saturating_sub(cursor.position() as usize);
+        if size > remaining || size as u64 > crate::shore::MAX_SHARD_BYTES {
+            return Err(Error::Corrupt(
+                "tar entry size exceeds archive or upload limit".into(),
+            ));
+        }
+
         // Read file contents
         let mut data = vec![0u8; size];
         cursor.read_exact(&mut data)?;
@@ -156,6 +181,74 @@ pub fn parse_tar(bytes: &[u8]) -> Result<Vec<(String, Vec<u8>)>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn update_checksum(bytes: &mut [u8]) {
+        let sum: u32 = bytes[..BLOCK_SIZE]
+            .iter()
+            .enumerate()
+            .map(|(i, byte)| {
+                if (148..156).contains(&i) {
+                    b' ' as u32
+                } else {
+                    *byte as u32
+                }
+            })
+            .sum();
+        bytes[148..156].copy_from_slice(format!("{sum:06o}\0 ").as_bytes());
+    }
+
+    #[test]
+    fn rejects_oversized_entry_before_allocating() {
+        let mut archive = create_tar(&[("fields/1.rbm", b"")]).unwrap();
+        archive[124..136].copy_from_slice(format!("{:011o}\0", 1024 * 1024 * 1024usize).as_bytes());
+        update_checksum(&mut archive);
+        assert!(parse_tar(&archive)
+            .unwrap_err()
+            .to_string()
+            .contains("size exceeds"));
+    }
+
+    #[test]
+    fn rejects_entry_above_upload_cap_even_if_archive_has_room() {
+        let size = crate::shore::MAX_SHARD_BYTES as usize + 1;
+        let mut archive = create_tar(&[("fields/1.rbm", b"")]).unwrap();
+        archive.resize(BLOCK_SIZE + size, 0);
+        archive[124..136].copy_from_slice(format!("{size:011o}\0").as_bytes());
+        update_checksum(&mut archive);
+        assert!(parse_tar(&archive)
+            .unwrap_err()
+            .to_string()
+            .contains("upload limit"));
+    }
+
+    #[test]
+    fn rejects_unconfined_paths_and_links() {
+        for name in [
+            "../outside",
+            "/absolute",
+            "fields/../../outside",
+            "fields\\\\outside",
+            "C:/outside",
+            "fields/./1.rbm",
+            "fields//1.rbm",
+        ] {
+            let archive = create_tar(&[(name, b"")]).unwrap();
+            assert!(parse_tar(&archive).is_err(), "{name}");
+        }
+        for kind in [b'1', b'2', b'5'] {
+            let mut archive = create_tar(&[("fields/1.rbm", b"")]).unwrap();
+            archive[156] = kind;
+            update_checksum(&mut archive);
+            assert!(parse_tar(&archive)
+                .unwrap_err()
+                .to_string()
+                .contains("regular file"));
+        }
+        let mut prefixed = create_tar(&[("fields/1.rbm", b"")]).unwrap();
+        prefixed[345..348].copy_from_slice(b"../");
+        update_checksum(&mut prefixed);
+        assert!(parse_tar(&prefixed).is_err());
+    }
 
     #[test]
     fn test_tar_roundtrip() {
