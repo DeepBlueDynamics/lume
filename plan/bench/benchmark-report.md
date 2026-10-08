@@ -97,7 +97,22 @@ The larger budget is not automatically faster; these are single observations.
 | Per-path counts | 4,080 ms | 57 ms |
 | Raw scan of all rows | 42.9 ms | 43.7 ms |
 
-These are below every edge target, but they are not the spec's class definitions and not p95. **Edge p95 per class: PENDING.**
+These are below every edge target, but they are not the spec's class definitions and not p95.
+
+**Edge p95 per class (D48 gap 4), measured 2026-10-08** on the Pi 5 (HaLOS, 8 GB RAM, SD card) while Signal K, live ingest and Grub were running. Command: `ti-query-bench bench --pi --iterations 7 --cache-bytes 268435456`. Binary: the arm64 cross-build of `067374c`. Store: `scripts/pi-bench-recipe.sh`, 1 vessel × 90 days, seed 42, with `@last`; that's 90 days, not the spec's 1 year. Results: [bench/results/2026-10-08-pi-067374c.json](../../bench/results/2026-10-08-pi-067374c.json).
+
+| Class | Edge target | Warm p50 | Warm p95 | Status |
+|---|---|---:|---:|---|
+| Q1 | ≤ 20 ms | 1.65 ms | 1.91 ms | Pass |
+| Q2 | ≤ 150 ms | 3.49 ms | 5.12 ms | Pass |
+| Q3 | ≤ 50 ms | 2.91 ms | 3.73 ms | Pass |
+| Q4 | ≤ 400 ms | 7.02 ms | 13.59 ms | Pass |
+| Q5 | ≤ 150 ms | 5.08 ms | 5.20 ms | Pass |
+| Q6 | ≤ 200 ms | 3.15 ms | 308.53 ms | **Miss**: one query |
+| Q7 | ≤ 300 ms | 4.55 ms | 5.34 ms | Pass |
+| Q8 | DuckDB parity ±50 % | 64.71 ms | 80.60 ms | No DuckDB on the Pi; parity not measured |
+
+The class p95 is the slowest query in the class. Q6's miss is only `q6-004`: the `match(alerts,'alarm')` docs join to telemetry on a time range. It's 356 ms p95 on the Pi and about 65 ms on the host; the other five Q6 queries are 2.9–4.6 ms. Cold first runs are 21–267 ms. Open: optimizing `q6-004`'s docs-to-telemetry range join, and a 1-year store.
 
 ## 3. Query classes, shore targets (50 vessels, 1 year)
 
@@ -189,7 +204,7 @@ HTTP/WS for loopback measurement and rejects embedded URL credentials.
 1. **Shore-scale latencies:** generate the 50-vessel × 365-day fleet and add the DuckDB timing that the "≥ 5×" rule needs.
 2. **The contention test**, with OpenCPN on a HALPI2 or Pi 5.
 3. **The cold cache — MISS after default warming:** optional, default-on, budget-bounded startup preload is implemented at `0fb40e8`, with first-query cache-hit/no-full-load and budget-stop tests. At 256 / 64 MiB, host cold-after-warm Q1 is 35.45 / 31.65 ms, Q3 125.18 / 174.18 ms, Q5 1921.38 / 1561.78 ms, Q6 336.72 / 305.73 ms: all still MISS (§2). Newest-first warming does not cover arbitrary history. Gap 3 remains open for these queries; accept the measured historical misses or evaluate an explicit workload policy separately. Process/OS cold-start and Pi edge p95 remain unmeasured.
-4. **Edge p95 per class** on the Pi, ideally against a 1-vessel × 1-year store.
+4. **Edge p95 per class** on the Pi, ideally against a 1-vessel × 1-year store. Measured 2026-10-08 on a 90-day store (§2): 7 of 8 classes pass; Q6 misses on `q6-004` (308.53 ms p95 vs 200 ms).
 5. **The CI p95-regression gate.** Committed Q1–Q8 results are now available (§8).
 
 Recorded as D48 in `plan/spec/11-risks-decisions.md` (`a33035e`, 2026-10-08). The five follow-ups above remain measurement conditions; startup warming addresses item 3 and must report any misses it leaves.
