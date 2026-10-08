@@ -3,10 +3,12 @@
 > Optional (laptop/shore local models); the Pi uses ollama.com directly.
 
 Runs [Ollama](https://ollama.com/) on a HaLOS Pi next to the Lume TI Signal K
-plugin, **as a gateway to Ollama's cloud models**. The plugin's **Ask** tab sends
-`lume chat` to it at `127.0.0.1:11434`. After a one-time `ollama signin` on the Pi,
-models such as `glm-5.3:cloud` run on Ollama's servers whenever the boat has
-internet. Lume never holds a key.
+plugin, **as an optional gateway to Ollama's cloud models**. The plugin's **Ask** tab
+defaults to calling `https://ollama.com` directly (`glm-5.3:cloud`) using `chatApiKeyFile`
+(see SETUP §13), freeing ~4.2 GB of disk on the Pi. Running Ollama on the boat is optional
+(for hosting local models on a laptop, or running a signed-in cloud proxy on the Pi when
+internet is available). After a one-time `ollama signin` on the Pi, models such as
+`glm-5.3:cloud` run on Ollama's servers whenever the boat has internet. Lume never holds a key.
 
 The Pi does not run models locally by default. Measured on a Pi 5 on 2026-10-08,
 `qwen3:1.7b` produced 0.34 tokens/s at the Ask tab's 16k context: about 100 s for a
@@ -18,14 +20,15 @@ endpoint list below).
   1 MB/s. Check free space first. Pin a version through `OLLAMA_IMAGE`.
 - **Network:** `127.0.0.1:11434` only. Ollama has no auth, so it must not be published
   to the LAN. The Signal K container uses the host network and reaches it on loopback,
-  which is the Ask tab's default URL.
+  which can be configured as an optional fallback in the Ask tab.
 - **Data:** the sign-in key and cloud-model stubs live in
   `/var/lib/container-apps/marine-ollama-container/data/ollama` and survive image
   updates.
-- **Memory:** `OLLAMA_MEMORY_LIMIT` defaults to 1g, plenty for a proxy. **The HaLOS
-  Pi boots with `cgroup_disable=memory`, so Docker enforces no memory limit on any
-  container there**, this one, Grub and HaLOS's own apps included. CPU limits
-  (`cpus: 3`) do apply.
+- **Memory:** `OLLAMA_MEMORY_LIMIT` defaults to `auto` (dynamically sized by `app-prestart.sh`
+  to 12% of system RAM, ~1 GiB on an 8 GB Pi 5, up to 16 GiB on a shore machine). Memory cgroups
+  are enabled on the Pi via `/boot/firmware/cmdline.txt` (`cgroup_enable=memory cgroup_memory=1`,
+  configured by `scripts/provision-pi.sh` step 2), so Docker enforces container memory limits.
+  CPU limits (`cpus: 3`) also apply.
 - **Layout:** `install.sh` writes the same files and systemd unit that HaLOS's
   container-packaging-tools write. `scripts/build-halos-debs.sh` builds the `.deb`,
   which registers with Cockpit's container store.
@@ -55,16 +58,18 @@ restarts and updates. To sign out: `sudo docker exec -it ollama ollama signout`.
 ## Endpoint order
 
 The Ask tab's **Chat Ollama API URLs** setting takes a comma-separated list. It tries
-each URL in turn and uses the first reachable one that has the model.
+each URL in turn and uses the first reachable one that has the model:
 
-1. **The Pi's Ollama,** `http://127.0.0.1:11434`: cloud models, whenever the boat
-   has internet.
-2. **A laptop's Ollama on the LAN,** for example `http://192.168.68.58:11434`: local
+1. **Direct cloud via ollama.com (default, recommended):** `https://ollama.com` with model
+   `glm-5.3:cloud` and `chatApiKeyFile` (see SETUP §13). Requires no local container or GPU memory.
+2. **The Pi's Ollama (optional fallback):** `http://127.0.0.1:11434`: cloud models after
+   `ollama signin`, whenever the boat has internet.
+3. **A laptop's Ollama on the LAN (optional fallback):** for example `http://192.168.68.58:11434`: local
    models with no internet. On the laptop, set `OLLAMA_HOST=0.0.0.0`, restart
    Ollama and allow TCP 11434 for the private network only. That Ollama has no auth
    either.
 
-For example: `http://127.0.0.1:11434,http://192.168.68.58:11434`.
+For example: `https://ollama.com,http://127.0.0.1:11434,http://192.168.68.58:11434`.
 
 Settings live in `/etc/container-apps/marine-ollama-container/env` and override
 `env.defaults`: `OLLAMA_IMAGE`, `OLLAMA_MEMORY_LIMIT`, `OLLAMA_KEEP_ALIVE`,
