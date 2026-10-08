@@ -17,28 +17,43 @@ LOGS_FIXTURE = ROOT / "tests/golden/otlp/logs.json"
 
 
 def find_lume_binary():
-    """Locate a lume built from this checkout (LUME_BIN overrides) that has `ti otlp`.
+    """Locate a lume built from this checkout specified by LUME_BIN.
 
-    PATH is not searched: an installed lume may predate the OTLP receiver. A binary
-    built for another OS (a lane container's Linux build) fails to start and is skipped.
+    When LUME_BIN is set, it must point to a usable binary with `ti otlp`, or an
+    AssertionError is raised so CI cannot silently skip.
+    When LUME_BIN is not set, returns None so local runs skip live SQL execution.
     """
-    exe = ".exe" if os.name == "nt" else ""
-    candidates = [
-        os.environ.get("LUME_BIN"),
-        os.environ.get("CARGO_BIN_EXE_lume"),
-        str(ROOT / f"target/debug/lume{exe}"),
-        str(ROOT / f"target/release/lume{exe}"),
-    ]
-    for c in candidates:
-        if not (c and os.path.isfile(c) and os.access(c, os.X_OK)):
-            continue
-        try:
-            probe = subprocess.run([c, "ti", "otlp", "--help"], capture_output=True, timeout=30)
-        except OSError:
-            continue
-        if probe.returncode == 0:
-            return c
-    return None
+    lume_env = os.environ.get("LUME_BIN")
+    if not lume_env:
+        return None
+
+    candidate = Path(lume_env)
+    if not candidate.is_file():
+        if (ROOT / candidate).is_file():
+            candidate = ROOT / candidate
+        elif os.name == "nt" and candidate.with_suffix(".exe").is_file():
+            candidate = candidate.with_suffix(".exe")
+        elif os.name == "nt" and (ROOT / candidate).with_suffix(".exe").is_file():
+            candidate = (ROOT / candidate).with_suffix(".exe")
+
+    if not candidate.is_file():
+        raise AssertionError(f"LUME_BIN is set to '{lume_env}', but file does not exist")
+    if not os.access(candidate, os.X_OK):
+        raise AssertionError(f"LUME_BIN is set to '{lume_env}', but file is not executable")
+
+    try:
+        probe = subprocess.run([str(candidate), "ti", "otlp", "--help"], capture_output=True, timeout=30)
+    except OSError as e:
+        raise AssertionError(f"LUME_BIN '{candidate}' failed to execute: {e}")
+
+    if probe.returncode != 0:
+        err = probe.stderr.decode("utf-8", errors="replace")
+        raise AssertionError(f"LUME_BIN '{candidate}' failed 'ti otlp --help' probe (code {probe.returncode}): {err}")
+    stdout_text = probe.stdout.decode("utf-8", errors="replace")
+    if "lume ti otlp" not in stdout_text and "Usage: lume" not in stdout_text:
+        raise AssertionError(f"LUME_BIN '{candidate}' does not appear to be a lume binary (unexpected help output)")
+
+    return str(candidate)
 
 
 def expand_grafana_macros(sql: str) -> str:
@@ -79,10 +94,10 @@ class TestAgentsDashboardSql(unittest.TestCase):
     def setUpClass(cls):
         cls.lume_bin = find_lume_binary()
         if not cls.lume_bin:
-            raise unittest.SkipTest("No built lume binary found; skipping live SQL execution")
+            raise unittest.SkipTest("LUME_BIN not set; skipping live SQL execution")
 
         if not METRICS_FIXTURE.exists() or not LOGS_FIXTURE.exists():
-            raise unittest.SkipTest("Golden OTLP fixtures missing")
+            raise AssertionError("Golden OTLP fixtures missing")
 
         cls.tmp_dir = tempfile.mkdtemp(prefix="otlp-dash-test-")
         command = [cls.lume_bin, "ti", "otlp", "--store", cls.tmp_dir, "--port", "0"]
