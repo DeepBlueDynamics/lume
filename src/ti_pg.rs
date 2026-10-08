@@ -1003,29 +1003,6 @@ impl tokio::io::AsyncWrite for PgStream {
     }
 }
 
-#[cfg(test)]
-mod deadline_tests {
-    use super::*;
-    #[test]
-    fn stalled_socket_write_expires_without_timing_query_work() {
-        ti_sql::surface_runtime().unwrap().block_on(async {
-            let (writer, _unread_peer) = tokio::io::duplex(1);
-            let mut stream = TimedPgStream {
-                stream: writer,
-                timeout: Duration::from_millis(20),
-                deadline: None,
-            };
-            tokio::time::sleep(Duration::from_millis(40)).await;
-            stream.write_all(b"x").await.unwrap();
-            let error = tokio::time::timeout(Duration::from_secs(1), stream.write_all(b"y"))
-                .await
-                .unwrap()
-                .unwrap_err();
-            assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
-        });
-    }
-}
-
 const SSL_REQUEST_CODE: u32 = 80877103;
 const GSS_ENC_REQUEST_CODE: u32 = 80877104;
 
@@ -1329,4 +1306,27 @@ pub fn start_with_options(
         stop: Some(stop),
         thread: Some(thread),
     })
+}
+
+#[cfg(test)]
+mod deadline_tests {
+    use super::*;
+    #[test]
+    fn stalled_socket_write_expires_without_timing_query_work() {
+        ti_sql::surface_runtime().unwrap().block_on(async {
+            let (writer, _unread_peer) = tokio::io::duplex(1);
+            let mut stream = TimedPgStream {
+                stream: writer,
+                timeout: Duration::from_millis(20),
+                deadline: None,
+            };
+            tokio::time::sleep(Duration::from_millis(40)).await;
+            stream.write_all(b"x").await.unwrap();
+            let error = tokio::time::timeout(Duration::from_secs(1), stream.write_all(b"y"))
+                .await
+                .unwrap()
+                .unwrap_err();
+            assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+        });
+    }
 }
