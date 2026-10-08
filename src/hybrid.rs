@@ -542,7 +542,7 @@ fn ingest_tasks_concurrent(sess: &str, tasks: Vec<IngestTask>, token: &str) -> R
                             let mut total_lock = chunks_total.lock().unwrap();
                             *total_lock += created;
 
-                            if *total_lock % 100 == 0 || current_idx == total_tasks - 1 {
+                            if total_lock.is_multiple_of(100) || current_idx == total_tasks - 1 {
                                 let elapsed = start.elapsed().as_secs_f64();
                                 let rate = if elapsed > 0.0 { *total_lock as f64 / elapsed } else { 0.0 };
                                 eprintln!(
@@ -1303,7 +1303,7 @@ mod tests {
 
     #[test]
     fn blend_resolves_hash_sources_and_drops_orphans() {
-        let sections = vec![
+        let sections = [
             section("a.rs", "alpha", "first body"),
             section("b.rs", "beta", "second body"),
         ];

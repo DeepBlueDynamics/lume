@@ -188,8 +188,10 @@ fn test_m6_fleet_sync_fifty_vessels() {
     assert!(raw_files > 0, "must have generated raw parquet files");
 
     // Configure scales for numeric paths
-    let mut cfg = TiConfig::default();
-    cfg.width_seconds = 10;
+    let mut cfg = TiConfig {
+        width_seconds: 10,
+        ..Default::default()
+    };
     for p in ti_bench::model::NUMERIC_PATHS {
         if let Some(s) = ti_bench::model::scale_for(p) {
             cfg.path_scales.insert(p.to_string(), s);

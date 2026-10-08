@@ -17,7 +17,7 @@ impl Serialize for Container {
         match self {
             Container::Array(v) => serializer.serialize_newtype_variant("Container", 0, "Array", v),
             Container::Bitmap(b) => {
-                let vec: Vec<u64> = b.iter().cloned().collect();
+                let vec: Vec<u64> = b.to_vec();
                 serializer.serialize_newtype_variant("Container", 1, "Bitmap", &vec)
             }
         }

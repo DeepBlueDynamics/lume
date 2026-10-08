@@ -904,16 +904,29 @@ struct AgentChatPayload {
     options: Options,
 }
 
-pub fn run_agent_loop(
-    question: &str,
-    ollama_url: &str,
-    ollama_model: &str,
-    db_dir: &str,
-    verbose: bool,
-    ti_store: Option<&str>,
-    docs_index: Option<&str>,
-    json_output: bool,
-) -> Result<(), String> {
+/// Inputs for [`run_agent_loop`]. One struct keeps the CLI entry under clippy's argument limit.
+pub struct AgentLoopArgs<'a> {
+    pub question: &'a str,
+    pub ollama_url: &'a str,
+    pub ollama_model: &'a str,
+    pub db_dir: &'a str,
+    pub verbose: bool,
+    pub ti_store: Option<&'a str>,
+    pub docs_index: Option<&'a str>,
+    pub json_output: bool,
+}
+
+pub fn run_agent_loop(args: AgentLoopArgs<'_>) -> Result<(), String> {
+    let AgentLoopArgs {
+        question,
+        ollama_url,
+        ollama_model,
+        db_dir,
+        verbose,
+        ti_store,
+        docs_index,
+        json_output,
+    } = args;
     #[cfg(feature = "ti")]
     if ti_store.is_some() || docs_index.is_some() || json_output {
         return crate::chat_sql::run_chat_loop(

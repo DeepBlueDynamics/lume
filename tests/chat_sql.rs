@@ -285,10 +285,12 @@ fn test_mock_ollama_sql_retry_and_json_shape() {
         stderr
     );
 
-    let parsed: Value = serde_json::from_str(stdout.trim()).expect(&format!(
-        "Failed to parse JSON output: {}\nSTDERR: {}",
-        stdout, stderr
-    ));
+    let parsed: Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|_| {
+        panic!(
+            "Failed to parse JSON output: {}\nSTDERR: {}",
+            stdout, stderr
+        )
+    });
 
     // 1. Assert JSON top-level shape: { answer, sql, tool_calls }
     assert!(parsed.is_object(), "Expected JSON object");

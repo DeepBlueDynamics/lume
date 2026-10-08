@@ -440,7 +440,7 @@ pub fn run(
 fn cluster_ids(nodes: &[Node]) -> Vec<usize> {
     let m = nodes.len();
     let mut parent: Vec<usize> = (0..m).collect();
-    fn find(p: &mut Vec<usize>, x: usize) -> usize {
+    fn find(p: &mut [usize], x: usize) -> usize {
         let mut r = x;
         while p[r] != r {
             r = p[r];

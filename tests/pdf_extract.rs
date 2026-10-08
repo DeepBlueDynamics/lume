@@ -146,7 +146,7 @@ fn index_falls_back_without_uv_and_continues_after_bad_documents() {
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("skipped"), "{stderr}");
-    let index = lume::LoadedIndex::open(&fixture.0.join("index")).unwrap();
+    let index = lume::LoadedIndex::open(fixture.0.join("index")).unwrap();
     assert!(index
         .bm25
         .sections
@@ -186,7 +186,7 @@ fn available_uv_extractor_remains_preferred() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let index = lume::LoadedIndex::open(&fixture.0.join("index")).unwrap();
+    let index = lume::LoadedIndex::open(fixture.0.join("index")).unwrap();
     assert_eq!(index.bm25.sections.len(), 1);
     assert_eq!(index.bm25.sections[0].title, "Page 2");
     assert!(index.bm25.sections[0].body.contains("Preferred UV"));

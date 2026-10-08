@@ -317,10 +317,8 @@ pub fn clean_html_to_markdown(html: &str) -> (String, String) {
                 } else if matches!(
                     tag_lower.as_str(),
                     "p" | "/p" | "div" | "/div" | "tr" | "/tr" | "br" | "/br" | "h1" | "/h1" | "h2" | "/h2" | "h3" | "/h3" | "h4" | "/h4" | "h5" | "/h5" | "h6" | "/h6" | "li" | "/li" | "blockquote" | "/blockquote"
-                ) {
-                    if !result.ends_with('\n') {
-                        result.push('\n');
-                    }
+                ) && !result.ends_with('\n') {
+                    result.push('\n');
                 }
             } else {
                 current_tag.push(c);

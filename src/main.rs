@@ -371,16 +371,16 @@ fn lume_main() {
                 std::process::exit(1);
             }
             
-            if let Err(e) = lume::agent::run_agent_loop(
-                &question,
-                &ollama_url,
-                &ollama_model,
-                &db_dir,
+            if let Err(e) = lume::agent::run_agent_loop(lume::agent::AgentLoopArgs {
+                question: &question,
+                ollama_url: &ollama_url,
+                ollama_model: &ollama_model,
+                db_dir: &db_dir,
                 verbose,
-                ti_store.as_deref(),
-                docs_index.as_deref(),
+                ti_store: ti_store.as_deref(),
+                docs_index: docs_index.as_deref(),
                 json_output,
-            ) {
+            }) {
                 eprintln!("Error running agent: {}", e);
                 std::process::exit(1);
             }
@@ -1251,11 +1251,11 @@ fn read_text_tolerant(path: &Path) -> Result<Option<String>, String> {
         return Ok(Some(String::new()));
     }
     if bytes.len() >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE {
-        let utf16: Vec<u16> = bytes[2..].chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+        let utf16: Vec<u16> = bytes[2..].as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
         return Ok(accept(String::from_utf16_lossy(&utf16)));
     }
     if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
-        let utf16: Vec<u16> = bytes[2..].chunks_exact(2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect();
+        let utf16: Vec<u16> = bytes[2..].as_chunks::<2>().0.iter().map(|c| u16::from_be_bytes([c[0], c[1]])).collect();
         return Ok(accept(String::from_utf16_lossy(&utf16)));
     }
     // BOM-less UTF-16: NUL bytes are valid UTF-8, so a UTF-16 file of mostly
@@ -1266,9 +1266,9 @@ fn read_text_tolerant(path: &Path) -> Result<Option<String>, String> {
     if nul_total * 4 > bytes.len() {
         let odd_nuls = bytes.iter().skip(1).step_by(2).filter(|&&b| b == 0).count();
         let utf16: Vec<u16> = if odd_nuls * 2 >= nul_total {
-            bytes.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect()
+            bytes.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes([c[0], c[1]])).collect()
         } else {
-            bytes.chunks_exact(2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect()
+            bytes.as_chunks::<2>().0.iter().map(|c| u16::from_be_bytes([c[0], c[1]])).collect()
         };
         return Ok(accept(String::from_utf16_lossy(&utf16)));
     }
@@ -1341,6 +1341,7 @@ fn format_eta(secs: f64) -> String {
     }
 }
 
+#[allow(clippy::too_many_arguments, reason = "private CLI entry; the ten index flags stay positional")]
 fn run_indexing(
     target_dir: &str,
     db_dir: &str,
@@ -2234,7 +2235,7 @@ fn handle_answer(args: &[String]) -> Result<(), String> {
     // actually widens what the evaluator/answerer can see, instead of a fixed 10.
     let n_feed = candidates.clamp(10, 20);
 
-    let mut cands: Vec<lume::stream::Candidate> = Vec::new();
+    let mut cands: Vec<lume::stream::Candidate>;
     let mut round = 1usize;
     loop {
         cands = retrieve_union(&bm25, graph.as_ref(), beta, &queries, candidates);
