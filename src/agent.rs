@@ -875,6 +875,14 @@ pub fn serve_with_ti_server_pg_options(
         .transpose()?;
     serve_configured(port, Some(ti), http_bind)
 }
+struct ActiveConnection(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for ActiveConnection {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+    }
+}
+
 fn unauthenticated_http_warning(
     bind: std::net::IpAddr,
     ti_enabled: bool,
@@ -920,16 +928,16 @@ fn serve_configured(port:u16,_ti:TiState,bind:std::net::IpAddr)->Result<(),Strin
                     continue;
                 }
                 active.fetch_add(1, Ordering::AcqRel);
-                let active = Arc::clone(&active);
+                let slot = ActiveConnection(Arc::clone(&active));
                 #[cfg(feature = "ti")]
                 let ti = _ti.clone();
                 #[cfg(not(feature = "ti"))]
                 let ti = ();
                 std::thread::spawn(move || {
+                    let _slot = slot;
                     if let Err(e) = handle_connection(stream, &ti) {
                         eprintln!("Error handling connection: {}", e);
                     }
-                    active.fetch_sub(1, Ordering::AcqRel);
                 });
             }
             Err(e) => {
@@ -1566,6 +1574,20 @@ mod http_limits_tests {
                 .starts_with("HTTP/1.1 400")
         );
         assert!(start.elapsed() < Duration::from_secs(3));
+    }
+
+    #[test]
+    fn panicking_handler_releases_admission_slot() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+        let active = Arc::new(AtomicUsize::new(1));
+        let slot = ActiveConnection(Arc::clone(&active));
+        let handler = std::thread::spawn(move || {
+            let _slot = slot;
+            panic!("injected handler panic");
+        });
+        assert!(handler.join().is_err());
+        assert_eq!(active.load(Ordering::Acquire), 0);
     }
 
     #[test]
