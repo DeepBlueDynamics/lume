@@ -565,6 +565,23 @@ The Ask tab's **Chat Ollama API URLs** setting accepts a comma-separated list of
    Lume holds no API keys.
 4. **Laptop Ollama over the LAN (optional fallback):** e.g. `http://192.168.68.58:11434` (requires `OLLAMA_HOST=0.0.0.0` on the laptop and private-network firewall access).
 
+**Deployment and maintenance scripts:**
+Two automated scripts handle deploying the plugin and retiring local Ollama on the Pi:
+
+1. **Deploy Signal K plugin to the Pi (`scripts/deploy-pi.sh`):**
+   ```sh
+   # Deploy plugin to the Pi host, updating /var/lib/container-apps/.../signalk-lume-ti
+   scripts/deploy-pi.sh <ssh-host> [--lume-bin <path/to/arm64/lume>] [--dry-run]
+   ```
+   Syncs `plugins/signalk-lume-ti` (excluding `node_modules` and `test`), bundles the arm64 `lume` binary into `bin/linux-arm64/lume` with mode 755 (fixing `scp` dropping the executable bit), restarts `marine-signalk-server-container`, and polls for health. `--dry-run` prints all transfer and remote commands without executing them. All privileged actions use `sudo -n` (never prompts for a password; no secrets handled).
+
+2. **Retire Ollama container app on the Pi (`scripts/pi-retire-ollama.sh`):**
+   ```sh
+   # Stop/disable marine-ollama-container and remove the 4.2 GB image, keeping data
+   scripts/pi-retire-ollama.sh <ssh-host> [--dry-run]
+   ```
+   Stops and disables `marine-ollama-container.service`, removes the `ollama/ollama` Docker image (reclaiming ~4.2 GB disk), preserves the persistent data directory at `/var/lib/container-apps/marine-ollama-container/data`, and prints filesystem disk usage (`df -h /`) before and after. `--dry-run` prints all remote commands without running them. Uses `sudo -n` throughout.
+
 ## 13. Ask tab with ollama.com
 
 The Ask tab (`lume chat`) defaults to calling **`https://ollama.com`** directly for `:cloud` models such as `glm-5.3:cloud`. This avoids running an Ollama container on the Pi, freeing ~4.2 GB of disk space.
