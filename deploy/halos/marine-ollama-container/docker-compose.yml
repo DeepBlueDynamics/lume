@@ -26,7 +26,7 @@ services:
     - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:-10m}
     - _HALOS_SYSTEMD_CHECK=${HALOS_SYSTEMD_STARTED:?Container must be started via
       systemctl, not docker compose directly}
-    mem_limit: ${OLLAMA_MEMORY_LIMIT:-4g}
+    mem_limit: ${OLLAMA_MEMORY_LIMIT:-1g}
     cpus: 3
     healthcheck:
       test:

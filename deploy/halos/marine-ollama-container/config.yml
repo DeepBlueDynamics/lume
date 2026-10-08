@@ -8,7 +8,7 @@ groups:
       - id: OLLAMA_MEMORY_LIMIT
         label: Memory Limit
         type: string
-        default: 4g
+        default: 1g
         required: true
         description: Hard memory cap for Ollama container (e.g. 4g, 6g)
 
@@ -33,6 +33,6 @@ groups:
       - id: OLLAMA_DEFAULT_MODEL
         label: Default Model
         type: string
-        default: qwen3:1.7b
+        default: "-"
         required: true
-        description: Default offline model for the Ask tab. qwen3:1.7b (1.4 GB) fits an SD card shared with Signal K; qwen3:4b (2.5 GB) writes better SQL when space allows
+        description: Local model to pull at install, or - for none. The Pi runs cloud models only by default (a local 1.7B model managed 0.34 tok/s on a Pi 5)
