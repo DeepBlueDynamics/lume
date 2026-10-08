@@ -124,6 +124,17 @@ pub struct DocsJson {
     pub rewrite_us_p50: Option<u64>,
     pub rewrite_us_p95: Option<u64>,
     pub rewrite_us_max: Option<u64>,
+    /// `DocStore::open` before the upsert. Absent on runs that predate the phase split.
+    pub open_us_p50: Option<u64>,
+    pub open_us_p95: Option<u64>,
+    pub open_us_max: Option<u64>,
+    /// Log commit, metrics shard flush, and counter checkpoint for each group flush.
+    pub logs_us_p50: Option<u64>,
+    pub logs_us_p95: Option<u64>,
+    pub metrics_us_p50: Option<u64>,
+    pub metrics_us_p95: Option<u64>,
+    pub checkpoint_us_p50: Option<u64>,
+    pub checkpoint_us_p95: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -217,7 +228,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let cfg = parse_args(args)?;
     let report = execute(&cfg)?;
     println!(
-        "otlp-soak: out={} logs_2xx={} metrics_2xx={} tokens={} docs={} sql_ok={} p95_logs_ms={} p95_metrics_ms={} rss_peak={} docs_bytes={} written_bytes_p95={} compactions={} rewrite_us_p95={}",
+        "otlp-soak: out={} logs_2xx={} metrics_2xx={} tokens={} docs={} sql_ok={} p95_logs_ms={} p95_metrics_ms={} rss_peak={} docs_bytes={} written_bytes_p95={} compactions={} rewrite_us_p95={} open_us_p95={}",
         cfg.out.display(),
         report.sent.log_2xx,
         report.sent.metrics_2xx,
@@ -250,6 +261,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
         report
             .docs_json
             .rewrite_us_p95
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "n/a".to_string()),
+        report
+            .docs_json
+            .open_us_p95
             .map(|v| v.to_string())
             .unwrap_or_else(|| "n/a".to_string()),
     );
@@ -700,6 +716,18 @@ struct DocsCommit {
     written: u64,
     rewrite_us: u64,
     compact: bool,
+    open_us: Option<u64>,
+}
+
+struct FlushSample {
+    logs_us: u64,
+    metrics_us: Option<u64>,
+    checkpoint_us: Option<u64>,
+}
+
+fn field_u64(rest: &str, key: &str) -> Option<u64> {
+    rest.split_whitespace()
+        .find_map(|part| part.strip_prefix(key)?.parse().ok())
 }
 
 fn parse_docs_commits(stderr: &str) -> Vec<DocsCommit> {
@@ -707,22 +735,28 @@ fn parse_docs_commits(stderr: &str) -> Vec<DocsCommit> {
         .lines()
         .filter_map(|line| {
             let rest = line.split_once("otlp-docs-commit ")?.1;
-            let mut written = None;
-            let mut rewrite_us = None;
-            let mut compact = false;
-            for part in rest.split_whitespace() {
-                if let Some(value) = part.strip_prefix("bytes=") {
-                    written = value.parse().ok();
-                } else if let Some(value) = part.strip_prefix("rewrite_us=") {
-                    rewrite_us = value.parse().ok();
-                } else if part == "compact=1" {
-                    compact = true;
-                }
-            }
             Some(DocsCommit {
-                written: written?,
-                rewrite_us: rewrite_us?,
-                compact,
+                written: field_u64(rest, "bytes=")?,
+                rewrite_us: field_u64(rest, "rewrite_us=")?,
+                compact: rest.split_whitespace().any(|part| part == "compact=1"),
+                open_us: field_u64(rest, "open_us="),
+            })
+        })
+        .collect()
+}
+
+fn parse_flushes(stderr: &str) -> Vec<FlushSample> {
+    stderr
+        .lines()
+        .filter_map(|line| {
+            let rest = line.split_once("otlp-flush ")?.1;
+            let metrics_us = field_u64(rest, "metrics_us=")?;
+            let checkpoint_us = field_u64(rest, "checkpoint_us=")?;
+            let metrics_ran = metrics_us > 0 || checkpoint_us > 0;
+            Some(FlushSample {
+                logs_us: field_u64(rest, "logs_us=")?,
+                metrics_us: metrics_ran.then_some(metrics_us),
+                checkpoint_us: metrics_ran.then_some(checkpoint_us),
             })
         })
         .collect()
@@ -734,9 +768,21 @@ fn percentile_u64(values: &[u64], pct: f64) -> Option<u64> {
     percentile(&sorted, pct).map(|value| value.round() as u64)
 }
 
-fn docs_json_from(bytes: u64, commits: &[DocsCommit]) -> DocsJson {
+fn docs_json_from(bytes: u64, stderr: &str) -> DocsJson {
+    let commits = parse_docs_commits(stderr);
+    let flushes = parse_flushes(stderr);
     let written: Vec<u64> = commits.iter().map(|commit| commit.written).collect();
     let rewrites: Vec<u64> = commits.iter().map(|commit| commit.rewrite_us).collect();
+    let opens: Vec<u64> = commits.iter().filter_map(|commit| commit.open_us).collect();
+    let logs: Vec<u64> = flushes.iter().map(|flush| flush.logs_us).collect();
+    let metrics: Vec<u64> = flushes
+        .iter()
+        .filter_map(|flush| flush.metrics_us)
+        .collect();
+    let checkpoints: Vec<u64> = flushes
+        .iter()
+        .filter_map(|flush| flush.checkpoint_us)
+        .collect();
     DocsJson {
         bytes,
         commits: u64::try_from(commits.len()).unwrap_or(u64::MAX),
@@ -748,18 +794,27 @@ fn docs_json_from(bytes: u64, commits: &[DocsCommit]) -> DocsJson {
         rewrite_us_p50: percentile_u64(&rewrites, 50.0),
         rewrite_us_p95: percentile_u64(&rewrites, 95.0),
         rewrite_us_max: rewrites.iter().copied().max(),
+        open_us_p50: percentile_u64(&opens, 50.0),
+        open_us_p95: percentile_u64(&opens, 95.0),
+        open_us_max: opens.iter().copied().max(),
+        logs_us_p50: percentile_u64(&logs, 50.0),
+        logs_us_p95: percentile_u64(&logs, 95.0),
+        metrics_us_p50: percentile_u64(&metrics, 50.0),
+        metrics_us_p95: percentile_u64(&metrics, 95.0),
+        checkpoint_us_p50: percentile_u64(&checkpoints, 50.0),
+        checkpoint_us_p95: percentile_u64(&checkpoints, 95.0),
     }
 }
 
 fn read_docs_json(store: Option<&Path>) -> DocsJson {
     let Some(store) = store else {
-        return docs_json_from(0, &[]);
+        return docs_json_from(0, "");
     };
     let bytes = fs::metadata(store.join("docs").join("documents.log"))
         .map(|meta| meta.len())
         .unwrap_or(0);
     let stderr = fs::read_to_string(store.join("receiver.err")).unwrap_or_default();
-    docs_json_from(bytes, &parse_docs_commits(&stderr))
+    docs_json_from(bytes, &stderr)
 }
 
 impl SqlCheck {
@@ -1623,16 +1678,18 @@ mod tests {
 
     #[test]
     fn docs_commit_lines_record_append_delta_and_rewrite_time() {
-        let stderr = "noise\notlp-docs-commit bytes=9 rewrite_us=15\nOTLP ingest failed: x\notlp-docs-commit bytes=40 rewrite_us=12 compact=1 trailing\n";
+        let stderr = "noise\notlp-docs-commit bytes=9 rewrite_us=15 open_us=100\nOTLP ingest failed: x\notlp-docs-commit bytes=40 rewrite_us=12 compact=1 trailing\notlp-flush logs_us=110 metrics_us=0 checkpoint_us=0\notlp-flush logs_us=20 metrics_us=30 checkpoint_us=7\n";
         let parsed = parse_docs_commits(stderr);
         assert_eq!(parsed.len(), 2);
         assert_eq!(parsed[0].written, 9);
         assert!(!parsed[0].compact);
         assert_eq!(parsed[0].rewrite_us, 15);
+        assert_eq!(parsed[0].open_us, Some(100));
         assert_eq!(parsed[1].written, 40);
         assert!(parsed[1].compact);
         assert_eq!(parsed[1].rewrite_us, 12);
-        let stats = docs_json_from(100, &parsed);
+        assert_eq!(parsed[1].open_us, None);
+        let stats = docs_json_from(100, stderr);
         assert_eq!(stats.bytes, 100);
         assert_eq!(stats.commits, 2);
         assert_eq!(stats.compactions, 1);
@@ -1642,11 +1699,19 @@ mod tests {
         assert_eq!(stats.rewrite_us_p50, Some(12));
         assert_eq!(stats.rewrite_us_p95, Some(15));
         assert_eq!(stats.rewrite_us_max, Some(15));
-        let empty = docs_json_from(0, &[]);
+        assert_eq!(stats.open_us_p50, Some(100));
+        assert_eq!(stats.open_us_max, Some(100));
+        assert_eq!(stats.logs_us_p50, Some(20));
+        assert_eq!(stats.logs_us_p95, Some(110));
+        assert_eq!(stats.metrics_us_p50, Some(30));
+        assert_eq!(stats.checkpoint_us_p50, Some(7));
+        let empty = docs_json_from(0, "");
         assert_eq!(empty.commits, 0);
         assert_eq!(empty.compactions, 0);
         assert_eq!(empty.written_bytes_p50, None);
         assert_eq!(empty.rewrite_us_p50, None);
+        assert_eq!(empty.open_us_p50, None);
+        assert_eq!(empty.metrics_us_p50, None);
     }
 
     #[test]
