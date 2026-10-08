@@ -1,8 +1,10 @@
 'use strict';
 // Offline cruiser library: list the bundled reading list, fetch and index selected rows with
-// `lume crawl --list` + `lume index`, search the index with `lume sql`, and map active alerts
+// `lume crawl --list` + `lume index`, search the index through the plugin's running lume server
+// (falling back to `lume sql`), and map active alerts
 // to reference searches. Row ids match src/crawl_list.rs (FNV-1a 64 of the URL, >> 16).
 const fs = require('node:fs');
+const http = require('node:http');
 const path = require('node:path');
 const {spawn} = require('node:child_process');
 
@@ -68,6 +70,32 @@ function paths(dataDir) {
     indexed: path.join(root, 'indexed.json'), manifest: path.join(root, 'files', 'library.json')};
 }
 
+/** POST read-only SQL to the plugin's own `lume ti ingest --serve` on loopback. */
+function serverQuery(port, sql, timeoutMs = 10000) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({sql});
+    const req = http.request({host: '127.0.0.1', port, path: '/ti/query', method: 'POST', timeout: timeoutMs,
+      headers: {'Content-Type': 'application/json', Accept: 'application/json', 'Content-Length': Buffer.byteLength(body)}},
+    res => {
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => {
+        let parsed;
+        try { parsed = JSON.parse(data); } catch (_) {
+          reject(new Error(`HTTP ${res.statusCode}: ${data.slice(0, 200)}`));
+          return;
+        }
+        if (res.statusCode !== 200 || parsed.error) reject(new Error(parsed.error || `HTTP ${res.statusCode}`));
+        else resolve(parsed);
+      });
+    });
+    req.on('timeout', () => req.destroy(new Error('timed out')));
+    req.on('error', reject);
+    req.end(body);
+  });
+}
+
 function readJson(file, fallback) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_) { return fallback; }
 }
@@ -108,8 +136,11 @@ function run(binary, args, {timeoutMs = 0, onLine} = {}) {
 }
 
 class Library {
-  constructor({binary, dataDir, list = LIST, rules = RULES, log = () => {}}) {
+  constructor({binary, dataDir, list = LIST, rules = RULES, log = () => {}, servePort = null}) {
     this.binary = binary;
+    // The plugin's lume server already holds the library index (--docs-index); asking it skips
+    // starting a process and loading the index per search (~575 ms on a Pi 5 against tens of ms).
+    this.servePort = servePort;
     this.dataDir = dataDir;
     this.list = list;
     this.rules = readJson(rules, {rules: [], fallback: null});
@@ -163,12 +194,22 @@ class Library {
     if (!q) return {query: q, hits: []};
     if (!fs.existsSync(p.index)) return {query: q, hits: [], note: 'Library not indexed yet'};
     const sql = `SELECT file, title, line, score, substr(body, 1, 320) AS excerpt FROM sections WHERE match(body, '${q}') ORDER BY score DESC LIMIT ${Math.min(Math.max(1, limit | 0), 25)}`;
-    const result = await run(this.binary, ['sql', '--db', p.index, sql, '--format', 'json'], {timeoutMs: 30000});
-    if (result.code !== 0) throw new Error((result.err || 'lume sql failed').trim().split('\n').pop());
-    const parsed = JSON.parse(result.out);
+    let parsed = null;
+    let via = 'server';
+    if (this.servePort) {
+      try { parsed = await serverQuery(this.servePort, sql); } catch (e) {
+        this.log(`Library search through the lume server failed (${e.message}); using lume sql`);
+      }
+    }
+    if (!parsed) {
+      via = 'cli';
+      const result = await run(this.binary, ['sql', '--db', p.index, sql, '--format', 'json'], {timeoutMs: 30000});
+      if (result.code !== 0) throw new Error((result.err || 'lume sql failed').trim().split('\n').pop());
+      parsed = JSON.parse(result.out);
+    }
     const rows = Array.isArray(parsed) ? parsed : parsed.rows || [];
     const byFile = Object.fromEntries(this.items().map(i => [i.id, i]));
-    return {query: q, hits: rows.map(r => {
+    return {query: q, via, hits: rows.map(r => {
       const id = path.basename(String(r.file || '')).split('.')[0];
       const source = byFile[id] || {};
       return {title: source.title || r.file, section: r.title, line: r.line, score: r.score,

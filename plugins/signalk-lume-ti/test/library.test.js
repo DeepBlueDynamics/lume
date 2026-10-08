@@ -78,3 +78,37 @@ test('search without an index reports it instead of failing', async () => {
   assert.deepEqual(result.hits, []);
   assert.match(result.note, /not indexed/);
 });
+
+test('search goes through the lume server and falls back to lume sql when it is down', async () => {
+  const http = require('node:http');
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lume-lib-'));
+  fs.mkdirSync(path.join(dataDir, 'library', 'index'), {recursive: true});
+  let seen = null;
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', c => { body += c; });
+    req.on('end', () => {
+      seen = {url: req.url, accept: req.headers.accept, sql: JSON.parse(body).sql};
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({rows: [{file: 'files/abc.pdf', title: 'Page 4', line: 9, score: 3.5, excerpt: 'bilge  pump'}]}));
+    });
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const lib = new Library({binary: 'lume-binary-that-does-not-exist', dataDir, servePort: server.address().port});
+    const result = await lib.search('bilge pump');
+    assert.equal(result.via, 'server');
+    assert.equal(seen.url, '/ti/query');
+    assert.equal(seen.accept, 'application/json');
+    assert.match(seen.sql, /FROM sections WHERE match\(body, 'bilge pump'\)/);
+    assert.equal(result.hits.length, 1);
+    assert.equal(result.hits[0].section, 'Page 4');
+    assert.equal(result.hits[0].excerpt, 'bilge pump');
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
+  const logs = [];
+  const down = new Library({binary: 'lume-binary-that-does-not-exist', dataDir, servePort: 9, log: line => logs.push(line)});
+  await assert.rejects(down.search('bilge pump'));
+  assert.ok(logs.some(line => /using lume sql/.test(line)), logs.join('\n'));
+});

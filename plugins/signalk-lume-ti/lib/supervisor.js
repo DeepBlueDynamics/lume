@@ -43,6 +43,9 @@ class Supervisor {
     this.pgBind = options.pgBind || '127.0.0.1';
     this.pgAuthConfig = options.pgAuthConfig || null;
     this.extraArgs = options.extraArgs || [];
+    // Cruiser library index served next to telemetry; a missing index is served empty and
+    // picked up when it is first published.
+    this.docsIndex = options.docsIndex || null;
 
     this.backoffInitialMs = options.backoffInitialMs || 1000;
     this.backoffMaxMs = options.backoffMaxMs || 30000;
@@ -89,6 +92,10 @@ class Supervisor {
     if (this.pgPort !== null) {
       if (!this.pgAuthConfig || !fs.existsSync(this.pgAuthConfig)) throw new Error('PostgreSQL auth config is missing');
       args.push('--pg', String(this.pgPort), '--pg-bind', this.pgBind, '--pg-auth-config', this.pgAuthConfig);
+    }
+
+    if (this.docsIndex) {
+      args.push('--docs-index', this.docsIndex);
     }
 
     if (Array.isArray(this.extraArgs) && this.extraArgs.length > 0) {

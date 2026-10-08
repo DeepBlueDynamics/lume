@@ -171,7 +171,7 @@ module.exports = function (app) {
         return;
       }
       log(`Resolved lume executable: ${currentBinaryInfo.path} (${currentBinaryInfo.source})`);
-      library = new Library({binary: currentBinaryInfo.path, dataDir, log: line => log(line)});
+      library = new Library({binary: currentBinaryInfo.path, dataDir, servePort, log: line => log(line)});
       chatManager = new ChatManager({
         binary: currentBinaryInfo.path,
         dataDir,
@@ -213,6 +213,7 @@ module.exports = function (app) {
         pgPort: pg.enablePg ? pg.pgPort : null,
         pgBind: pg.pgBind,
         pgAuthConfig,
+        docsIndex: path.join(dataDir, 'library', 'index'),
         tokenPath: fs.existsSync(tokenPath) ? tokenPath : null,
         onLog: (line, isErr) => log(line, isErr),
         onStateChange: () => updateStatus(app, supervisor, storeDir),
