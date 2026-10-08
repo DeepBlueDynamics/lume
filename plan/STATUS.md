@@ -2,13 +2,13 @@
 
 Last updated: **2026-10-08** (docs keeper, after `9334f18`: **D48 gap 2 contention on Pi** (`9334f18`), **plain serve loopback default & OPERATIONS.md** (`9e95173`, A18), **Pi docs use halos.local** (`fd80db8`), **nuts.services HTTP bearer auth** (`f8d95ec`, A17, D51 ACCEPTED), **gap 4 closed on Pi** (`ffe648a`), **q6-004 pruning** (`f4422f6`, A15), **OTLP split commit queues** (`377eebe`, A16, D50), **live Ask tool calls & prompt fix** (`cd6a323`, `6ff0376`, B17); earlier at `51080e9`: **zero-tail recovery** (`51080e9`, A13b), **WAL checkpoint fix** (`38f7f12`, A14), **append-only DocStore** (`ad7a1d0`, A13), **OTLP reload & group commit** (`e8aa41f`, A10), **pgwire frame cap** (`9891f31`, A12), **HTTP bearer opt-in** (`b46482f`, A11), **hardening & D51** (`f754c0d`, `c70d617`, A9), **otlp-soak** (`2c53d3f`, A7), **PR #4 review** (`6e27791`, `e004349`, A8), **contention harness** (`3c5ab9d`, A6), **Pi gap 4 measured** (`a47ff21`), **CI dashboard SQL build** (`fa37d06`); earlier at `3633d9a`: HaLOS container .debs, Q6 bench PASS, Ollama HaLOS app, Grub image, library search, plugin TLS, M6 items 1-3; earlier: M2 item 3 on Pi, D46 pgwire TLS, release pipeline)
 
-Integration branch `plan/lume-ti` is at `9334f18`. **PR #4** (`plan/lume-ti` to `main` on public GitHub DeepBlueDynamics/lume) is open; CI was green through `67afe75`. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46 at `8e87a11`; `cargo test --features ti` was 55 at `39c0096` (not recounted since). Plugin `npm test` 39/39 (at `a5be3f8` / `c769d23`) and `cargo test` `ti_http` 8/8 at `e09bb87`.
+Integration branch `plan/lume-ti` is at `9334f18`. **PR #4** (`plan/lume-ti` to `main` on public GitHub DeepBlueDynamics/lume) is open; CI is green through `9334f18`. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46 at `8e87a11`; `cargo test --features ti` was 55 at `39c0096` (not recounted since). Plugin `npm test` 39/39 (at `a5be3f8` / `c769d23`) and `cargo test` `ti_http` 8/8 at `e09bb87`.
 Workspace members: `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench`, `ti-geo`, `ti-sync`. Signal K plugin: `plugins/signalk-lume-ti/`. Next free decision: **D54** (D51 HTTP bearer auth & loopback default ACCEPTED, D52 append-only DocStore, D53 WAL checkpoints; earlier D50 OTLP, D49 D48 follow-ups). D45 (binary size) is merged and recorded in [decisions/D45-binary-size.md](decisions/D45-binary-size.md). D46 (pgwire TLS, Option 2) is merged (`45ae6ff`, Artificial Shark, `ti/pg-tls` `66e2bbb`). D47 (open-shard flush) is in [spec/11](spec/11-risks-decisions.md). All measured numbers: [docs/performance-comparisons.md](../docs/performance-comparisons.md).
 Setup and workflow: [SETUP.md](SETUP.md).
 
 ## Handoff (2026-10-08, lead session)
 
-`plan/lume-ti` is at `9334f18` and pushed. PR #4 is open; CI was green through `67afe75`.
+`plan/lume-ti` is at `9334f18` and pushed. PR #4 is open; CI is green through `9334f18`.
 
 **Done since `78c913d`:**
 - **Self-telemetry:** `6e84992`, then its own store and table `telemetry_lume` (`ed02ff4`).
