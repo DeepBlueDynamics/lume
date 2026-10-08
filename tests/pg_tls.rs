@@ -47,6 +47,47 @@ impl Drop for TestDir {
     }
 }
 
+#[test]
+fn authenticated_idle_connection_expires_and_admission_recovers() {
+    use std::time::Duration;
+    let test_dir = TestDir::new();
+    std::fs::write(test_dir.store_root.join("ti.toml"),
+        format!("width_seconds = 10\n[[auth.scram_users]]\nusername = 'lume'\nverifier = '{VERIFIER}'\n")).unwrap();
+    let server = Arc::new(TiServer::open(&test_dir.store_root).unwrap());
+    let options = PgOptions {
+        idle_timeout: Duration::from_millis(100),
+        ..Default::default()
+    };
+    let listener =
+        ti_pg::start_with_options(server, "127.0.0.1:0".parse().unwrap(), &options).unwrap();
+    ti_sql::surface_runtime().unwrap().block_on(async {
+        let config = {
+            let mut c = tokio_postgres::Config::new();
+            c.host("127.0.0.1")
+                .port(listener.address.port())
+                .user("lume")
+                .password("pencil")
+                .dbname("ti");
+            c
+        };
+        for _ in 0..33 {
+            let (client, connection) = config.connect(tokio_postgres::NoTls).await.unwrap();
+            let connection = tokio::spawn(connection);
+            assert_eq!(client.query("SELECT 1", &[]).await.unwrap().len(), 1);
+            let _closed = tokio::time::timeout(Duration::from_secs(2), connection)
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(client.is_closed());
+        }
+        let (client, connection) = config.connect(tokio_postgres::NoTls).await.unwrap();
+        let connection = tokio::spawn(connection);
+        assert_eq!(client.query("SELECT 1", &[]).await.unwrap().len(), 1);
+        drop(client);
+        let _ = connection.await;
+    });
+}
+
 fn make_tls_connector(cert_path: &std::path::Path) -> MakeRustlsConnect {
     let mut file = std::io::BufReader::new(std::fs::File::open(cert_path).expect("open cert"));
     let certs = rustls_pemfile::certs(&mut file)
@@ -283,6 +324,7 @@ fn test_non_loopback_allows_plaintext_when_configured() {
         tls_key: None,
         allow_plaintext: true,
         require_tls: Some(true),
+        ..Default::default()
     };
     let listener = ti_pg::start_with_options(server, bind_addr, &options).unwrap();
     let port = listener.address.port();
@@ -331,6 +373,7 @@ fn test_wrong_key_mode_rejected() {
         tls_key: Some(key_path),
         allow_plaintext: false,
         require_tls: None,
+        ..Default::default()
     };
 
     let bind_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();

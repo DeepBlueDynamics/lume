@@ -775,12 +775,29 @@ impl PgWireServerHandlers for Handler {
         })
     }
 }
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct PgOptions {
     pub tls_cert: Option<PathBuf>,
     pub tls_key: Option<PathBuf>,
     pub allow_plaintext: bool,
     pub require_tls: Option<bool>,
+    /// Maximum idle time waiting for a post-authentication protocol message.
+    pub idle_timeout: Duration,
+    /// Deadline for a stalled socket write, flush or shutdown.
+    pub write_timeout: Duration,
+}
+
+impl Default for PgOptions {
+    fn default() -> Self {
+        Self {
+            tls_cert: None,
+            tls_key: None,
+            allow_plaintext: false,
+            require_tls: None,
+            idle_timeout: Duration::from_secs(600),
+            write_timeout: Duration::from_secs(30),
+        }
+    }
 }
 
 pub(crate) fn is_loopback_or_docker0(ip: std::net::IpAddr) -> bool {
@@ -986,6 +1003,29 @@ impl tokio::io::AsyncWrite for PgStream {
     }
 }
 
+#[cfg(test)]
+mod deadline_tests {
+    use super::*;
+    #[test]
+    fn stalled_socket_write_expires_without_timing_query_work() {
+        ti_sql::surface_runtime().unwrap().block_on(async {
+            let (writer, _unread_peer) = tokio::io::duplex(1);
+            let mut stream = TimedPgStream {
+                stream: writer,
+                timeout: Duration::from_millis(20),
+                deadline: None,
+            };
+            tokio::time::sleep(Duration::from_millis(40)).await;
+            stream.write_all(b"x").await.unwrap();
+            let error = tokio::time::timeout(Duration::from_secs(1), stream.write_all(b"y"))
+                .await
+                .unwrap()
+                .unwrap_err();
+            assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+        });
+    }
+}
+
 const SSL_REQUEST_CODE: u32 = 80877103;
 const GSS_ENC_REQUEST_CODE: u32 = 80877104;
 
@@ -1033,11 +1073,81 @@ async fn handle_handshake(
     }
 }
 
+/// Write deadlines apply to socket I/O, never to query evaluation.
+struct TimedPgStream<S> {
+    stream: S,
+    timeout: Duration,
+    deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>>,
+}
+
+impl<S> TimedPgStream<S> {
+    fn finish_write<T>(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+        result: std::task::Poll<std::io::Result<T>>,
+    ) -> std::task::Poll<std::io::Result<T>> {
+        if result.is_ready() {
+            self.deadline = None;
+            return result;
+        }
+        let timer = self
+            .deadline
+            .get_or_insert_with(|| Box::pin(tokio::time::sleep(self.timeout)));
+        if std::future::Future::poll(timer.as_mut(), cx).is_ready() {
+            std::task::Poll::Ready(Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "Postgres socket write timed out",
+            )))
+        } else {
+            std::task::Poll::Pending
+        }
+    }
+}
+
+impl<S: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for TimedPgStream<S> {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.get_mut().stream).poll_read(cx, buf)
+    }
+}
+
+impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for TimedPgStream<S> {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        let this = self.get_mut();
+        let result = std::pin::Pin::new(&mut this.stream).poll_write(cx, buf);
+        this.finish_write(cx, result)
+    }
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let this = self.get_mut();
+        let result = std::pin::Pin::new(&mut this.stream).poll_flush(cx);
+        this.finish_write(cx, result)
+    }
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let this = self.get_mut();
+        let result = std::pin::Pin::new(&mut this.stream).poll_shutdown(cx);
+        this.finish_write(cx, result)
+    }
+}
+
 async fn process_connection(
     socket: tokio::net::TcpStream,
     peer_addr: SocketAddr,
     tls_acceptor: Option<tokio_rustls::TlsAcceptor>,
     handler: Arc<Handler>,
+    options: PgOptions,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     socket.set_nodelay(true)?;
 
@@ -1049,7 +1159,11 @@ async fn process_connection(
 
     let client_info = DefaultClient::new(peer_addr, is_secure);
     let mut socket = tokio_util::codec::Framed::new(
-        stream,
+        TimedPgStream {
+            stream,
+            timeout: options.write_timeout,
+            deadline: None,
+        },
         pgwire::tokio::server::PgWireMessageServerCodec::new(client_info),
     );
     socket
@@ -1078,7 +1192,7 @@ async fn process_connection(
                 msg = socket.next() => msg,
             }
         } else {
-            socket.next().await
+            tokio::time::timeout(options.idle_timeout, socket.next()).await?
         };
 
         match msg {
@@ -1139,13 +1253,17 @@ pub fn start_with_options(
     address: SocketAddr,
     options: &PgOptions,
 ) -> Result<Listener, String> {
-    let must_require_tls = require_tls(address.ip(), options);
+    if options.idle_timeout.is_zero() || options.write_timeout.is_zero() {
+        return Err("Postgres idle and write timeouts must be positive".into());
+    }
+    let options = options.clone();
+    let must_require_tls = require_tls(address.ip(), &options);
     let auth = crate::ti_pg_auth::AuthConfig::new(
         server.pg_users()?,
         !address.ip().is_loopback(),
         must_require_tls,
     )?;
-    let tls_acceptor = configure_tls(server.root(), address, options)?;
+    let tls_acceptor = configure_tls(server.root(), address, &options)?;
     if must_require_tls && tls_acceptor.is_none() {
         return Err("Postgres bind requires TLS".into());
     }
@@ -1183,8 +1301,9 @@ pub fn start_with_options(
                                 Ok((socket, peer_addr)) if clients.len() < 32 => {
                                     let handler = handler.clone();
                                     let tls_acceptor = tls_acceptor.clone();
+                                    let options = options.clone();
                                     clients.spawn(async move {
-                                        if let Err(e) = process_connection(socket, peer_addr, tls_acceptor, handler).await {
+                                        if let Err(e) = process_connection(socket, peer_addr, tls_acceptor, handler, options).await {
                                             eprintln!("Postgres connection: {e}");
                                         }
                                     });

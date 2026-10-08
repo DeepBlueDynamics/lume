@@ -286,6 +286,7 @@ fn lume_main() {
                 tls_key: pg_tls_key,
                 allow_plaintext: pg_allow_plaintext,
                 require_tls: pg_require_tls,
+                ..Default::default()
             };
             #[cfg(feature = "ti")]
             let result=match ti_store{
@@ -613,6 +614,7 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
                     tls_key: pg_tls_key.map(PathBuf::from).or_else(|| service.config.bind.pg_tls_key.clone().map(PathBuf::from)),
                     allow_plaintext: pg_allow_plaintext || service.config.bind.pg_allow_plaintext,
                     require_tls: pg_require_tls.or(service.config.bind.pg_require_tls),
+                    ..Default::default()
                 };
                 std::thread::spawn(move || {
                     println!("Starting integrated query server on {serve_bind}:{port}...");
