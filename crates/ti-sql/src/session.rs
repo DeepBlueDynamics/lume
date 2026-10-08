@@ -38,6 +38,22 @@ impl SqlSession {
         catalog: Arc<SqlCatalog>,
         enabled: bool,
     ) -> Result<Self> {
+        Self::new_with_rules(source, catalog, enabled, true).await
+    }
+    /// Disable document range pruning for row-for-row and timing comparisons.
+    pub async fn new_with_document_range_pruning(
+        source: Arc<dyn ShardSource>,
+        catalog: Arc<SqlCatalog>,
+        enabled: bool,
+    ) -> Result<Self> {
+        Self::new_with_rules(source, catalog, true, enabled).await
+    }
+    async fn new_with_rules(
+        source: Arc<dyn ShardSource>,
+        catalog: Arc<SqlCatalog>,
+        aggregates: bool,
+        document_ranges: bool,
+    ) -> Result<Self> {
         let context = SessionContext::new_with_config_rt(
             SessionConfig::new().with_target_partitions(2),
             crate::memory::runtime()?,
@@ -52,14 +68,19 @@ impl SqlSession {
             Arc::new(crate::geo::GeoRewrite),
         )?;
         let aggregate_diagnostics = Arc::new(Mutex::new(vec![]));
-        if enabled {
+        if aggregates || document_ranges {
             let mut rules = state.physical_optimizers().to_vec();
-            rules.insert(
-                0,
-                Arc::new(crate::aggregate::BitmapAggregateRule {
-                    diagnostics: aggregate_diagnostics.clone(),
-                }),
-            );
+            if document_ranges {
+                rules.insert(0, Arc::new(crate::doc_ranges::DocRangeRule));
+            }
+            if aggregates {
+                rules.insert(
+                    0,
+                    Arc::new(crate::aggregate::BitmapAggregateRule {
+                        diagnostics: aggregate_diagnostics.clone(),
+                    }),
+                );
+            }
             state = datafusion::execution::SessionStateBuilder::new_from_existing(state)
                 .with_physical_optimizer_rules(rules)
                 .build();

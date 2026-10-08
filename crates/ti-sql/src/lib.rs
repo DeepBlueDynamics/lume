@@ -5,6 +5,7 @@ mod analyzer;
 mod catalog;
 mod classifier;
 pub mod cli;
+mod doc_ranges;
 mod docs;
 mod engine;
 mod fixture;
