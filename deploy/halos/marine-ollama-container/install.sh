@@ -77,7 +77,9 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now "$app.service"
+systemctl enable "$app.service"
+# restart, not just start: a reinstall must pick up new settings and the app-prestart hook
+systemctl restart "$app.service"
 echo "Installed $app; waiting for Ollama..."
 for _ in $(seq 1 60); do
   if curl -fsS -m 3 http://127.0.0.1:11434/api/version > /dev/null 2>&1; then
