@@ -1,0 +1,69 @@
+name: Issue notify
+
+# Post to Discord when an issue is opened, closed or reopened, and on each new
+# issue comment. Issue text is untrusted: it reaches the message only through jq,
+# and allowed_mentions blocks @everyone, @here and role/user pings.
+on:
+  issues:
+    types: [opened, reopened, closed]
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+jobs:
+  notify-discord:
+    # issue_comment also fires for PR comments; post only real issues.
+    if: github.event.issue.pull_request == null
+    runs-on: ubuntu-latest
+    # A notification must never fail anything.
+    continue-on-error: true
+    steps:
+      - name: Post issue event to Discord
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          # DISCORD_ISSUE_CHANNEL_ID, else the PR channel, else the release channel.
+          DISCORD_ISSUE_CHANNEL_ID: ${{ secrets.DISCORD_ISSUE_CHANNEL_ID }}
+          DISCORD_PR_CHANNEL_ID: ${{ secrets.DISCORD_PR_CHANNEL_ID }}
+          DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
+          EVENT_NAME: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+        run: |
+          set -euo pipefail
+          CHANNEL="${DISCORD_ISSUE_CHANNEL_ID:-${DISCORD_PR_CHANNEL_ID:-${DISCORD_CHANNEL_ID:-}}}"
+          if [ -z "${DISCORD_BOT_TOKEN:-}" ] || [ -z "$CHANNEL" ]; then
+            echo "DISCORD_BOT_TOKEN / a Discord channel id not set — skipping Discord post."
+            exit 0
+          fi
+          jq -n --slurpfile ev "$GITHUB_EVENT_PATH" --arg event "$EVENT_NAME" --arg action "$ACTION" '
+            def clip($n): if length > $n then .[0:$n - 1] + "…" else . end;
+            ($ev[0].issue) as $is
+            | ($ev[0].repository.full_name) as $repo
+            | (if $event == "issue_comment" then {verb: "comment", color: 10070709, icon: "💬"}
+               elif $action == "closed" and $is.state_reason == "not_planned"
+                 then {verb: "closed (not planned)", color: 9807270, icon: "⚪"}
+               elif $action == "closed" then {verb: "closed", color: 8421631, icon: "🟣"}
+               elif $action == "reopened" then {verb: "reopened", color: 15105570, icon: "🟠"}
+               else {verb: "opened", color: 3066993, icon: "🟢"} end) as $k
+            | (if $event == "issue_comment"
+               then {who: $ev[0].comment.user.login, url: $ev[0].comment.html_url,
+                     text: ($ev[0].comment.body // "" | clip(400))}
+               else {who: ($ev[0].sender.login // $is.user.login), url: $is.html_url,
+                     text: (if $action == "opened" then ($is.body // "" | clip(300)) else "" end)} end) as $d
+            | {
+                allowed_mentions: {parse: []},
+                embeds: [{
+                  title: ("\($k.icon) \($repo) issue #\($is.number) \($k.verb)" | clip(256)),
+                  url: $d.url,
+                  description: ("**\($is.title | clip(200))**" + (if $d.text != "" then "\n\n" + $d.text else "" end)),
+                  color: $k.color,
+                  fields: [{name: (if $event == "issue_comment" then "Comment by" else "By" end),
+                            value: $d.who, inline: true}]
+                }]
+              }' > payload.json
+          curl -sf -X POST \
+            -H "Authorization: Bot ${DISCORD_BOT_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data @payload.json \
+            "https://discord.com/api/v10/channels/${CHANNEL}/messages" > /dev/null
+          echo "Posted issue ${EVENT_NAME}/${ACTION} to Discord channel ${CHANNEL}."

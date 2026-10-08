@@ -1,0 +1,75 @@
+name: PR notify
+
+# Post to Discord when a pull request is opened (or marked ready) and when it
+# merges. Releases post from release.yml; this covers PRs. Ported from Hyperia.
+#
+# pull_request_target so PRs from forks can post too. It is safe here because
+# this job NEVER checks out or runs PR code — it only reads the event payload.
+# The PR title/branch are untrusted: they reach the message only through jq
+# (never interpolated into the shell), and allowed_mentions blocks @everyone,
+# @here and role/user pings.
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, closed]
+
+permissions: {}
+
+jobs:
+  notify-discord:
+    # Opened/reopened only when not a draft; ready_for_review covers drafts
+    # going live; closed only when actually merged.
+    if: >-
+      (github.event.action == 'closed' && github.event.pull_request.merged) ||
+      (github.event.action == 'ready_for_review') ||
+      ((github.event.action == 'opened' || github.event.action == 'reopened') && !github.event.pull_request.draft)
+    runs-on: ubuntu-latest
+    # A notification must never turn a PR red.
+    continue-on-error: true
+    steps:
+      - name: Post PR event to Discord
+        env:
+          # Discord bot API (not a webhook), same bot as the release post.
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          # PR posts go to DISCORD_PR_CHANNEL_ID when set, else the release channel.
+          DISCORD_PR_CHANNEL_ID: ${{ secrets.DISCORD_PR_CHANNEL_ID }}
+          DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
+          ACTION: ${{ github.event.action }}
+        run: |
+          set -euo pipefail
+          CHANNEL="${DISCORD_PR_CHANNEL_ID:-${DISCORD_CHANNEL_ID:-}}"
+          if [ -z "${DISCORD_BOT_TOKEN:-}" ] || [ -z "$CHANNEL" ]; then
+            echo "DISCORD_BOT_TOKEN / DISCORD_PR_CHANNEL_ID (or DISCORD_CHANNEL_ID) not set — skipping Discord post."
+            exit 0
+          fi
+          jq -n --slurpfile ev "$GITHUB_EVENT_PATH" --arg action "$ACTION" '
+            ($ev[0].pull_request) as $pr
+            | ($ev[0].repository.full_name) as $repo
+            | (if $action == "closed" then {verb: "merged", color: 8421631, icon: "🟣"}
+               else {verb: "opened", color: 3066993, icon: "🟢"} end) as $k
+            | ($pr.title | if length > 200 then .[0:197] + "…" else . end) as $title
+            | {
+                allowed_mentions: {parse: []},
+                embeds: [{
+                  title: ("\($k.icon) \($repo) #\($pr.number) \($k.verb)"),
+                  url: $pr.html_url,
+                  description: $title,
+                  color: $k.color,
+                  fields: [
+                    {name: "Author", value: $pr.user.login, inline: true},
+                    {name: (if $action == "closed" then "Merged by" else "Branch" end),
+                     value: (if $action == "closed"
+                             then ($pr.merged_by.login // "unknown")
+                             else "\($pr.head.ref) → \($pr.base.ref)" end),
+                     inline: true},
+                    {name: "Changes",
+                     value: "+\($pr.additions) / −\($pr.deletions) in \($pr.changed_files) files",
+                     inline: true}
+                  ]
+                }]
+              }' > payload.json
+          curl -sf -X POST \
+            -H "Authorization: Bot ${DISCORD_BOT_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data @payload.json \
+            "https://discord.com/api/v10/channels/${CHANNEL}/messages" > /dev/null
+          echo "Posted PR ${ACTION} to Discord channel ${CHANNEL}."

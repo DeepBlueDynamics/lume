@@ -27,6 +27,7 @@ on:
 
 permissions:
   contents: write
+  actions: read # notify-discord reads this run's per-job conclusions
 
 env:
   CARGO_TERM_COLOR: always
@@ -235,3 +236,58 @@ jobs:
           files: dist/*
           fail_on_unmatched_files: true
           generate_release_notes: true
+
+  # One Discord summary per release with every job's result (ported from Hyperia).
+  # always() so a partial or failed release still pings; a failed post never fails
+  # the release. Skips quietly when the secrets aren't set.
+  notify-discord:
+    name: Notify Discord
+    needs: [check, build, plugin, release]
+    if: always()
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Post release status to Discord
+        env:
+          # Discord bot API (not a webhook): posts as the bot into the channel.
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.run_id }}
+          REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.check.outputs.tag || inputs.tag || github.ref_name }}
+          RELEASE_RESULT: ${{ needs.release.result }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DISCORD_BOT_TOKEN:-}" ] || [ -z "${DISCORD_CHANNEL_ID:-}" ]; then
+            echo "DISCORD_BOT_TOKEN / DISCORD_CHANNEL_ID not set — skipping Discord post."
+            exit 0
+          fi
+          # Every finished job in THIS run except this one; --jq streams, jq -s collects.
+          jobs_json="$(gh api --paginate "repos/${REPO}/actions/runs/${RUN_ID}/jobs" \
+            --jq '.jobs[] | select(.name != "Notify Discord") | {name, conclusion}' | jq -s '.')"
+          payload="$(jq -n \
+            --argjson jobs "$jobs_json" \
+            --arg tag "$RELEASE_TAG" \
+            --arg repo "$REPO" \
+            --arg result "$RELEASE_RESULT" '
+            def icon: if . == "success" then "✅" elif . == "failure" then "❌"
+                      elif . == "cancelled" then "⏹️" elif . == "skipped" then "⏭️" else "❔" end;
+            ($jobs | map(select(.conclusion != "success")) | length) as $bad
+            | {
+                allowed_mentions: {parse: []},
+                embeds: [{
+                  title: ("🚀 Lume \($tag)" | .[0:256]),
+                  url: "https://github.com/\($repo)/releases/tag/\($tag)",
+                  color: (if $result == "success" and $bad == 0 then 3066993
+                          elif $result == "success" then 15844367 else 15158332 end),
+                  description: ($jobs | map("\(.conclusion | icon) \(.name)") | join("\n") | .[0:4000]),
+                  footer: {text: "release: \($result)"}
+                }]
+              }')"
+          curl -sf -X POST \
+            -H "Authorization: Bot ${DISCORD_BOT_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$payload" \
+            "https://discord.com/api/v10/channels/${DISCORD_CHANNEL_ID}/messages" > /dev/null
+          echo "Posted release status to Discord channel ${DISCORD_CHANNEL_ID}."
