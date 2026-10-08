@@ -51,7 +51,7 @@ test('Plugin schema includes otlpEnabled and otlpTokenFile defaults', () => {
   assert.strictEqual(schema.properties.otlpTokenFile.default, '');
 });
 
-test('Plugin start validates non-loopback OTLP without token and reports error', async () => {
+test('Plugin ignores a serveBind in config: query server stays on loopback', async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lume-plugin-otlp-err-'));
   const errors = [];
   const debugLogs = [];
@@ -72,8 +72,8 @@ test('Plugin start validates non-loopback OTLP without token and reports error',
     autoRequestToken: false,
   });
 
-  assert.ok(errors.length > 0, 'Should record plugin error');
-  assert.ok(errors.some(e => e.includes('Non-loopback OTLP requires --otlp-token-file')));
+  // serveBind in plugin config is ignored: the query server is always loopback.
+  assert.strictEqual(errors.length, 0, 'A config serveBind must not take effect');
 
   plugin.stop();
   fs.rmSync(tmpDir, { recursive: true, force: true });

@@ -6,7 +6,7 @@ const http = require('http');
 
 const { resolveLumeBinary } = require('./lib/resolver');
 const { TokenManager } = require('./lib/auth');
-const { Supervisor, validateBind } = require('./lib/supervisor');
+const { Supervisor } = require('./lib/supervisor');
 const { collectStoreStatus } = require('./lib/status');
 const { createHistoryProvider } = require('./lib/history');
 const {pgOptions, writePgConfig, registerPgRoutes, adminStatus, readJson} = require('./lib/pg');
@@ -247,20 +247,11 @@ module.exports = function (app) {
       }
 
       // 3. Setup Supervisor
-      const serveBind = pluginConfig.serveBind || '127.0.0.1';
+      // The query server stays on loopback: /ti/query has no auth of its own, so a
+      // plugin-config bind must not expose it. LAN OTLP needs `lume ti otlp` with a token.
+      const serveBind = '127.0.0.1';
       const otlpEnabled = pluginConfig.otlpEnabled === true;
       const otlpTokenFile = pluginConfig.otlpTokenFile ? String(pluginConfig.otlpTokenFile).trim() : null;
-
-      if (otlpEnabled) {
-        const bindErr = validateBind(serveBind, otlpTokenFile);
-        if (bindErr) {
-          const errMsg = `Config error: ${bindErr}`;
-          log(errMsg, true);
-          if (typeof app.setPluginError === 'function') {
-            app.setPluginError(errMsg);
-          }
-        }
-      }
 
       supervisor = new Supervisor({
         binaryPath: currentBinaryInfo.path,

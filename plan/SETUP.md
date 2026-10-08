@@ -681,13 +681,12 @@ When running inside Signal K via `plugins/signalk-lume-ti`, OTLP receiver suppor
 
 - **`otlpEnabled`** (`Enable OTLP Receiver`, boolean, default `false`): Enables `/v1/metrics` and `/v1/logs` on the query server HTTP listener. When enabled, the supervisor adds `--otlp` (and `--otlp-token-file <path>` if configured) to the `lume ti ingest --serve` argv.
 - **`otlpTokenFile`** (`OTLP Bearer Token File Path`, string, optional): Path to a file containing the bearer token (mode `0600`).
-  - Required if `serveBind` is non-loopback (e.g., `0.0.0.0` or a LAN interface). If `serveBind` is non-loopback and no token file is configured, the plugin logs a clear configuration error and does not start OTLP.
-  - Optional on loopback (`127.0.0.1`).
+  - Optional: the plugin's query server always binds `127.0.0.1` (its `/ti/query` API has no auth of its own), so OTLP from the plugin is loopback-only. To take OTLP from other machines, run `lume ti otlp --store <root> --bind <LAN IP> --otlp-token-file <path>` separately; a non-loopback bind is refused without a token.
   - The token file path may appear on argv; the token itself is read by `lume` directly and is never placed on argv, in logs, or in configuration.
 
 #### Testing the plugin receiver with curl
 
-The supervisor query server listens on `servePort` (default **`5863`**, bound to `serveBind`, default `127.0.0.1`), not Signal K's own port (default `3000`). OTLP endpoints (`/v1/logs` and `/v1/metrics`) are exposed directly on the supervisor query port:
+The supervisor query server listens on `servePort` (default **`5863`**, always bound to `127.0.0.1`), not Signal K's own port (default `3000`). OTLP endpoints (`/v1/logs` and `/v1/metrics`) are exposed directly on the supervisor query port:
 
 ```sh
 # Post golden log events directly to the supervisor query server
