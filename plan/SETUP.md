@@ -630,9 +630,97 @@ Signal K binds `/var/lib/container-apps/marine-signalk-server-container/data/dat
    ```
    The plugin reads `chatApiKeyFile` at spawn time and passes `OLLAMA_API_KEY` in the child environment only.
 
-## 14. OTLP telemetry receiver (in progress)
+## 14. OTLP telemetry receiver
 
 > [!NOTE]
-> Workstream A1 (`ti/otlp`) is in progress by Codex (Inland Tarantula).
+> Workstream A1 (`ti/otlp`) is in progress by Codex (Inland Tarantula). Command flags, endpoints, and table schemas described below reflect the A1 implementation and are *(unconfirmed until A1 lands on `plan/lume-ti`)*.
 
-Lume is adding an OpenTelemetry Protocol (OTLP) HTTP/JSON receiver (`POST /v1/metrics` and `POST /v1/logs`) on port 4318 (standalone or via `lume serve --otlp`), allowing agent telemetry (Hyperia and n8: tokens, file events, mail metadata) to be ingested directly into a dedicated store (`<root>/stores/agents`, served as `telemetry_agents` and `docs`). Full setup and ingestion instructions will be documented here once A1 lands.
+Lume TI includes an OpenTelemetry Protocol (OTLP) receiver accepting metrics and logs over HTTP/JSON (`POST /v1/metrics` and `POST /v1/logs`). It ingests agent telemetry (token usage, file edits, tool runs, mail events) into a dedicated store (`<root>/stores/agents`), queryable as `telemetry_agents` (metrics) and `docs` (log events).
+
+### Receiver architecture and operation
+
+- **Protocol**: HTTP/JSON only (`Content-Type: application/json`). Protobuf and gRPC are not supported (D50, avoiding heavy protobuf dependencies). Maximum request body is 8 MiB (returns HTTP 413 if exceeded; malformed JSON returns HTTP 400).
+- **Standalone daemon**:
+  ```sh
+  lume ti otlp --store <store_root> [--bind 127.0.0.1] [--port 4318] [--otlp-token-file <path>]
+  ```
+  Default bind is `127.0.0.1` and default port is `4318`.
+- **Integrated with HTTP server**:
+  ```sh
+  lume serve --ti-store <store_root> --otlp [--otlp-token-file <path>]
+  # or on ingest:
+  lume ti ingest ... --serve --otlp [--otlp-token-file <path>]
+  ```
+  Exposes `/v1/metrics` and `/v1/logs` directly on the server's HTTP port (default `5863`).
+- **Authentication**: Bearer token (`Authorization: Bearer <token>`). Optional when binding loopback (`127.0.0.1`), strictly required for any non-loopback bind. Token is read at startup from `--otlp-token-file <path>` (mode 0600 recommended).
+- **Storage and tables**:
+  - Dedicated store at `<root>/stores/agents`.
+  - **`telemetry_agents`**: Numeric metrics. The resource attribute `service.instance.id` (or pane ID) maps to `vessel` as `agent.urn:<instance_id>` (fallback: `agent.urn:<service.name>`). Gauge and sum metrics populate metric columns (with `@mean` and `@last` aggregate profiles), while histogram metrics map to `<metric>.sum` and `<metric>.count`.
+  - **`docs`**: Log and span events. `vessel` is set to the agent URN, `title` to the event name (e.g. `file_edit`, `tool_call`, `hyperia.mail`), `kind` to `logbook`, and `body` to serialized JSON attributes, searchable via `match(body, '...')`.
+
+### Client-side exporter configuration
+
+#### 1. Claude Code
+
+Claude Code supports standard OpenTelemetry environment variables via its Node.js SDK:
+
+```sh
+# Enable OpenTelemetry export
+export CLAUDE_CODE_ENABLE_TELEMETRY=1
+export OTEL_METRICS_EXPORTER=otlp
+export OTEL_LOGS_EXPORTER=otlp
+export OTEL_EXPORTER_OTLP_PROTOCOL=http/json
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318   # or http://127.0.0.1:5863 with lume serve --otlp
+
+# Bearer authentication (never put tokens inline in tracked/committed files)
+export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer $(cat /etc/lume/otlp.token)"
+```
+
+Alternatively, signal-specific endpoints can be configured:
+```sh
+export OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://127.0.0.1:4318/v1/metrics
+export OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://127.0.0.1:4318/v1/logs
+```
+
+Ensure the token file has permissions `0600` and is owned by the user running Claude Code.
+
+#### 2. Codex CLI
+
+Current Codex CLI releases do not provide a built-in OTLP HTTP/JSON telemetry exporter *(unconfirmed / not natively supported)*. Codex writes local trajectory and session logs to `~/.codex/sessions/`. To stream telemetry into Lume, an external log forwarder or wrapper script must read session events and POST them to `http://127.0.0.1:4318/v1/logs` or `v1/metrics` *(unconfirmed until native export is supported)*.
+
+#### 3. Gemini CLI (AGY / Antigravity)
+
+Current Gemini CLI / AGY does not expose native OTLP HTTP/JSON metrics or log exporters *(unconfirmed / not natively supported)*. Execution metrics and tool transcripts are recorded internally in session transcripts (`transcript.jsonl`). Forwarding to Lume requires an external adapter or sidecar forwarding events to `/v1/logs` *(unconfirmed)*.
+
+#### 4. Hyperia / n8
+
+Hyperia manages multi-agent containers, pane terminals, and inter-agent messaging. While Hyperia does not currently ship a native standalone OTLP client daemon *(unconfirmed)*, Hyperia captures agent audit metrics (tokens, tool executions, mail delivery status). An event forwarder or sidecar hook can forward these events to Lume's HTTP receiver at `http://127.0.0.1:4318/v1/logs` and `http://127.0.0.1:4318/v1/metrics` *(unconfirmed)*.
+
+### Example SQL queries
+
+Query agent metrics and event logs using Lume's SQL console (`/api/query`), `lume query`, or pgwire on port 5864:
+
+1. **Tokens consumed per agent per hour (last 24 hours):**
+   ```sql
+   SELECT bucket, vessel, sum("claude_code.token.usage") AS tokens
+   FROM telemetry_agents
+   WHERE bucket >= now() - INTERVAL '24 hours'
+   GROUP BY bucket, vessel
+   ORDER BY bucket DESC;
+   ```
+
+2. **File edits matching a specific path:**
+   ```sql
+   SELECT ts_start, vessel, title, body
+   FROM docs
+   WHERE match(body, 'service.rs')
+   ORDER BY ts_start DESC;
+   ```
+
+3. **Inter-agent mail events:**
+   ```sql
+   SELECT ts_start, vessel, title, body
+   FROM docs
+   WHERE match(body, 'mail')
+   ORDER BY ts_start DESC;
+   ```
