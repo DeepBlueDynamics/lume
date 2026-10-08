@@ -3,7 +3,11 @@
 async fn main() {
     if let Err(error) = run().await {
         eprintln!("benchmark error: {error}");
-        std::process::exit(1);
+        std::process::exit(if error.to_string().starts_with("EMPTY_RESULT:") {
+            2
+        } else {
+            1
+        });
     }
 }
 
@@ -12,6 +16,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     use ti_bench::harness::{run_benchmark_with_documents, BenchmarkOptions};
 
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("contention") {
+        return ti_bench::contention::run(&args[2..]).map_err(Into::into);
+    }
     let warm_only = args.get(1).map(String::as_str) == Some("warm");
     if !warm_only && args.get(1).map(String::as_str) != Some("bench") {
         return Err("usage: ti_query_bench bench --store ROOT [--corpus FILE --out-dir DIR --iterations N --cache-bytes N --class Q6 --sha SHA --pi]".into());

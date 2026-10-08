@@ -1,3 +1,4 @@
+pub mod contention;
 pub mod gen;
 pub mod harness;
 pub mod layout;

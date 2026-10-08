@@ -139,6 +139,34 @@ Caveats: the Pi had no fan and was soft-throttling (75–82 °C). A fan has sinc
 
 What exists: the 1-hour load run kept the production Signal K, InfluxDB and Lume plugin running on the same Pi. It did not measure their latency, and no OpenCPN pan-and-zoom load was applied.
 
+Run the A6 measurement harness on the Pi while the user pans and zooms OpenCPN on
+its screen. The first 120 seconds sample Signal K without queries; the following
+600 seconds run the committed Q4/Q8 query selection back-to-back (concurrency 1).
+Keep the same vessel, sources and ingest settings throughout both phases:
+
+```sh
+ti-query-bench contention --ti-url http://127.0.0.1:5863 --signalk 'ws://127.0.0.1:3000/signalk/v1/stream?subscribe=self' --baseline-secs 120 --duration 600 --queries Q4,Q8 --window last:7d --out bench/results/2026-10-08-contention-SHA.json
+```
+
+Replace SHA with the binary's commit; optionally add `--token-file P` for the same
+bearer on HTTP and WebSocket, or `--concurrency N` for a separate stress run.
+Before baseline sampling, the harness selects the vessel with the most telemetry
+rows (override with `--vessel URN`) and resolves `last:7d` from that vessel's
+newest bucket, including its full bucket. Use `--window START/END` for explicit
+UTC bounds. It rewrites the committed vessel/time predicates without changing
+aggregates, preflights each query, and exits 2 on any empty result unless
+`--allow-empty` is set. Probes and preflight happen before baseline sampling.
+The JSON records resolved vessel/window, preflight row counts, original and
+rewritten SQL, and each query's p50/p95/p99 and errors, plus per
+context/source/path receipt gaps, signed timestamp latency and baseline/load
+changes. "drops" means gaps strictly over twice the phase's median period,
+not independently confirmed lost deltas. Timestamp latency depends on exporter
+and receiver clock synchronization; negative values are reported, not clamped.
+Missing observations/null percentiles do not establish a pass. Record the user's
+OpenCPN stutter observation separately. This tool does not change the PENDING
+status until the real Pi run and visual observation are available. It uses plain
+HTTP/WS for loopback measurement and rejects embedded URL credentials.
+
 ## 8. Reporting and CI
 
 | Spec requirement | Status |
