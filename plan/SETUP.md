@@ -686,11 +686,35 @@ Ensure the token file has permissions `0600` and is owned by the user running Cl
 
 #### 2. Codex CLI
 
-Current Codex CLI releases do not provide a built-in OTLP HTTP/JSON telemetry exporter *(unconfirmed / not natively supported)*. Codex writes local trajectory and session logs to `~/.codex/sessions/`. To stream telemetry into Lume, an external log forwarder or wrapper script must read session events and POST them to `http://127.0.0.1:4318/v1/logs` or `v1/metrics` *(unconfirmed until native export is supported)*.
+Codex has a native OpenTelemetry exporter, which is off by default. You turn it on with an `[otel]` table in `~/.codex/config.toml`. Lume accepts JSON only, so set `protocol = "json"`; Codex's examples use `"binary"`, which is protobuf. Leave `log_user_prompt = false` so prompt text stays redacted.
+
+```toml
+[otel]
+environment = "dev"
+log_user_prompt = false
+exporter = { otlp-http = { endpoint = "http://127.0.0.1:4318/v1/logs", protocol = "json" } }
+metrics_exporter = { otlp-http = { endpoint = "http://127.0.0.1:4318/v1/metrics", protocol = "json" } }
+```
+
+Codex releases differ in the key layout (`exporter` versus `trace_exporter`/`metrics_exporter`, inline versus sub-tables), so check the config reference for your installed version. *(Not yet tested against Lume.)* Codex also accepts `headers = { ... }`; if you use a bearer token, pass it by environment-variable expansion and never write it inline in a committed file.
 
 #### 3. Gemini CLI (AGY / Antigravity)
 
-Current Gemini CLI / AGY does not expose native OTLP HTTP/JSON metrics or log exporters *(unconfirmed / not natively supported)*. Execution metrics and tool transcripts are recorded internally in session transcripts (`transcript.jsonl`). Forwarding to Lume requires an external adapter or sidecar forwarding events to `/v1/logs` *(unconfirmed)*.
+Gemini CLI has native OpenTelemetry export, which is off by default. Configure it under `telemetry` in `~/.gemini/settings.json` (user) or `.gemini/settings.json` (workspace). Its default protocol is **gRPC on :4317**, which Lume does not accept. Without `"otlpProtocol": "http"` it sends nothing and shows no error on either side.
+
+```json
+{
+  "telemetry": {
+    "enabled": true,
+    "target": "local",
+    "useCollector": true,
+    "otlpEndpoint": "http://127.0.0.1:4318",
+    "otlpProtocol": "http"
+  }
+}
+```
+
+`GEMINI_TELEMETRY_*` environment variables override this file. The settings file has no headers field, so pass a bearer token through `OTEL_EXPORTER_OTLP_HEADERS`, as for Claude Code. *(Unconfirmed: whether Gemini's `http` exporter sends JSON or protobuf. If Lume answers 400 or 415, Gemini is sending protobuf.)*
 
 #### 4. Hyperia / n8
 
@@ -698,16 +722,18 @@ Hyperia manages multi-agent containers, pane terminals, and inter-agent messagin
 
 ### Example SQL queries
 
-Query agent metrics and event logs using Lume's SQL console (`/api/query`), `lume query`, or pgwire on port 5864:
+Query agent metrics and event logs with `POST /ti/query` on the serving process (default `127.0.0.1:5863`), the MCP `ti_query` tool, or pgwire (port 5864, when enabled). Rows have `ts` (the 10 s bucket start), `vessel` (the `agent.urn:` entity) and one column per `"<metric>@<profile>"`:
 
 1. **Tokens consumed per agent per hour (last 24 hours):**
    ```sql
-   SELECT bucket, vessel, sum("claude_code.token.usage") AS tokens
+   SELECT date_trunc('hour', ts) AS hour, vessel,
+          sum("claude_code.token.usage@sum") AS tokens
    FROM telemetry_agents
-   WHERE bucket >= now() - INTERVAL '24 hours'
-   GROUP BY bucket, vessel
-   ORDER BY bucket DESC;
+   WHERE ts >= now() - INTERVAL '24 hours'
+   GROUP BY 1, 2
+   ORDER BY 1 DESC;
    ```
+   *(The profile suffix depends on A1's mapping for sum metrics. Check it with `SELECT * FROM telemetry_agents LIMIT 1`.)*
 
 2. **File edits matching a specific path:**
    ```sql
