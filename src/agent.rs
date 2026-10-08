@@ -608,6 +608,14 @@ fn handle_connection(mut stream: TcpStream, _ti: &TiState) -> std::io::Result<()
     let path = parts[1];
 
     #[cfg(feature = "ti")]
+    if _ti.as_ref().is_some_and(|server| server.otlp_only())
+        && !(method == "POST" && matches!(path.split('?').next(), Some("/v1/metrics" | "/v1/logs")))
+    {
+        stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")?;
+        return Ok(());
+    }
+
+    #[cfg(feature = "ti")]
     if path.starts_with("/ti/") || path.starts_with("/v1/") {
         let Some(end) = find_subsequence(&buffer[..bytes_read], b"\r\n\r\n") else {
             stream.write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n")?;

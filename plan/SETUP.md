@@ -682,7 +682,7 @@ When running inside Signal K via `plugins/signalk-lume-ti`, OTLP receiver suppor
 
 - **`otlpEnabled`** (`Enable OTLP Receiver`, boolean, default `false`): Enables `/v1/metrics` and `/v1/logs` on the query server HTTP listener. When enabled, the supervisor adds `--otlp` (and `--otlp-token-file <path>` if configured) to the `lume ti ingest --serve` argv.
 - **`otlpTokenFile`** (`OTLP Bearer Token File Path`, string, optional): Path to a file containing the bearer token (mode `0600`).
-  - Optional: the plugin's query server always binds `127.0.0.1` (its `/ti/query` API has no auth of its own), so OTLP from the plugin is loopback-only. **Keep OTLP on loopback for now.** A non-loopback `lume ti otlp --bind <LAN IP> --otlp-token-file <path>` checks the token only on `/v1/*`; the same listener also serves `/ti` and MCP without auth. A fix that restricts the standalone receiver to `/v1/*` is in review (A8). Until it lands, export OTLP only from agents on the same machine.
+  - Optional: the plugin's query server always binds `127.0.0.1` (its `/ti/query` API has no auth of its own), so OTLP from the plugin is loopback-only. For remote exporters, use a separate `lume ti otlp --bind <LAN IP> --otlp-token-file <path>` listener. The standalone receiver serves only `POST /v1/metrics` and `POST /v1/logs`; all other routes, including `/ti/*`, MCP and SSE, return 404. The bearer token protects both accepted endpoints. Query the stored data separately through loopback `lume serve --ti-store <store_root>` or the local CLI.
   - The token file path may appear on argv; the token itself is read by `lume` directly and is never placed on argv, in logs, or in configuration.
 
 #### Testing the plugin receiver with curl

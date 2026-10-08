@@ -26,7 +26,7 @@ pub fn validate_bind(bind: &str, token: &Option<String>) -> Result<(), String> {
 }
 pub fn run(args: &[String]) -> Result<(), String> {
     if args.iter().any(|a| a == "--help" || a == "-h") {
-        println!("Usage: lume ti otlp --store <root> [--bind 127.0.0.1] [--port 4318] [--otlp-token-file <path>]\nOTLP HTTP/JSON only. Bearer authentication is required for a non-loopback bind.");
+        println!("Usage: lume ti otlp --store <root> [--bind 127.0.0.1] [--port 4318] [--otlp-token-file <path>]\nOTLP HTTP/JSON only: POST /v1/metrics and /v1/logs; every other route returns 404. Bearer authentication is required for a non-loopback bind.");
         return Ok(());
     }
     let mut root = None;
@@ -50,7 +50,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     validate_bind(bind, &token)?;
     let server =
         crate::ti_http::TiServer::open_with_width(root.ok_or("--store is required")?, Some(10))?
-            .with_otlp(token)?;
+            .with_otlp_only(token)?;
     crate::agent::serve_with_ti_server(port, std::sync::Arc::new(server), bind, None)
 }
 

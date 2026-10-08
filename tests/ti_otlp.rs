@@ -13,6 +13,7 @@ struct Server {
     child: Child,
     root: PathBuf,
     url: String,
+    standalone: bool,
 }
 impl Drop for Server {
     fn drop(&mut self) {
@@ -57,6 +58,7 @@ impl Server {
             child,
             root,
             url: String::new(),
+            standalone,
         };
         let mut output = BufReader::new(server.child.stdout.take().unwrap());
         let mut line = String::new();
@@ -101,6 +103,25 @@ impl Server {
         request.send_string(body)
     }
     fn sql(&self, sql: &str) -> Value {
+        if self.standalone {
+            let runtime = ti_sql::surface_runtime().unwrap();
+            let documents = |root: &std::path::Path, store: &ti_store::Store, width: u64| {
+                Ok(std::sync::Arc::new(lume::ti_text::LumeText::open(
+                    root,
+                    store.catalog().clone(),
+                    width,
+                )?)
+                    as std::sync::Arc<dyn ti_contracts::DocumentIndex>)
+            };
+            let engine = runtime
+                .block_on(ti_sql::TiEngine::open(
+                    &self.root.join("store"),
+                    None,
+                    Some(&documents),
+                ))
+                .unwrap();
+            return runtime.block_on(engine.query(sql, 500)).unwrap();
+        }
         self.post("/ti/query", &json!({"sql":sql}).to_string(), None)
             .unwrap()
             .into_json()
@@ -207,6 +228,45 @@ fn standalone_defaults_to_loopback_and_optional_auth() {
     );
 }
 #[test]
+fn standalone_exposes_only_otlp_posts_with_or_without_auth() {
+    for auth in [false, true] {
+        let server = Server::start(true, true, auth);
+        for path in [
+            "/ti/query",
+            "/ti/status",
+            "/mcp",
+            "/message",
+            "/sse",
+            "/ti/schema",
+        ] {
+            assert!(
+                matches!(
+                    server.post(path, "{}", Some("test-otlp-token")),
+                    Err(ureq::Error::Status(404, _))
+                ),
+                "{path}"
+            );
+            assert!(
+                matches!(
+                    ureq::get(&format!("{}{path}", server.url)).call(),
+                    Err(ureq::Error::Status(404, _))
+                ),
+                "{path}"
+            );
+        }
+        assert!(matches!(
+            ureq::get(&format!("{}/v1/metrics", server.url)).call(),
+            Err(ureq::Error::Status(404, _))
+        ));
+        server
+            .post("/v1/logs", LOGS, auth.then_some("test-otlp-token"))
+            .unwrap();
+        server
+            .post("/v1/metrics", METRICS, auth.then_some("test-otlp-token"))
+            .unwrap();
+    }
+}
+#[test]
 fn endpoints_are_disabled_without_opt_in() {
     let server = Server::start(false, false, false);
     assert!(matches!(
@@ -244,12 +304,7 @@ fn monotonic_delta_cumulative_reset_and_dimensions_have_correct_window_totals() 
     ));
     assert_eq!(result["row_count"], 2);
     assert_eq!(result["rows"][1][path], 30.0);
-    let metadata = ureq::get(&format!("{}/ti/schema", server.url))
-        .call()
-        .unwrap()
-        .into_json::<Value>()
-        .unwrap();
-    assert!(metadata.to_string().contains("{token}"));
+    assert!(result.to_string().contains("{token}"));
 }
 
 #[test]
