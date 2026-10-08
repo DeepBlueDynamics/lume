@@ -5,7 +5,10 @@ use datafusion::arrow::array::{
 };
 use datafusion::arrow::datatypes::{DataType, TimeUnit};
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::common::{DataFusionError, Result};
+use datafusion::common::{
+    tree_node::{TreeNode, TreeNodeRecursion},
+    DataFusionError, Result,
+};
 use datafusion::datasource::MemTable;
 use datafusion::logical_expr::{create_udf, ColumnarValue, Volatility};
 use datafusion::prelude::{SessionConfig, SessionContext};
@@ -20,6 +23,7 @@ pub struct SqlSession {
     reports: Arc<Mutex<Vec<ScanReport>>>,
     aggregate_diagnostics: Arc<Mutex<Vec<String>>>,
     text: std::sync::atomic::AtomicBool,
+    document_ranges: bool,
     pub extra_catalogs: Arc<Mutex<BTreeMap<String, Arc<SqlCatalog>>>>,
 }
 fn timestamp(v: Vec<i64>) -> ArrayRef {
@@ -68,19 +72,14 @@ impl SqlSession {
             Arc::new(crate::geo::GeoRewrite),
         )?;
         let aggregate_diagnostics = Arc::new(Mutex::new(vec![]));
-        if aggregates || document_ranges {
+        if aggregates {
             let mut rules = state.physical_optimizers().to_vec();
-            if document_ranges {
-                rules.insert(0, Arc::new(crate::doc_ranges::DocRangeRule));
-            }
-            if aggregates {
-                rules.insert(
-                    0,
-                    Arc::new(crate::aggregate::BitmapAggregateRule {
-                        diagnostics: aggregate_diagnostics.clone(),
-                    }),
-                );
-            }
+            rules.insert(
+                0,
+                Arc::new(crate::aggregate::BitmapAggregateRule {
+                    diagnostics: aggregate_diagnostics.clone(),
+                }),
+            );
             state = datafusion::execution::SessionStateBuilder::new_from_existing(state)
                 .with_physical_optimizer_rules(rules)
                 .build();
@@ -252,6 +251,7 @@ impl SqlSession {
             reports,
             aggregate_diagnostics,
             text: std::sync::atomic::AtomicBool::new(false),
+            document_ranges,
             extra_catalogs,
         })
     }
@@ -346,7 +346,42 @@ impl SqlSession {
         let catalogs = self.all_catalogs()?;
         let cat_refs: Vec<&SqlCatalog> = catalogs.iter().map(|c| c.as_ref()).collect();
         let sql = crate::rewrite_sql_with_catalogs(sql, &cat_refs)?;
-        self.context.sql(&sql).await
+        self.prepare_rewritten(&sql).await
+    }
+    async fn prepare_rewritten(&self, sql: &str) -> Result<datafusion::dataframe::DataFrame> {
+        let frame = self.context.sql(sql).await?;
+        if !self.document_ranges {
+            return Ok(frame);
+        }
+        let mut join = false;
+        let mut docs = false;
+        frame.logical_plan().apply(|node| {
+            join |= matches!(node, datafusion::logical_expr::LogicalPlan::Join(_));
+            if let datafusion::logical_expr::LogicalPlan::TableScan(scan) = node {
+                docs |= scan.table_name.table() == "docs";
+            }
+            Ok(if join && docs {
+                TreeNodeRecursion::Stop
+            } else {
+                TreeNodeRecursion::Continue
+            })
+        })?;
+        if !join || !docs {
+            return Ok(frame);
+        }
+        // Register only in this frame's snapshot: ordinary queries retain the
+        // original optimizer list, and concurrent queries never mutate shared state.
+        let (state, plan) = frame.into_parts();
+        let mut rules = state.physical_optimizers().to_vec();
+        let position = rules
+            .iter()
+            .position(|rule| rule.name() == "lume_bitmap_aggregate")
+            .map_or(0, |index| index + 1);
+        rules.insert(position, Arc::new(crate::doc_ranges::DocRangeRule));
+        let state = datafusion::execution::SessionStateBuilder::new_from_existing(state)
+            .with_physical_optimizer_rules(rules)
+            .build();
+        Ok(datafusion::dataframe::DataFrame::new(state, plan))
     }
     pub async fn query(&self, sql: &str) -> Result<Vec<RecordBatch>> {
         let catalogs = self.all_catalogs()?;
@@ -373,7 +408,7 @@ impl SqlSession {
                 ],
             )?]);
         }
-        self.context.sql(&sql).await?.collect().await
+        self.prepare_rewritten(&sql).await?.collect().await
     }
     pub async fn explain(&self, sql: &str) -> Result<String> {
         let first_report = self.reports()?.len();
@@ -385,7 +420,7 @@ impl SqlSession {
         let catalogs = self.all_catalogs()?;
         let cat_refs: Vec<&SqlCatalog> = catalogs.iter().map(|c| c.as_ref()).collect();
         let rewritten = crate::rewrite_sql_with_catalogs(sql, &cat_refs)?;
-        let dataframe = self.context.sql(&rewritten).await?;
+        let dataframe = self.prepare_rewritten(&rewritten).await?;
         let physical = dataframe.create_physical_plan().await?;
         let plan = datafusion::physical_plan::displayable(physical.as_ref())
             .indent(true)

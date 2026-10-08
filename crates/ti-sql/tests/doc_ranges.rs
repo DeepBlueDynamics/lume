@@ -202,3 +202,39 @@ async fn null_ranges_large_builds_and_unrecognised_joins_keep_residual() {
         );
     }
 }
+
+#[tokio::test]
+async fn ordinary_queries_keep_the_original_physical_optimizer_pipeline() {
+    let enabled = fixture(true, false, false).await;
+    let disabled = fixture(false, false, false).await;
+    for sql in [
+        "SELECT ts,speed FROM telemetry ORDER BY speed DESC,ts,vessel LIMIT 10",
+        "SELECT t.ts FROM telemetry t JOIN telemetry u ON t.vessel=u.vessel",
+        "SELECT id FROM docs",
+    ] {
+        let (a, _) = enabled.prepare(sql).await.unwrap().into_parts();
+        let (b, _) = disabled.prepare(sql).await.unwrap().into_parts();
+        let names = |state: &datafusion::execution::SessionState| {
+            state
+                .physical_optimizers()
+                .iter()
+                .map(|rule| rule.name().to_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names(&a), names(&b), "{sql}");
+        assert!(
+            !names(&a).iter().any(|name| name == "lume_document_ranges"),
+            "{sql}"
+        );
+        assert_eq!(
+            canonical(&enabled.query(sql).await.unwrap()),
+            canonical(&disabled.query(sql).await.unwrap()),
+            "{sql}"
+        );
+    }
+    let (joined, _) = enabled.prepare(QUERY).await.unwrap().into_parts();
+    assert!(joined
+        .physical_optimizers()
+        .iter()
+        .any(|rule| rule.name() == "lume_document_ranges"));
+}

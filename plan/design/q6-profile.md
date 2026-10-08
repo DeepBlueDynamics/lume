@@ -11,6 +11,33 @@ residual selects 193 joined rows. Warm execution was 605–643 ms, with planning
 about 17–24 ms. The original seven-run total p50 was 631.18 ms and p95 667.03 ms.
 Artifact: .lanes/data/query-cache/q6-004-before.json.
 
+## Native A/B follow-up (lead-reported, 2026-10-08)
+
+The lead ran the full 61-query corpus twice per release binary, alternating
+0430f11 and d6b1304 (0430f11 + A15), on the same owned Pi fixture copy.
+q6-004 p95 improved 63.80 → 3.96 ms. However, qx-011 (telemetry ORDER BY/LIMIT,
+no docs) regressed from 15.52/16.31 to 20.46/21.91 ms p95. This blocks acceptance.
+The earlier PI_QUERY_IDS 26-query selection did not include qx-011/012/013.
+qx-012 had one known last-bit avg() fingerprint difference in four runs;
+qx-013 overlapped baseline timing variance. The 16× join gain does not waive the no-regression gate.
+
+The untouched A15 same-binary Rust 1.96 fat-LTO/CGU1 release profile, 31 warm
+iterations, did not reproduce the 5 ms penalty: pruning disabled/enabled qx-011
+p50 16.24/15.62 ms, p95 19.38/17.66 ms, 10 rows and 250,560 materialized in both.
+Median logical/physical/execute times were 0.492/0.804/14.866 versus
+0.532/0.777/14.211 ms. Physical plans and complete rows matched. Artifact:
+`.test-tmp/qx011-a15-release.json`. This isolates rule execution within one binary;
+it does not invalidate the host's separate-binary result or identify its cause.
+
+The follow-up removes unconditional physical-rule registration. Only frames
+whose logical plan contains both a join and a docs scan get the rule, after the
+bitmap aggregate rule. The shared context retains its original optimizer list;
+ordinary queries return their original frame without rebuilding session state.
+query(), prepare(), and explain() use this same path. Three integration tests
+pass, including an assertion that ORDER BY/LIMIT, telemetry self-joins, and
+docs-only reads have exactly the disabled variant's optimizer names, while a
+docs join installs the rule. Release/full-corpus and post-rebase gates are pending.
+
 ## Pruning
 
 A physical optimizer recognizes inner joins with a direct telemetry input,

@@ -21,6 +21,38 @@ fn canonical(batches: &[datafusion::arrow::record_batch::RecordBatch]) -> Vec<St
     rows.sort();
     rows
 }
+fn equivalent_rows(a: &[String], b: &[String], id: &str) -> bool {
+    if a == b {
+        return true;
+    }
+    if id != "qx-012" {
+        return false;
+    }
+    fn rounded(value: Value) -> Value {
+        match value {
+            Value::Number(n) if n.is_f64() => {
+                let value = format!("{:.11e}", n.as_f64().unwrap())
+                    .parse::<f64>()
+                    .unwrap();
+                json!(value)
+            }
+            Value::Array(items) => Value::Array(items.into_iter().map(rounded).collect()),
+            Value::Object(items) => {
+                Value::Object(items.into_iter().map(|(k, v)| (k, rounded(v))).collect())
+            }
+            other => other,
+        }
+    }
+    let normalize = |rows: &[String]| {
+        let mut rows = rows
+            .iter()
+            .map(|row| serde_json::to_string(&rounded(serde_json::from_str(row).unwrap())).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    normalize(a) == normalize(b)
+}
 async fn measure(session: &ti_sql::SqlSession, sql: &str) -> (Value, Vec<String>) {
     session.reset_diagnostics().unwrap();
     let start = Instant::now();
@@ -96,16 +128,18 @@ fn q6_document_range_join_profile() {
             } else if if all { !ti_bench::harness::PI_QUERY_IDS.contains(&id) } else {id!="q6-004"} {continue;}
             let sql=query["ti_sql"].as_str().unwrap();
             let mut expected=None;
+            let mut exact_rows_match=true;
             let mut variants=vec![];
             for (label,session) in [("before",&baseline),("after",&engine.session)] {
                 cache.clear().unwrap();
                 let (cold,answer)=measure(session,sql).await;
-                if let Some(ref prior)=expected { assert_eq!(&answer,prior,"{id} A/B mismatch"); }
+                if let Some(ref prior)=expected { exact_rows_match &= &answer == prior; assert!(equivalent_rows(&answer,prior,id),"{id} A/B mismatch"); }
                 else {expected=Some(answer.clone());}
                 let mut samples=vec![];
                 for _ in 0..runs {
                     let (sample,rows)=measure(session,sql).await;
-                    assert_eq!(rows,answer,"{id} warm mismatch");
+                    exact_rows_match &= rows == answer;
+                    assert!(equivalent_rows(&rows,&answer,id),"{id} warm mismatch");
                     samples.push(sample);
                 }
                 let p50=percentile(&samples,0.5);
@@ -114,7 +148,7 @@ fn q6_document_range_join_profile() {
                 variants.push(json!({"label":label,"cold":cold,"samples":samples,"p50_ms":p50,"p95_ms":p95,
                     "rows":answer.len(),"cache":cache.stats().unwrap()}));
             }
-            results.push(json!({"id":id,"sql":sql,"values_match":true,"answer":expected,"variants":variants}));
+            results.push(json!({"id":id,"sql":sql,"values_match":true,"exact_rows_match":exact_rows_match,"comparison":if id=="qx-012" {"12 significant digits for avg() float last-bit noise"} else {"exact canonical rows"},"answer":expected,"variants":variants}));
         }
         assert_eq!(results.len(),selected.as_ref().map(Vec::len).unwrap_or(if all {26} else {1}));
         let report=json!({"store":root,"runs":runs,"queries":results,
