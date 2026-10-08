@@ -289,3 +289,47 @@ fn implausible_tail_length_is_recovered_before_allocation() {
     assert_eq!(DocStore::open(dir.path()).unwrap().len(), 1);
     assert_eq!(fs::metadata(path).unwrap().len(), length);
 }
+
+#[test]
+fn zero_filled_extended_tails_recover_committed_data_and_remain_writable() {
+    for tail_length in [16, 4096, 1024 * 1024] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = DocStore::open(dir.path()).unwrap();
+        store.upsert_all([doc("a", "one")]).unwrap();
+        store.upsert_all([doc("b", "two")]).unwrap();
+        drop(store);
+        let path = dir.path().join("docs/documents.log");
+        let committed = fs::read(&path).unwrap();
+        let file = fs::OpenOptions::new().write(true).open(&path).unwrap();
+        file.set_len(committed.len() as u64 + tail_length).unwrap();
+        file.sync_all().unwrap();
+        drop(file);
+
+        let mut reopened = DocStore::open(dir.path()).unwrap();
+        assert_eq!(
+            reopened.iter().map(|d| d.body.as_str()).collect::<Vec<_>>(),
+            ["one", "two"]
+        );
+        assert_eq!(fs::read(&path).unwrap(), committed);
+        reopened.upsert_all([doc("c", "after recovery")]).unwrap();
+        assert_eq!(DocStore::open(dir.path()).unwrap().len(), 3);
+    }
+}
+
+#[test]
+fn nonzero_garbage_in_a_bad_header_or_far_tail_is_corrupt_and_unchanged() {
+    for (tail_length, nonzero_offset) in [(16, 0), (4096, 31), (1024 * 1024, 1024 * 1024 - 1)] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = DocStore::open(dir.path()).unwrap();
+        store.upsert_all([doc("a", "keep")]).unwrap();
+        drop(store);
+        let path = dir.path().join("docs/documents.log");
+        let mut bytes = fs::read(&path).unwrap();
+        let committed_length = bytes.len();
+        bytes.resize(committed_length + tail_length, 0);
+        bytes[committed_length + nonzero_offset] = 1;
+        fs::write(&path, &bytes).unwrap();
+        assert!(matches!(DocStore::open(dir.path()), Err(Error::Corrupt(_))));
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+    }
+}
