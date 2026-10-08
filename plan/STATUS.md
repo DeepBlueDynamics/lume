@@ -50,7 +50,7 @@ Setup and workflow: [SETUP.md](SETUP.md).
 ## Next phase (approved 2026-10-08)
 
 The plan is [next-phase-2026-10-08.md](next-phase-2026-10-08.md). Pane names are as of the 2026-10-08 Hyperia restart; the lead is Annual Echidna.
-- **Codex (Inland Tarantula, `.lanes/w4`):** `ti/otlp`, an OTLP http/json receiver for agent telemetry (Hyperia and n8), recorded as D50. In progress.
+- **Codex (Inland Tarantula, `.lanes/w4`):** `ti/otlp`, an OTLP http/json receiver for agent telemetry (Hyperia and n8), recorded as D50. The code is complete at 856524a, and its whole-file root reformat (552b216) has been dropped; final verification is running before the merge.
 - **Grok 4.7 (Burning Gerbil, `.lanes/w5`, joined 2026-10-08):**
   - **Done:** A2 `ti/pi-bench`, D48 gap 4 (moved over from Codex). It adds the `scripts/cross-arm64.sh ti-query-bench` variant, the `scripts/pi-bench-recipe.sh store` 1-vessel × 90-day seed-42 store, and `ti-query-bench bench --pi`, which writes `bench/results/<date>-pi-<sha>.json`. The run on the Pi waits for Pi access.
   - **Now:** A3 `ti/lint-lib`, clearing the 8 pre-existing strict-clippy errors in the `lume` lib.
@@ -60,7 +60,9 @@ The plan is [next-phase-2026-10-08.md](next-phase-2026-10-08.md). Pane names are
   - **Done:** B3 docs, merged as 0f22550. SETUP §13 covers the Ask tab with ollama.com (the key is written from a hidden prompt, dd318b5), and §14 is an OTLP placeholder.
   - **Done:** B4 `ti/pi-deploy`: `scripts/deploy-pi.sh` and `scripts/pi-retire-ollama.sh`, both with `--dry-run`.
   - **Done:** B5, SETUP §14 OTLP exporter configs for Claude Code, Codex and Gemini, corrected in f56d0f3.
-  - **Now:** B6 `ti/deploy-test`, testing the deploy scripts against a throwaway local sshd container.
+  - **Done:** B6 `ti/deploy-test`, merged as 2365406. It tests the deploy scripts against a throwaway local sshd container.
+  - **Done:** B7 `ti/provision-pi`, merged as 207919d. `scripts/provision-pi.sh <host> [--dry-run] [--lume-bin P] [--debs DIR] [--with-ollama]` re-provisions a new or reflashed Pi: memcg, a UUID report, the .debs without Ollama, the plugin deploy and the key-file instructions. Lead fix 2cc4bbb: `--lume-bin` always redeploys, and the test runs without a host `dpkg-deb`.
+  - **Now:** B8 `ti/ci-deploy-test`, which runs the deploy-script integration test and shellcheck in CI.
 - **Pi (2026-10-08 07:50Z):** back on DHCP at 192.168.68.61, where it answers as Signal K 2.31.1. Its SSH host key changed and the deploy key is rejected, which suggests a reflash. Waiting for the user to restore the key; the Pi steps below wait on it.
 - **Lead:**
   - remove the Ollama container from the Pi, which frees about 4.2 GB (4.5 GB is free now);
