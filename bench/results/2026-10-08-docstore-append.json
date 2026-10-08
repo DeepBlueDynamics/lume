@@ -1,0 +1,47 @@
+{
+  "date": "2026-10-08",
+  "decision": "D52",
+  "toolchain": "rustc 1.96.0",
+  "profile": "debug; debug info disabled; incremental off",
+  "environment": "Linux container, Windows bind mount",
+  "iterations": 20,
+  "timing_blocks": "isolated append and snapshot",
+  "rows": [
+    {
+      "documents": 1000,
+      "snapshot_p50_ms": 15.683,
+      "snapshot_p95_ms": 22.373653,
+      "append_p50_ms": 6.588611,
+      "append_p95_ms": 10.182692,
+      "snapshot_bytes_per_update": 317002,
+      "append_bytes_per_update": 297
+    },
+    {
+      "documents": 10000,
+      "snapshot_p50_ms": 93.032666,
+      "snapshot_p95_ms": 99.026643,
+      "append_p50_ms": 7.379143,
+      "append_p95_ms": 9.123895,
+      "snapshot_bytes_per_update": 3170002,
+      "append_bytes_per_update": 297
+    },
+    {
+      "documents": 50000,
+      "snapshot_p50_ms": 447.663185,
+      "snapshot_p95_ms": 490.778385,
+      "append_p50_ms": 6.257017,
+      "append_p95_ms": 7.863265,
+      "snapshot_bytes_per_update": 15850002,
+      "append_bytes_per_update": 297
+    }
+  ],
+  "compaction": {
+    "live_documents": 1000,
+    "updates": 2100,
+    "events": 2,
+    "p50_ms": 6.408831,
+    "p95_ms": 9.590654,
+    "amortized_mean_ms": 6.903572778095247,
+    "max_ms": 24.750052
+  }
+}

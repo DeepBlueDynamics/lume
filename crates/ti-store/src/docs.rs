@@ -1,21 +1,17 @@
-//! Durable document set for W5 (`docs` table, `match()`): spec/05 text mapping, spec/14.
-//!
-//! Enforces:
-//! - Every stored document passed `Document::validate`.
-//! - `(vessel, id)` is the identity; upsert replaces, delete of a missing id is a no-op.
-//! - Persistence is one atomically replaced JSON file, `<store>/docs/documents.json`,
-//!   and a version counter that bumps on every change (text caches key on it).
+//! Durable documents with D52 append-only transaction frames and atomic compaction.
+//! Identity and the docs SQL schema remain unchanged; legacy JSON is migrated.
 
-use crate::catalog::atomic_write_json;
+#[path = "docs_log.rs"]
+mod log;
 use arrow_array::{ArrayRef, Float64Array, RecordBatch, StringArray, TimestampSecondArray};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use ti_contracts::{docs_schema, Document, Error, Result};
 
 /// Serde mirror of the frozen `Document` contract type.
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct StoredDocument {
     id: String,
     vessel: String,
@@ -54,99 +50,164 @@ impl From<StoredDocument> for Document {
     }
 }
 
-/// Documents keyed by `(vessel URN, id)`, persisted under the store root.
-pub struct DocStore {
-    path: Option<PathBuf>,
-    docs: BTreeMap<(String, String), Document>,
-    version: u64,
-    stamp: Option<(std::time::SystemTime, u64)>,
+#[derive(Serialize, Deserialize)]
+enum Operation {
+    Upsert(StoredDocument),
+    Delete { vessel: String, id: String },
 }
-
-impl DocStore {
-    /// An unpersisted store (tests, fixtures).
-    pub fn in_memory() -> Self {
-        Self {
-            path: None,
-            docs: BTreeMap::new(),
-            version: 0,
-            stamp: None,
+impl Operation {
+    fn key(&self) -> (String, String) {
+        match self {
+            Self::Upsert(doc) => (doc.vessel.clone(), doc.id.clone()),
+            Self::Delete { vessel, id } => (vessel.clone(), id.clone()),
         }
     }
-
-    /// Open `<store_root>/docs/documents.json`; a missing file is an empty set.
-    pub fn open(store_root: &Path) -> Result<Self> {
-        let path = store_root.join("docs").join("documents.json");
-        let mut store = Self {
-            path: Some(path.clone()),
-            ..Self::in_memory()
-        };
-        if path.exists() {
-            let mut file = std::fs::File::open(&path)?;
-            let metadata = file.metadata()?;
-            store.stamp = Some((metadata.modified()?, metadata.len()));
-            let mut bytes = Vec::new();
-            std::io::Read::read_to_end(&mut file, &mut bytes)?;
-            let stored: Vec<StoredDocument> = serde_json::from_slice(&bytes)
-                .map_err(|e| Error::Corrupt(format!("{}: {e}", path.display())))?;
-            for doc in stored.into_iter().map(Document::from) {
-                doc.validate()?;
-                store.docs.insert((doc.vessel.clone(), doc.id.clone()), doc);
-            }
-        }
-        Ok(store)
-    }
-
-    fn file_stamp(path: &Path) -> Result<Option<(std::time::SystemTime, u64)>> {
-        match std::fs::metadata(path) {
-            Ok(meta) => Ok(Some((meta.modified()?, meta.len()))),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(e.into()),
-        }
-    }
-
-    /// Reload externally published documents and invalidate readers' caches.
-    pub fn refresh(&mut self) -> Result<bool> {
-        let Some(path) = &self.path else {
-            return Ok(false);
-        };
-        let stamp = Self::file_stamp(path)?;
-        if stamp == self.stamp {
-            return Ok(false);
-        }
-        let root = path
-            .parent()
-            .and_then(Path::parent)
-            .ok_or_else(|| Error::Corrupt("invalid document store path".into()))?;
-        let fresh = Self::open(root)?;
-        let changed = fresh.docs != self.docs;
-        if changed {
-            self.docs = fresh.docs;
-            self.version += 1;
-        }
-        self.stamp = fresh.stamp;
-        Ok(changed)
-    }
-
-    /// Insert or replace each document, then persist once.
-    pub fn upsert_all(&mut self, docs: impl IntoIterator<Item = Document>) -> Result<()> {
-        self.refresh()?;
-        let mut changed = false;
-        for doc in docs {
-            doc.validate()?;
-            let key = (doc.vessel.clone(), doc.id.clone());
-            if self.docs.get(&key) != Some(&doc) {
-                self.docs.insert(key, doc);
-                changed = true;
-            }
-        }
-        if changed {
-            self.commit()?;
+    fn validate(&self) -> Result<()> {
+        if let Self::Upsert(doc) = self {
+            Document::from(doc.clone())
+                .validate()
+                .map_err(|e| Error::Corrupt(format!("invalid document transaction: {e}")))?;
         }
         Ok(())
     }
+}
 
-    /// Replace only a caller-owned subset in one durable write. Other documents
-    /// survive; validate the entire incoming snapshot before changing memory.
+/// Documents keyed by (vessel URN, id), with D52 durable transaction frames.
+pub struct DocStore {
+    persistence: Option<log::Persistence>,
+    docs: BTreeMap<(String, String), Document>,
+    version: u64,
+}
+impl DocStore {
+    pub fn in_memory() -> Self {
+        Self {
+            persistence: None,
+            docs: BTreeMap::new(),
+            version: 0,
+        }
+    }
+    /// Open the versioned log, migrate legacy JSON, and recover a torn tail.
+    pub fn open(store_root: &Path) -> Result<Self> {
+        let mut persistence = log::Persistence::new(store_root);
+        persistence.migrate()?;
+        persistence.invalidate(); // Rebuild memory from a newly migrated segment too.
+        let mut store = Self {
+            persistence: Some(persistence),
+            ..Self::in_memory()
+        };
+        store.refresh()?;
+        if store.persistence.as_ref().is_some_and(|p| p.torn) {
+            let _lock = store.persistence.as_ref().unwrap().writer_lock()?;
+            store.sync_locked(true)?;
+        }
+        store.version = 0;
+        Ok(store)
+    }
+    fn apply(&mut self, operations: Vec<Operation>) {
+        for operation in operations {
+            let key = operation.key();
+            match operation {
+                Operation::Upsert(doc) => {
+                    self.docs.insert(key, Document::from(doc));
+                }
+                Operation::Delete { .. } => {
+                    self.docs.remove(&key);
+                }
+            }
+        }
+    }
+    fn sync_locked(&mut self, repair: bool) -> Result<bool> {
+        let Some(persistence) = self.persistence.as_mut() else {
+            return Ok(false);
+        };
+        let replay = match persistence.replay_locked(repair) {
+            Ok(replay) => replay,
+            Err(error) => {
+                persistence.invalidate();
+                return Err(error);
+            }
+        };
+        let changed = if replay.reset {
+            let previous = std::mem::take(&mut self.docs);
+            self.apply(replay.operations);
+            self.docs != previous
+        } else {
+            let before = replay
+                .operations
+                .iter()
+                .map(|operation| {
+                    let key = operation.key();
+                    let value = self.docs.get(&key).cloned();
+                    (key, value)
+                })
+                .collect::<BTreeMap<_, _>>();
+            self.apply(replay.operations);
+            before
+                .into_iter()
+                .any(|(key, value)| self.docs.get(&key) != value.as_ref())
+        };
+        if changed {
+            self.version += 1;
+        }
+        Ok(changed)
+    }
+    /// Incrementally reload externally committed changes; invalidate text caches.
+    pub fn refresh(&mut self) -> Result<bool> {
+        let Some(persistence) = &self.persistence else {
+            return Ok(false);
+        };
+        let _lock = persistence.reader_lock()?;
+        self.sync_locked(false)
+    }
+    fn mutate(
+        &mut self,
+        build: impl FnOnce(&BTreeMap<(String, String), Document>) -> Vec<Operation>,
+    ) -> Result<()> {
+        let _lock = self
+            .persistence
+            .as_ref()
+            .map(log::Persistence::writer_lock)
+            .transpose()?;
+        self.sync_locked(true)?;
+        let operations = build(&self.docs);
+        if operations.is_empty() {
+            return Ok(());
+        }
+        if let Some(persistence) = &mut self.persistence {
+            persistence.append_locked(&operations)?;
+        }
+        self.apply(operations);
+        self.version += 1;
+        if let Some(persistence) = &mut self.persistence {
+            if let Err(error) = persistence.compact_locked(self.docs.values(), self.docs.len()) {
+                // The transaction is already durable. Maintenance failure must
+                // not falsely report the committed mutation as failed.
+                eprintln!("DocStore compaction failed; retaining committed log: {error}");
+            }
+        }
+        Ok(())
+    }
+    /// Validate all inputs, then replace changed identities in one durable frame.
+    pub fn upsert_all(&mut self, docs: impl IntoIterator<Item = Document>) -> Result<()> {
+        let incoming = docs.into_iter().collect::<Vec<_>>();
+        for doc in &incoming {
+            doc.validate()?;
+        }
+        self.mutate(move |existing| {
+            let mut latest = BTreeMap::new();
+            let mut operations = Vec::new();
+            for doc in incoming {
+                let key = (doc.vessel.clone(), doc.id.clone());
+                if latest.get(&key).or_else(|| existing.get(&key)) != Some(&doc) {
+                    operations.push(Operation::Upsert(StoredDocument::from(&doc)));
+                    latest.insert(key, doc);
+                }
+            }
+            operations
+        })
+    }
+
+    /// Reconcile a caller-owned subset atomically, preserving unowned documents.
     pub fn reconcile(
         &mut self,
         vessel: &str,
@@ -167,65 +228,52 @@ impl DocStore {
                 ));
             }
         }
-        self.refresh()?;
-        let mut changed = false;
-        self.docs.retain(|(v, id), _| {
-            let keep = v != vessel || !owned.contains(id) || incoming.contains_key(id);
-            changed |= !keep;
-            keep
-        });
-        for document in incoming.into_values() {
-            let key = (vessel.into(), document.id.clone());
-            if self.docs.get(&key) != Some(&document) {
-                self.docs.insert(key, document);
-                changed = true;
+        self.mutate(move |existing| {
+            let mut operations = Vec::new();
+            for id in owned {
+                if !incoming.contains_key(id) && existing.contains_key(&(vessel.into(), id.clone()))
+                {
+                    operations.push(Operation::Delete {
+                        vessel: vessel.into(),
+                        id: id.clone(),
+                    });
+                }
             }
-        }
-        if changed {
-            self.commit()?;
-        }
-        Ok(())
+            operations.extend(
+                incoming
+                    .into_values()
+                    .filter(|doc| existing.get(&(vessel.into(), doc.id.clone())) != Some(doc))
+                    .map(|doc| Operation::Upsert(StoredDocument::from(&doc))),
+            );
+            operations
+        })
     }
-
-    /// Remove the vessel's document; a missing id is idempotent.
+    /// Delete a single identity; deleting a missing document is a no-op.
     pub fn delete(&mut self, vessel: &str, id: &str) -> Result<()> {
-        self.refresh()?;
-        if self.docs.remove(&(vessel.into(), id.into())).is_some() {
-            self.commit()?;
-        }
-        Ok(())
+        self.mutate(|existing| {
+            if existing.contains_key(&(vessel.into(), id.into())) {
+                vec![Operation::Delete {
+                    vessel: vessel.into(),
+                    id: id.into(),
+                }]
+            } else {
+                vec![]
+            }
+        })
     }
-
-    /// All documents in `(vessel, id)` order.
+    /// Documents in (vessel, id) order.
     pub fn iter(&self) -> impl Iterator<Item = &Document> {
         self.docs.values()
     }
-
-    /// Number of stored documents.
     pub fn len(&self) -> usize {
         self.docs.len()
     }
-
-    /// True when no documents are stored.
     pub fn is_empty(&self) -> bool {
         self.docs.is_empty()
     }
-
-    /// Bumps on every persisted change.
+    /// Changes only when the observable document set changes.
     pub fn version(&self) -> u64 {
         self.version
-    }
-
-    fn commit(&mut self) -> Result<()> {
-        self.version += 1;
-        if let Some(path) = &self.path {
-            let stored: Vec<StoredDocument> =
-                self.docs.values().map(StoredDocument::from).collect();
-            atomic_write_json(path, &stored)?;
-            // Force the next read to verify the published snapshot, including a concurrent rename.
-            self.stamp = None;
-        }
-        Ok(())
     }
 }
 
@@ -259,6 +307,10 @@ pub fn documents_batch<'a>(
     ];
     RecordBatch::try_new(docs_schema(), columns).map_err(Error::Arrow)
 }
+
+#[cfg(test)]
+#[path = "docs_tests.rs"]
+mod append_tests;
 
 #[cfg(test)]
 mod tests {

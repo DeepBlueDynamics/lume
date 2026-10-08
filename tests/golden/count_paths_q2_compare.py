@@ -50,7 +50,33 @@ def main():
     if any(abs(row["wind_max"] - oracle[key(row)]["wind_max"]) > 0.001 + 1e-12
            for row in primary):
         raise RuntimeError("primary wind values differ from unchanged oracle")
-    documents = json.loads((args.store / "docs/documents.json").read_text())
+    # Only inspect notes that can cover a returned window, keeping this usable
+    # on the full corpus without reopening the TI session for every 25 notes.
+    predicates = []
+    for row in rows:
+        start = timestamp(row["win"])
+        end_text = datetime.datetime.fromtimestamp(start + 600, datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        start_text = datetime.datetime.fromtimestamp(start, datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        vessel = row["vessel"].replace("'", "''")
+        predicates.append("(vessel = '" + vessel + "' AND ts_start < TIMESTAMP '" + end_text +
+                          "' AND COALESCE(ts_end, ts_start + INTERVAL '10 seconds') > TIMESTAMP '" +
+                          start_text + "')")
+    document_filter = " OR ".join(predicates) or "FALSE"
+    documents = []
+    offset = 0
+    while True:
+        page = query(args.lume_bin, args.store,
+                     "SELECT id, vessel, kind, ts_start, ts_end, title, body FROM docs "
+                     "WHERE kind = 'notes' AND (" + document_filter + ") "
+                     "ORDER BY vessel, id LIMIT 25 OFFSET " + str(offset))["rows"]
+        for document in page:
+            document["ts_start"] = timestamp(document["ts_start"])
+            if document["ts_end"] is not None:
+                document["ts_end"] = timestamp(document["ts_end"])
+        documents.extend(page)
+        if len(page) < 25:
+            break
+        offset += len(page)
     covered = []
     for row in sorted(rows, key=key):
         start = timestamp(row["win"])

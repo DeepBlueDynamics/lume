@@ -36,7 +36,7 @@ fn notes_create_update_delete_restart_and_failure_preserve_unowned_docs() {
     assert_eq!(note.kind, "notes");
     assert_eq!(note.ts_end, None);
     assert!(note.body.contains("position"));
-    let bytes = std::fs::read(root.path().join("docs/documents.json")).unwrap();
+    let bytes = std::fs::read(root.path().join("docs/documents.log")).unwrap();
     docs.apply(client.notes().unwrap().unwrap(), URN, 1780000100)
         .unwrap();
     assert_eq!(
@@ -47,7 +47,7 @@ fn notes_create_update_delete_restart_and_failure_preserve_unowned_docs() {
         Some(note)
     );
     assert_eq!(
-        std::fs::read(root.path().join("docs/documents.json")).unwrap(),
+        std::fs::read(root.path().join("docs/documents.log")).unwrap(),
         bytes
     );
     *server.notes.lock().unwrap() = (
