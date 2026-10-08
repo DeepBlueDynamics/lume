@@ -40,10 +40,10 @@ deployment; loopback/stub tests do not establish that container connectivity.
 ## Importing the Agent Telemetry Dashboard
 
 `lume-agents-dashboard.json` visualizes agent metrics and event logs ingested via OTLP (`POST /v1/metrics` and `POST /v1/logs`, D50) and queried over pgwire (`telemetry_agents` and `docs`):
-- **Tokens Over Time by Model**: MAX-MIN usage over the window using D50 dimensional paths (e.g. `"claude_code.token.usage.input.model.<m>@last"`).
-- **Cost**: tracks `claude_code.cost.usage` over time.
-- **Sessions per Entity**: active session activity grouped by agent entity (`vessel`).
-- **Recent Logbook Docs**: table of recent OTLP logbook records (`title`, `entity`, `ts_start`) with interactive text-search filtering via `match(body, '$q')`.
+- **Tokens Over Time**: MAX-MIN usage over the window using D50 dimensional paths (`"claude_code.token.usage@last"`).
+- **Active Time**: tracks `claude_code.active_time` in seconds over time.
+- **Active Buckets per Agent**: counts active 10-second telemetry buckets grouped by agent entity (`vessel AS entity`, `count(DISTINCT ts)`).
+- **Recent Logbook Docs**: table of recent OTLP logbook records (`title`, `vessel AS entity`, `ts_start`) with interactive text-search filtering via `match(body, ${q:sqlstring})`.
 
 ### Import steps
 
@@ -76,6 +76,15 @@ providers:
 Restart Grafana to load the dashboard automatically.
 
 ### Running dashboard tests
-```sh
-py -3 -m unittest discover -s bench/grafana -p 'test_*.py'
-```
+- Static structure, datasource, and credential sanity checks:
+  ```sh
+  py -3 -m unittest bench/grafana/test_agents_dashboard.py
+  ```
+- Live SQL query execution against OTLP ingest:
+  ```sh
+  py -3 -m unittest bench/grafana/test_agents_dashboard_sql.py
+  ```
+- Discover all:
+  ```sh
+  py -3 -m unittest discover -s bench/grafana -p 'test_*.py'
+  ```

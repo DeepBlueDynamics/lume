@@ -26,7 +26,7 @@
         "type": "postgres",
         "uid": "lume-ti"
       },
-      "description": "Tokens over time by model using D50 dimensional paths with MAX-MIN usage over the window",
+      "description": "Tokens over time by agent using D50 dimensional paths with MAX-MIN usage over the window",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -74,11 +74,11 @@
           },
           "editorMode": "code",
           "format": "time_series",
-          "rawSql": "SELECT\n  $__timeGroupAlias(ts, 1h),\n  max(\"claude_code.token.usage.input.model.claude-sonnet@last\") - min(\"claude_code.token.usage.input.model.claude-sonnet@last\") AS \"claude-sonnet (input)\",\n  max(\"claude_code.token.usage.output.model.claude-sonnet@last\") - min(\"claude_code.token.usage.output.model.claude-sonnet@last\") AS \"claude-sonnet (output)\",\n  max(\"claude_code.token.usage.input.model.claude-opus@last\") - min(\"claude_code.token.usage.input.model.claude-opus@last\") AS \"claude-opus (input)\",\n  max(\"claude_code.token.usage.output.model.claude-opus@last\") - min(\"claude_code.token.usage.output.model.claude-opus@last\") AS \"claude-opus (output)\",\n  max(\"claude_code.token.usage.input.model.claude-haiku@last\") - min(\"claude_code.token.usage.input.model.claude-haiku@last\") AS \"claude-haiku (input)\",\n  max(\"claude_code.token.usage.output.model.claude-haiku@last\") - min(\"claude_code.token.usage.output.model.claude-haiku@last\") AS \"claude-haiku (output)\"\nFROM telemetry_agents\nWHERE $__timeFilter(ts)\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  $__timeGroupAlias(ts, 1h),\n  vessel AS metric,\n  max(\"claude_code.token.usage@last\") - min(\"claude_code.token.usage@last\") AS tokens\nFROM telemetry_agents\nWHERE $__timeFilter(ts)\nGROUP BY 1, 2\nORDER BY 1",
           "refId": "A"
         }
       ],
-      "title": "Tokens Over Time by Model",
+      "title": "Tokens Over Time",
       "type": "timeseries"
     },
     {
@@ -86,7 +86,7 @@
         "type": "postgres",
         "uid": "lume-ti"
       },
-      "description": "Cumulative cost for claude_code.cost.usage over time",
+      "description": "Active time in seconds reported by claude_code.active_time over time",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -96,14 +96,14 @@
             "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
-            "axisLabel": "Cost (USD)",
+            "axisLabel": "Seconds",
             "axisPlacement": "auto",
             "drawStyle": "line",
             "fillOpacity": 15,
             "lineWidth": 1,
             "spanNulls": false
           },
-          "unit": "currencyUSD"
+          "unit": "s"
         },
         "overrides": []
       },
@@ -134,11 +134,11 @@
           },
           "editorMode": "code",
           "format": "time_series",
-          "rawSql": "SELECT\n  $__timeGroupAlias(ts, 1h),\n  vessel AS metric,\n  max(\"claude_code.cost.usage@last\") - min(\"claude_code.cost.usage@last\") AS \"claude_code.cost.usage\"\nFROM telemetry_agents\nWHERE $__timeFilter(ts)\nGROUP BY 1, 2\nORDER BY 1",
+          "rawSql": "SELECT\n  $__timeGroupAlias(ts, 1h),\n  vessel AS metric,\n  avg(\"claude_code.active_time\") AS active_time_seconds\nFROM telemetry_agents\nWHERE $__timeFilter(ts)\nGROUP BY 1, 2\nORDER BY 1",
           "refId": "A"
         }
       ],
-      "title": "Cost (claude_code.cost.usage)",
+      "title": "Active Time (claude_code.active_time)",
       "type": "timeseries"
     },
     {
@@ -146,7 +146,7 @@
         "type": "postgres",
         "uid": "lume-ti"
       },
-      "description": "Active sessions per agent entity",
+      "description": "Active 10-second telemetry buckets per agent entity",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -155,7 +155,7 @@
           "custom": {
             "axisBorderShow": false,
             "axisColorMode": "text",
-            "axisLabel": "Sessions",
+            "axisLabel": "Buckets",
             "axisPlacement": "auto",
             "fillOpacity": 80,
             "lineWidth": 1
@@ -189,11 +189,11 @@
           },
           "editorMode": "code",
           "format": "table",
-          "rawSql": "SELECT\n  vessel AS entity,\n  count(DISTINCT ts) AS sessions\nFROM telemetry_agents\nWHERE $__timeFilter(ts)\nGROUP BY vessel\nORDER BY sessions DESC",
+          "rawSql": "SELECT\n  vessel AS entity,\n  count(DISTINCT ts) AS buckets\nFROM telemetry_agents\nWHERE $__timeFilter(ts)\nGROUP BY vessel\nORDER BY buckets DESC",
           "refId": "A"
         }
       ],
-      "title": "Sessions per Entity",
+      "title": "Active Buckets per Agent",
       "type": "barchart"
     },
     {
@@ -201,7 +201,7 @@
         "type": "postgres",
         "uid": "lume-ti"
       },
-      "description": "Recent logbook documents from OTLP logs matching text search query $q",
+      "description": "Recent logbook documents from OTLP logs matching text search query ${q:sqlstring}",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -273,7 +273,7 @@
           },
           "editorMode": "code",
           "format": "table",
-          "rawSql": "SELECT\n  title,\n  entity,\n  ts_start\nFROM docs\nWHERE match(body, '$q')\nORDER BY ts_start DESC\nLIMIT 100",
+          "rawSql": "SELECT\n  title,\n  vessel AS entity,\n  ts_start\nFROM docs\nWHERE match(body, ${q:sqlstring})\nORDER BY ts_start DESC\nLIMIT 100",
           "refId": "A"
         }
       ],
@@ -297,7 +297,7 @@
           "text": "service.rs",
           "value": "service.rs"
         },
-        "description": "Text search query in docs body via match(body, '$q')",
+        "description": "Text search query in docs body via match(body, ${q:sqlstring})",
         "hide": 0,
         "label": "Log Search",
         "name": "q",

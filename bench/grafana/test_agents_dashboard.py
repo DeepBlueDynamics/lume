@@ -72,9 +72,10 @@ class TestAgentsDashboard(unittest.TestCase):
         )
         self.assertIn("claude_code.token.usage", all_sql)
         self.assertIn("@last", all_sql)
-        self.assertIn("claude_code.cost.usage", all_sql)
-        self.assertIn("sessions", all_sql.lower())
-        self.assertIn("match(body, '$q')", all_sql)
+        self.assertIn("claude_code.active_time", all_sql)
+        self.assertIn("buckets", all_sql.lower())
+        self.assertIn("vessel AS entity", all_sql)
+        self.assertIn("match(body, ${q:sqlstring})", all_sql)
         self.assertIn("ts_start", all_sql)
 
     def test_no_hardcoded_secrets(self):
