@@ -1,11 +1,12 @@
-//! Temporary diagnosis: no production recovery behavior is changed.
+//! Deterministic flush/WAL overlap regression.
 use ti_contracts::{
-    Agg, BucketRecord, Catalog, FieldKind, FieldSpec, FieldValue, ShardSink, VesselSpec,
+    Agg, BucketRecord, Catalog, CmpOp, FieldKind, FieldSpec, FieldValue, Predicate, ShardKey,
+    ShardSink, ShardSource, VesselSpec,
 };
 use ti_store::Store;
 
 #[test]
-fn old_insert_in_untruncated_wal_conflicts_with_flushed_rewrite() {
+fn flushed_rewrite_skips_covered_old_insert() {
     for _ in 0..20 {
         let dir = tempfile::tempdir().unwrap();
         let mut store = Store::open_or_create(dir.path(), 10).unwrap();
@@ -50,14 +51,18 @@ fn old_insert_in_untruncated_wal_conflicts_with_flushed_rewrite() {
         // Preserve the exact durable state before truncate_wals(), with both
         // the rewritten snapshot and the older insert in the complete WAL.
         drop(store);
-        let error = Store::open_or_create(dir.path(), 10)
-            .err()
-            .expect("diagnostic should reproduce");
-        assert!(
-            error
-                .to_string()
-                .contains("numeric replacement requires rewrite"),
-            "{error}"
-        );
+        let recovered = Store::open_or_create(dir.path(), 10).unwrap();
+        let rows = recovered
+            .eval(
+                ShardKey { vessel, shard: 0 },
+                &Predicate::BsiCmp {
+                    field,
+                    op: CmpOp::Eq,
+                    lo: 107,
+                    hi: None,
+                },
+            )
+            .unwrap();
+        assert_eq!(rows.iter().collect::<Vec<_>>(), vec![3]);
     }
 }
