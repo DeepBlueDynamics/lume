@@ -573,19 +573,20 @@ The Ask tab (`lume chat`) defaults to calling **`https://ollama.com`** directly 
 
 The API key is stored in a dedicated file outside the plugin configuration. The Signal K container runs as the `node` user (`uid:gid 1000:1000`).
 
-1. Create the key file on the Pi host in Signal K's plugin config directory:
+1. On the Pi host, create the key file empty, owned by the Signal K container user (`1000:1000`) with mode 600, before any key goes into it:
    ```sh
-   # On the Pi host:
-   sudo mkdir -p /var/lib/container-apps/marine-signalk-server-container/data/data/plugin-config-data/signalk-lume-ti
-   sudo sh -c 'echo "YOUR_OLLAMA_API_KEY" > /var/lib/container-apps/marine-signalk-server-container/data/data/plugin-config-data/signalk-lume-ti/ollama.key'
+   d=/var/lib/container-apps/marine-signalk-server-container/data/data/plugin-config-data/signalk-lume-ti
+   sudo install -d -o 1000 -g 1000 -m 755 "$d"
+   sudo install -o 1000 -g 1000 -m 600 /dev/null "$d/ollama.key"
    ```
-   *(Replace `YOUR_OLLAMA_API_KEY` with your actual ollama.com API key. Never commit this file or check real keys into version control.)*
 
-2. Set ownership to the Signal K container user (`1000:1000`) and restrict permissions to mode 600:
+2. Write the key into it from a hidden prompt (paste the key, then press Enter). The key goes to `tee` on stdin, so it never shows in `ps`, a command line or the shell history:
    ```sh
-   sudo chown 1000:1000 /var/lib/container-apps/marine-signalk-server-container/data/data/plugin-config-data/signalk-lume-ti/ollama.key
-   sudo chmod 600 /var/lib/container-apps/marine-signalk-server-container/data/data/plugin-config-data/signalk-lume-ti/ollama.key
+   read -rs -p 'ollama.com API key: ' k; echo
+   printf '%s\n' "$k" | sudo tee "$d/ollama.key" > /dev/null; unset k
+   sudo ls -l "$d/ollama.key"   # expect -rw------- 1 1000 1000
    ```
+   Never commit this file or paste the key into the plugin config, a chat or an issue.
 
 ### Plugin configuration
 
