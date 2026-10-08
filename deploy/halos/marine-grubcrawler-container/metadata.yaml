@@ -1,6 +1,6 @@
 name: Grub Crawler
 app_id: grubcrawler
-version: 0.1.0-1
+version: 0.16.1-1
 description: Web and PDF fetcher for Lume's offline cruiser library
 long_description: |
   Grub Crawler fetches web pages (rendered in a headless browser) and documents
@@ -24,7 +24,7 @@ depends:
 web_ui:
   enabled: false
 default_config:
-  GRUB_IMAGE: grubcrawler:lite-arm64
+  GRUB_IMAGE: deepbluedynamics/grubcrawler:latest-lite
   GRUB_MEMORY_LIMIT: 1536m
   GRUB_MAX_CONCURRENT_CRAWLS: "1"
   GRUB_CRAWL_TIMEOUT: "60"

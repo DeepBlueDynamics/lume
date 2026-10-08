@@ -5,9 +5,7 @@ next to the Lume TI Signal K plugin. The plugin uses it to fetch web pages and
 PDFs for the offline cruiser library (`lume crawl --list`, `GRUB_BASE_URL`,
 default `http://localhost:6792`).
 
-- **Image:** the Chromium-only lite variant (`Dockerfile.lite`, Grub `52b9b51`
-  or later), `grubcrawler:lite-arm64`. It is 3.05 GB on the Pi. Once Grub publishes
-  multi-arch images, set `GRUB_IMAGE=deepbluedynamics/grubcrawler:latest-lite`.
+- **Image:** `deepbluedynamics/grubcrawler:latest-lite`, the Chromium-only lite variant (Grub v0.16.1, `Dockerfile.lite`). It is a multi-arch manifest for linux/arm64 and amd64, built on native GitHub runners. It is about 2.8 GB unpacked on arm64. Pin `0.16.1-lite` through `GRUB_IMAGE` for reproducible installs.
 - **Network:** `127.0.0.1:6792` only. Auth is off, so it must not be published to
   the LAN. The Signal K container uses the host network and reaches it on loopback.
 - **Limits:** a 1.5 GB memory cap and one crawl at a time. No LLM agent or vision
@@ -17,7 +15,8 @@ default `http://localhost:6792`).
   appear in Cockpit's container store until it is packaged as a `.deb`.
 
 ```sh
-# on the Pi, with the image loaded (docker load or docker pull)
+# on the Pi
+sudo docker pull deepbluedynamics/grubcrawler:latest-lite
 sudo ./install.sh                       # installs, enables and waits for /health
 sudo systemctl status marine-grubcrawler-container
 journalctl -u marine-grubcrawler-container -n 100

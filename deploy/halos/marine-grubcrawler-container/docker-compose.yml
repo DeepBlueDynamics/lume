@@ -1,6 +1,6 @@
 services:
   grubcrawler:
-    image: ${GRUB_IMAGE:-grubcrawler:lite-arm64}
+    image: ${GRUB_IMAGE:-deepbluedynamics/grubcrawler:latest-lite}
     container_name: grubcrawler
     init: true
     restart: unless-stopped
