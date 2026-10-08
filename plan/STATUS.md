@@ -1,14 +1,14 @@
 # Lume TI — Status board
 
-Last updated: **2026-10-08** (docs keeper, after `fa37d06`: **CI dashboard SQL build** (`fa37d06`), **Pi bringup script** (`ee64f93`, `67afe75`), **docs audit** (`6cf1458`), **README & CHANGELOG** (`aaadb1b`, `7422cee`), **atomic index & clippy gate** (`36e57fc`), **agents dashboard** (`b6836a3`, `755562b`), **OTLP persist** (`985008f`), **plugin OTLP** (`c852b6d`, `1b02096`), **OTLP receiver** (`1947f88`), **deploy CI** (`bbb59fc`), **provision-pi** (`207919d`); earlier at `3633d9a`: HaLOS container .debs, Q6 bench PASS, Ollama HaLOS app, Grub image, library search, plugin TLS, M6 items 1-3; earlier: M2 item 3 on Pi, D46 pgwire TLS, release pipeline)
+Last updated: **2026-10-08** (docs keeper, after `51080e9`: **zero-tail recovery** (`51080e9`, A13b), **WAL checkpoint fix** (`38f7f12`, A14), **append-only DocStore** (`ad7a1d0`, A13), **OTLP reload & group commit** (`e8aa41f`, A10), **pgwire frame cap** (`9891f31`, A12), **HTTP bearer opt-in** (`b46482f`, A11), **hardening & D51** (`f754c0d`, `c70d617`, A9), **otlp-soak** (`2c53d3f`, A7), **PR #4 review** (`6e27791`, `e004349`, A8), **contention harness** (`3c5ab9d`, A6), **Pi gap 4 measured** (`a47ff21`), **CI dashboard SQL build** (`fa37d06`); earlier at `3633d9a`: HaLOS container .debs, Q6 bench PASS, Ollama HaLOS app, Grub image, library search, plugin TLS, M6 items 1-3; earlier: M2 item 3 on Pi, D46 pgwire TLS, release pipeline)
 
-Integration branch `plan/lume-ti` is at `fa37d06`. **PR #4** (`plan/lume-ti` to `main` on public GitHub DeepBlueDynamics/lume) is open; CI was green through `67afe75`, and `fa37d06` was still running at this refresh. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46 at `8e87a11`; `cargo test --features ti` was 55 at `39c0096` (not recounted since). Plugin `npm test` 39/39 (at `a5be3f8` / `c769d23`) and `cargo test` `ti_http` 8/8 at `e09bb87`.
-Workspace members: `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench`, `ti-geo`, `ti-sync`. Signal K plugin: `plugins/signalk-lume-ti/`. Next free decision: **D50** (D49: D48 follow-ups — gap 3 accepted, gap 1 deferred, gap 2 by the user, gap 4 by the lead, gap 5 done) (D48 approved 2026-10-08: GO for the single-boat pilot, NO-GO on shore scale and contention until measured). D45 (binary size) is merged and recorded in [decisions/D45-binary-size.md](decisions/D45-binary-size.md). D46 (pgwire TLS, Option 2) is merged (`45ae6ff`, Artificial Shark, `ti/pg-tls` `66e2bbb`). D47 (open-shard flush) is in [spec/11](spec/11-risks-decisions.md). All measured numbers: [docs/performance-comparisons.md](../docs/performance-comparisons.md).
+Integration branch `plan/lume-ti` is at `51080e9`. **PR #4** (`plan/lume-ti` to `main` on public GitHub DeepBlueDynamics/lume) is open; CI was green through `67afe75`. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46 at `8e87a11`; `cargo test --features ti` was 55 at `39c0096` (not recounted since). Plugin `npm test` 39/39 (at `a5be3f8` / `c769d23`) and `cargo test` `ti_http` 8/8 at `e09bb87`.
+Workspace members: `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench`, `ti-geo`, `ti-sync`. Signal K plugin: `plugins/signalk-lume-ti/`. Next free decision: **D54** (D51 proposed hardening, D52 append-only DocStore, D53 WAL checkpoints; earlier D50 OTLP, D49 D48 follow-ups). D45 (binary size) is merged and recorded in [decisions/D45-binary-size.md](decisions/D45-binary-size.md). D46 (pgwire TLS, Option 2) is merged (`45ae6ff`, Artificial Shark, `ti/pg-tls` `66e2bbb`). D47 (open-shard flush) is in [spec/11](spec/11-risks-decisions.md). All measured numbers: [docs/performance-comparisons.md](../docs/performance-comparisons.md).
 Setup and workflow: [SETUP.md](SETUP.md).
 
 ## Handoff (2026-10-08, lead session)
 
-`plan/lume-ti` is at `fa37d06` and pushed. PR #4 is open; CI was green through `67afe75`.
+`plan/lume-ti` is at `51080e9` and pushed. PR #4 is open; CI was green through `67afe75`.
 
 **Done since `78c913d`:**
 - **Self-telemetry:** `6e84992`, then its own store and table `telemetry_lume` (`ed02ff4`).
@@ -32,46 +32,56 @@ Setup and workflow: [SETUP.md](SETUP.md).
 - **Grafana agent telemetry dashboard (B10, B14):** `bench/grafana/lume-agents-dashboard.json` on pgwire (tokens over time by model, active time, active buckets per agent, logbook docs search), test suite (`test_agents_dashboard.py`, `test_agents_dashboard_sql.py`), and CI builds `lume` with `--features ti` so live SQL tests run (`b6836a3`, `755562b`, `fa37d06`).
 - **Documentation audit & changelog (B3, B5, B11, B12):** README and CHANGELOG Unreleased sections updated (`aaadb1b`, `7422cee`); stale-statement audit across SETUP, HaLOS, plugin, and performance docs (`6cf1458`).
 - **Pi provisioning & bring-up automation (B4, B6, B7, B8, B13):** `scripts/provision-pi.sh` (`207919d`, `2cc4bbb`), CI deploy tests (`bbb59fc`, `a1a7790`), and `scripts/pi-bringup.sh` single-command orchestrator for provisioning, retiring Ollama, Grub image pull, and gap 4 store sync/bench (`ee64f93`, `67afe75`).
+- **A6 contention harness:** `ti-query-bench contention` (`3c5ab9d`), for the gap 2 OpenCPN test.
+- **A7 otlp-soak harness:** debug soak capacity rows (`2c53d3f`).
+- **A8 PR #4 readiness fixes and review report:** PR #4 review fixes (`6e27791`) and readiness findings/D51 proposal report (`e004349`).
+- **A9 hardening & proposed D51:** pgwire timeouts, sync TTL and chunk bounds, URL redaction, a 512 MiB query pool (`f754c0d`, `c70d617`); D51 PROPOSED.
+- **A11 HTTP bearer token opt-in:** opt-in `--http-token-file` bearer on every HTTP route (`b46482f`).
+- **A12 pgwire frame cap:** 1 MiB pgwire frame cap (`9891f31`).
+- **A10 OTLP lazy reload and leader group commit:** `e8aa41f` (release, 10 agents: p95 33 ms; 50 agents: 386 ms, which misses the 250 ms target).
+- **A13 (D52) append-only DocStore:** append-only CRC transaction log for DocStore, atomic compaction, migration with `.bak` (`ad7a1d0`).
+- **A13b zero-tail recovery:** recover a zero-filled document log tail after power loss (`51080e9`).
+- **A14 (D53) WAL checkpoint crash-recovery fix:** per-field WAL checkpoints and monotonic sequence fix crash recovery after flush-before-truncate (`38f7f12`); the Pi's old binary had this bug.
+- **Lead fixes:**
+  - linger close on early rejects so a 401/413/400 isn't lost to a TCP reset (`a806ffb`);
+  - `deploy-pi.sh` rename install to avoid ETXTBSY on running plugin (`2a0bda1`);
+  - `pi-bench-recipe.sh` opts store into `@last` (`72f22d7`);
+  - cold/warm float check rounds floats to 12 digits (`80121fc`);
+  - gap 4 results measured on the Pi 5 (`a47ff21`).
 
-**What runs on the Pi:** the plugin binary is the host cross-built arm64 `lume` at `5aa7fa0` (thin LTO, 16 codegen units, 135 MB, GLIBC_2.35), with `lume.prev` kept for rollback. It includes `telemetry_lume` and the Ask tab failover. Self samples have gone to `telemetry_lume` since 17:45:50Z. The older `lume.urn:host:halos` rows in `telemetry`, up to 17:44:20Z, stay until retention expires them.
-- Grub is installed and healthy at `127.0.0.1:6792`, still on the locally loaded `lite-arm64` image until switched to the published image or `.deb` package.
-- Retiring the Pi's Ollama container (frees about 4.2 GB) is scripted in B4/B13 but **has not run yet**: it waits on SSH. The Ask tab default is cloud-direct `glm-5.3:cloud` via `ollama.com`.
+**What runs on the Pi (2026-10-08):**
+- reachable at 192.168.68.61, a static IP on wlan0 set by firstrun.sh;
+- deploy key added;
+- Ollama retired (free space went from 4.5 GB to 8.4 GB);
+- Grub on the published image;
+- running the `38f7f12` build (D52 and D53 migrated);
+- gap 4: 7 of 8 classes pass; Q6 misses on q6-004 (308.53 ms against 200 ms).
 - A fan is fitted: the Pi runs at 62–66 °C with no throttling.
 
-**Next:**
-1. Restore SSH access to the Pi (new host key, deploy key rejected).
-2. Run `scripts/pi-bringup.sh <host> --lume-bin <arm64 lume> --bench-bin <arm64 ti-query-bench> --bench-store dist/pi-bench --debs dist/halos`.
-3. Provide the `ollama.key` file for cloud-direct Ask tab.
-4. Run the gap 2 OpenCPN session.
-5. In parallel: Codex completing A6 contention harness and Grok completing A7 OTLP soak.
+**In progress:**
+- A15, q6-004 (Codex);
+- the A10+A13 OTLP soak profile (Grok).
+
+**Waiting on the user:**
+- the `ollama.key` file;
+- D51 default changes;
+- the gap 2 OpenCPN session;
+- a Deco DHCP reservation for .61.
 
 **Agents:**
-- Better Platypus / Inland Tarantula = Codex in `.lanes/w4` on A6 contention harness (in progress).
-- Burning Gerbil = Grok 4.7 in `.lanes/w5` on A7 OTLP soak (in progress).
-- Compact Echidna / Panicky Parrot = Antigravity in `.lanes/w3`: finished B1–B14, B15 `ti/status-refresh`. Standing by for Pi reachability.
-
-**Waiting on the user and the Pi:**
-- restore SSH (new host key, deploy key rejected);
-- then `scripts/pi-bringup.sh <host> --lume-bin <arm64 lume> --bench-bin <arm64 ti-query-bench> --bench-store dist/pi-bench --debs dist/halos`;
-- the `ollama.key` file;
-- the gap 2 OpenCPN session;
-- Approve the Signal K access request;
-- Enter the PG password for the pg smoke rerun and Grafana Save & Test;
-- Provide `icon.png`;
-- Confirm Maintainer email for the `.deb`s (`kord@deepbluedynamics.com` is currently used).
+- Codex (Inland Tarantula, `.lanes/w4`): in progress on A15 (q6-004).
+- Grok 4.7 (Burning Gerbil, `.lanes/w5`): in progress on the A10+A13 OTLP soak profile.
+- Antigravity (Panicky Parrot, `.lanes/w3`): B16 `ti/status-refresh-2` complete. On standby for Pi reachability.
 
 ## Next phase (approved 2026-10-08)
 
 The plan is [next-phase-2026-10-08.md](next-phase-2026-10-08.md). Pane names are as of the 2026-10-08 Hyperia restart; the lead is Annual Echidna.
 - **Codex (Inland Tarantula, `.lanes/w4`):**
-  - **Done:** A1 `ti/otlp`, an OTLP http/json receiver for agent telemetry (Hyperia and n8), recorded as D50, merged as `1947f88`.
-  - **Done:** A4 `ti/otlp-persist`, merged as `985008f`: OTLP monotonic counter totals survive receiver restarts via `otlp-counters.json` (`stores/agents/`).
-  - **Now:** A6 contention harness (in progress).
+  - **Done:** A1 `ti/otlp` (`1947f88`, D50), A4 `ti/otlp-persist` (`985008f`), A6 contention harness (`3c5ab9d`: `ti-query-bench contention` for the gap 2 OpenCPN test), A8 PR #4 readiness fixes and review report (`6e27791`, `e004349`), A9 hardening (`f754c0d`, `c70d617`: pgwire timeouts, sync TTL and chunk bounds, URL redaction, a 512 MiB query pool; D51 PROPOSED), A14 WAL checkpoint crash-recovery fix (`38f7f12`, D53; the Pi's old binary had this bug).
+  - **Now:** A15, q6-004 (in progress).
 - **Grok 4.7 (Burning Gerbil, `.lanes/w5`, joined 2026-10-08):**
-  - **Done:** A2 `ti/pi-bench`, D48 gap 4 (moved over from Codex). It adds the `scripts/cross-arm64.sh ti-query-bench` variant, the `scripts/pi-bench-recipe.sh store` 1-vessel × 90-day seed-42 store, and `ti-query-bench bench --pi`, which writes `bench/results/<date>-pi-<sha>.json`. The run on the Pi waits for Pi access.
-  - **Done:** A3 `ti/lint-lib` merged, with the lead fix `e0b6b1d` (clearing strict-clippy errors in the `lume` lib).
-  - **Done:** A5 `ti/index-atomic` plus the lume clippy CI gate, merged as `36e57fc`: atomic library index writes (`bm25.json` and siblings go through a unique same-directory temp file, then a rename), and whole-package clippy `-D warnings` enforcement on `lume` in CI.
-  - **Now:** A7 OTLP soak (in progress).
+  - **Done:** A2 `ti/pi-bench` (`f51e9d4`, D48 gap 4), A3 `ti/lint-lib` (`d8d38b1`, `e0b6b1d`), A5 `ti/index-atomic` (`36e57fc`), A7 otlp-soak harness (`2c53d3f`: debug soak capacity rows), A11 opt-in `--http-token-file` bearer (`b46482f`), A12 1 MiB pgwire frame cap (`9891f31`), A10 OTLP lazy reload and leader group commit (`e8aa41f`: release, 10 agents p95 33 ms; 50 agents 386 ms, missing 250 ms target), A13 append-only DocStore (`ad7a1d0`, D52), A13b zero-tail recovery (`51080e9`).
+  - **Now:** the A10+A13 OTLP soak profile (in progress).
 - **Antigravity (Panicky Parrot, `.lanes/w3`):**
   - **Done:** B1 `ti/plugin-cloud`, merged as `7aebf7c`. The Ask tab defaults to `https://ollama.com` and `glm-5.3:cloud`. The `chatApiKeyFile` key is passed in the child env only.
   - **Done:** B2. Both HaLOS `.deb`s were rebuilt with the Maintainer `kord@deepbluedynamics.com` and the auto memory hooks.
@@ -87,16 +97,27 @@ The plan is [next-phase-2026-10-08.md](next-phase-2026-10-08.md). Pane names are
   - **Done:** B12 `ti/docs-audit`, merged as `6cf1458`: stale-statement audit across SETUP.md, HaLOS container READMEs, plugin README, Grafana README, and performance comparisons.
   - **Done:** B13 `ti/pi-bringup`, merged as `ee64f93` / `67afe75`: `scripts/pi-bringup.sh <ssh-host>` chaining provisioning, retiring Ollama, Grub image pull, gap 4 store sync/bench, and summary.
   - **Done:** B14 `ti/ci-dashboard-sql`, merged as `fa37d06`: CI builds `lume` with `--features ti` before running Grafana unittests, and `test_agents_dashboard_sql.py` fails rather than skips when `LUME_BIN` is set but unusable.
-  - **Now:** B15 `ti/status-refresh`: refresh `plan/STATUS.md` "Next phase" and Handoff sections for everything merged through `fa37d06`. Standing by for Pi reachability.
-- **Pi (2026-10-08 07:50Z):** still blocked on its SSH host key (back on DHCP at 192.168.68.61, where it answers as Signal K 2.31.1; its SSH host key changed and the deploy key is rejected, which suggests a reflash. Waiting for the user to restore the key; the Pi steps below wait on it).
+  - **Done:** B15 `ti/status-refresh`: refresh `plan/STATUS.md` "Next phase" and Handoff sections through `fa37d06` (`631f5cd`, corrections `5f54592`).
+  - **Now:** B16 `ti/status-refresh-2`: refresh `plan/STATUS.md` through `51080e9`. On standby for Pi reachability.
+- **Pi (2026-10-08):**
+  - reachable at 192.168.68.61, a static IP on wlan0 set by firstrun.sh;
+  - deploy key added;
+  - Ollama retired (free space went from 4.5 GB to 8.4 GB);
+  - Grub on the published image;
+  - running the `38f7f12` build (D52 and D53 migrated);
+  - gap 4: 7 of 8 classes pass; Q6 misses on q6-004 (308.53 ms against 200 ms).
+- **Waiting on the user:**
+  - the `ollama.key` file;
+  - D51 default changes;
+  - the gap 2 OpenCPN session;
+  - a Deco DHCP reservation for .61.
 - **Lead:**
-  - remove the Ollama container from the Pi, which frees about 4.2 GB (4.5 GB is free now);
-  - deploy the plugin and pull the published Grub image;
-  - run gap 4 on the Pi, and support the user's gap 2 OpenCPN test;
+  - gap 4 on the Pi measured (`a47ff21`);
+  - support the user's gap 2 OpenCPN test;
   - merge.
 - **Pi state:**
   - memory cgroups are enabled (`cgroup_enable=memory`, with `cmdline.txt.bak-pre-memcg` kept as the backup);
-  - the auto memory caps are Grub 1611 MiB, Ollama 966 MiB and QuestDB 768 MiB.
+  - the auto memory caps are Grub 1611 MiB, Ollama retired and QuestDB 768 MiB.
 
 ## Critical path right now
 
@@ -192,6 +213,22 @@ Commit messages, the decisions log and older docs use the former names. Re-check
 
 | Commit | What |
 |---|---|
+| `51080e9` | **A13b zero-tail recovery** (`af2a448`, Grok 4.7 / Burning Gerbil): recover a zero-filled document log tail after power loss, keep non-zero garbage fatal (D52) |
+| `38f7f12` | **A14 WAL checkpoint crash-recovery fix** (`fa70570`, Codex / Inland Tarantula): per-field WAL checkpoints and monotonic sequence fix crash recovery after flush-before-truncate (D53; fixes bug present in Pi's old binary) |
+| `2a0bda1` | fix(deploy): install the lume binary by rename so a running plugin doesn't fail the deploy (ETXTBSY) |
+| `a47ff21` | bench: D48 gap 4 measured on the Pi 5, 7 of 8 classes pass edge p95; Q6 misses on q6-004 (308.53 ms against 200 ms) |
+| `ad7a1d0` | **A13 append-only DocStore** (`de9fcbb`, Grok 4.7 / Burning Gerbil): append-only CRC transaction log for DocStore, atomic compaction, migration with `.bak` (D52) |
+| `a806ffb` | fix(http): lingering close on early rejects so a 401/413/400 isn't lost to a TCP reset |
+| `e8aa41f` | **A10 OTLP lazy reload & leader group commit** (`5c8b2aa`, Grok 4.7 / Burning Gerbil): lazy engine reload and leader group commit for OTLP; 10 agents p95 33 ms, 50 agents 386 ms (missing 250 ms target) (D50) |
+| `9891f31` | **A12 pgwire frame cap** (`c7596ed`, Grok 4.7 / Burning Gerbil): 1 MiB pgwire frontend frame cap before buffering, fatal 08P01 on decode errors, zero default-build warnings |
+| `b46482f` | **A11 HTTP bearer token opt-in** (`535a8fa`, Grok 4.7 / Burning Gerbil): opt-in `--http-token-file` bearer on every HTTP route, route-specific sync/OTLP tokens, defaults unchanged (D51 part) |
+| `80121fc` | fix(bench): cold/warm self-check rounds floats to 12 digits; reported fingerprint stays exact |
+| `72f22d7` | fix(bench): pi-bench-recipe opts the store into `@last`, as the CI bench gate does (A2) |
+| `c70d617`, `f754c0d` | **A9 hardening & proposed D51** (`920ba8f`, `a476453`, Codex / Inland Tarantula): pgwire idle/write deadlines, sync session TTL and chunk bounds, URL redaction, 512 MiB query memory pool; D51 PROPOSED; Q1-Q8 correctness fingerprints |
+| `2c53d3f` | **A7 otlp-soak harness** (`10fa09c`, Grok 4.7 / Burning Gerbil): ti-bench otlp-soak harness and debug soak capacity rows |
+| `e004349`, `6e27791` | **A8 PR #4 readiness fixes & review report** (`d4aad0d`, `aab48f5`, Codex / Inland Tarantula): PR #4 readiness fixes and report with D51 proposal |
+| `3c5ab9d` | **A6 contention harness** (`7fab796`, Codex / Inland Tarantula): `ti-query-bench contention` for the D48 gap 2 OpenCPN test, live vessel/window overrides |
+| `5f54592`, `631f5cd` | status: STATUS refresh through B14 (B15) and lead corrections (real branch commits, Ollama retirement status, bm25.json, dashboard metrics, CI state) |
 | `fa37d06` | **CI dashboard SQL build** (`d008957`, Compact Echidna / Antigravity): CI builds `lume` with `--features ti` before running Grafana unittests so `test_agents_dashboard_sql.py` runs live; fails when `LUME_BIN` is invalid (B14) |
 | `67afe75`, `ee64f93` | **Pi bringup script** (`958036b`, `447547a`, Compact Echidna / Antigravity): `scripts/pi-bringup.sh` single-command orchestrator (provision Pi, retire Ollama, pull Grub image, gap 4 store sync and bench, system summary); clears partial remote store before `scp -r` (B13) |
 | `6cf1458` | **Docs audit** (`b75de73`, Compact Echidna / Antigravity): stale-statement audit across SETUP, HaLOS container READMEs, plugin README, Grafana README, and performance comparisons (B12) |
