@@ -43,6 +43,8 @@ pub struct TiServer {
     store: Arc<Mutex<ti_store::Store>>,
     receiver: Arc<ti_sync::ShoreReceiver>,
     sync_token: Option<String>,
+    otlp: Option<Mutex<ti_ingest::otlp::AgentStore>>,
+    otlp_token: Option<String>,
     docs_index: Option<Mutex<crate::ti_docs_index::DocsIndex>>,
     docs_reload: Mutex<()>,
     query_limits: RwLock<ti_contracts::QueryLimits>,
@@ -120,6 +122,8 @@ impl TiServer {
             store,
             receiver,
             sync_token,
+            otlp: None,
+            otlp_token: None,
             docs_index: None,
             docs_reload: Mutex::new(()),
             query_limits: RwLock::new(query_limits),
@@ -156,6 +160,19 @@ impl TiServer {
         }) {
             eprintln!("TI cache warm-up could not start: {error}");
         }
+    }
+
+    /// Enable the explicit opt-in OTLP JSON routes. Authentication is independent of sync.
+    pub fn with_otlp(mut self, token: Option<String>) -> Result<Self, String> {
+        if token.as_ref().is_some_and(|s| s.trim().is_empty()) {
+            return Err("OTLP bearer token must not be empty".into());
+        }
+        self.otlp = Some(Mutex::new(
+            ti_ingest::otlp::AgentStore::open(&self.root).map_err(|e| e.to_string())?,
+        ));
+        self.otlp_token = token;
+        self.force_reload_engine()?;
+        Ok(self)
     }
 
     /// Register an ordinary index; an absent index starts with an empty sections table.
@@ -409,6 +426,57 @@ impl TiServer {
     ) -> Result<Reply, String> {
         let (path, query) = path.split_once('?').unwrap_or((path, ""));
         let req_headers = RequestHeaders(headers_raw);
+
+        if path == "/v1/metrics" || path == "/v1/logs" {
+            let Some(receiver) = &self.otlp else {
+                return Ok(Reply::error(404, "OTLP is disabled; start with --otlp"));
+            };
+            if method != "POST" {
+                return Ok(Reply::error(405, "OTLP requires POST"));
+            }
+            if body.len() > ti_ingest::otlp::MAX_BODY {
+                return Ok(Reply::error(413, "OTLP body exceeds 8 MiB"));
+            }
+            if self.otlp_token.as_ref().is_some_and(|token| {
+                !req_headers
+                    .bearer_token()
+                    .is_some_and(|client| ti_sync::constant_time_bearer_eq(client, token))
+            }) {
+                return Ok(Reply::error(401, "OTLP requires a valid bearer token"));
+            }
+            if !req_headers.get("content-type").is_some_and(|v| {
+                v.split(';')
+                    .next()
+                    .is_some_and(|v| v.trim().eq_ignore_ascii_case("application/json"))
+            }) {
+                return Ok(Reply::error(
+                    415,
+                    "lume accepts OTLP http/json only; set protocol json",
+                ));
+            }
+            let mut receiver = receiver.lock().map_err(|e| e.to_string())?;
+            let result = if path == "/v1/metrics" {
+                receiver.metrics(body)
+            } else {
+                receiver.logs(body)
+            };
+            match result {
+                Ok(_) => {
+                    self.force_reload_engine()?;
+                    return Ok(Reply::json(200, json!({})));
+                }
+                Err(ti_contracts::Error::InvalidInput(error)) => {
+                    return Ok(Reply::error(400, &error))
+                }
+                Err(error) => {
+                    eprintln!("OTLP ingest failed: {error}");
+                    return Ok(Reply::error(
+                        503,
+                        "OTLP persistence failed; retry the batch",
+                    ));
+                }
+            }
+        }
 
         let is_sync_endpoint = path == "/ti/manifest" || path.starts_with("/ti/shards/");
         if is_sync_endpoint {
@@ -884,7 +952,9 @@ pub fn handle(
         }
     }
     let length = length.unwrap_or(0);
-    let max_allowed = if path.starts_with("/ti/shards/") {
+    let max_allowed = if matches!(path.split('?').next(), Some("/v1/metrics" | "/v1/logs")) {
+        ti_ingest::otlp::MAX_BODY
+    } else if path.starts_with("/ti/shards/") {
         16 * 1024 * 1024
     } else {
         ti_sql::MAX_BYTES

@@ -52,6 +52,8 @@ pub mod ti_http;
 #[cfg(feature = "ti")]
 mod ti_docs_index;
 #[cfg(feature = "ti")]
+pub mod ti_otlp;
+#[cfg(feature = "ti")]
 pub mod ti_pg;
 #[cfg(feature = "ti")]
 mod ti_pg_auth;

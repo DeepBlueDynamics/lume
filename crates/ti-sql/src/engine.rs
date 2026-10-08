@@ -174,6 +174,19 @@ impl TiEngine {
                 .register_store_table(&lume_table, Arc::new(store), catalog)
                 .map_err(|e| invalid(format!("failed to register {lume_table}: {e}")))?;
         }
+        // D50: agent telemetry is isolated from vessel and self-telemetry stores.
+        let agents_dir = root.join("stores").join("agents");
+        if agents_dir.join("catalog").is_dir()
+            && !session
+                .extra_catalogs
+                .lock()
+                .map_err(|e| invalid(e.to_string()))?
+                .contains_key("telemetry_agents")
+        {
+            let store = ti_store::Store::open_or_create(&agents_dir, 10).map_err(core_error)?;
+            let catalog = crate::build_sql_catalog(&store, 10)?;
+            session.register_store_table("telemetry_agents", Arc::new(store), catalog)?;
+        }
         Ok(Self {
             session,
             root: root.into(),

@@ -20,6 +20,7 @@ pub mod mapped_docs;
 pub mod mapped_parquet;
 pub mod normalize;
 pub mod notifications;
+pub mod otlp;
 pub mod parquet;
 pub mod recorder;
 pub mod resources;
