@@ -11,8 +11,22 @@ default `http://localhost:6792`).
 - **Limits:** a 1.5 GB memory cap and one crawl at a time. No LLM agent or vision
   OCR on the boat; plain fetch, render and PDF text extraction work.
 - **Layout:** `install.sh` writes the same files and systemd unit that HaLOS's
-  container-packaging-tools write for `marine-*-container` packages. It does not
-  appear in Cockpit's container store until it is packaged as a `.deb`.
+  container-packaging-tools write for `marine-*-container` packages. It can also
+  be installed directly as a `.deb` package to appear in Cockpit's container store.
+
+## Installing the .deb
+
+Build the package with `scripts/build-halos-debs.sh` or copy the `.deb` from `dist/halos/`:
+
+```sh
+# on the Pi
+sudo docker pull deepbluedynamics/grubcrawler:latest-lite
+sudo dpkg -i marine-grubcrawler-container_0.16.1-1_arm64.deb
+sudo systemctl status marine-grubcrawler-container
+journalctl -u marine-grubcrawler-container -n 100
+```
+
+## Manual installation (via install.sh)
 
 ```sh
 # on the Pi

@@ -1,0 +1,38 @@
+version: "1.0"
+
+groups:
+  - id: resources
+    label: Resource Limits
+    description: Memory and execution limits for the Ollama container
+    fields:
+      - id: OLLAMA_MEMORY_LIMIT
+        label: Memory Limit
+        type: string
+        default: 4g
+        required: true
+        description: Hard memory cap for Ollama container (e.g. 4g, 6g)
+
+      - id: OLLAMA_KEEP_ALIVE
+        label: Model Keep-Alive Duration
+        type: string
+        default: 10m
+        required: true
+        description: How long models stay loaded in memory after the last request
+
+  - id: models
+    label: Model Configuration
+    description: Default language model and container image settings
+    fields:
+      - id: OLLAMA_IMAGE
+        label: Docker Image
+        type: string
+        default: ollama/ollama:latest
+        required: true
+        description: Container image tag for Ollama
+
+      - id: OLLAMA_DEFAULT_MODEL
+        label: Default Model
+        type: string
+        default: qwen3:4b
+        required: true
+        description: Default offline model for the Ask tab (e.g. qwen3:4b)
