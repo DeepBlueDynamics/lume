@@ -93,18 +93,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            deploy:
-              - 'scripts/**'
-              - 'deploy/**'
-
       - name: Shellcheck deployment scripts
-        if: steps.filter.outputs.deploy == 'true'
         run: shellcheck scripts/deploy-pi.sh scripts/pi-retire-ollama.sh scripts/provision-pi.sh
 
       - name: Run deploy integration test
-        if: steps.filter.outputs.deploy == 'true'
         run: bash scripts/test/deploy-pi.test.sh
