@@ -189,6 +189,7 @@ def measure():
             "Server startup does not await warm-up; requests arriving before completion can remain cold",
             "Retained cache is byte-bounded; one field decoder's temporary allocations are additional",
             "Historical queries need not hit newest-first warm-up; no benchmark-specific fields selected",
+            "Warm-only RSS covers the benchmark engine/cache process, not a complete server or Pi RSS",
             "Q8 DuckDB parity pending",
         ], measurements=measurements)
     filename = date + "-" + sha[:7]
@@ -211,7 +212,7 @@ def measure():
         memory = measurement["warmup_memory"]
         warm = memory["report"]
         lines.append(f"| {int(budget) // 1048576} MiB | {warm['shards']} / {warm['fields']} | {warm['bytes']/1048576:.2f} | {warm['elapsed_ms']:.2f} | {memory['process_peak_rss_bytes']/1048576:.2f} | {memory['sampled_warm_peak_rss_bytes']/1048576:.2f} |")
-    lines += ["", "Process peak is the Windows peak working set including engine startup; warm-phase RSS is sampled every 50 ms.",
+    lines += ["", "Process peak is the Windows peak working set of the warm-only benchmark runner including engine startup; warm-phase RSS is sampled every 50 ms. This is not complete server or Pi RSS.",
               "The server answers immediately without joining warm-up; these timings describe queries after it completes.",
               "Default warming does not promise historical cold-start targets. See JSON for every query, warm-up counters and caveats."]
     (destination / (filename + ".md")).write_text("\n".join(lines) + "\n", encoding="utf-8")

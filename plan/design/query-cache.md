@@ -145,3 +145,16 @@ Native Rust 1.96.1 checks for this slice passed: 36 ti-store tests (including
 tests. Explicit rustfmt checks cover the touched Rust files; strict clippy covers
 ti-contracts/ti-store/ti-bench all targets and the standalone runner with
 --no-deps (the root package has unrelated legacy lint failures).
+
+The native release run at `0fb40e8` records all 26 query fingerprints matching
+the previous cache A/B run at both budgets. A fresh-process all-field preload
+takes 417.40 ms at 256 MiB (255.93 MiB charged, 7 shards / 814 fields,
+92.50 MiB process peak working set), or 165.46 ms at the Pi's 64 MiB
+(63.69 MiB charged, 2 shards / 197 fields, 33.03 MiB peak). This is the
+Windows warm-only benchmark process, not full server or Pi RSS.
+
+Default newest-first warming does not close arbitrary historical cold misses:
+Q1/Q3/Q5/Q6 remain MISS at both budgets. The selection is intentionally not
+tuned to the benchmark. See [the committed measurements](../../bench/results/2026-10-08-0fb40e8.md)
+and [benchmark report §2/§9](../bench/benchmark-report.md) for every class,
+PASS/MISS and the remaining D48 gap 3.
