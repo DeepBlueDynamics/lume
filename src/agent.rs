@@ -1112,9 +1112,13 @@ pub fn run_agent_loop(args: AgentLoopArgs<'_>) -> Result<(), String> {
         ollama_model,
         db_dir,
         verbose,
+        #[cfg(feature = "ti")]
         ti_store,
+        #[cfg(feature = "ti")]
         docs_index,
+        #[cfg(feature = "ti")]
         json_output,
+        ..
     } = args;
     #[cfg(feature = "ti")]
     if ti_store.is_some() || docs_index.is_some() || json_output {

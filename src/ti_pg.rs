@@ -783,6 +783,8 @@ pub struct PgOptions {
     pub require_tls: Option<bool>,
     /// Maximum idle time waiting for a post-authentication protocol message.
     pub idle_timeout: Duration,
+    /// Maximum frontend frame length, including its four-byte length field.
+    pub max_frame_bytes: usize,
     /// Deadline for a stalled socket write, flush or shutdown.
     pub write_timeout: Duration,
 }
@@ -795,6 +797,7 @@ impl Default for PgOptions {
             allow_plaintext: false,
             require_tls: None,
             idle_timeout: Duration::from_secs(600),
+            max_frame_bytes: 1024 * 1024,
             write_timeout: Duration::from_secs(30),
         }
     }
@@ -1050,6 +1053,142 @@ async fn handle_handshake(
     }
 }
 
+/// Validate each plaintext frame header before pgwire can buffer its body.
+/// SSL/GSS negotiation is handled before this wrapper; decrypted TLS uses it too.
+struct BoundedPgStream<S> {
+    stream: S,
+    max_frame_bytes: usize,
+    startup: bool,
+    header: [u8; 5],
+    header_read: usize,
+    header_sent: usize,
+    body_remaining: usize,
+    validated: bool,
+}
+
+impl<S> BoundedPgStream<S> {
+    fn new(stream: S, max_frame_bytes: usize) -> Self {
+        Self {
+            stream,
+            max_frame_bytes,
+            startup: true,
+            header: [0; 5],
+            header_read: 0,
+            header_sent: 0,
+            body_remaining: 0,
+            validated: false,
+        }
+    }
+}
+
+impl<S: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for BoundedPgStream<S> {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        use std::task::Poll;
+        let this = self.get_mut();
+        if buf.remaining() == 0 {
+            return Poll::Ready(Ok(()));
+        }
+        let header_len = if this.startup { 4 } else { 5 };
+        if !this.validated {
+            while this.header_read < header_len {
+                let mut header_buf =
+                    tokio::io::ReadBuf::new(&mut this.header[this.header_read..header_len]);
+                match std::pin::Pin::new(&mut this.stream).poll_read(cx, &mut header_buf) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                    Poll::Ready(Ok(())) => {}
+                }
+                let n = header_buf.filled().len();
+                if n == 0 {
+                    return if this.header_read == 0 {
+                        Poll::Ready(Ok(()))
+                    } else {
+                        Poll::Ready(Err(std::io::Error::new(
+                            std::io::ErrorKind::UnexpectedEof,
+                            "Incomplete Postgres frame header",
+                        )))
+                    };
+                }
+                this.header_read += n;
+            }
+            let offset = usize::from(!this.startup);
+            let length =
+                u32::from_be_bytes(this.header[offset..offset + 4].try_into().unwrap()) as usize;
+            // Preserve pgwire's smaller startup bound. Signed-negative lengths
+            // become large u32 values and fail here, before any body allocation.
+            let limit = if this.startup {
+                this.max_frame_bytes.min(10_000)
+            } else {
+                this.max_frame_bytes
+            };
+            let minimum = if this.startup { 8 } else { 4 };
+            if length < minimum || length > limit {
+                return Poll::Ready(Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("Postgres frame length {length} is outside {minimum}..={limit} bytes"),
+                )));
+            }
+            this.body_remaining = length - 4;
+            this.validated = true;
+        }
+        if this.header_sent < header_len {
+            let end = (this.header_sent + buf.remaining()).min(header_len);
+            buf.put_slice(&this.header[this.header_sent..end]);
+            this.header_sent = end;
+        } else if this.body_remaining > 0 {
+            let capacity = this.body_remaining.min(buf.remaining());
+            let mut body = tokio::io::ReadBuf::new(buf.initialize_unfilled_to(capacity));
+            match std::pin::Pin::new(&mut this.stream).poll_read(cx, &mut body) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                Poll::Ready(Ok(())) => {}
+            }
+            let n = body.filled().len();
+            if n == 0 {
+                return Poll::Ready(Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "Incomplete Postgres frame body",
+                )));
+            }
+            buf.advance(n);
+            this.body_remaining -= n;
+        }
+        if this.header_sent == header_len && this.body_remaining == 0 {
+            this.startup = false;
+            this.header_read = 0;
+            this.header_sent = 0;
+            this.validated = false;
+        }
+        Poll::Ready(Ok(()))
+    }
+}
+
+impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for BoundedPgStream<S> {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        std::pin::Pin::new(&mut self.get_mut().stream).poll_write(cx, buf)
+    }
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.get_mut().stream).poll_flush(cx)
+    }
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.get_mut().stream).poll_shutdown(cx)
+    }
+}
+
 /// Write deadlines apply to socket I/O, never to query evaluation.
 struct TimedPgStream<S> {
     stream: S,
@@ -1137,7 +1276,7 @@ async fn process_connection(
     let client_info = DefaultClient::new(peer_addr, is_secure);
     let mut socket = tokio_util::codec::Framed::new(
         TimedPgStream {
-            stream,
+            stream: BoundedPgStream::new(stream, options.max_frame_bytes),
             timeout: options.write_timeout,
             deadline: None,
         },
@@ -1198,6 +1337,12 @@ async fn process_connection(
             }
             Some(Err(e)) => {
                 eprintln!("Postgres connection error: {e}");
+                socket
+                    .send(PgWireBackendMessage::ErrorResponse(
+                        ErrorInfo::new("FATAL".into(), "08P01".into(), e.to_string()).into(),
+                    ))
+                    .await?;
+                socket.close().await?;
                 break;
             }
             None => break,
@@ -1232,6 +1377,9 @@ pub fn start_with_options(
 ) -> Result<Listener, String> {
     if options.idle_timeout.is_zero() || options.write_timeout.is_zero() {
         return Err("Postgres idle and write timeouts must be positive".into());
+    }
+    if options.max_frame_bytes < 8 || options.max_frame_bytes > i32::MAX as usize {
+        return Err("Postgres max_frame_bytes must be between 8 and 2147483647".into());
     }
     let options = options.clone();
     let must_require_tls = require_tls(address.ip(), &options);
@@ -1311,6 +1459,30 @@ pub fn start_with_options(
 #[cfg(test)]
 mod deadline_tests {
     use super::*;
+
+    #[test]
+    fn pipelined_frames_are_individually_bounded_with_fragmented_reads() {
+        ti_sql::surface_runtime().unwrap().block_on(async {
+            let (mut writer, reader) = tokio::io::duplex(64);
+            let bytes = [
+                0, 0, 0, 8, 0, 3, 0, 0, b'Q', 0, 0, 0, 5, 0, b'B', 0, 0, 1, 0,
+            ];
+            writer.write_all(&bytes).await.unwrap();
+            let mut reader = BoundedPgStream::new(reader, 16);
+            let mut received = Vec::new();
+            let error = loop {
+                let mut byte = [0];
+                match reader.read(&mut byte).await {
+                    Ok(1) => received.push(byte[0]),
+                    Err(e) => break e,
+                    other => panic!("unexpected read: {other:?}"),
+                }
+            };
+            assert_eq!(received, bytes[..14]);
+            assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+            assert!(error.to_string().contains("256"));
+        });
+    }
     #[test]
     fn stalled_socket_write_expires_without_timing_query_work() {
         ti_sql::surface_runtime().unwrap().block_on(async {

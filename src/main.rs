@@ -253,6 +253,7 @@ fn lume_main() {
                     eprintln!("--pg-tls-key requires a path"); std::process::exit(2);
                 })
             });
+            #[cfg(feature = "ti")]
             let pg_allow_plaintext = args.iter().any(|a| a == "--pg-allow-plaintext");
             let pg_require_tls = if let Some(arg) = args.iter().find(|a| a.starts_with("--pg-require-tls=")) {
                 match arg.strip_prefix("--pg-require-tls=").unwrap() {
@@ -273,6 +274,8 @@ fn lume_main() {
             } else {
                 None
             };
+            #[cfg(not(feature = "ti"))]
+            let _ = pg_require_tls;
             if (pg_tls_cert.is_some() && pg_tls_key.is_none()) || (pg_tls_cert.is_none() && pg_tls_key.is_some()) {
                 eprintln!("Both --pg-tls-cert and --pg-tls-key must be specified together"); std::process::exit(2);
             }
