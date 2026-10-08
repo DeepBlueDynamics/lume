@@ -50,10 +50,13 @@ Setup and workflow: [SETUP.md](SETUP.md).
 ## Next phase (approved 2026-10-08)
 
 The plan is [next-phase-2026-10-08.md](next-phase-2026-10-08.md). Pane names are as of the 2026-10-08 Hyperia restart; the lead is Annual Echidna.
-- **Codex (Inland Tarantula, `.lanes/w4`):** `ti/otlp`, an OTLP http/json receiver for agent telemetry (Hyperia and n8), recorded as D50. The code is complete at 856524a, and its whole-file root reformat (552b216) has been dropped; final verification is running before the merge.
+- **Codex (Inland Tarantula, `.lanes/w4`):**
+  - **Done:** A1 `ti/otlp`, an OTLP http/json receiver for agent telemetry (Hyperia and n8), recorded as D50, merged as `1947f88`.
+  - **Now:** A4 `ti/otlp-persist` (in progress).
 - **Grok 4.7 (Burning Gerbil, `.lanes/w5`, joined 2026-10-08):**
   - **Done:** A2 `ti/pi-bench`, D48 gap 4 (moved over from Codex). It adds the `scripts/cross-arm64.sh ti-query-bench` variant, the `scripts/pi-bench-recipe.sh store` 1-vessel × 90-day seed-42 store, and `ti-query-bench bench --pi`, which writes `bench/results/<date>-pi-<sha>.json`. The run on the Pi waits for Pi access.
-  - **Now:** A3 `ti/lint-lib`, clearing the 8 pre-existing strict-clippy errors in the `lume` lib.
+  - **Done:** A3 `ti/lint-lib` merged, with the lead fix `e0b6b1d` (clearing strict-clippy errors in the `lume` lib).
+  - **Now:** A5 `ti/index-atomic` (in progress).
 - **Antigravity (Panicky Parrot, `.lanes/w3`):**
   - **Done:** B1 `ti/plugin-cloud`, merged as 7aebf7c. The Ask tab defaults to `https://ollama.com` and `glm-5.3:cloud`. The `chatApiKeyFile` key is passed in the child env only.
   - **Done:** B2. Both HaLOS `.deb`s were rebuilt with the Maintainer `kord@deepbluedynamics.com` and the auto memory hooks.
@@ -62,8 +65,10 @@ The plan is [next-phase-2026-10-08.md](next-phase-2026-10-08.md). Pane names are
   - **Done:** B5, SETUP §14 OTLP exporter configs for Claude Code, Codex and Gemini, corrected in f56d0f3.
   - **Done:** B6 `ti/deploy-test`, merged as 2365406. It tests the deploy scripts against a throwaway local sshd container.
   - **Done:** B7 `ti/provision-pi`, merged as 207919d. `scripts/provision-pi.sh <host> [--dry-run] [--lume-bin P] [--debs DIR] [--with-ollama]` re-provisions a new or reflashed Pi: memcg, a UUID report, the .debs without Ollama, the plugin deploy and the key-file instructions. Lead fix 2cc4bbb: `--lume-bin` always redeploys, and the test runs without a host `dpkg-deb`.
-  - **Now:** B8 `ti/ci-deploy-test`, which runs the deploy-script integration test and shellcheck in CI.
-- **Pi (2026-10-08 07:50Z):** back on DHCP at 192.168.68.61, where it answers as Signal K 2.31.1. Its SSH host key changed and the deploy key is rejected, which suggests a reflash. Waiting for the user to restore the key; the Pi steps below wait on it.
+  - **Done:** B8 `ti/ci-deploy-test`, merged as `bbb59fc` / `a1a7790`, running the deploy-script integration test and shellcheck in CI.
+  - **Done:** B9 `ti/plugin-otlp`, merged as `eb270dd` / `1b02096`: Signal K plugin OTLP receiver configuration (`otlpEnabled`, `otlpTokenFile`), supervisor argv handling, validation, tests, and pinned loopback query server.
+  - **Now:** B10 `ti/agents-dashboard`: Grafana dashboard (`lume-agents-dashboard.json`) on pgwire for agent telemetry (tokens over time, cost, sessions per entity, logbook docs table with text search), unittest suite, and README import instructions.
+- **Pi (2026-10-08 07:50Z):** still blocked on its SSH host key (back on DHCP at 192.168.68.61, where it answers as Signal K 2.31.1; its SSH host key changed and the deploy key is rejected, which suggests a reflash. Waiting for the user to restore the key; the Pi steps below wait on it).
 - **Lead:**
   - remove the Ollama container from the Pi, which frees about 4.2 GB (4.5 GB is free now);
   - deploy the plugin and pull the published Grub image;

@@ -36,3 +36,55 @@ CARGO_INCREMENTAL=0 cargo test --features ti --test ti_http
 
 The live Pi datasource Save & Test and actual psql smoke must be checked after
 deployment; loopback/stub tests do not establish that container connectivity.
+
+## Importing the Agent Telemetry Dashboard
+
+`lume-agents-dashboard.json` visualizes agent metrics and event logs ingested via OTLP (`POST /v1/metrics` and `POST /v1/logs`, D50) and queried over pgwire (`telemetry_agents` and `docs`):
+- **Tokens Over Time**: MAX-MIN usage over the window using D50 dimensional paths (`"claude_code.token.usage@last"`).
+- **Active Time**: tracks `claude_code.active_time` in seconds over time.
+- **Active Buckets per Agent**: counts active 10-second telemetry buckets grouped by agent entity (`vessel AS entity`, `count(DISTINCT ts)`).
+- **Recent Logbook Docs**: table of recent OTLP logbook records (`title`, `vessel AS entity`, `ts_start`) with interactive text-search filtering via `match(body, ${q:sqlstring})`.
+
+### Import steps
+
+#### Option A: Via Grafana Web UI
+1. Ensure the `Lume TI` datasource (`uid: lume-ti`) is provisioned and tested (Save & Test).
+2. Open Grafana in your browser (e.g. `http://halos.local:3000` or local port).
+3. Navigate to **Dashboards** → **New** → **Import** (or browse to `/dashboard/import`).
+4. Click **Upload dashboard JSON file** and select `bench/grafana/lume-agents-dashboard.json`.
+5. Select the **Lume TI** datasource for any datasource prompt, then click **Import**.
+6. Use the top toolbar `$q` text box to filter logbook events by body content (e.g. `service.rs`, `edit`, `tool_call`).
+
+#### Option B: Via Provisioning Directory
+Copy the dashboard file into Grafana's dashboard provisioning tree:
+```sh
+cp bench/grafana/lume-agents-dashboard.json /var/lib/grafana/dashboards/
+```
+Or create a dashboard provider configuration in `/etc/grafana/provisioning/dashboards/lume.yaml`:
+```yaml
+apiVersion: 1
+providers:
+  - name: 'Lume Dashboards'
+    orgId: 1
+    folder: 'Lume'
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards
+```
+Restart Grafana to load the dashboard automatically.
+
+### Running dashboard tests
+- Static structure, datasource, and credential sanity checks:
+  ```sh
+  py -3 -m unittest bench/grafana/test_agents_dashboard.py
+  ```
+- Live SQL query execution against OTLP ingest:
+  ```sh
+  py -3 -m unittest bench/grafana/test_agents_dashboard_sql.py
+  ```
+- Discover all:
+  ```sh
+  py -3 -m unittest discover -s bench/grafana -p 'test_*.py'
+  ```
