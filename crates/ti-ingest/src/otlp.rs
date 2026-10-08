@@ -957,19 +957,61 @@ fn prepare_logs(bytes: &[u8]) -> Result<PreparedLogs> {
     Ok(PreparedLogs { docs, latest })
 }
 
+/// `(length, generation)` of `docs/documents.log`. Missing or unreadable is `(0, 0)`.
+fn log_tip(path: &Path) -> (u64, u64) {
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return (0, 0);
+    };
+    let len = file.metadata().map(|meta| meta.len()).unwrap_or(0);
+    let mut header = [0u8; 24];
+    if std::io::Read::read(&mut file, &mut header).ok() != Some(header.len()) {
+        return (len, 0);
+    }
+    if &header[..8] != b"LUMEDOC\0" {
+        return (len, 0);
+    }
+    let generation = u64::from_le_bytes(header[12..20].try_into().unwrap_or([0; 8]));
+    (len, generation)
+}
+
+/// Bytes this group's `upsert_all` put on disk, and whether that write was a compaction.
+///
+/// An unchanged generation is an append, so the write is the growth of `documents.log`.
+/// A new generation replaces the log. The first publication has no previous generation.
+/// Compaction syncs the group's frame and then renames a new log over it; the frame is
+/// no longer in the file, and the measured write is the rewritten log.
+fn docs_bytes_written(
+    before_len: u64,
+    before_gen: u64,
+    after_len: u64,
+    after_gen: u64,
+) -> (u64, bool) {
+    let compacted = before_gen != 0 && after_gen != before_gen;
+    let written = if before_gen == 0 || compacted {
+        after_len
+    } else {
+        after_len.saturating_sub(before_len)
+    };
+    (written, compacted)
+}
+
 fn commit_logs(
     root: &Path,
     docs: Vec<Document>,
     latest: Option<i64>,
 ) -> std::result::Result<(), String> {
     let mut store = DocStore::open(root).map_err(|e| e.to_string())?;
+    let log_path = root.join("docs").join("documents.log");
+    let (before_len, before_gen) = log_tip(&log_path);
     let started = Instant::now();
     store.upsert_all(docs).map_err(|e| e.to_string())?;
     let rewrite_us = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
-    let bytes = std::fs::metadata(root.join("docs").join("documents.json"))
-        .map(|meta| meta.len())
-        .unwrap_or(0);
-    eprintln!("otlp-docs-commit bytes={bytes} rewrite_us={rewrite_us}");
+    let (after_len, after_gen) = log_tip(&log_path);
+    let (bytes, compacted) = docs_bytes_written(before_len, before_gen, after_len, after_gen);
+    eprintln!(
+        "otlp-docs-commit bytes={bytes} rewrite_us={rewrite_us} compact={}",
+        u8::from(compacted)
+    );
     if let Some(ts) = latest {
         let newest = store
             .iter()
@@ -1176,6 +1218,39 @@ mod tests {
         assert_eq!(metric_path("tokens", &a), "tokens.input.model.model%2Ea");
         assert_eq!(metric_path("tokens", &a), metric_path("tokens", &b));
         assert_ne!(component("model.a"), component("model%2Ea"));
+    }
+    #[test]
+    fn docs_bytes_written_is_append_delta_or_compaction_rewrite() {
+        assert_eq!(super::docs_bytes_written(0, 0, 120, 1), (120, false));
+        assert_eq!(super::docs_bytes_written(120, 1, 180, 1), (60, false));
+        assert_eq!(super::docs_bytes_written(5_000, 1, 900, 2), (900, true));
+        assert_eq!(super::docs_bytes_written(180, 1, 180, 1), (0, false));
+    }
+    #[test]
+    fn second_log_group_appends_documents_log() {
+        let root = root();
+        let receiver = AgentStore::open(root.path()).unwrap();
+        let log = |ts: i64| {
+            json!({"resourceLogs":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"test"}}]},
+            "scopeLogs":[{"logRecords":[{"timeUnixNano":"0","observedTimeUnixNano":format!("{ts}000000000"),"eventName":"file.edit"}]}]}]}).to_string()
+        };
+        receiver
+            .logs(log(ti_contracts::EPOCH + 1).as_bytes())
+            .unwrap();
+        let path = root.path().join("docs").join("documents.log");
+        let (before_len, before_gen) = super::log_tip(&path);
+        assert!(before_len > 24);
+        assert_eq!(before_gen, 1);
+        assert!(!root.path().join("docs").join("documents.json").exists());
+        receiver
+            .logs(log(ti_contracts::EPOCH + 2).as_bytes())
+            .unwrap();
+        let (after_len, after_gen) = super::log_tip(&path);
+        let (written, compacted) =
+            super::docs_bytes_written(before_len, before_gen, after_len, after_gen);
+        assert!(!compacted);
+        assert_eq!(written, after_len - before_len);
+        assert!(written > 0);
     }
     fn gauge(service: &str, value: f64) -> String {
         json!({"resourceMetrics":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":service}}]},"scopeMetrics":[{"metrics":[
