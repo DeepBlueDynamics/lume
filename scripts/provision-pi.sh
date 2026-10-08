@@ -348,7 +348,8 @@ echo
 # ------------------------------------------------------------------------------
 echo "=== Step 5: Deploy Signal K Lume TI Plugin ==="
 PLUGIN_DEST="/var/lib/container-apps/marine-signalk-server-container/data/data/lume-plugin/signalk-lume-ti"
-if remote_test "test -f '${PLUGIN_DEST}/package.json' && \
+# An explicit --lume-bin always redeploys: skipping it would leave the old binary running.
+if [ -z "$LUME_BIN" ] && remote_test "test -f '${PLUGIN_DEST}/package.json' && \
                 test -f '${PLUGIN_DEST}/bin/linux-arm64/lume' && \
                 test -x '${PLUGIN_DEST}/bin/linux-arm64/lume' && \
                 sudo -n systemctl is-active --quiet marine-signalk-server-container"; then

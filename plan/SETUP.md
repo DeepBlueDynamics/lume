@@ -578,7 +578,7 @@ Three automated scripts handle provisioning the Pi, deploying the plugin, and re
    - **Step 2 (memory cgroup):** Checks `/proc/cmdline` for `cgroup_enable=memory`. If absent and not already configured in `/boot/firmware/cmdline.txt`, backs up `cmdline.txt` to `cmdline.txt.bak-pre-memcg`, appends `cgroup_enable=memory cgroup_memory=1` to its single line, and prints `REBOOT NEEDED` (never reboots automatically).
    - **Step 3 (pin self vessel UUID):** Reads the existing UUID from Signal K settings (`baseDeltas.json` or `settings.json` under `/var/lib/container-apps/marine-signalk-server-container/data/data/`) and reports it; if absent, prints a warning (never invents one).
    - **Step 4 (HaLOS app .debs):** If `--debs <dir>` is specified, stages and installs app packages with `sudo -n apt-get install -y ./x.deb`, skipping `marine-ollama-container` by default unless `--with-ollama` is provided. Skips packages already installed per `dpkg -s`.
-   - **Step 5 (deploy plugin):** Calls `scripts/deploy-pi.sh` to stage and deploy the Signal K plugin and arm64 `lume` binary, restarting `marine-signalk-server-container` and checking health (skips if already deployed and active).
+   - **Step 5 (deploy plugin):** Calls `scripts/deploy-pi.sh` to stage and deploy the Signal K plugin and arm64 `lume` binary, restarting `marine-signalk-server-container` and checking health. It skips when the plugin is already deployed and active and no `--lume-bin` is given; an explicit `--lume-bin` always redeploys. To push new plugin JS alone, run `deploy-pi.sh` directly.
    - **Step 6 (key instructions):** Prints the SETUP §13 instructions for creating `ollama.key` (skips if already displayed or key file exists; never handles or prompts for keys).
    - **Idempotency & safety:** Every step verifies state first and prints `[SKIP]` if already completed. Honors `LUME_DEPLOY_SSH_CONFIG`, uses `sudo -n` throughout (never prompts for a password), and supports `--dry-run` to inspect remote commands before running them.
 
@@ -597,7 +597,7 @@ Three automated scripts handle provisioning the Pi, deploying the plugin, and re
    Stops and disables `marine-ollama-container.service`, removes the `ollama/ollama` Docker image (reclaiming ~4.2 GB disk), preserves the persistent data directory at `/var/lib/container-apps/marine-ollama-container/data`, and prints filesystem disk usage (`df -h /`) before and after. `--dry-run` prints all remote commands without running them. Uses `sudo -n` throughout.
 
 **Integration testing (`scripts/test/deploy-pi.test.sh`):**
-Tests `deploy-pi.sh`, `pi-retire-ollama.sh`, and `provision-pi.sh` (including dry-run mode and a full second run asserting all steps output `[SKIP]`) against a throwaway Debian sshd container with fake `systemctl`, `docker`, `apt-get`, and `dpkg` shims and faked `/proc/cmdline`. Uses `LUME_DEPLOY_SSH_CONFIG` to isolate SSH configuration without modifying `~/.ssh/config`.
+Tests `deploy-pi.sh`, `pi-retire-ollama.sh`, and `provision-pi.sh` (including dry-run mode and a full second run asserting all steps output `[SKIP]`) against a throwaway Debian sshd container with fake `systemctl`, `docker`, `apt-get`, and `dpkg` shims and faked `/proc/cmdline`. Without a host `dpkg-deb` (Windows Git Bash), the fake `.deb`s are built inside the test image. Uses `LUME_DEPLOY_SSH_CONFIG` to isolate SSH configuration without modifying `~/.ssh/config`.
 
 ## 13. Ask tab with ollama.com
 

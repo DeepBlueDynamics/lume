@@ -493,6 +493,16 @@ ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "
 JSON
 "
 
+# Build a .deb with the host's dpkg-deb, or inside the test's Debian image when the
+# host has none (Windows Git Bash): the package tree goes in and the .deb comes back over stdio.
+build_deb() {
+    if command -v dpkg-deb >/dev/null 2>&1; then
+        dpkg-deb -b "$1" "$2" >/dev/null
+    else
+        tar -C "$1" -cf - . | docker run -i --rm --entrypoint sh "$IMAGE_NAME" -c             'mkdir /p && tar -xf - -C /p && dpkg-deb -b /p /tmp/x.deb >/dev/null && cat /tmp/x.deb' > "$2"
+    fi
+}
+
 # 3. Create test HaLOS .deb packages (marine-grubcrawler-container and marine-ollama-container)
 TEST_DEBS_DIR="${TMP_DIR}/test_debs"
 mkdir -p "${TEST_DEBS_DIR}/pkg-grub/DEBIAN" "${TEST_DEBS_DIR}/pkg-ollama/DEBIAN"
@@ -503,7 +513,7 @@ Architecture: all
 Maintainer: test <test@example.com>
 Description: fake grubcrawler container
 EOF
-dpkg-deb -b "${TEST_DEBS_DIR}/pkg-grub" "${TEST_DEBS_DIR}/marine-grubcrawler-container_0.16.1-1_arm64.deb" >/dev/null
+build_deb "${TEST_DEBS_DIR}/pkg-grub" "${TEST_DEBS_DIR}/marine-grubcrawler-container_0.16.1-1_arm64.deb"
 
 cat << 'EOF' > "${TEST_DEBS_DIR}/pkg-ollama/DEBIAN/control"
 Package: marine-ollama-container
@@ -512,7 +522,7 @@ Architecture: all
 Maintainer: test <test@example.com>
 Description: fake ollama container
 EOF
-dpkg-deb -b "${TEST_DEBS_DIR}/pkg-ollama" "${TEST_DEBS_DIR}/marine-ollama-container_0.1.0-1_arm64.deb" >/dev/null
+build_deb "${TEST_DEBS_DIR}/pkg-ollama" "${TEST_DEBS_DIR}/marine-ollama-container_0.1.0-1_arm64.deb"
 
 # Clean remote destination and state markers before provision tests
 ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "
@@ -631,7 +641,7 @@ echo "=== Test 8: Real provision-pi.sh second run (asserting all SKIP) ==="
 CMDLINE_CKSUM_BEFORE=$(ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "sha256sum /tmp/fake_boot_cmdline.txt | awk '{print \$1}'")
 ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "sudo -n truncate -s 0 /var/log/shim_calls.log"
 
-SECOND_PROV_RUN=$(bash "$PROVISION_SCRIPT" "$SSH_HOST_ALIAS" --debs "$TEST_DEBS_DIR" --lume-bin "$DUMMY_LUME")
+SECOND_PROV_RUN=$(bash "$PROVISION_SCRIPT" "$SSH_HOST_ALIAS" --debs "$TEST_DEBS_DIR")
 echo "$SECOND_PROV_RUN"
 
 # Assert each step outputs [SKIP]
@@ -675,6 +685,14 @@ if ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "grep -q 'systemctl restar
 fi
 
 echo "PASS: provision-pi.sh idempotent second run skipped all steps without side effects."
+
+# An explicit --lume-bin must redeploy even when the plugin is already active
+THIRD_PROV_RUN=$(bash "$PROVISION_SCRIPT" "$SSH_HOST_ALIAS" --lume-bin "$DUMMY_LUME")
+if echo "$THIRD_PROV_RUN" | grep -q "\[SKIP\] Signal K Lume TI plugin is already deployed"; then
+    echo "FAIL: --lume-bin run skipped the plugin deploy" >&2
+    exit 1
+fi
+echo "PASS: provision-pi.sh with --lume-bin redeploys the plugin."
 
 # --------------------------------------------------------------------------
 # Test 9: Assert ~/.ssh/config checksum unchanged
