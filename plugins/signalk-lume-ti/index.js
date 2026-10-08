@@ -6,7 +6,7 @@ const http = require('http');
 
 const { resolveLumeBinary } = require('./lib/resolver');
 const { TokenManager } = require('./lib/auth');
-const { Supervisor } = require('./lib/supervisor');
+const { Supervisor, validateBind } = require('./lib/supervisor');
 const { collectStoreStatus } = require('./lib/status');
 const { createHistoryProvider } = require('./lib/history');
 const {pgOptions, writePgConfig, registerPgRoutes, adminStatus, readJson} = require('./lib/pg');
@@ -90,6 +90,18 @@ module.exports = function (app) {
           title: 'Query Server Port',
           default: 5863,
           description: 'Local loopback port for the integrated query server (default 5863)',
+        },
+        otlpEnabled: {
+          type: 'boolean',
+          title: 'Enable OTLP Receiver',
+          default: false,
+          description: 'Enable OTLP HTTP/JSON receiver on the query server (/v1/metrics and /v1/logs)',
+        },
+        otlpTokenFile: {
+          type: 'string',
+          title: 'OTLP Bearer Token File Path (optional)',
+          default: '',
+          description: 'Path to a file containing the bearer token for OTLP ingestion. Required if serveBind is non-loopback; optional on loopback. The token is read by the lume process; never put the token in config or logs.',
         },
         enablePg: {type: 'boolean', title: 'Enable PostgreSQL (Grafana)', default: false},
         pgPort: {type: 'integer', title: 'PostgreSQL port', default: 5864, minimum: 1, maximum: 65535},
@@ -235,12 +247,29 @@ module.exports = function (app) {
       }
 
       // 3. Setup Supervisor
+      const serveBind = pluginConfig.serveBind || '127.0.0.1';
+      const otlpEnabled = pluginConfig.otlpEnabled === true;
+      const otlpTokenFile = pluginConfig.otlpTokenFile ? String(pluginConfig.otlpTokenFile).trim() : null;
+
+      if (otlpEnabled) {
+        const bindErr = validateBind(serveBind, otlpTokenFile);
+        if (bindErr) {
+          const errMsg = `Config error: ${bindErr}`;
+          log(errMsg, true);
+          if (typeof app.setPluginError === 'function') {
+            app.setPluginError(errMsg);
+          }
+        }
+      }
+
       supervisor = new Supervisor({
         binaryPath: currentBinaryInfo.path,
         signalkUrl,
         storeDir,
         servePort,
-        serveBind: '127.0.0.1',
+        serveBind,
+        otlpEnabled,
+        otlpTokenFile,
         pgPort: pg.enablePg ? pg.pgPort : null,
         pgBind: pg.pgBind,
         pgAuthConfig,

@@ -146,3 +146,84 @@ test('Supervisor passes TLS options only when set', async () => {
 
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
+
+test('Supervisor OTLP options and validation', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lume-sup-otlp-'));
+  const storeDir = path.join(tmpDir, 'store');
+
+  // 1. disabled means no --otlp
+  const supDisabled = new Supervisor({
+    binaryPath: mockLumeBin,
+    signalkUrl: 'ws://127.0.0.1:3000',
+    storeDir,
+    otlpEnabled: false,
+  });
+  const disabledArgs = supDisabled.buildArgs();
+  assert.strictEqual(disabledArgs.includes('--otlp'), false);
+  assert.strictEqual(disabledArgs.includes('--otlp-token-file'), false);
+
+  // Default options also means no --otlp
+  const supDefault = new Supervisor({
+    binaryPath: mockLumeBin,
+    signalkUrl: 'ws://127.0.0.1:3000',
+    storeDir,
+  });
+  assert.strictEqual(supDefault.buildArgs().includes('--otlp'), false);
+
+  // 2. enabled adds --otlp
+  const supEnabled = new Supervisor({
+    binaryPath: mockLumeBin,
+    signalkUrl: 'ws://127.0.0.1:3000',
+    storeDir,
+    otlpEnabled: true,
+  });
+  const enabledArgs = supEnabled.buildArgs();
+  assert.strictEqual(enabledArgs.includes('--otlp'), true);
+  assert.strictEqual(enabledArgs.includes('--otlp-token-file'), false);
+
+  // 3. a token file adds the flag and path
+  const supWithToken = new Supervisor({
+    binaryPath: mockLumeBin,
+    signalkUrl: 'ws://127.0.0.1:3000',
+    storeDir,
+    otlpEnabled: true,
+    otlpTokenFile: '/etc/lume/otlp.token',
+  });
+  const tokenArgs = supWithToken.buildArgs();
+  assert.strictEqual(tokenArgs.includes('--otlp'), true);
+  const tokenIdx = tokenArgs.indexOf('--otlp-token-file');
+  assert.ok(tokenIdx !== -1, '--otlp-token-file should be present');
+  assert.strictEqual(tokenArgs[tokenIdx + 1], '/etc/lume/otlp.token');
+
+  // 4. non-loopback without a token file gives the error
+  const logs = [];
+  const supNonLoopback = new Supervisor({
+    binaryPath: mockLumeBin,
+    signalkUrl: 'ws://127.0.0.1:3000',
+    storeDir,
+    serveBind: '192.168.1.100',
+    otlpEnabled: true,
+    onLog: (line, isErr) => logs.push({ line, isErr }),
+  });
+  const nonLoopbackArgs = supNonLoopback.buildArgs();
+  assert.strictEqual(nonLoopbackArgs.includes('--otlp'), false);
+  assert.strictEqual(nonLoopbackArgs.includes('--otlp-token-file'), false);
+  assert.strictEqual(supNonLoopback.otlpError, 'Non-loopback OTLP requires --otlp-token-file');
+  assert.ok(logs.some(l => l.isErr && l.line.includes('Non-loopback OTLP requires --otlp-token-file')));
+
+  // non-loopback with a token file succeeds and adds both flags
+  const supNonLoopbackWithToken = new Supervisor({
+    binaryPath: mockLumeBin,
+    signalkUrl: 'ws://127.0.0.1:3000',
+    storeDir,
+    serveBind: '192.168.1.100',
+    otlpEnabled: true,
+    otlpTokenFile: '/etc/lume/otlp.token',
+  });
+  const nonLoopbackTokenArgs = supNonLoopbackWithToken.buildArgs();
+  assert.strictEqual(nonLoopbackTokenArgs.includes('--otlp'), true);
+  assert.strictEqual(nonLoopbackTokenArgs.includes('--otlp-token-file'), true);
+  assert.strictEqual(nonLoopbackTokenArgs[nonLoopbackTokenArgs.indexOf('--otlp-token-file') + 1], '/etc/lume/otlp.token');
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});

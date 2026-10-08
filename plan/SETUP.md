@@ -650,7 +650,7 @@ Signal K binds `/var/lib/container-apps/marine-signalk-server-container/data/dat
 ## 14. OTLP telemetry receiver
 
 > [!NOTE]
-> Workstream A1 (`ti/otlp`) is in progress by Codex (Inland Tarantula). Command flags, endpoints, and table schemas described below reflect the A1 implementation and are *(unconfirmed until A1 lands on `plan/lume-ti`)*.
+> Workstream A1 (`ti/otlp`) is merged as 1947f88 (D50). Plugin supervision and configuration is implemented in Workstream B9 (`ti/plugin-otlp`).
 
 Lume TI includes an OpenTelemetry Protocol (OTLP) receiver accepting metrics and logs over HTTP/JSON (`POST /v1/metrics` and `POST /v1/logs`). It ingests agent telemetry (token usage, file edits, tool runs, mail events) into a dedicated store (`<root>/stores/agents`), queryable as `telemetry_agents` (metrics) and `docs` (log events).
 
@@ -674,6 +674,43 @@ Lume TI includes an OpenTelemetry Protocol (OTLP) receiver accepting metrics and
   - Dedicated store at `<root>/stores/agents`.
   - **`telemetry_agents`**: Numeric metrics. The resource attribute `service.instance.id` (or pane ID) maps to `vessel` as `agent.urn:<instance_id>` (fallback: `agent.urn:<service.name>`). Gauge and sum metrics populate metric columns (with `@mean` and `@last` aggregate profiles), while histogram metrics map to `<metric>.sum` and `<metric>.count`.
   - **`docs`**: Log and span events. `vessel` is set to the agent URN, `title` to the event name (e.g. `file_edit`, `tool_call`, `hyperia.mail`), `kind` to `logbook`, and `body` to serialized JSON attributes, searchable via `match(body, '...')`.
+
+### Signal K plugin configuration (Lume TI)
+
+When running inside Signal K via `plugins/signalk-lume-ti`, OTLP receiver support is configured in the plugin settings (**Server -> Plugin Config -> Lume TI**):
+
+- **`otlpEnabled`** (`Enable OTLP Receiver`, boolean, default `false`): Enables `/v1/metrics` and `/v1/logs` on the query server HTTP listener. When enabled, the supervisor adds `--otlp` (and `--otlp-token-file <path>` if configured) to the `lume ti ingest --serve` argv.
+- **`otlpTokenFile`** (`OTLP Bearer Token File Path`, string, optional): Path to a file containing the bearer token (mode `0600`).
+  - Required if `serveBind` is non-loopback (e.g., `0.0.0.0` or a LAN interface). If `serveBind` is non-loopback and no token file is configured, the plugin logs a clear configuration error and does not start OTLP.
+  - Optional on loopback (`127.0.0.1`).
+  - The token file path may appear on argv; the token itself is read by `lume` directly and is never placed on argv, in logs, or in configuration.
+
+#### Testing the plugin receiver with curl
+
+The supervisor query server listens on `servePort` (default **`5863`**, bound to `serveBind`, default `127.0.0.1`), not Signal K's own port (default `3000`). OTLP endpoints (`/v1/logs` and `/v1/metrics`) are exposed directly on the supervisor query port:
+
+```sh
+# Post golden log events directly to the supervisor query server
+curl -i -X POST http://127.0.0.1:5863/v1/logs \
+  -H "Content-Type: application/json" \
+  -d @tests/golden/otlp/logs.json
+```
+
+If a bearer token is configured on the receiver:
+```sh
+curl -i -X POST http://127.0.0.1:5863/v1/logs \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $(cat /path/to/token.txt)" \
+  -d @tests/golden/otlp/logs.json
+```
+
+Verify the ingested log event in Lume:
+```sh
+# Query via POST /ti/query on the supervisor port (5863)
+curl -s -X POST http://127.0.0.1:5863/ti/query \
+  -H "Content-Type: application/json" \
+  -d '{"sql": "SELECT ts_start, vessel, title, body FROM docs WHERE match(body, '\''service.rs\'\')"}'
+```
 
 ### Client-side exporter configuration
 

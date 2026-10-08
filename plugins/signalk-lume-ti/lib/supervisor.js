@@ -2,8 +2,47 @@
 
 const fs = require('fs');
 const path = require('path');
+const net = require('net');
 const { spawn } = require('child_process');
 const {ensureLastDefault} = require('./store-config');
+
+/**
+ * Check if an IP address string is a loopback address (IPv4 127.0.0.0/8 or IPv6 ::1).
+ * Hostnames like 'localhost' return false, mirroring IpAddr::parse in src/ti_otlp.rs.
+ *
+ * @param {string} bind
+ * @returns {boolean}
+ */
+function isLoopback(bind) {
+  if (!bind || typeof bind !== 'string') return false;
+  const clean = bind.trim();
+  const family = net.isIP(clean);
+  if (family === 4) return clean.startsWith('127.');
+  if (family === 6) return clean === '::1';
+  return false;
+}
+
+/**
+ * Validate bind address and token file for OTLP receiver.
+ * Mirrors validate_bind in src/ti_otlp.rs.
+ *
+ * @param {string} bind
+ * @param {string|null} tokenFile
+ * @returns {string|null} Error message or null if valid.
+ */
+function validateBind(bind, tokenFile) {
+  const clean = typeof bind === 'string' ? bind.trim() : '';
+  const family = net.isIP(clean);
+  if (family === 0) {
+    return 'OTLP bind must be an IP address';
+  }
+  const isLoop = (family === 4 && clean.startsWith('127.')) || (family === 6 && clean === '::1');
+  const hasToken = Boolean(tokenFile && String(tokenFile).trim().length > 0);
+  if (!isLoop && !hasToken) {
+    return 'Non-loopback OTLP requires --otlp-token-file';
+  }
+  return null;
+}
 
 /**
  * Child Process Supervisor for `lume ti ingest --serve`.
@@ -50,6 +89,10 @@ class Supervisor {
     // Cruiser library index served next to telemetry; a missing index is served empty and
     // picked up when it is first published.
     this.docsIndex = options.docsIndex || null;
+
+    this.otlpEnabled = options.otlpEnabled === true;
+    this.otlpTokenFile = options.otlpTokenFile ? String(options.otlpTokenFile).trim() : null;
+    this.otlpError = null;
 
     this.backoffInitialMs = options.backoffInitialMs || 1000;
     this.backoffMaxMs = options.backoffMaxMs || 30000;
@@ -114,6 +157,22 @@ class Supervisor {
 
     if (this.docsIndex) {
       args.push('--docs-index', this.docsIndex);
+    }
+
+    if (this.otlpEnabled) {
+      const bindErr = validateBind(this.serveBind, this.otlpTokenFile);
+      if (bindErr) {
+        this.otlpError = bindErr;
+        this.onLog(`[supervisor] Config error: ${bindErr}`, true);
+      } else {
+        this.otlpError = null;
+        args.push('--otlp');
+        if (this.otlpTokenFile) {
+          args.push('--otlp-token-file', this.otlpTokenFile);
+        }
+      }
+    } else {
+      this.otlpError = null;
     }
 
     if (Array.isArray(this.extraArgs) && this.extraArgs.length > 0) {
@@ -332,4 +391,6 @@ class Supervisor {
 
 module.exports = {
   Supervisor,
+  isLoopback,
+  validateBind,
 };
