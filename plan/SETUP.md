@@ -210,7 +210,7 @@ lume ti sync --to <shore url> --store <root> [--token <token>] [--token-file <pa
 4. **Select Lume TI as the server's default history provider.** `signalk-to-influxdb2` also registers one, so don't assume Lume is chosen.
 5. **Pin the self vessel identity.** Set a vessel UUID or MMSI in Server → Settings → Vessel Base Data. Without it, Signal K on HaLOS regenerated its self UUID on every restart, which split history in Lume and Influx. On the lead's Pi it is pinned in `data/baseDeltas.json` (`urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee`).
 6. Optional: PostgreSQL for Grafana. Use the plugin webapp's admin-only form (`enablePg`, `pgPort` 5864, `pgUser`, `pgBind`); see §11.
-7. Optional: the **Ask** tab (`lume chat`) needs an Ollama endpoint and model in the plugin options `chatOllamaUrl` and `chatModel`.
+7. Optional: the **Ask** tab (`lume chat`) defaults to `https://ollama.com` and `glm-5.3:cloud` using an API key file (`chatApiKeyFile`); see §13. Local and LAN Ollama endpoints remain supported as fallbacks.
 
 The plugin supervises `lume ti ingest --signalk ws://127.0.0.1:3000 --store <dataDir>/lume-ti --serve --bind 127.0.0.1 --port 5863`, restarts it with backoff, and stops it with SIGTERM. It handles the Signal K access-request token (`<dataDir>/token.txt`) and proxies the SQL console webapp through `/plugins/signalk-lume-ti/api/*`, so nothing listens off loopback. The webapp's `apiBase` is `/plugins/signalk-lume-ti` (`530f6b1`). Plugin tests: `cd plugins/signalk-lume-ti && npm test` (17/17 at `e09bb87`).
 
@@ -512,18 +512,21 @@ container mocks.
 
 ## 12. HaLOS container apps on the Pi
 
-Two auxiliary services run beside Signal K and Lume as HaLOS container apps:
+Two auxiliary services can run beside Signal K and Lume as HaLOS container apps:
 
 1. **Grub Crawler** (`deploy/halos/marine-grubcrawler-container/`, `127.0.0.1:6792`):
    fetches web pages and PDFs for the offline cruiser library (`lume crawl --list`,
    `GRUB_BASE_URL`). Uses `deepbluedynamics/grubcrawler:latest-lite` (v0.16.1, multi-arch
    Chromium-only lite build, ~2.8 GB unpacked on arm64). Auth is disabled, so it binds
-   loopback only and is never exposed to the LAN. Memory is capped at 1.5 GB.
-2. **Ollama** (`deploy/halos/marine-ollama-container/`, `127.0.0.1:11434`):
-   runs local language models on the boat for the Signal K plugin's Ask tab (`lume chat`).
-   Uses `ollama/ollama:latest` (4.2 GB arm64 image). Default model is `qwen3:1.7b` (~1.4 GB;
-   `qwen3:4b` at ~2.5 GB also fits if SD card headroom allows). Runs with flash attention
-   and 8-bit KV cache (`q8_0`) within a 4 GB memory ceiling. Has no authentication, so it
+   loopback only and is never exposed to the LAN. Memory is sized dynamically via `app-prestart.sh`
+   (`GRUB_MEMORY_LIMIT=auto`, 20% of RAM up to 4 GiB).
+2. **Ollama** (`deploy/halos/marine-ollama-container/`, `127.0.0.1:11434`, **optional**):
+   running Ollama on the boat is optional (for hosting local models on a laptop or
+   shore machine). The Ask tab defaults to calling `https://ollama.com` directly using
+   `chatApiKeyFile` (see §13 below), freeing ~4.2 GB of disk on the Pi. When used locally,
+   it runs `ollama/ollama:latest` with default model `qwen3:1.7b` (~1.4 GB; `qwen3:4b` at ~2.5 GB
+   also fits if SD card headroom allows), with flash attention and 8-bit KV cache (`q8_0`)
+   within an auto memory ceiling (12% of RAM, ~1 GiB on Pi 5). Has no authentication, so it
    binds loopback only.
 
 Both apps can be installed on the Pi either from their `.deb` packages (which register with
@@ -546,17 +549,72 @@ cd deploy/halos/marine-ollama-container && sudo ./install.sh
 - Persistent data lives under `/var/lib/container-apps/<pkg>/data/` (Grub storage: `data/storage`; Ollama models: `data/ollama`).
 - Both services require `HALOS_SYSTEMD_STARTED=1` and are supervised by systemd (`marine-grubcrawler-container.service`, `marine-ollama-container.service`).
 
-**Ask tab model resolution (three-way failover):**
+**Ask tab model resolution (endpoint priority):**
 The Ask tab's **Chat Ollama API URLs** setting accepts a comma-separated list of endpoints, tried in order:
-1. **Local Pi Ollama:** `http://127.0.0.1:11434` (offline, uses local `qwen3:1.7b`).
+1. **Direct cloud via ollama.com (default, recommended):** `https://ollama.com` with model `glm-5.3:cloud` and `chatApiKeyFile` (see §13). Requires no local container or GPU memory.
+2. **Local Pi Ollama (optional fallback):** `http://127.0.0.1:11434` (offline, uses local `qwen3:1.7b`).
    After `.deb` installation, pull the offline model once:
    ```sh
    docker exec ollama ollama pull qwen3:1.7b
    ```
-2. **Cloud models via Pi Ollama:** whenever the boat has internet, `:cloud` models (e.g. `glm-5.3:cloud`) work through the same loopback endpoint after a one-time signin:
+3. **Cloud models via Pi Ollama (optional fallback):** whenever the boat has internet, `:cloud` models (e.g. `glm-5.3:cloud`) work through the loopback endpoint after a one-time signin:
    ```sh
    docker exec -it ollama ollama signin
    docker exec ollama ollama pull glm-5.3:cloud
    ```
    Lume holds no API keys.
-3. **Laptop Ollama over the LAN:** e.g. `http://192.168.68.58:11434` (requires `OLLAMA_HOST=0.0.0.0` on the laptop and private-network firewall access).
+4. **Laptop Ollama over the LAN (optional fallback):** e.g. `http://192.168.68.58:11434` (requires `OLLAMA_HOST=0.0.0.0` on the laptop and private-network firewall access).
+
+## 13. Ask tab with ollama.com
+
+The Ask tab (`lume chat`) defaults to calling **`https://ollama.com`** directly for `:cloud` models such as `glm-5.3:cloud`. This avoids running an Ollama container on the Pi, freeing ~4.2 GB of disk space.
+
+### Key file creation on the Pi
+
+The API key is stored in a dedicated file outside the plugin configuration. The Signal K container runs as the `node` user (`uid:gid 1000:1000`).
+
+1. Create the key file on the Pi host in Signal K's plugin config directory:
+   ```sh
+   # On the Pi host:
+   sudo mkdir -p /var/lib/container-apps/marine-signalk-server-container/data/data/plugin-config-data/signalk-lume-ti
+   sudo sh -c 'echo "YOUR_OLLAMA_API_KEY" > /var/lib/container-apps/marine-signalk-server-container/data/data/plugin-config-data/signalk-lume-ti/ollama.key'
+   ```
+   *(Replace `YOUR_OLLAMA_API_KEY` with your actual ollama.com API key. Never commit this file or check real keys into version control.)*
+
+2. Set ownership to the Signal K container user (`1000:1000`) and restrict permissions to mode 600:
+   ```sh
+   sudo chown 1000:1000 /var/lib/container-apps/marine-signalk-server-container/data/data/plugin-config-data/signalk-lume-ti/ollama.key
+   sudo chmod 600 /var/lib/container-apps/marine-signalk-server-container/data/data/plugin-config-data/signalk-lume-ti/ollama.key
+   ```
+
+### Plugin configuration
+
+In **Signal K → Server → Plugin Config → Lume TI**:
+- **Chat Ollama API URLs**: `https://ollama.com` (default)
+- **Chat Ollama Model**: `glm-5.3:cloud` (default)
+- **Chat API Key File Path**: set to the in-container path:
+  ```
+  /home/node/.signalk/plugin-config-data/signalk-lume-ti/ollama.key
+  ```
+
+Signal K binds `/var/lib/container-apps/marine-signalk-server-container/data/data` to `/home/node/.signalk` inside the container. The plugin never stores the API key in its own configuration files.
+
+### Verification
+
+1. Submit a question in the **Ask** tab of the Lume TI webapp (e.g. "What was my mean battery voltage yesterday?").
+2. Verify that the key is never exposed on argv or in system logs:
+   ```sh
+   # On the Pi: verify key is NOT in process arguments
+   ps aux | grep "[l]ume chat"
+
+   # Verify key is NOT in Signal K container logs
+   journalctl -u marine-signalk-server-container -n 50 | grep -i "key"
+   ```
+   The plugin reads `chatApiKeyFile` at spawn time and passes `OLLAMA_API_KEY` in the child environment only.
+
+## 14. OTLP telemetry receiver (in progress)
+
+> [!NOTE]
+> Workstream A1 (`ti/otlp`) is in progress by Codex (Inland Tarantula).
+
+Lume is adding an OpenTelemetry Protocol (OTLP) HTTP/JSON receiver (`POST /v1/metrics` and `POST /v1/logs`) on port 4318 (standalone or via `lume serve --otlp`), allowing agent telemetry (Hyperia and n8: tokens, file events, mail metadata) to be ingested directly into a dedicated store (`<root>/stores/agents`, served as `telemetry_agents` and `docs`). Full setup and ingestion instructions will be documented here once A1 lands.
