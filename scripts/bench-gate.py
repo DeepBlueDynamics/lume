@@ -322,6 +322,9 @@ def render_markdown(
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    # The summary uses ✅/❌; Windows consoles default to cp1252 and cannot encode them.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", type=pathlib.Path, required=True,
                         help="Path to the benchmark results JSON from the current run")

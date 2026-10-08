@@ -40,6 +40,8 @@ pub struct QueryMetric {
     pub answer_fingerprint: String,
     #[serde(default)]
     pub cache_stats: Option<serde_json::Value>,
+    #[serde(default)]
+    pub cache_warm: Option<serde_json::Value>,
     pub cold_ms: f64,
     pub p50_ms: f64,
     pub p95_ms: f64,
@@ -72,6 +74,8 @@ pub struct FullReport {
     pub iterations: usize,
     #[serde(default)]
     pub cache_budget_bytes: Option<u64>,
+    #[serde(default)]
+    pub warm_before_cold: bool,
     pub total_queries_run: usize,
     pub classes: BTreeMap<String, ClassMetric>,
     pub queries: Vec<QueryMetric>,
@@ -152,6 +156,7 @@ pub async fn run_benchmark_with_cache(
             iterations,
             class_filter,
             cache_budget_bytes,
+            warm_before_cold: false,
         },
         None,
     )
@@ -167,6 +172,7 @@ pub struct BenchmarkOptions<'a> {
     pub iterations: usize,
     pub class_filter: Option<&'a str>,
     pub cache_budget_bytes: Option<u64>,
+    pub warm_before_cold: bool,
 }
 
 pub async fn run_benchmark_with_documents(
@@ -181,6 +187,7 @@ pub async fn run_benchmark_with_documents(
         iterations,
         class_filter,
         cache_budget_bytes,
+        warm_before_cold,
     } = options;
     if iterations == 0 {
         return Err("iterations must be positive".into());
@@ -238,6 +245,16 @@ pub async fn run_benchmark_with_documents(
         if let Some(cache) = &cache {
             cache.clear()?;
         }
+        let cache_warm = if warm_before_cold {
+            let control = cache
+                .as_ref()
+                .ok_or("warm_before_cold requires an explicit cache budget")?;
+            Some(serde_json::to_value(
+                control.warm_configured(Path::new(store_dir))?,
+            )?)
+        } else {
+            None
+        };
         let t0 = Instant::now();
         let batches = engine.session.query(&entry.ti_sql).await?;
         let cold_ms = t0.elapsed().as_secs_f64() * 1000.0;
@@ -276,6 +293,7 @@ pub async fn run_benchmark_with_documents(
             description: entry.description.clone().unwrap_or_default(),
             rows,
             answer_fingerprint,
+            cache_warm,
             cache_stats: cache
                 .as_ref()
                 .map(|control| control.stats().map(serde_json::to_value))
@@ -356,6 +374,7 @@ pub async fn run_benchmark_with_documents(
         parquet_path: parquet_dir.to_string(),
         iterations,
         cache_budget_bytes,
+        warm_before_cold,
         total_queries_run: query_metrics.len(),
         classes: class_metrics,
         queries: query_metrics,

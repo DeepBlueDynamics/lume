@@ -7,6 +7,8 @@ publish = false
 description = "Native text-and-telemetry query-class benchmark for Lume TI"
 
 [dependencies]
+serde_json = "1"
+ti-sql = { path = "../ti-sql" }
 lume = { path = "../..", features = ["ti"] }
 ti-bench = { path = "../ti-bench" }
 ti-contracts = { path = "../ti-contracts" }

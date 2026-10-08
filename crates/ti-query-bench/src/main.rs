@@ -12,7 +12,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     use ti_bench::harness::{run_benchmark_with_documents, BenchmarkOptions};
 
     let args: Vec<String> = std::env::args().collect();
-    if args.get(1).map(String::as_str) != Some("bench") {
+    let warm_only = args.get(1).map(String::as_str) == Some("warm");
+    if !warm_only && args.get(1).map(String::as_str) != Some("bench") {
         return Err("usage: ti_query_bench bench --store ROOT [--corpus FILE --out-dir DIR --iterations N --cache-bytes N --class Q6]".into());
     }
     let value = |flag: &str| {
@@ -40,6 +41,24 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             width,
         )?) as Arc<dyn ti_contracts::DocumentIndex>)
     };
+    if warm_only {
+        let engine = ti_sql::TiEngine::open(Path::new(&store), None, Some(&documents)).await?;
+        let control = engine.query_cache_control()?;
+        if let Some(bytes) = cache {
+            control.set_budget(bytes)?;
+        }
+        control.clear()?;
+        println!("WARM_BEGIN");
+        std::io::Write::flush(&mut std::io::stdout())?;
+        let report = control.warm_configured(Path::new(&store))?;
+        println!("WARM_REPORT {}", serde_json::to_string(&report)?);
+        std::io::Write::flush(&mut std::io::stdout())?;
+        if args.iter().any(|arg| arg == "--hold-for-rss") {
+            let mut release = String::new();
+            std::io::stdin().read_line(&mut release)?;
+        }
+        return Ok(());
+    }
     run_benchmark_with_documents(
         BenchmarkOptions {
             store_dir: &store,
@@ -49,6 +68,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             iterations,
             class_filter: class.as_deref(),
             cache_budget_bytes: cache,
+            warm_before_cold: args.iter().any(|arg| arg == "--warm-before-cold"),
         },
         Some(&documents),
     )

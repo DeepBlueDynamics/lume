@@ -44,6 +44,48 @@ Caveats:
 - **Sampling:** seven warm samples per query; p95 and p99 both equal the maximum sample. The committed artifacts include one cold measurement and warm p50/p95/p99 per query with both cache settings.
 - **What passes:** Q1–Q7 meet their warm cache-on targets on this host. Cold cache-on and warm cache-off miss Q1, Q3, Q5 and Q6; warm cache-off also misses Q2, Q4 and Q7.
 
+### Cold after optional startup warm-up (2026-10-08)
+
+Native Rust 1.96.1 release at `0fb40e8`, same `store-full` and 26-query
+selection, cache cleared then the default newest-first/all-field preload awaited
+before each first query. Seven subsequent warm iterations are retained in the
+[JSON](../../bench/results/2026-10-08-0fb40e8.json) and
+[Markdown](../../bench/results/2026-10-08-0fb40e8.md).
+These are maximum per-query first-query observations, not cold p95 distributions;
+OS cache is uncontrolled. Server startup never awaits the worker, so requests
+arriving before completion can remain cold.
+
+| Class | Edge target ms | After warm-up 256 MiB ms | Status | After warm-up 64 MiB ms | Status |
+|---|---:|---:|---|---:|---|
+| Q1 | 20 | 35.45 | **MISS** | 31.65 | **MISS** |
+| Q2 | 150 | 136.40 | **PASS** | 121.71 | **PASS** |
+| Q3 | 50 | 125.18 | **MISS** | 174.18 | **MISS** |
+| Q4 | 400 | 350.88 | **PASS** | 319.79 | **PASS** |
+| Q5 | 150 | 1921.38 | **MISS** | 1561.78 | **MISS** |
+| Q6 | 200 | 336.72 | **MISS** | 305.73 | **MISS** |
+| Q7 | 300 | 202.51 | **PASS** | 189.82 | **PASS** |
+| Q8 | DuckDB parity | 211.58 | **PENDING** | 115.95 | **PENDING** |
+
+Fresh-process warm-only measurements (engine + cache, not the complete server or
+Pi RSS): 256 MiB admits **255.93 MiB**, 814 fields across 7 shards (including
+possibly partial last shard), in **417.40 ms**, peak Windows working set **92.50 MiB**;
+64 MiB admits **63.69 MiB**, 197 fields across 2 shards, in **165.46 ms**,
+peak working set **33.03 MiB**. Both stop at the byte budget with no warm-up
+evictions. The peak includes engine startup; warm-phase RSS is also sampled every
+50 ms. Per-query preload timings and conservative cache charges are in the JSON.
+
+All 26 row counts/fingerprints match the prior cache A/B baseline at both budgets,
+including every subsequent warm repetition. No new DuckDB correctness run is
+claimed. No benchmark-specific fields or dates were selected. Newest-first
+warming improves Q6's observed cold time (485.29 → 336.72 / 305.73 ms) but
+**does not close the historical-query cold gap**: Q1, Q3, Q5 and Q6 remain MISS.
+For example, Q1 asks for May 1 and Q3 for May, whereas the preload visits the
+newest sealed shards. The manifest's newest shard (308) starts May 25; the
+next (307) starts May 17. The 256 MiB worker admits seven vessel/shard entries
+from that prefix and the 64 MiB worker two, so neither reaches May 1. Q5 spans
+history, and Q6's alert join covers older buckets.
+The larger budget is not automatically faster; these are single observations.
+
 **On the Pi**, this is the only per-query evidence. Same live Signal K data in both stores, 20 runs each, warm p50 (`docs/performance-comparisons.md` §1):
 
 | Query | InfluxDB | Lume |
@@ -118,8 +160,8 @@ What exists: the 1-hour load run kept the production Signal K, InfluxDB and Lume
 **Why NO-GO beyond the pilot until these are measured:**
 1. **Shore-scale latencies:** generate the 50-vessel × 365-day fleet and add the DuckDB timing that the "≥ 5×" rule needs.
 2. **The contention test**, with OpenCPN on a HALPI2 or Pi 5.
-3. **The cold cache:** sealed bitmap-cache cold queries miss Q1, Q3, Q5 and Q6 on the host. Process/OS cold-start timings remain unmeasured. Either warm the cache at serve start or accept the measured misses in writing.
+3. **The cold cache — MISS after default warming:** optional, default-on, budget-bounded startup preload is implemented at `0fb40e8`, with first-query cache-hit/no-full-load and budget-stop tests. At 256 / 64 MiB, host cold-after-warm Q1 is 35.45 / 31.65 ms, Q3 125.18 / 174.18 ms, Q5 1921.38 / 1561.78 ms, Q6 336.72 / 305.73 ms: all still MISS (§2). Newest-first warming does not cover arbitrary history. Gap 3 remains open for these queries; accept the measured historical misses or evaluate an explicit workload policy separately. Process/OS cold-start and Pi edge p95 remain unmeasured.
 4. **Edge p95 per class** on the Pi, ideally against a 1-vessel × 1-year store.
 5. **The CI p95-regression gate.** Committed Q1–Q8 results are now available (§8).
 
-Recorded as D48 in `plan/spec/11-risks-decisions.md`.
+Recorded as D48 in `plan/spec/11-risks-decisions.md` (`a33035e`, 2026-10-08). The five follow-ups above remain measurement conditions; startup warming addresses item 3 and must report any misses it leaves.

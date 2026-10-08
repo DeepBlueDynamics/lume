@@ -3617,8 +3617,10 @@ name = "ti-query-bench"
 version = "0.1.0"
 dependencies = [
  "lume",
+ "serde_json",
  "ti-bench",
  "ti-contracts",
+ "ti-sql",
  "ti-store",
  "tokio",
 ]

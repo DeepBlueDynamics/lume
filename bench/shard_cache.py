@@ -96,6 +96,8 @@ def main():
     p.add_argument("--ids", nargs="+", default=QUERY_IDS)
     p.add_argument("--include-q6", action="store_true",
                    help="add all Q6 queries; use the LumeText-enabled ti-query-bench runner")
+    p.add_argument("--warm-before-cold", action="store_true",
+                   help="await the server's newest-first preload before each cold query")
     p.add_argument("--toolchain", required=True, help="record rustc version/build profile")
     args = p.parse_args()
     if args.iterations < 1 or args.cache_bytes < 1:
@@ -110,6 +112,8 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     selected = out / "corpus.json"
     selected.write_text(json.dumps({**corpus, "entries": chosen}, indent=2), encoding="utf-8")
+    cold_definition = ("sealed cache cleared then newest-first warm-up completed before timing; OS cache uncontrolled"
+                       if args.warm_before_cold else "decoded application cache cleared per query; OS cache uncontrolled")
     reports = []
     commands = []
     modes = [("on", args.cache_bytes)] if args.cache_mode == "on" else [("off", 0), ("on", args.cache_bytes)]
@@ -122,6 +126,8 @@ def main():
         command = [str(binary), "bench", "--store", str(store), "--corpus", str(selected),
                    "--out-dir", str(folder), "--iterations", str(args.iterations),
                    "--cache-bytes", str(budget), "--parquet", str(store)]
+        if args.warm_before_cold and budget:
+            command.append("--warm-before-cold")
         commands.append(command)
         with (folder / "run.log").open("w", encoding="utf-8") as log:
             subprocess.run(command, cwd=cwd, stdout=log, stderr=subprocess.STDOUT, check=True)
@@ -132,7 +138,7 @@ def main():
     if args.cache_mode == "on":
         rows = cache_on_summary(reports[0])
         result = {"toolchain": args.toolchain, "commands": commands,
-                  "cold_definition": "decoded application cache cleared per query; OS cache uncontrolled",
+                  "cold_definition": cold_definition,
                   "cache_bytes": args.cache_bytes, "queries": rows,
                   "median_p50_ms": statistics.median(r["p50_ms"] for r in rows)}
         (out / "cache-on.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
@@ -142,7 +148,7 @@ def main():
         return
     rows = compare(*reports)
     result = {"toolchain": args.toolchain, "commands": commands,
-              "cold_definition": "decoded application cache cleared per query; OS cache uncontrolled",
+              "cold_definition": cold_definition,
               "cache_bytes": args.cache_bytes, "queries": rows,
               "median_off_p50_ms": statistics.median(r["off_p50_ms"] for r in rows),
               "median_on_p50_ms": statistics.median(r["on_p50_ms"] for r in rows)}

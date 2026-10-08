@@ -108,7 +108,7 @@ impl TiServer {
             (None, ti_contracts::QueryLimits::default())
         };
 
-        Ok(Self {
+        let server = Self {
             resolver: RwLock::new(Arc::new(resolver)),
             engine: RwLock::new(Arc::new(engine)),
             runtime,
@@ -125,7 +125,37 @@ impl TiServer {
             query_limits: RwLock::new(query_limits),
             pg_batches_yielded: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             pg_query_completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        })
+        };
+        server.start_cache_warmup();
+        Ok(server)
+    }
+
+    fn start_cache_warmup(&self) {
+        let limits = self.query_limits();
+        if !limits.warm_on_open {
+            return;
+        }
+        let control = match self.engine.read().unwrap().query_cache_control() {
+            Ok(control) => control,
+            Err(error) => {
+                eprintln!("TI cache warm-up could not start: {error}");
+                return;
+            }
+        };
+        let root = self.root.clone();
+        // The worker owns only the cache control and path, never the engine/query gate.
+        if let Err(error) = std::thread::Builder::new().name("ti-cache-warm".into()).spawn(move || {
+            match control.warm(&root, limits.warm_budget_bytes, &limits.warm_fields) {
+                Ok(report) => eprintln!(
+                    "TI cache warm-up: {} shards, {} fields, {} bytes in {:.1} ms (budget {} bytes, stopped_at_budget={})",
+                    report.shards, report.fields, report.bytes, report.elapsed_ms,
+                    report.budget_bytes, report.stopped_at_budget
+                ),
+                Err(error) => eprintln!("TI cache warm-up failed: {error}"),
+            }
+        }) {
+            eprintln!("TI cache warm-up could not start: {error}");
+        }
     }
 
     /// Register an ordinary index; an absent index starts with an empty sections table.
