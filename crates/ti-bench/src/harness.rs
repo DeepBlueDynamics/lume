@@ -326,6 +326,9 @@ pub async fn run_benchmark_with_documents(
         let cold_ms = t0.elapsed().as_secs_f64() * 1000.0;
         let rows: usize = batches.iter().map(|b| b.num_rows()).sum();
         let answer_fingerprint = fingerprint(&batches)?;
+        // Cold (disk) and warm (cache) reads can split batches differently, so float
+        // aggregates such as avg() differ in their last bits; compare those at 12 digits.
+        let stable_fingerprint = rounded_fingerprint(&batches)?;
 
         // Warm runs
         let mut warm_durations = Vec::with_capacity(iterations);
@@ -333,7 +336,7 @@ pub async fn run_benchmark_with_documents(
             let t1 = Instant::now();
             let batches = engine.session.query(&entry.ti_sql).await?;
             warm_durations.push(t1.elapsed().as_secs_f64() * 1000.0);
-            if fingerprint(&batches)? != answer_fingerprint {
+            if rounded_fingerprint(&batches)? != stable_fingerprint {
                 return Err(format!("{} returned different cold/warm values", entry.id).into());
             }
         }
@@ -699,6 +702,38 @@ fn fingerprint(
     Ok(format!("{:016x}", hash.finish()))
 }
 
+/// Like `fingerprint`, with every non-integer number rounded to 12 significant digits.
+fn rounded_fingerprint(
+    batches: &[arrow::record_batch::RecordBatch],
+) -> Result<String, Box<dyn std::error::Error>> {
+    use std::hash::{Hash, Hasher};
+    fn round(value: serde_json::Value) -> serde_json::Value {
+        match value {
+            serde_json::Value::Number(n) if n.is_f64() => {
+                let rounded: f64 = format!("{:.11e}", n.as_f64().unwrap_or_default())
+                    .parse()
+                    .unwrap_or_default();
+                serde_json::json!(rounded)
+            }
+            serde_json::Value::Array(items) => {
+                serde_json::Value::Array(items.into_iter().map(round).collect())
+            }
+            serde_json::Value::Object(map) => {
+                serde_json::Value::Object(map.into_iter().map(|(k, v)| (k, round(v))).collect())
+            }
+            other => other,
+        }
+    }
+    let mut rows = ti_sql::rows_json(batches)?
+        .into_iter()
+        .map(|row| serde_json::to_string(&round(serde_json::to_value(row)?)))
+        .collect::<Result<Vec<_>, _>>()?;
+    rows.sort_unstable();
+    let mut hash = std::collections::hash_map::DefaultHasher::new();
+    rows.hash(&mut hash);
+    Ok(format!("{:016x}", hash.finish()))
+}
+
 #[cfg(test)]
 mod cache_measurement_tests {
     use super::*;
@@ -741,6 +776,39 @@ mod cache_measurement_tests {
         )
         .unwrap();
         assert_ne!(a, fingerprint(&[changed]).unwrap());
+    }
+
+    #[test]
+    fn rounded_fingerprint_ignores_last_bit_float_noise_only() {
+        let floats = |v: f64| {
+            RecordBatch::try_new(
+                Arc::new(Schema::new(vec![Field::new(
+                    "avg",
+                    DataType::Float64,
+                    false,
+                )])),
+                vec![Arc::new(Float64Array::from(vec![v]))],
+            )
+            .unwrap()
+        };
+        let a = 12.345_678_901_234_5_f64;
+        let noisy = f64::from_bits(a.to_bits() + 1);
+        assert_ne!(
+            fingerprint(&[floats(a)]).unwrap(),
+            fingerprint(&[floats(noisy)]).unwrap()
+        );
+        assert_eq!(
+            rounded_fingerprint(&[floats(a)]).unwrap(),
+            rounded_fingerprint(&[floats(noisy)]).unwrap()
+        );
+        assert_ne!(
+            rounded_fingerprint(&[floats(a)]).unwrap(),
+            rounded_fingerprint(&[floats(12.3457)]).unwrap()
+        );
+        assert_eq!(
+            rounded_fingerprint(&[batch(vec![1, 2])]).unwrap(),
+            rounded_fingerprint(&[batch(vec![2, 1])]).unwrap()
+        );
     }
 
     #[test]
