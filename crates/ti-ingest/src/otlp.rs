@@ -602,15 +602,10 @@ impl AgentStore {
                 }
             }
         }
-        let logs_started = Instant::now();
         if !log_docs.is_empty() {
             commit_logs(&durable.docs_root, log_docs, latest_log)?;
         }
-        let logs_us = elapsed_us(logs_started);
-        let mut metrics_us = 0;
-        let mut checkpoint_us = 0;
         if let Some(totals) = last_totals {
-            let metrics_started = Instant::now();
             {
                 let Durable {
                     bucketer,
@@ -627,20 +622,14 @@ impl AgentStore {
             if let Some(ts) = latest_metric {
                 seal_and_retain(&mut durable, ts)?;
             }
-            metrics_us = elapsed_us(metrics_started);
-            let checkpoint_started = Instant::now();
             // Checkpoint is the publish point: both writes above have returned.
             persist_counters(
                 &durable.docs_root.join(STORE_DIR).join("otlp-counters.json"),
                 &totals,
             )
             .map_err(|e| e.to_string())?;
-            checkpoint_us = elapsed_us(checkpoint_started);
             durable.totals = totals;
         }
-        eprintln!(
-            "otlp-flush logs_us={logs_us} metrics_us={metrics_us} checkpoint_us={checkpoint_us}"
-        );
         Ok(counts)
     }
 
@@ -1015,9 +1004,7 @@ fn commit_logs(
     docs: Vec<Document>,
     latest: Option<i64>,
 ) -> std::result::Result<(), String> {
-    let open_started = Instant::now();
     let mut store = DocStore::open(root).map_err(|e| e.to_string())?;
-    let open_us = elapsed_us(open_started);
     let log_path = root.join("docs").join("documents.log");
     let (before_len, before_gen) = log_tip(&log_path);
     let started = Instant::now();
@@ -1026,7 +1013,7 @@ fn commit_logs(
     let (after_len, after_gen) = log_tip(&log_path);
     let (bytes, compacted) = docs_bytes_written(before_len, before_gen, after_len, after_gen);
     eprintln!(
-        "otlp-docs-commit bytes={bytes} rewrite_us={rewrite_us} compact={} open_us={open_us}",
+        "otlp-docs-commit bytes={bytes} rewrite_us={rewrite_us} compact={}",
         u8::from(compacted)
     );
     if let Some(ts) = latest {
