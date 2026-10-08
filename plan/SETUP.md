@@ -521,7 +521,7 @@ Two auxiliary services run beside Signal K and Lume as HaLOS container apps:
    loopback only and is never exposed to the LAN. Memory is capped at 1.5 GB.
 2. **Ollama** (`deploy/halos/marine-ollama-container/`, `127.0.0.1:11434`):
    runs local language models on the boat for the Signal K plugin's Ask tab (`lume chat`).
-   Uses `ollama/ollama:latest` (4.2 GB arm64 image). Default model is `qwen3:1.7b` (~1 GB;
+   Uses `ollama/ollama:latest` (4.2 GB arm64 image). Default model is `qwen3:1.7b` (~1.4 GB;
    `qwen3:4b` at ~2.5 GB also fits if SD card headroom allows). Runs with flash attention
    and 8-bit KV cache (`q8_0`) within a 4 GB memory ceiling. Has no authentication, so it
    binds loopback only.
