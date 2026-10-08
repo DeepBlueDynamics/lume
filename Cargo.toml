@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/ti-contracts", "crates/ti-core", "crates/ti-store", "crates/ti-sql", "crates/ti-ingest", "crates/ti-bench", "crates/ti-geo", "crates/ti-sync"]
+members = ["crates/ti-contracts", "crates/ti-core", "crates/ti-store", "crates/ti-sql", "crates/ti-ingest", "crates/ti-bench", "crates/ti-geo", "crates/ti-sync", "crates/ti-query-bench"]
 default-members = ["."]
 
 [features]

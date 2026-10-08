@@ -143,6 +143,48 @@ pub async fn run_benchmark_with_cache(
     class_filter: Option<&str>,
     cache_budget_bytes: Option<u64>,
 ) -> Result<FullReport, Box<dyn std::error::Error>> {
+    run_benchmark_with_documents(
+        BenchmarkOptions {
+            store_dir,
+            parquet_dir,
+            corpus_file,
+            out_dir,
+            iterations,
+            class_filter,
+            cache_budget_bytes,
+        },
+        None,
+    )
+    .await
+}
+
+/// Root callers can inject Lume BM25 without making ti-bench depend on lume.
+pub struct BenchmarkOptions<'a> {
+    pub store_dir: &'a str,
+    pub parquet_dir: &'a str,
+    pub corpus_file: &'a str,
+    pub out_dir: &'a str,
+    pub iterations: usize,
+    pub class_filter: Option<&'a str>,
+    pub cache_budget_bytes: Option<u64>,
+}
+
+pub async fn run_benchmark_with_documents(
+    options: BenchmarkOptions<'_>,
+    documents: Option<&ti_sql::DocumentsFactory>,
+) -> Result<FullReport, Box<dyn std::error::Error>> {
+    let BenchmarkOptions {
+        store_dir,
+        parquet_dir,
+        corpus_file,
+        out_dir,
+        iterations,
+        class_filter,
+        cache_budget_bytes,
+    } = options;
+    if iterations == 0 {
+        return Err("iterations must be positive".into());
+    }
     eprintln!("=== Lume TI Benchmark Runner ===");
     eprintln!("Store path   : {}", store_dir);
     eprintln!("Parquet path : {}", parquet_dir);
@@ -163,7 +205,7 @@ pub async fn run_benchmark_with_cache(
     let date = chrono::Utc::now().format("%Y-%m-%d").to_string();
 
     eprintln!("Initializing TiEngine on store...");
-    let engine = TiEngine::open(Path::new(store_dir), None, None).await?;
+    let engine = TiEngine::open(Path::new(store_dir), None, documents).await?;
 
     let cache = if let Some(bytes) = cache_budget_bytes {
         let control = engine.query_cache_control()?;

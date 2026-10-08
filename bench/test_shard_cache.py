@@ -1,5 +1,5 @@
 import unittest
-from shard_cache import compare, QUERY_IDS
+from shard_cache import compare, QUERY_IDS, TEXT_QUERY_IDS
 
 
 class CacheComparisonTests(unittest.TestCase):
@@ -23,6 +23,21 @@ class CacheComparisonTests(unittest.TestCase):
     def test_twenty_unique_queries(self):
         self.assertEqual(len(QUERY_IDS), 20)
         self.assertEqual(len(set(QUERY_IDS)), 20)
+
+    def test_q6_selection_is_separate_and_covers_every_class(self):
+        selected = QUERY_IDS + TEXT_QUERY_IDS
+        self.assertEqual(len(selected), 26)
+        self.assertEqual(len(set(selected)), 26)
+        self.assertEqual({qid.split("-")[0] for qid in selected},
+                         {f"q{index}" for index in range(1, 9)})
+
+    def test_p95_p99_preserved_without_inventing_missing_measurements(self):
+        a = self.report(p95_ms=12, p99_ms=15)
+        b = self.report(p50_ms=1, p95_ms=2, p99_ms=3)
+        row = compare(a, b)[0]
+        self.assertEqual((row["off_p95_ms"], row["on_p95_ms"]), (12, 2))
+        self.assertEqual((row["off_p99_ms"], row["on_p99_ms"]), (15, 3))
+        self.assertIsNone(compare(self.report(), self.report())[0]["on_p95_ms"])
 
     def test_class_only_reports_are_timings_not_value_checks(self):
         from shard_cache import markdown
