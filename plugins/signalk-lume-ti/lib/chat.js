@@ -257,8 +257,16 @@ function registerChatRoutes(router, app, getChatManager) {
         }
       };
 
-      if (typeof req.on === 'function') {
-        req.on('close', cleanup);
+      // A client that leaves mid-answer must not keep `lume chat` (and its paid cloud
+      // calls) running, or hold the single chat slot for up to 180 s. `res` 'close'
+      // before the response ends is the disconnect; req 'close' fires once the body is read.
+      if (typeof res.on === 'function') {
+        res.on('close', () => {
+          cleanup();
+          if (!res.writableEnded) {
+            if (chatManager && typeof chatManager.stop === 'function') chatManager.stop();
+          }
+        });
       }
 
       const onEvent = eventObj => {

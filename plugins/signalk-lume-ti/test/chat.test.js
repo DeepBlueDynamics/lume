@@ -485,3 +485,49 @@ test('POST /api/chat keepalive interval fires on long-running queries', async ()
   assert.equal(JSON.parse(written[0]).event, 'keepalive');
 });
 
+
+test('POST /api/chat stops lume chat when the client disconnects mid-stream', async () => {
+  const {EventEmitter} = require('node:events');
+  const routes = {};
+  const mockRouter = {
+    post: (p, handler) => { routes[p] = handler; },
+    get: (p, handler) => { routes[p] = handler; },
+  };
+  let stopped = 0;
+  let release;
+  // Stand-in manager: ask() hangs until stop(), like a long cloud model call.
+  const chatManager = {
+    ask: () => new Promise((_, reject) => { release = reject; }),
+    stop: () => {
+      stopped += 1;
+      release(Object.assign(new Error('stopped'), {status: 499}));
+    },
+  };
+  registerChatRoutes(mockRouter, createMockApp(), () => chatManager);
+
+  const req = Object.assign(new EventEmitter(), {
+    skIsAuthenticated: true,
+    skPrincipal: {permissions: 'admin'},
+    headers: {'content-type': 'application/json', 'content-length': '27', 'accept': 'application/x-ndjson'},
+    body: {question: 'Long question'},
+  });
+  const res = Object.assign(new EventEmitter(), {
+    headersSent: true,
+    writableEnded: false,
+    setHeader: () => {},
+    status: () => res,
+    write: () => {},
+    json: () => {},
+    end: () => { res.writableEnded = true; },
+  });
+
+  const handled = routes['/api/chat'](req, res);
+  await new Promise(r => setImmediate(r));
+  // The request body being read must NOT stop the job.
+  req.emit('close');
+  assert.equal(stopped, 0, 'req close (body consumed) must not stop the job');
+  // The browser going away before the response ends must stop it.
+  res.emit('close');
+  assert.equal(stopped, 1, 'client disconnect must stop lume chat');
+  await handled.catch(() => {});
+});
