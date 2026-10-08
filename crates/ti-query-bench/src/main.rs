@@ -14,7 +14,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     let warm_only = args.get(1).map(String::as_str) == Some("warm");
     if !warm_only && args.get(1).map(String::as_str) != Some("bench") {
-        return Err("usage: ti_query_bench bench --store ROOT [--corpus FILE --out-dir DIR --iterations N --cache-bytes N --class Q6]".into());
+        return Err("usage: ti_query_bench bench --store ROOT [--corpus FILE --out-dir DIR --iterations N --cache-bytes N --class Q6 --sha SHA --pi]".into());
     }
     let value = |flag: &str| {
         args.iter()
@@ -34,6 +34,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .map(|value| value.parse::<u64>())
         .transpose()?;
     let class = value("--class");
+    let sha = value("--sha");
+    let pi = args.iter().any(|arg| arg == "--pi");
+    if pi && class.is_some() {
+        return Err("--pi runs all 26 queries; do not pass --class".into());
+    }
     let documents = |root: &Path, store: &ti_store::Store, width: u64| {
         Ok(Arc::new(lume::ti_text::LumeText::open(
             root,
@@ -69,6 +74,13 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             class_filter: class.as_deref(),
             cache_budget_bytes: cache,
             warm_before_cold: args.iter().any(|arg| arg == "--warm-before-cold"),
+            result_label: if pi { Some("pi") } else { None },
+            sha_override: sha.as_deref(),
+            query_allow: if pi {
+                Some(ti_bench::harness::PI_QUERY_IDS)
+            } else {
+                None
+            },
         },
         Some(&documents),
     )
