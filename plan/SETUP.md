@@ -566,21 +566,38 @@ The Ask tab's **Chat Ollama API URLs** setting accepts a comma-separated list of
 4. **Laptop Ollama over the LAN (optional fallback):** e.g. `http://192.168.68.58:11434` (requires `OLLAMA_HOST=0.0.0.0` on the laptop and private-network firewall access).
 
 **Deployment and maintenance scripts:**
-Two automated scripts handle deploying the plugin and retiring local Ollama on the Pi:
+Three automated scripts handle provisioning the Pi, deploying the plugin, and retiring local Ollama:
 
-1. **Deploy Signal K plugin to the Pi (`scripts/deploy-pi.sh`):**
+1. **Provision or re-provision the Pi (`scripts/provision-pi.sh`):**
+   ```sh
+   # Provision a new or reflashed Pi (idempotent, skips completed steps)
+   scripts/provision-pi.sh <ssh-host> [--dry-run] [--lume-bin <path>] [--debs <dir>] [--with-ollama]
+   ```
+   Automates initial configuration and recovery if the Pi has been reflashed or assigned a new IP/host key:
+   - **Step 1 (system status):** Reports HaLOS/Signal K version, filesystem usage (`df -h /`), and memory (`free -h`).
+   - **Step 2 (memory cgroup):** Checks `/proc/cmdline` for `cgroup_enable=memory`. If absent and not already configured in `/boot/firmware/cmdline.txt`, backs up `cmdline.txt` to `cmdline.txt.bak-pre-memcg`, appends `cgroup_enable=memory cgroup_memory=1` to its single line, and prints `REBOOT NEEDED` (never reboots automatically).
+   - **Step 3 (pin self vessel UUID):** Reads the existing UUID from Signal K settings (`baseDeltas.json` or `settings.json` under `/var/lib/container-apps/marine-signalk-server-container/data/data/`) and reports it; if absent, prints a warning (never invents one).
+   - **Step 4 (HaLOS app .debs):** If `--debs <dir>` is specified, stages and installs app packages with `sudo -n apt-get install -y ./x.deb`, skipping `marine-ollama-container` by default unless `--with-ollama` is provided. Skips packages already installed per `dpkg -s`.
+   - **Step 5 (deploy plugin):** Calls `scripts/deploy-pi.sh` to stage and deploy the Signal K plugin and arm64 `lume` binary, restarting `marine-signalk-server-container` and checking health (skips if already deployed and active).
+   - **Step 6 (key instructions):** Prints the SETUP §13 instructions for creating `ollama.key` (skips if already displayed or key file exists; never handles or prompts for keys).
+   - **Idempotency & safety:** Every step verifies state first and prints `[SKIP]` if already completed. Honors `LUME_DEPLOY_SSH_CONFIG`, uses `sudo -n` throughout (never prompts for a password), and supports `--dry-run` to inspect remote commands before running them.
+
+2. **Deploy Signal K plugin to the Pi (`scripts/deploy-pi.sh`):**
    ```sh
    # Deploy plugin to the Pi host, updating /var/lib/container-apps/.../signalk-lume-ti
    scripts/deploy-pi.sh <ssh-host> [--lume-bin <path/to/arm64/lume>] [--dry-run]
    ```
    Syncs `plugins/signalk-lume-ti` (excluding `node_modules` and `test`), bundles the arm64 `lume` binary into `bin/linux-arm64/lume` with mode 755 (fixing `scp` dropping the executable bit), restarts `marine-signalk-server-container`, and polls for health. `--dry-run` prints all transfer and remote commands without executing them. All privileged actions use `sudo -n` (never prompts for a password; no secrets handled).
 
-2. **Retire Ollama container app on the Pi (`scripts/pi-retire-ollama.sh`):**
+3. **Retire Ollama container app on the Pi (`scripts/pi-retire-ollama.sh`):**
    ```sh
    # Stop/disable marine-ollama-container and remove the 4.2 GB image, keeping data
    scripts/pi-retire-ollama.sh <ssh-host> [--dry-run]
    ```
    Stops and disables `marine-ollama-container.service`, removes the `ollama/ollama` Docker image (reclaiming ~4.2 GB disk), preserves the persistent data directory at `/var/lib/container-apps/marine-ollama-container/data`, and prints filesystem disk usage (`df -h /`) before and after. `--dry-run` prints all remote commands without running them. Uses `sudo -n` throughout.
+
+**Integration testing (`scripts/test/deploy-pi.test.sh`):**
+Tests `deploy-pi.sh`, `pi-retire-ollama.sh`, and `provision-pi.sh` (including dry-run mode and a full second run asserting all steps output `[SKIP]`) against a throwaway Debian sshd container with fake `systemctl`, `docker`, `apt-get`, and `dpkg` shims and faked `/proc/cmdline`. Uses `LUME_DEPLOY_SSH_CONFIG` to isolate SSH configuration without modifying `~/.ssh/config`.
 
 ## 13. Ask tab with ollama.com
 
