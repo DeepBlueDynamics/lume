@@ -444,6 +444,9 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
             }
             "--token" => {
                 let val = args.get(i + 1).ok_or("--token requires a file or token value")?;
+                if !std::path::Path::new(val).is_file() {
+                    eprintln!("Deprecated: raw ingest --token exposes credentials in process arguments; use --token <token-file> instead.");
+                }
                 token_arg = Some(val.clone());
                 i += 2;
             }
@@ -669,6 +672,7 @@ fn handle_ti_sync(args: &[String]) -> Result<(), String> {
             "--token" => {
                 i += 1;
                 token = Some(args.get(i).ok_or("missing value for --token")?.clone());
+                eprintln!("Deprecated: raw sync --token exposes credentials in process arguments; use --token-file <path> instead.");
             }
             "--token-file" => {
                 i += 1;
