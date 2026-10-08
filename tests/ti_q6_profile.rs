@@ -127,7 +127,7 @@ fn q6_document_range_join_profile() {
                 if !ids.iter().any(|selected| selected == id) { continue; }
             } else if if all { !ti_bench::harness::PI_QUERY_IDS.contains(&id) } else {id!="q6-004"} {continue;}
             let sql=query["ti_sql"].as_str().unwrap();
-            let mut expected=None;
+            let mut expected: Option<Vec<String>>=None;
             let mut exact_rows_match=true;
             let mut variants=vec![];
             for (label,session) in [("before",&baseline),("after",&engine.session)] {

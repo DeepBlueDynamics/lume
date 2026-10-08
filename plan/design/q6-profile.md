@@ -33,10 +33,62 @@ The follow-up removes unconditional physical-rule registration. Only frames
 whose logical plan contains both a join and a docs scan get the rule, after the
 bitmap aggregate rule. The shared context retains its original optimizer list;
 ordinary queries return their original frame without rebuilding session state.
-query(), prepare(), and explain() use this same path. Three integration tests
-pass, including an assertion that ORDER BY/LIMIT, telemetry self-joins, and
+query(), prepare(), and explain() use this same path. Before rebasing, three
+integration tests passed, including an assertion that ORDER BY/LIMIT, telemetry self-joins, and
 docs-only reads have exactly the disabled variant's optimizer names, while a
-docs join installs the rule. Release/full-corpus and post-rebase gates are pending.
+docs join installs the rule.
+
+Rebased onto c30f902. Linux Rust 1.96, shipped fat-LTO/CGU1, 256 MiB cache:
+the 61-query same-binary release check passed (662.79 s, seven warm runs).
+60 queries matched exactly across both variants and every warm run; qx-012
+matched after the disclosed 12-significant-digit float normalization only.
+The profiler reports `exact_rows_match` separately so this is not hidden.
+Artifact: `.test-tmp/q6-full-release-fixed.json`.
+
+| Query | p50 disabled → enabled ms | p95 disabled → enabled ms |
+|---|---:|---:|
+| q6-004 | 49.64 → 9.34 | 50.42 → 11.91 |
+| qx-011 | 14.49 → 14.00 | 16.33 → 14.84 |
+| qx-012 | 19.17 → 18.36 | 19.72 → 19.45 |
+| qx-013 | 24.82 → 22.17 | 25.47 → 26.36 |
+
+The union of p50 and p95 (>1.15× AND >2 ms) flagged q2-001, q3-002,
+q6-001, q6-003, q8-004, qx-004, and q8-006. A 31-warm-run repeat, including
+qx-011, passed row comparisons (142.73 s):
+
+| Query | p50 disabled → enabled ms | p95 disabled → enabled ms |
+|---|---:|---:|
+| q2-001 | 60.96 → 60.24 | 82.64 → 72.75 |
+| q3-002 | 1.36 → 1.45 | 1.79 → 2.76 |
+| q6-001 | 24.23 → 24.95 | 28.04 → 37.91 |
+| q6-003 | 26.32 → 22.87 | 32.67 → 26.51 |
+| q8-004 | 15.97 → 15.38 | 19.79 → 16.26 |
+| qx-004 | 57.80 → 60.67 | 66.56 → 67.80 |
+| q8-006 | 12.90 → 13.79 | 14.37 → 17.18 |
+| qx-011 | 14.39 → 14.84 | 16.19 → 16.31 |
+
+Q6-001 and Q8-006 still flag on p95 in this repeat; neither installs the new
+physical rule. They remain unresolved timing flags, not silently waived.
+Qx-011 shows no penalty in either paired release run. The lead will run the separate-executable historical-base/candidate comparison
+natively, alternating all 61 queries and repeating q6-001, q8-006 and qx-011.
+The container standalone build was stopped at the lead's request. Linux
+bind-mount timings do not close the Windows native gate.
+
+## Post-rebase validation
+
+On c30f902 plus this follow-up, Rust 1.96 and CARGO_INCREMENTAL=0:
+
+- `cargo test --locked --features ti -- --skip concurrent_readers_never_observe_a_partial_index`: exit 0; declared fixture tests remain ignored.
+- `cargo test --locked -p ti-sql --test doc_ranges`: 3 passed, exit 0.
+- `cargo clippy --locked -p lume --features ti --all-targets -- -D warnings`: exit 0.
+- Strict `--all-targets` clippy for ti-contracts, ti-core, ti-store, ti-ingest, ti-sql, ti-sync, ti-bench and ti-geo: exit 0.
+- Eight-crate `cargo fmt --check` and the CI root TI-file `rustfmt --check` list: exit 0.
+- Default `cargo build --locked` without TI: exit 0.
+
+Debug/test compilation used local CARGO_PROFILE_DEV_DEBUG=0 and
+CARGO_PROFILE_TEST_DEBUG=0 overrides; release timings used the shipped profile.
+The native host separate-binary no-regression gate remains pending, owned by
+the lead. No container result is presented as its substitute.
 
 ## Pruning
 
