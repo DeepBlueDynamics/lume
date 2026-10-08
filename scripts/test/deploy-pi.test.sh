@@ -10,6 +10,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 DEPLOY_SCRIPT="${REPO_ROOT}/scripts/deploy-pi.sh"
 RETIRE_SCRIPT="${REPO_ROOT}/scripts/pi-retire-ollama.sh"
 PROVISION_SCRIPT="${REPO_ROOT}/scripts/provision-pi.sh"
+BRINGUP_SCRIPT="${REPO_ROOT}/scripts/pi-bringup.sh"
 
 echo "=== Pi Deployment, Retirement & Provisioning Integration Test ==="
 
@@ -58,6 +59,7 @@ cleanup() {
     if [ -n "${TMP_DIR:-}" ] && [ -d "$TMP_DIR" ]; then
         rm -rf "$TMP_DIR"
     fi
+    rm -f "${REPO_ROOT}/bench/results/"*-pi-*.json 2>/dev/null || true
 
     # Assert user's ~/.ssh/config was never modified or created
     if [ "$ORIG_SSH_CONFIG_EXISTS" = true ]; then
@@ -101,11 +103,25 @@ cat << 'EOF' > "${CONTEXT_DIR}/systemctl_shim.sh"
 #!/bin/sh
 LOGFILE="/var/log/shim_calls.log"
 echo "systemctl $*" >> "$LOGFILE"
+is_active=false
+svc=""
 for arg in "$@"; do
     if [ "$arg" = "is-active" ]; then
-        exit 0
+        is_active=true
+    elif [ "$is_active" = true ] && [ -z "$svc" ] && [ "${arg#-}" = "$arg" ]; then
+        svc="$arg"
     fi
 done
+
+if [ "$is_active" = true ]; then
+    if [ "$svc" = "marine-ollama-container" ]; then
+        if grep -q "systemctl stop marine-ollama-container" "$LOGFILE" 2>/dev/null; then
+            exit 3
+        fi
+    fi
+    echo "active"
+    exit 0
+fi
 exit 0
 EOF
 
@@ -160,9 +176,10 @@ EOF
 
 cat << 'EOF' > "${CONTEXT_DIR}/dummy_signalk.py"
 import sys
+import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-class HealthHandler(BaseHTTPRequestHandler):
+class SignalKHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/signalk" or self.path.startswith("/signalk"):
             self.send_response(200)
@@ -176,9 +193,44 @@ class HealthHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
-if __name__ == "__main__":
-    server = HTTPServer(("127.0.0.1", 3000), HealthHandler)
+class GrubHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(b'{"status":"healthy"}\n')
+
+    def log_message(self, format, *args):
+        pass
+
+class LumeHandler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(b'{"schema":{"fields":[]},"data":[["2026-10-08T09:18:00Z"]]}\n')
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(b'{"status":"ok"}\n')
+
+    def log_message(self, format, *args):
+        pass
+
+def serve(port, handler):
+    server = HTTPServer(("127.0.0.1", port), handler)
     server.serve_forever()
+
+if __name__ == "__main__":
+    t1 = threading.Thread(target=serve, args=(3000, SignalKHandler), daemon=True)
+    t2 = threading.Thread(target=serve, args=(6792, GrubHandler), daemon=True)
+    t3 = threading.Thread(target=serve, args=(5863, LumeHandler), daemon=True)
+    t1.start()
+    t2.start()
+    t3.start()
+    t1.join()
 EOF
 
 cat << 'EOF' > "${CONTEXT_DIR}/entrypoint.sh"
@@ -320,6 +372,44 @@ cat << 'EOF' > "$DUMMY_LUME"
 echo "lume dummy arm64 v1.0.0"
 EOF
 chmod 644 "$DUMMY_LUME"
+
+# Prepare dummy arm64 ti-query-bench binary
+DUMMY_BENCH="${TMP_DIR}/ti-query-bench-arm64-dummy"
+cat << 'EOF' > "$DUMMY_BENCH"
+#!/bin/sh
+out_dir=""
+sha=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --out-dir)
+            out_dir="$2"
+            shift 2
+            ;;
+        --sha)
+            sha="$2"
+            shift 2
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+if [ -n "$out_dir" ]; then
+    mkdir -p "$out_dir"
+    date_str=$(date -u +%Y-%m-%d)
+    cat << JSON > "${out_dir}/${date_str}-pi-${sha}.json"
+{"benchmark":"ti-query-bench","sha":"${sha}","status":"ok"}
+JSON
+fi
+exit 0
+EOF
+chmod 755 "$DUMMY_BENCH"
+
+# Prepare fake 1-vessel benchmark store on host
+FAKE_BENCH_STORE_DIR="${TMP_DIR}/fake_bench_store"
+mkdir -p "${FAKE_BENCH_STORE_DIR}/store"
+echo "dummy parquet data" > "${FAKE_BENCH_STORE_DIR}/store/test.parquet"
+echo "dummy docs data" > "${FAKE_BENCH_STORE_DIR}/store/docs.bin"
 
 # --------------------------------------------------------------------------
 # Test 1: deploy-pi.sh --dry-run touches nothing
@@ -695,10 +785,139 @@ fi
 echo "PASS: provision-pi.sh with --lume-bin redeploys the plugin."
 
 # --------------------------------------------------------------------------
-# Test 9: Assert ~/.ssh/config checksum unchanged
+# Test 9: pi-bringup.sh --dry-run touches nothing
 # --------------------------------------------------------------------------
 echo
-echo "=== Test 9: Verify ~/.ssh/config was untouched ==="
+echo "=== Test 9: pi-bringup.sh --dry-run touches nothing ==="
+ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "sudo -n rm -rf /var/tmp/lume-pi-bench && sudo -n truncate -s 0 /var/log/shim_calls.log"
+
+BRINGUP_DRY_RUN=$(bash "$BRINGUP_SCRIPT" "$SSH_HOST_ALIAS" --dry-run --lume-bin "$DUMMY_LUME" --bench-bin "$DUMMY_BENCH" --bench-store "$FAKE_BENCH_STORE_DIR")
+echo "$BRINGUP_DRY_RUN" | grep -q "Mode: DRY RUN" || { echo "FAIL: bringup dry-run mode notice missing" >&2; exit 1; }
+
+# Step headers must be present
+echo "$BRINGUP_DRY_RUN" | grep -q "=== Step 1: Provision Pi" || { echo "FAIL: Step 1 header missing in dry-run" >&2; exit 1; }
+echo "$BRINGUP_DRY_RUN" | grep -q "=== Step 2: Retire Ollama" || { echo "FAIL: Step 2 header missing in dry-run" >&2; exit 1; }
+echo "$BRINGUP_DRY_RUN" | grep -q "=== Step 3: Pull Grub Crawler" || { echo "FAIL: Step 3 header missing in dry-run" >&2; exit 1; }
+echo "$BRINGUP_DRY_RUN" | grep -q "=== Step 4: Gap 4 Query Benchmark" || { echo "FAIL: Step 4 header missing in dry-run" >&2; exit 1; }
+echo "$BRINGUP_DRY_RUN" | grep -q "=== Step 5: System Summary" || { echo "FAIL: Step 5 header missing in dry-run" >&2; exit 1; }
+
+# Test that missing host store triggers host build notice in dry run
+MISSING_STORE_DIR="${TMP_DIR}/missing_store"
+MISSING_DRY_RUN=$(bash "$BRINGUP_SCRIPT" "$SSH_HOST_ALIAS" --dry-run --lume-bin "$DUMMY_LUME" --bench-bin "$DUMMY_BENCH" --bench-store "$MISSING_STORE_DIR")
+echo "$MISSING_DRY_RUN" | grep -q "1-vessel store missing" || { echo "FAIL: missing store dry-run notice missing" >&2; exit 1; }
+
+# Remote bench directory must NOT exist
+if ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "test -e /var/tmp/lume-pi-bench"; then
+    echo "FAIL: Remote /var/tmp/lume-pi-bench was created during bringup --dry-run" >&2
+    exit 1
+fi
+
+# No shim calls logged
+SHIM_CALLS=$(ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "wc -l < /var/log/shim_calls.log | tr -d ' '")
+if [ "$SHIM_CALLS" -ne 0 ]; then
+    echo "FAIL: Shim calls were made during bringup --dry-run ($SHIM_CALLS logged)" >&2
+    exit 1
+fi
+echo "PASS: pi-bringup.sh --dry-run touched nothing."
+
+# --------------------------------------------------------------------------
+# Test 10: pi-bringup.sh --skip-bench executes successfully
+# --------------------------------------------------------------------------
+echo
+echo "=== Test 10: pi-bringup.sh --skip-bench executes successfully ==="
+SKIP_BENCH_RUN=$(bash "$BRINGUP_SCRIPT" "$SSH_HOST_ALIAS" --skip-bench --lume-bin "$DUMMY_LUME")
+echo "$SKIP_BENCH_RUN" | grep -q "\[SKIP\] Benchmark skipped via --skip-bench" || {
+    echo "FAIL: Benchmark was not skipped with --skip-bench" >&2
+    exit 1
+}
+if ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "test -e /var/tmp/lume-pi-bench"; then
+    echo "FAIL: Remote /var/tmp/lume-pi-bench was created during --skip-bench" >&2
+    exit 1
+fi
+echo "PASS: pi-bringup.sh --skip-bench succeeded and skipped benchmark."
+
+# --------------------------------------------------------------------------
+# Test 11: Real pi-bringup.sh execution with benchmark and idempotency
+# --------------------------------------------------------------------------
+echo
+echo "=== Test 11: Real pi-bringup.sh execution with benchmark ==="
+ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "sudo -n truncate -s 0 /var/log/shim_calls.log"
+rm -f "${REPO_ROOT}/bench/results/"*-pi-*.json 2>/dev/null || true
+
+FIRST_BRINGUP_RUN=$(bash "$BRINGUP_SCRIPT" "$SSH_HOST_ALIAS" --bench-bin "$DUMMY_BENCH" --bench-store "$FAKE_BENCH_STORE_DIR" --lume-bin "$DUMMY_LUME")
+echo "$FIRST_BRINGUP_RUN"
+
+# Assert Step 3: Grub pull and restart called, 6792 health polled
+if ! ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "grep -q 'docker pull deepbluedynamics/grubcrawler:latest-lite' /var/log/shim_calls.log"; then
+    echo "FAIL: docker pull grubcrawler was not called" >&2
+    exit 1
+fi
+if ! ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "grep -q 'systemctl restart marine-grubcrawler-container' /var/log/shim_calls.log"; then
+    echo "FAIL: systemctl restart marine-grubcrawler-container was not called" >&2
+    exit 1
+fi
+echo "$FIRST_BRINGUP_RUN" | grep -q "Grub is healthy" || {
+    echo "FAIL: Grub health check did not report healthy" >&2
+    exit 1
+}
+echo "Verified: Grub crawler pulled, restarted, and polled healthy."
+
+# Assert Step 4: Fake ti-query-bench created results, scp brought it back
+CURRENT_GIT_SHA="$(git -C "$REPO_ROOT" rev-parse --short=7 HEAD 2>/dev/null || echo "unknown")"
+EXPECTED_BENCH_FILE="${REPO_ROOT}/bench/results/$(date -u +%Y-%m-%d)-pi-${CURRENT_GIT_SHA}.json"
+if [ ! -f "$EXPECTED_BENCH_FILE" ]; then
+    echo "FAIL: Benchmark result file was not brought back to $EXPECTED_BENCH_FILE" >&2
+    exit 1
+fi
+if ! grep -q '"benchmark":"ti-query-bench"' "$EXPECTED_BENCH_FILE"; then
+    echo "FAIL: Benchmark result content unexpected" >&2
+    exit 1
+fi
+echo "Verified: Benchmark result file retrieved: $(basename "$EXPECTED_BENCH_FILE")"
+
+# Assert store landed and marker exists on remote
+if ! ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "test -f /var/tmp/lume-pi-bench/store/test.parquet && test -f /var/tmp/lume-pi-bench/store/.store_marker"; then
+    echo "FAIL: Remote store files or .store_marker missing on remote" >&2
+    exit 1
+fi
+echo "Verified: Remote store files and .store_marker landed."
+
+# Assert Step 5: Summary output matches expectations (df, services, ts)
+echo "$FIRST_BRINGUP_RUN" | grep -q "Filesystem Usage" || { echo "FAIL: Summary missing filesystem usage" >&2; exit 1; }
+echo "$FIRST_BRINGUP_RUN" | grep -q "marine-signalk-server-container:" || { echo "FAIL: Summary missing signalk service" >&2; exit 1; }
+echo "$FIRST_BRINGUP_RUN" | grep -q "marine-grubcrawler-container:" || { echo "FAIL: Summary missing grubcrawler service" >&2; exit 1; }
+echo "$FIRST_BRINGUP_RUN" | grep -q "marine-ollama-container:" || { echo "FAIL: Summary missing ollama service" >&2; exit 1; }
+echo "$FIRST_BRINGUP_RUN" | grep -q "2026-10-08T09:18:00Z" || { echo "FAIL: Summary missing telemetry_lume timestamp" >&2; exit 1; }
+echo "Verified: Summary output contains df, services, and newest telemetry_lume ts."
+
+# Assert cargo was NEVER executed on remote
+if ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "grep -q 'cargo' /var/log/shim_calls.log 2>/dev/null"; then
+    echo "FAIL: cargo was called on remote container" >&2
+    exit 1
+fi
+echo "Verified: cargo was never executed on the remote container."
+
+# Assert second run skips store copy when store already exists and marker matches
+echo
+echo "=== Test 11b: Second bringup run skips store copy when marker matches ==="
+ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "sudo -n truncate -s 0 /var/log/shim_calls.log"
+
+SECOND_BRINGUP_RUN=$(bash "$BRINGUP_SCRIPT" "$SSH_HOST_ALIAS" --bench-bin "$DUMMY_BENCH" --bench-store "$FAKE_BENCH_STORE_DIR" --lume-bin "$DUMMY_LUME")
+echo "$SECOND_BRINGUP_RUN" | grep -q "\[SKIP\] Remote store matches local store marker" || {
+    echo "FAIL: Second run did not skip store copy" >&2
+    exit 1
+}
+if ssh -F "$LUME_DEPLOY_SSH_CONFIG" "$SSH_HOST_ALIAS" "grep -q 'cargo' /var/log/shim_calls.log 2>/dev/null"; then
+    echo "FAIL: cargo was called on remote container during second run" >&2
+    exit 1
+fi
+echo "PASS: Second run skipped store copy without calling cargo."
+
+# --------------------------------------------------------------------------
+# Test 12: Assert ~/.ssh/config checksum unchanged
+# --------------------------------------------------------------------------
+echo
+echo "=== Test 12: Verify ~/.ssh/config was untouched ==="
 if [ "$ORIG_SSH_CONFIG_EXISTS" = true ]; then
     if [ ! -f "$USER_SSH_CONFIG" ]; then
         echo "FAIL: ~/.ssh/config was deleted during test run" >&2

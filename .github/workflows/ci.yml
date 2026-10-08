@@ -97,7 +97,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Shellcheck deployment scripts
-        run: shellcheck scripts/deploy-pi.sh scripts/pi-retire-ollama.sh scripts/provision-pi.sh
+        run: shellcheck scripts/deploy-pi.sh scripts/pi-retire-ollama.sh scripts/provision-pi.sh scripts/pi-bringup.sh
 
       - name: Run deploy integration test
         run: bash scripts/test/deploy-pi.test.sh
