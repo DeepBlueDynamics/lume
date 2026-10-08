@@ -120,6 +120,8 @@ lume serve --port 8080
 
 This exposes `lume_index`, `lume_search`, `lume_generate` and `lume_not_found` as MCP tools over HTTP. Search runs in-process through the `lume::search` library API. Built with `--features ti`, `lume serve --ti-store <store>` adds the [Lume TI](#lume-ti-telemetry-index) tools, OTLP ingestion (`--otlp`), and PostgreSQL wire access (`--pg`).
 
+Plain `lume serve` defaults to `0.0.0.0` and exposes unauthenticated MCP tools, including indexing. Use `--bind 127.0.0.1` for local access. TI serving defaults to loopback; an explicit non-loopback bind exposes unauthenticated `/ti` and MCP on a trusted LAN and prints a startup warning. The OTLP bearer protects ingestion routes only on a shared server; it does not authenticate TI or MCP. Standalone `lume ti otlp` exposes only its two ingestion endpoints.
+
 ### Text generation
 
 `lume generate` synthesizes text in the corpus's style with a trigram Markov chain. It steers the chain toward concept tags (`--steer "revenge,castle"`) or, with an embedding endpoint, toward a target vector, using GTR-T5 inversion to hill-climb candidates.

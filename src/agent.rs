@@ -875,9 +875,33 @@ pub fn serve_with_ti_server_pg_options(
         .transpose()?;
     serve_configured(port, Some(ti), http_bind)
 }
+fn unauthenticated_http_warning(
+    bind: std::net::IpAddr,
+    ti_enabled: bool,
+    otlp_only: bool,
+) -> Option<&'static str> {
+    if bind.is_loopback() || otlp_only {
+        None
+    } else if ti_enabled {
+        Some("WARNING: /ti and MCP are unauthenticated on this non-loopback HTTP listener; use only a trusted LAN or an authenticated proxy.")
+    } else {
+        Some("WARNING: MCP is unauthenticated on this non-loopback HTTP listener, including indexing tools; use only a trusted LAN or an authenticated proxy.")
+    }
+}
+
 fn serve_configured(port:u16,_ti:TiState,bind:std::net::IpAddr)->Result<(),String>{
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    #[cfg(feature = "ti")]
+    let (ti_enabled, otlp_only) = (
+        _ti.is_some(),
+        _ti.as_ref().is_some_and(|server| server.otlp_only()),
+    );
+    #[cfg(not(feature = "ti"))]
+    let (ti_enabled, otlp_only) = (false, false);
+    if let Some(warning) = unauthenticated_http_warning(bind, ti_enabled, otlp_only) {
+        eprintln!("{warning}");
+    }
     let address=std::net::SocketAddr::new(bind,port);
     let listener=TcpListener::bind(address).map_err(|e|format!("Failed to bind to {address}: {e}"))?;
     println!("Lume MCP HTTP server listening on http://{}",listener.local_addr().map_err(|e|e.to_string())?);
@@ -1542,6 +1566,20 @@ mod http_limits_tests {
                 .starts_with("HTTP/1.1 400")
         );
         assert!(start.elapsed() < Duration::from_secs(3));
+    }
+
+    #[test]
+    fn non_loopback_warning_covers_ti_and_plain_mcp_without_binding() {
+        let lan = "192.0.2.1".parse().unwrap();
+        let loopback = "127.0.0.1".parse().unwrap();
+        assert!(unauthenticated_http_warning(lan, true, false)
+            .unwrap()
+            .contains("/ti and MCP"));
+        assert!(unauthenticated_http_warning(lan, false, false)
+            .unwrap()
+            .contains("indexing"));
+        assert!(unauthenticated_http_warning(loopback, true, false).is_none());
+        assert!(unauthenticated_http_warning(lan, true, true).is_none());
     }
 
     #[test]
