@@ -38,8 +38,10 @@ impl SqlSession {
         catalog: Arc<SqlCatalog>,
         enabled: bool,
     ) -> Result<Self> {
-        let context =
-            SessionContext::new_with_config(SessionConfig::new().with_target_partitions(2));
+        let context = SessionContext::new_with_config_rt(
+            SessionConfig::new().with_target_partitions(2),
+            crate::memory::runtime()?,
+        );
         let mut state = context.state();
         datafusion::logical_expr::registry::FunctionRegistry::register_function_rewrite(
             &mut state,

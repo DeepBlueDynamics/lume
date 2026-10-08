@@ -93,9 +93,7 @@ impl ShoreReceiver {
         now: std::time::Instant,
         ttl: std::time::Duration,
     ) {
-        staging.retain(|_, s| {
-            s.completed_entry.is_some() || now.duration_since(s.last_activity) < ttl
-        });
+        staging.retain(|_, s| now.saturating_duration_since(s.last_activity) < ttl);
     }
 
     /// Access the underlying shore store.
@@ -190,7 +188,10 @@ impl ShoreReceiver {
             .values()
             .map(|s| s.chunks.values().map(|(_, d)| d.len() as u64).sum::<u64>())
             .sum();
-        if current_bytes + chunk.data.len() as u64 > self.max_staging_bytes {
+        if current_bytes
+            .checked_add(chunk.data.len() as u64)
+            .is_none_or(|bytes| bytes > self.max_staging_bytes)
+        {
             return Err(Error::InvalidInput(format!(
                 "exceeded in-flight staging byte capacity (max {} bytes)",
                 self.max_staging_bytes
@@ -386,5 +387,89 @@ impl ShoreReceiver {
         }
 
         Ok(entry)
+    }
+}
+
+#[cfg(test)]
+mod expiry_tests {
+    use super::*;
+    use ti_contracts::{Catalog, VesselSpec};
+
+    #[test]
+    fn completed_sessions_expire_and_published_replays_need_no_staging() {
+        let scratch = tempfile::tempdir().unwrap();
+        let store = Store::open_or_create(scratch.path(), 10).unwrap();
+        let urn = "vessels.urn:test:expiry";
+        let vessel = store
+            .catalog()
+            .register_vessel(&VesselSpec {
+                urn: urn.into(),
+                name: None,
+                mmsi: None,
+            })
+            .unwrap();
+        let entry = ShardManifestEntry {
+            key: ShardKey { vessel, shard: 0 },
+            version: 1,
+            from: 0,
+            to: 1,
+            bytes: 1,
+            hash: [1; 32],
+        };
+        store.manifest().upsert(entry.clone()).unwrap();
+        let ttl = std::time::Duration::from_secs(60);
+        let receiver =
+            ShoreReceiver::new(Arc::new(Mutex::new(store))).with_limits(1, MAX_STAGING_BYTES, ttl);
+        let published = TransferIdentity {
+            vessel_urn: urn.into(),
+            shard: 0,
+            version: 1,
+            width_seconds: 10,
+            from: 0,
+            to: 1,
+            hash: entry.hash,
+            catalog_hash: [0; 32],
+        };
+        let now = std::time::Instant::now();
+        receiver.staging.lock().unwrap().insert(
+            ShoreReceiver::transfer_key(&published),
+            StagingSession {
+                _transfer: published.clone(),
+                total_bytes: 1,
+                total_chunks: 1,
+                chunks: BTreeMap::from([(0, (0, vec![1]))]),
+                completed_entry: Some(entry.clone()),
+                last_activity: now,
+            },
+        );
+        let next = TransferIdentity {
+            shard: 1,
+            from: 65536,
+            to: 65537,
+            ..published.clone()
+        };
+        let chunk = UploadChunk::new(next, 0, 1, 0, 1, vec![2]);
+        assert!(receiver
+            .receive_chunk(&chunk)
+            .unwrap_err()
+            .to_string()
+            .contains("transfer limit"));
+        ShoreReceiver::prune_expired(&mut receiver.staging.lock().unwrap(), now + ttl, ttl);
+        assert_eq!(receiver.pending_transfers_count(), 0);
+        assert_eq!(receiver.staging_bytes_count(), 0);
+        assert_eq!(receiver.commit_upload(&published).unwrap(), entry);
+        assert!(matches!(
+            receiver.upload_status(&published).unwrap(),
+            UploadStatus::Completed { .. }
+        ));
+        assert_eq!(
+            receiver.pending_transfers_count(),
+            0,
+            "published replay did not restage"
+        );
+        assert!(
+            receiver.receive_chunk(&chunk).is_ok(),
+            "new transfer admitted after expiry"
+        );
     }
 }

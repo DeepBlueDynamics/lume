@@ -12,6 +12,7 @@ pub use engine::*;
 mod geo;
 mod intervals;
 mod materialize;
+mod memory;
 pub mod postgres;
 mod provider;
 mod raw;

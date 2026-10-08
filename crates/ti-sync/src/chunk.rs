@@ -61,7 +61,11 @@ impl UploadChunk {
                 self.chunk_index, self.chunk_hash, computed
             )));
         }
-        if self.offset + (self.data.len() as u64) > self.total_bytes {
+        let end = self
+            .offset
+            .checked_add(self.data.len() as u64)
+            .ok_or_else(|| Error::InvalidInput("chunk offset plus length overflows".into()))?;
+        if end > self.total_bytes {
             return Err(Error::InvalidInput(
                 "chunk bounds exceed total_bytes".into(),
             ));
@@ -134,6 +138,30 @@ pub fn chunk_package(package: &ShardPackage, chunk_size: usize) -> Vec<UploadChu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chunk_offset_overflow_and_out_of_bounds_return_errors() {
+        let transfer = TransferIdentity {
+            vessel_urn: "vessels.urn:test".into(),
+            shard: 0,
+            version: 1,
+            width_seconds: 10,
+            from: 0,
+            to: 10,
+            hash: [0; 32],
+            catalog_hash: [0; 32],
+        };
+        let overflow = UploadChunk::new(transfer.clone(), 0, 1, u64::MAX, u64::MAX, vec![1]);
+        assert!(
+            matches!(overflow.validate(), Err(Error::InvalidInput(message)) if message.contains("overflows"))
+        );
+        let past_end = UploadChunk::new(transfer.clone(), 0, 1, 4, 4, vec![1]);
+        assert!(
+            matches!(past_end.validate(), Err(Error::InvalidInput(message)) if message.contains("exceed"))
+        );
+        let exact = UploadChunk::new(transfer, 0, 1, 3, 4, vec![1]);
+        assert!(exact.validate().is_ok());
+    }
 
     #[test]
     fn test_chunk_validation_and_tampering() {

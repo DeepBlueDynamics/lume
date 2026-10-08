@@ -55,9 +55,9 @@ pub fn connect_signalk(
     url: &str,
     token: Option<&str>,
 ) -> Result<WebSocket<tungstenite::stream::MaybeTlsStream<TcpStream>>> {
-    let mut request = url
-        .into_client_request()
-        .map_err(|e| Error::InvalidInput(format!("invalid websocket URL '{url}': {e}")))?;
+    let mut request = url.into_client_request().map_err(|_| {
+        Error::InvalidInput("invalid websocket URL (userinfo and query omitted)".into())
+    })?;
 
     if let Some(tok) = token {
         let val = HeaderValue::from_str(&format!("Bearer {tok}"))
@@ -462,6 +462,16 @@ mod tests {
     use super::*;
     use std::net::TcpListener;
     use std::thread;
+
+    #[test]
+    fn invalid_websocket_url_never_echoes_credentials() {
+        let url = "ws://alice:private-password@localhost:invalid/stream?token=private-query\n";
+        let error = connect_signalk(url, None).unwrap_err().to_string();
+        assert!(error.contains("invalid websocket URL"));
+        for secret in ["alice", "private-password", "private-query"] {
+            assert!(!error.contains(secret), "{error}");
+        }
+    }
 
     #[test]
     fn test_subscription_messages_json() {

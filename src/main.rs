@@ -286,6 +286,7 @@ fn lume_main() {
                 tls_key: pg_tls_key,
                 allow_plaintext: pg_allow_plaintext,
                 require_tls: pg_require_tls,
+                ..Default::default()
             };
             #[cfg(feature = "ti")]
             let result=match ti_store{
@@ -443,6 +444,9 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
             }
             "--token" => {
                 let val = args.get(i + 1).ok_or("--token requires a file or token value")?;
+                if !std::path::Path::new(val).is_file() {
+                    eprintln!("Deprecated: raw ingest --token exposes credentials in process arguments; use --token <token-file> instead.");
+                }
                 token_arg = Some(val.clone());
                 i += 2;
             }
@@ -613,6 +617,7 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
                     tls_key: pg_tls_key.map(PathBuf::from).or_else(|| service.config.bind.pg_tls_key.clone().map(PathBuf::from)),
                     allow_plaintext: pg_allow_plaintext || service.config.bind.pg_allow_plaintext,
                     require_tls: pg_require_tls.or(service.config.bind.pg_require_tls),
+                    ..Default::default()
                 };
                 std::thread::spawn(move || {
                     println!("Starting integrated query server on {serve_bind}:{port}...");
@@ -667,6 +672,7 @@ fn handle_ti_sync(args: &[String]) -> Result<(), String> {
             "--token" => {
                 i += 1;
                 token = Some(args.get(i).ok_or("missing value for --token")?.clone());
+                eprintln!("Deprecated: raw sync --token exposes credentials in process arguments; use --token-file <path> instead.");
             }
             "--token-file" => {
                 i += 1;
