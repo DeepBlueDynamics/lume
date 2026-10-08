@@ -312,6 +312,8 @@ else
                     rsync -az "${BENCH_STORE_DIR}/store" "${SSH_HOST}:${BENCH_ROOT}/"
                 fi
             else
+                # scp -r into an existing store/ would nest it as store/store; start clean.
+                run_remote "rm -rf '${BENCH_ROOT}/store'"
                 "${SCP_CMD[@]}" -r "${BENCH_STORE_DIR}/store" "${SSH_HOST}:${BENCH_ROOT}/"
             fi
             run_remote "echo '${STORE_MARKER}' > '${BENCH_ROOT}/store/.store_marker'"
