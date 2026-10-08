@@ -103,9 +103,7 @@ pub fn resolve_query_entities(index: &Bm25Index, query: &str, max_ngram: usize) 
                 if !seeds.contains(key) {
                     seeds.push(key.clone());
                 }
-                for j in i..i + len {
-                    used[j] = true;
-                }
+                used[i..i + len].fill(true);
                 i += len;
                 matched = true;
                 break;
