@@ -739,7 +739,7 @@ impl Bm25Index {
                     if doc_idx < self.sections.len() {
                         let sec = &self.sections[doc_idx];
                         diag!("     - Header: {:?}", sec.title);
-                        diag!("     - Body Snippet: {:?}", if sec.body.len() > 100 { format!("{}...", &sec.body[..100]) } else { sec.body.clone() });
+                        diag!("     - Body Snippet: {:?}", diagnostic_body_preview(&sec.body));
                         
                         let title_tokens = tokenize(&sec.title);
                         let body_tokens = tokenize(&sec.body);
@@ -773,6 +773,13 @@ impl Bm25Index {
 
         hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
         hits
+    }
+}
+
+fn diagnostic_body_preview(body: &str) -> String {
+    match body.char_indices().nth(100) {
+        Some((end, _)) => format!("{}...", &body[..end]),
+        None => body.to_string(),
     }
 }
 
@@ -810,5 +817,35 @@ fn calculate_bm25_term_score(
             let scaled_tf = tf / len_normalization;
             idf * (scaled_tf * (k1 + 1.0)) / (scaled_tf + k1)
         }
+    }
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+
+    #[test]
+    fn rejected_multibyte_body_diagnostics_do_not_panic() {
+        let body = format!("{}🚤 bilge pump", "a".repeat(99));
+        assert!(body.len() > 100);
+        assert!(!body.is_char_boundary(100));
+        let index = Bm25Index::build(
+            vec![Section {
+                title: String::new(),
+                body,
+                line_number: 1,
+                filename: None,
+                entities: vec![],
+            }],
+            None,
+        );
+        let params = Bm25Params {
+            title_weight: 0.0,
+            body_weight: 0.0,
+            ..Default::default()
+        };
+        assert!(index
+            .search("bilge", SearchVariant::Classic, &params, None)
+            .is_empty());
     }
 }
