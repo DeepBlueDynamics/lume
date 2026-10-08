@@ -605,7 +605,11 @@ Tests `deploy-pi.sh`, `pi-retire-ollama.sh`, and `provision-pi.sh` (including dr
 
 The Ask tab (`lume chat`) defaults to calling **`https://ollama.com`** directly for `:cloud` models such as `glm-5.3:cloud`. This avoids running an Ollama container on the Pi, freeing ~4.2 GB of disk space.
 
-### Key file creation on the Pi
+### One command (recommended)
+
+From the repo on your machine, run `scripts/pi-set-ollama-key.sh <ssh-host>`; it honours `LUME_DEPLOY_SSH_CONFIG`. It prompts for the key with hidden input, sends it to the Pi only on SSH stdin, writes the key file below (1000:1000, mode 600), sets **Chat API Key File Path** in the plugin config (backing the JSON up first), and restarts Signal K. `--check` reports the file's owner, mode and size, never its contents. `--dry-run` prints the steps.
+
+### Key file creation on the Pi (manual)
 
 The API key is stored in a dedicated file outside the plugin configuration. The Signal K container runs as the `node` user (`uid:gid 1000:1000`).
 
