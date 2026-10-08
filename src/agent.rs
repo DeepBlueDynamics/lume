@@ -583,7 +583,31 @@ const MAX_MCP_BODY_BYTES: usize = 8 * 1024 * 1024;
 fn http_error(stream: &mut TcpStream, status: &str) -> std::io::Result<()> {
     stream.write_all(
         format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes(),
-    )
+    )?;
+    linger_close(stream);
+    Ok(())
+}
+
+/// Early rejects leave the request body unread. Closing with unread bytes makes the OS
+/// (always on Windows) send RST, which can discard this response before the client reads
+/// it. Half-close, then discard what the client already sent, bounded in bytes and time.
+fn linger_close(stream: &mut TcpStream) {
+    use std::io::Read;
+    let _ = stream.flush();
+    let _ = stream.shutdown(std::net::Shutdown::Write);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
+    let mut buf = [0u8; 8192];
+    let mut drained = 0usize;
+    while drained < 1024 * 1024 {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() || stream.set_read_timeout(Some(left)).is_err() {
+            break;
+        }
+        match stream.read(&mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => drained += n,
+        }
+    }
 }
 
 fn handle_connection(
