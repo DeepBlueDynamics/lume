@@ -328,9 +328,7 @@ fn zip_text(archive: &mut zip::ZipArchive<std::fs::File>, name: &str) -> Result<
 type XmlAttributeMap = std::collections::BTreeMap<String, String>;
 
 #[cfg(feature = "pdf")]
-fn xml_elements(
-    text: &str,
-) -> Result<Vec<(String, XmlAttributeMap)>, String> {
+fn xml_elements(text: &str) -> Result<Vec<(String, XmlAttributeMap)>, String> {
     use quick_xml::events::Event;
     let mut reader = quick_xml::Reader::from_str(text);
     let mut elements = Vec::new();

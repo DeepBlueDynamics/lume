@@ -65,6 +65,8 @@ impl Server {
         assert!(server.url.starts_with("http://127.0.0.1:"), "{line}");
         server
     }
+    // The test helper hands ureq's own error back so tests can match status codes.
+    #[allow(clippy::result_large_err)]
     fn post(
         &self,
         path: &str,
