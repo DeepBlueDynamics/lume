@@ -4,4 +4,4 @@ marine-ollama-container (0.1.0-1) stable; urgency=medium
   * Local language model server for the Lume TI Ask tab.
   * Default offline model qwen3:4b configured for arm64.
 
- -- DeepBlue Dynamics <info@deepbluedynamics.com>  Thu, 08 Oct 2026 00:00:00 +0000
+ -- DeepBlue Dynamics <kord@deepbluedynamics.com>  Thu, 08 Oct 2026 00:00:00 +0000

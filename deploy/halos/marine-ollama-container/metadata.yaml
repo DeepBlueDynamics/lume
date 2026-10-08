@@ -12,7 +12,7 @@ long_description: |
   It does not run models locally by default (a Pi 5 is too slow for that).
   It listens on 127.0.0.1:11434 only and has no authentication.
 homepage: https://ollama.com/
-maintainer: DeepBlue Dynamics <info@deepbluedynamics.com>
+maintainer: DeepBlue Dynamics <kord@deepbluedynamics.com>
 license: MIT
 tags:
   - role::container-app

@@ -42,7 +42,7 @@ Setup and workflow: [SETUP.md](SETUP.md).
 - Compact Echidna = Antigravity in `.lanes/w3`.
 
 **Waiting on the user:**
-- Maintainer email for the .debs (`info@deepbluedynamics.com` is a placeholder until the user confirms one).
+- Maintainer email for the .debs (`kord@deepbluedynamics.com` is a placeholder until the user confirms one).
 - Approve the Signal K access request.
 - Enter the PG password for the pg smoke rerun and Grafana Save & Test.
 - Provide `icon.png`.

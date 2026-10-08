@@ -12,7 +12,7 @@ long_description: |
   It listens on 127.0.0.1:6792 only, with authentication off, and runs without
   an LLM agent or vision OCR.
 homepage: https://github.com/DeepBlueDynamics/lume
-maintainer: DeepBlue Dynamics <info@deepbluedynamics.com>
+maintainer: DeepBlue Dynamics <kord@deepbluedynamics.com>
 license: Proprietary
 tags:
   - role::container-app
