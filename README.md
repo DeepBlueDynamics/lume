@@ -173,7 +173,7 @@ lume serve --bind 127.0.0.1 --port 8080
 
 This exposes `lume_index`, `lume_search`, `lume_generate` and `lume_not_found` as MCP tools over HTTP. Search runs in-process through the `lume::search` library API. Built with `--features ti`, `lume serve --ti-store <store>` adds the [Lume TI](#lume-ti-telemetry-index) tools, OTLP ingestion (`--otlp`), and PostgreSQL wire access (`--pg`).
 
-Plain `lume serve` retains its `0.0.0.0` default bind, but now refuses to start off loopback without `--nuts-auth` or `--http-token-file`. For local access use `lume serve --bind 127.0.0.1`. TI serving still defaults to loopback.
+All serve paths default to `127.0.0.1`, including plain `lume serve`. An explicit non-loopback bind requires `--nuts-auth` or `--http-token-file`. See the [operator manual](docs/OPERATIONS.md#1-network-exposure) for LAN access, authentication and Signal K deployment.
 
 Use `--nuts-auth --nuts-allow sailor@example.com,user-17` on plain/TI `serve` or `ti ingest --serve`. The optional auth URL defaults to `https://auth.nuts.services`; an allowlist may also be supplied as `--nuts-allow @/path/to/allowlist`. Send a nuts RS256 JWT or an `ahp_` token in `Authorization: Bearer <token>`. JWTs verify offline using startup/12-hour JWKS refresh and a public-key cache at `<store>/auth/jwks.json` (plain serve: `.lume-index/auth/jwks.json`); AHP tokens exchange online and cache their verified JWT in memory until expiry. Allowlist membership is mandatory. Read scope covers TI/MCP/SSE; write covers OTLP and indexing (MCP indexing needs both). GET `/health` is public when nuts auth is on. No key cache plus no network refuses startup.
 

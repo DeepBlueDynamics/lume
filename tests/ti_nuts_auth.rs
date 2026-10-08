@@ -528,6 +528,45 @@ fn plain_and_ingest_servers_use_nuts_auth_and_route_tokens_override_it() {
 }
 
 #[test]
+fn plain_serve_defaults_to_loopback_without_auth() {
+    let scratch = Scratch::new();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_lume"))
+        .current_dir(&scratch.0)
+        .args(["serve", "--port", "0"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let (tx, rx) = mpsc::channel();
+    let stdout = child.stdout.take().unwrap();
+    let reader = std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if let Some(address) = line.strip_prefix("Lume MCP HTTP server listening on http://") {
+                let _ = tx.send(address.to_string());
+            }
+        }
+    });
+    // Keep the child under the existing RAII guard even if startup times out.
+    let mut server = Server {
+        child,
+        address: String::new(),
+        logs: Arc::new(Mutex::new(String::new())),
+        readers: vec![reader],
+    };
+    server.address = rx
+        .recv_timeout(Duration::from_secs(30))
+        .expect("plain serve startup");
+    assert!(server.address.starts_with("127.0.0.1:"));
+    assert_eq!(server.request("POST", "/mcp", MCP, None), 200);
+    assert_eq!(server.request("GET", "/health", "", None), 200);
+    let output = Command::new(env!("CARGO_BIN_EXE_lume"))
+        .args(["serve", "--help"])
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Bind address [default: 127.0.0.1]"));
+}
+
+#[test]
 fn startup_refuses_remote_no_auth_empty_allowlist_or_unavailable_uncached_jwks() {
     // A documentation-only non-loopback IP: refusal happens before any bind.
     assert!(lume::http_auth::validate_bind("192.0.2.1", false).is_err());
@@ -549,7 +588,6 @@ fn startup_refuses_remote_no_auth_empty_allowlist_or_unavailable_uncached_jwks()
         vec!["serve", "--nuts-auth", "--nuts-allow", ""],
         vec!["serve", "--nuts-auth"],
         vec!["serve", "--nuts-allow", "user-17"],
-        vec!["serve"], // plain default bind remains wildcard, but now needs auth.
         vec!["serve", "--bind", "192.0.2.1"],
         vec!["ti", "ingest", "--nuts-auth"],
     ] {

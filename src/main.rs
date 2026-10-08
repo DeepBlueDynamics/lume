@@ -334,7 +334,7 @@ fn lume_main() {
                 ),
                 None => lume::agent::serve_on_with_http_auth(
                     port,
-                    bind.unwrap_or("0.0.0.0"),
+                    bind.unwrap_or("127.0.0.1"),
                     http_auth,
                 ),
             };
@@ -344,7 +344,7 @@ fn lume_main() {
             } else {
                 lume::agent::serve_on_with_http_auth(
                     port,
-                    bind.unwrap_or("0.0.0.0"),
+                    bind.unwrap_or("127.0.0.1"),
                     http_auth,
                 )
             };
@@ -2749,7 +2749,7 @@ OPTIONS:
   --pg-tls-key <PATH>  PEM private key for Postgres TLS (Unix chmod 600 required)
   --pg-require-tls[=<bool>] Require or disable TLS explicitly [true/false]
   --pg-allow-plaintext Allow unencrypted Postgres connections on non-loopback binds
-  --bind <IP>           Bind address [with TI: 127.0.0.1; otherwise: 0.0.0.0]
+  --bind <IP>           Bind address [default: 127.0.0.1]
   -h, --help             Prints help information
 "#);
 }

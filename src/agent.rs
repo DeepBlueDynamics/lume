@@ -858,7 +858,7 @@ fn handle_connection_with_auth(
 const MAX_CONCURRENT_CONNECTIONS: usize = 64;
 
 pub fn serve(port: u16) -> Result<(), String> {
-    serve_on(port,"0.0.0.0")
+    serve_on(port,"127.0.0.1")
 }
 pub fn serve_on(port: u16, bind: &str) -> Result<(), String> {
     serve_on_with_http_auth(port, bind, None)
