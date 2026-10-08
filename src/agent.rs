@@ -577,32 +577,62 @@ fn handle_mcp_request(req_val: serde_json::Value, _ti: &TiState) -> serde_json::
     }
 }
 
-fn handle_connection(mut stream: TcpStream, _ti: &TiState) -> std::io::Result<()> {
+const HTTP_IO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+const MAX_MCP_BODY_BYTES: usize = 8 * 1024 * 1024;
+
+fn http_error(stream: &mut TcpStream, status: &str) -> std::io::Result<()> {
+    stream.write_all(
+        format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes(),
+    )
+}
+
+fn handle_connection(stream: TcpStream, ti: &TiState) -> std::io::Result<()> {
+    handle_connection_with_timeout(stream, ti, HTTP_IO_TIMEOUT)
+}
+
+fn handle_connection_with_timeout(
+    mut stream: TcpStream,
+    _ti: &TiState,
+    timeout: std::time::Duration,
+) -> std::io::Result<()> {
+    stream.set_read_timeout(Some(timeout))?;
+    stream.set_write_timeout(Some(timeout))?;
     let mut buffer = [0; 8192];
     let mut bytes_read = 0;
-    loop {
-        let n = stream.read(&mut buffer[bytes_read..])?;
-        if n == 0 {
-            return Ok(());
+    let header_end = loop {
+        if bytes_read == buffer.len() {
+            return http_error(&mut stream, "400 Bad Request");
         }
+        let n = match stream.read(&mut buffer[bytes_read..]) {
+            Ok(0) => return http_error(&mut stream, "400 Bad Request"),
+            Ok(n) => n,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                ) =>
+            {
+                return http_error(&mut stream, "400 Bad Request")
+            }
+            Err(error) => return Err(error),
+        };
         bytes_read += n;
-        if find_subsequence(&buffer[..bytes_read], b"\r\n\r\n").is_some() {
-            break;
+        if let Some(end) = find_subsequence(&buffer[..bytes_read], b"\r\n\r\n") {
+            break end;
         }
-        if bytes_read >= buffer.len() {
-            break;
-        }
-    }
-
-    let req_str = String::from_utf8_lossy(&buffer[..bytes_read]);
+    };
+    let req_str = match std::str::from_utf8(&buffer[..header_end]) {
+        Ok(headers) => headers,
+        Err(_) => return http_error(&mut stream, "400 Bad Request"),
+    };
     let mut lines = req_str.lines();
     let req_line = match lines.next() {
         Some(l) => l,
         None => return Ok(()),
     };
     let parts: Vec<&str> = req_line.split_whitespace().collect();
-    if parts.len() < 2 {
-        return Ok(());
+    if parts.len() != 3 || !parts[2].starts_with("HTTP/1.") {
+        return http_error(&mut stream, "400 Bad Request");
     }
     let method = parts[0];
     let path = parts[1];
@@ -617,11 +647,7 @@ fn handle_connection(mut stream: TcpStream, _ti: &TiState) -> std::io::Result<()
 
     #[cfg(feature = "ti")]
     if path.starts_with("/ti/") || path.starts_with("/v1/") {
-        let Some(end) = find_subsequence(&buffer[..bytes_read], b"\r\n\r\n") else {
-            stream.write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n")?;
-            return Ok(());
-        };
-        return crate::ti_http::handle(&mut stream,_ti.as_deref(),method,path,&req_str[..end],&buffer[end+4..bytes_read]);
+        return crate::ti_http::handle(&mut stream,_ti.as_deref(),method,path,req_str,&buffer[header_end+4..bytes_read]);
     }
     #[cfg(feature = "ti")]
     let cors=if _ti.is_some(){""}else{"Access-Control-Allow-Origin: *\r\n"};
@@ -662,36 +688,42 @@ fn handle_connection(mut stream: TcpStream, _ti: &TiState) -> std::io::Result<()
     }
 
     if method == "POST" && (path == "/message" || path.starts_with("/message?") || path == "/mcp" || path.starts_with("/mcp?")) {
-        let mut content_length = 0;
-        let header_body_sep = req_str.find("\r\n\r\n").unwrap_or(bytes_read);
-        let headers_str = &req_str[..header_body_sep];
-
-        for line in headers_str.lines() {
-            if line.to_lowercase().starts_with("content-length:") {
-                if let Some(val_str) = line.split(':').nth(1) {
-                    if let Ok(len) = val_str.trim().parse::<usize>() {
-                        content_length = len;
-                    }
+        let mut length = None;
+        for line in req_str.lines().skip(1) {
+            let Some((name, value)) = line.split_once(':') else {
+                return http_error(&mut stream, "400 Bad Request");
+            };
+            if name.eq_ignore_ascii_case("transfer-encoding") {
+                return http_error(&mut stream, "400 Bad Request");
+            }
+            if name.eq_ignore_ascii_case("content-length") {
+                if length.is_some() {
+                    return http_error(&mut stream, "400 Bad Request");
                 }
+                length = match value.trim().parse::<usize>() {
+                    Ok(value) => Some(value),
+                    Err(_) => return http_error(&mut stream, "400 Bad Request"),
+                };
             }
         }
-
-        let header_end = header_body_sep + 4;
-        let mut body_bytes = buffer[header_end..bytes_read].to_vec();
+        let content_length = length.unwrap_or(0);
+        if content_length > MAX_MCP_BODY_BYTES {
+            return http_error(&mut stream, "413 Payload Too Large");
+        }
+        let initial = &buffer[header_end + 4..bytes_read];
+        let mut body_bytes = initial[..initial.len().min(content_length)].to_vec();
         while body_bytes.len() < content_length {
-            let mut temp = vec![0; content_length - body_bytes.len()];
-            let n = stream.read(&mut temp)?;
-            if n == 0 {
-                break;
+            let mut chunk = [0; 8192];
+            let remaining = (content_length - body_bytes.len()).min(chunk.len());
+            match stream.read(&mut chunk[..remaining]) {
+                Ok(0) => return http_error(&mut stream, "400 Bad Request"),
+                Ok(n) => body_bytes.extend_from_slice(&chunk[..n]),
+                Err(error) if matches!(error.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock) =>
+                    return http_error(&mut stream, "400 Bad Request"),
+                Err(error) => return Err(error),
             }
-            body_bytes.extend_from_slice(&temp[..n]);
         }
-
-        let body_str = if body_bytes.len() > content_length {
-            String::from_utf8_lossy(&body_bytes[..content_length]).into_owned()
-        } else {
-            String::from_utf8_lossy(&body_bytes).into_owned()
-        };
+        let body_str = String::from_utf8_lossy(&body_bytes);
 
         let rpc_req: serde_json::Value = match serde_json::from_str(&body_str) {
             Ok(val) => val,
@@ -854,6 +886,8 @@ fn serve_configured(port:u16,_ti:TiState,bind:std::net::IpAddr)->Result<(),Strin
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
+                stream.set_read_timeout(Some(HTTP_IO_TIMEOUT)).map_err(|e| e.to_string())?;
+                stream.set_write_timeout(Some(HTTP_IO_TIMEOUT)).map_err(|e| e.to_string())?;
                 if active.load(Ordering::Acquire) >= MAX_CONCURRENT_CONNECTIONS {
                     let busy = "HTTP/1.1 503 Service Unavailable\r\n\
                                 Retry-After: 1\r\n\
@@ -1434,3 +1468,94 @@ fn extract_json_block(text: &str) -> String {
 }
 
 
+
+#[cfg(test)]
+mod http_limits_tests {
+    use super::*;
+    use std::net::Shutdown;
+    use std::time::{Duration, Instant};
+
+    fn request(bytes: &[u8], close_write: bool) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handler = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            #[cfg(feature = "ti")]
+            let ti: TiState = None;
+            #[cfg(not(feature = "ti"))]
+            let ti: TiState = ();
+            handle_connection_with_timeout(stream, &ti, Duration::from_millis(100)).unwrap();
+        });
+        let mut client = TcpStream::connect(addr).unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        client.write_all(bytes).unwrap();
+        if close_write {
+            client.shutdown(Shutdown::Write).unwrap();
+        }
+        let mut response = String::new();
+        client.read_to_string(&mut response).unwrap();
+        handler.join().unwrap();
+        response
+    }
+
+    #[test]
+    fn incomplete_or_invalid_headers_are_bad_requests() {
+        assert!(
+            request(b"POST /mcp HTTP/1.1\r\nContent-Length: 2\r\n", true)
+                .starts_with("HTTP/1.1 400")
+        );
+        let full = format!("POST /mcp HTTP/1.1\r\nX: {}", "x".repeat(8192 - 23));
+        assert!(request(full.as_bytes(), true).starts_with("HTTP/1.1 400"));
+        assert!(request(b"POST /mcp HTTP/1.1\r\nX: \xff\r\n\r\n", true).starts_with("HTTP/1.1 400"));
+    }
+
+    #[test]
+    fn mcp_rejects_truncated_oversize_or_ambiguous_bodies() {
+        for body in [
+            "Content-Length: 3\r\n\r\n{}",
+            "Content-Length: 8388609\r\n\r\n",
+            "Content-Length: 2\r\nContent-Length: 2\r\n\r\n{}",
+            "Content-Length: invalid\r\n\r\n",
+            "Transfer-Encoding: chunked\r\n\r\n0\r\n\r\n",
+        ] {
+            let expected = if body.contains("8388609") {
+                "HTTP/1.1 413"
+            } else {
+                "HTTP/1.1 400"
+            };
+            assert!(
+                request(format!("POST /mcp HTTP/1.1\r\n{body}").as_bytes(), true)
+                    .starts_with(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn stalled_headers_and_bodies_time_out() {
+        assert_eq!(HTTP_IO_TIMEOUT, Duration::from_secs(30));
+        let start = Instant::now();
+        assert!(request(b"POST /mcp HTTP/1.1\r\n", false).starts_with("HTTP/1.1 400"));
+        assert!(
+            request(b"POST /mcp HTTP/1.1\r\nContent-Length: 2\r\n\r\n", false)
+                .starts_with("HTTP/1.1 400")
+        );
+        assert!(start.elapsed() < Duration::from_secs(3));
+    }
+
+    #[test]
+    fn valid_mcp_still_works() {
+        let body = r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#;
+        let response = request(
+            format!(
+                "POST /mcp HTTP/1.1\r\nContent-Length: {}\r\n\r\n{body}",
+                body.len()
+            )
+            .as_bytes(),
+            true,
+        );
+        assert!(response.starts_with("HTTP/1.1 200"));
+        assert!(response.contains("tools"));
+    }
+}
