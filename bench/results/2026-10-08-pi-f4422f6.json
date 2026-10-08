@@ -1,0 +1,924 @@
+{
+  "date": "2026-10-08",
+  "git_sha": "f4422f6",
+  "store_path": "/var/tmp/lume-pi-bench/store",
+  "parquet_path": "/var/tmp/lume-pi-bench/store",
+  "iterations": 7,
+  "cache_budget_bytes": 268435456,
+  "warm_before_cold": false,
+  "total_queries_run": 26,
+  "classes": {
+    "Q1": {
+      "class": "Q1",
+      "target_p95_ms": 20.0,
+      "target_description": "≤ 20 ms (point lookup)",
+      "cold_ms": 21.158922999999998,
+      "p50_ms": 1.6530099999999999,
+      "p95_ms": 1.875474,
+      "p99_ms": 1.9388999999999998,
+      "meets_target": true,
+      "duckdb_p95_ms": null,
+      "speedup_vs_duckdb": null
+    },
+    "Q2": {
+      "class": "Q2",
+      "target_p95_ms": 100.0,
+      "target_description": "≤ 100 ms (shore) / ≤ 150 ms (edge) (selective multi-pred)",
+      "cold_ms": 31.198370999999998,
+      "p50_ms": 3.605911,
+      "p95_ms": 4.946214,
+      "p99_ms": 5.645423,
+      "meets_target": true,
+      "duckdb_p95_ms": null,
+      "speedup_vs_duckdb": null
+    },
+    "Q3": {
+      "class": "Q3",
+      "target_p95_ms": 60.0,
+      "target_description": "≤ 60 ms (shore) / ≤ 50 ms (edge) (count with filters)",
+      "cold_ms": 102.753687,
+      "p50_ms": 2.859073,
+      "p95_ms": 3.798504,
+      "p99_ms": 3.899801,
+      "meets_target": true,
+      "duckdb_p95_ms": null,
+      "speedup_vs_duckdb": null
+    },
+    "Q4": {
+      "class": "Q4",
+      "target_p95_ms": 300.0,
+      "target_description": "≤ 300 ms (shore) / ≤ 400 ms (edge) (windowed aggregate)",
+      "cold_ms": 106.536099,
+      "p50_ms": 7.023709,
+      "p95_ms": 15.666168,
+      "p99_ms": 18.388592,
+      "meets_target": true,
+      "duckdb_p95_ms": null,
+      "speedup_vs_duckdb": null
+    },
+    "Q5": {
+      "class": "Q5",
+      "target_p95_ms": 150.0,
+      "target_description": "≤ 150 ms (intervals)",
+      "cold_ms": 267.500023,
+      "p50_ms": 5.046049,
+      "p95_ms": 5.301013,
+      "p99_ms": 5.301013,
+      "meets_target": true,
+      "duckdb_p95_ms": null,
+      "speedup_vs_duckdb": null
+    },
+    "Q6": {
+      "class": "Q6",
+      "target_p95_ms": 150.0,
+      "target_description": "≤ 150 ms (shore) / ≤ 200 ms (edge) (text + telemetry)",
+      "cold_ms": 103.716379,
+      "p50_ms": 3.167796,
+      "p95_ms": 10.806268000000001,
+      "p99_ms": 13.349635000000001,
+      "meets_target": true,
+      "duckdb_p95_ms": null,
+      "speedup_vs_duckdb": null
+    },
+    "Q7": {
+      "class": "Q7",
+      "target_p95_ms": 250.0,
+      "target_description": "≤ 250 ms (shore) / ≤ 300 ms (edge) (geo + telemetry)",
+      "cold_ms": 28.919525,
+      "p50_ms": 5.112716,
+      "p95_ms": 6.742985,
+      "p99_ms": 8.024159,
+      "meets_target": true,
+      "duckdb_p95_ms": null,
+      "speedup_vs_duckdb": null
+    },
+    "Q8": {
+      "class": "Q8",
+      "target_p95_ms": 500.0,
+      "target_description": "DuckDB parity ±50 % (broad scan)",
+      "cold_ms": 153.881844,
+      "p50_ms": 54.710178,
+      "p95_ms": 76.520197,
+      "p99_ms": 82.216916,
+      "meets_target": true,
+      "duckdb_p95_ms": null,
+      "speedup_vs_duckdb": null
+    }
+  },
+  "queries": [
+    {
+      "id": "q1-001",
+      "class": "Q1",
+      "description": "Point lookup: true wind speed @max at a single 10s bucket",
+      "rows": 1,
+      "answer_fingerprint": "053603b472b9bb61",
+      "cache_stats": {
+        "budget_bytes": 268435456,
+        "used_bytes": 414680,
+        "entries": 2,
+        "hits": 38,
+        "misses": 15,
+        "evictions": 0,
+        "full_loads": 14,
+        "field_loads": 1
+      },
+      "cache_warm": null,
+      "cold_ms": 56.696375,
+      "p50_ms": 1.623529,
+      "p95_ms": 1.867104,
+      "p99_ms": 1.867104,
+      "min_ms": 1.571954,
+      "max_ms": 1.867104,
+      "mean_ms": 1.6504545714285714
+    },
+    {
+      "id": "q1-002",
+      "class": "Q1",
+      "description": "Point lookup: speed over ground @last at a bucket",
+      "rows": 1,
+      "answer_fingerprint": "3c9447ed5650be90",
+      "cache_stats": {
+        "budget_bytes": 268435456,
+        "used_bytes": 389816,
+        "entries": 2,
+        "hits": 76,
+        "misses": 17,
+        "evictions": 0,
+        "full_loads": 15,
+        "field_loads": 2
+      },
+      "cache_warm": null,
+      "cold_ms": 20.875069,
+      "p50_ms": 1.5772869999999999,
+      "p95_ms": 1.875474,
+      "p99_ms": 1.875474,
+      "min_ms": 1.557509,
+      "max_ms": 1.875474,
+      "mean_ms": 1.6403085714285714
+    },
+    {
+      "id": "q1-004",
+      "class": "Q1",
+      "description": "Point lookup: lat/lon (geo) at a bucket",
+      "rows": 1,
+      "answer_fingerprint": "4e735edd3ab640e9",
+      "cache_stats": {
+        "budget_bytes": 268435456,
+        "used_bytes": 1405640,
+        "entries": 3,
+        "hits": 121,
+        "misses": 20,
+        "evictions": 0,
+        "full_loads": 16,
+        "field_loads": 4
+      },
+      "cache_warm": null,
+      "cold_ms": 21.158922999999998,
+      "p50_ms": 1.690695,
+      "p95_ms": 1.9388999999999998,
+      "p99_ms": 1.9388999999999998,
+      "min_ms": 1.625083,
+      "max_ms": 1.9388999999999998,
+      "mean_ms": 1.7317167142857142
+    },
+    {
+      "id": "q2-002",
+      "class": "Q2",
+      "description": "4 conjuncts: port started, SOG in range, wind speed >, depth < (set=, bsi BETWEEN, bsi >, bsi <)",
+      "rows": 0,
+      "answer_fingerprint": "bd60acb658c79e45",
+      "cache_stats": {
+        "budget_bytes": 268435456,
+        "used_bytes": 1205358,
+        "entries": 5,
+        "hits": 228,
+        "misses": 25,
+        "evictions": 0,
+        "full_loads": 17,
+        "field_loads": 8
+      },
+      "cache_warm": null,
+      "cold_ms": 30.793518,
+      "p50_ms": 2.512163,
+      "p95_ms": 2.651979,
+      "p99_ms": 2.651979,
+      "min_ms": 2.4466069999999998,
+      "max_ms": 2.651979,
+      "mean_ms": 2.5246975714285718
+    },
+    {
+      "id": "q2-003",
+      "class": "Q2",
+      "description": "set IN + bsi > + bsi < + IS NOT NULL (presence) + NOT",
+      "rows": 391,
+      "answer_fingerprint": "a437baf6856f108a",
+      "cache_stats": {
+        "budget_bytes": 268435456,
+        "used_bytes": 6508868,
+        "entries": 30,
+        "hits": 750,
+        "misses": 55,
+        "evictions": 0,
+        "full_loads": 22,
+        "field_loads": 33
+      },
+      "cache_warm": null,
+      "cold_ms": 534.4942110000001,
+      "p50_ms": 3.605911,
+      "p95_ms": 3.674133,
+      "p99_ms": 3.674133,
+      "min_ms": 3.4903180000000003,
+      "max_ms": 3.674133,
+      "mean_ms": 3.5936540000000003
+    },
+    {
+      "id": "q2-005",
+      "class": "Q2",
+      "description": "col-vs-col comparison (unsupported pushdown): apparent vs true wind ratio [narrowed to 05-07 00:00–06:00 UTC to keep the golden output small]",
+      "rows": 1068,
+      "answer_fingerprint": "0f32c8fc6b96f1b5",
+      "cache_stats": {
+        "budget_bytes": 268435456,
+        "used_bytes": 825816,
+        "entries": 3,
+        "hits": 803,
+        "misses": 58,
+        "evictions": 0,
+        "full_loads": 23,
+        "field_loads": 35
+      },
+      "cache_warm": null,
+      "cold_ms": 31.198370999999998,
+      "p50_ms": 4.8164180000000005,
+      "p95_ms": 5.645423,
+      "p99_ms": 5.645423,
+      "min_ms": 4.736732,
+      "max_ms": 5.645423,
+      "mean_ms": 4.941320714285714
+    },
+    {
+      "id": "q3-001",
+      "class": "Q3",
+      "description": "Count buckets where SOG > 6 kn and engine (main) not running (spec example)",
+      "rows": 1,
+      "answer_fingerprint": "fba3d1d7ecf80aa0",
+      "cache_stats": {
+        "budget_bytes": 268435456,
+        "used_bytes": 2332014,
+        "entries": 15,
+        "hits": 1140,
+        "misses": 73,
+        "evictions": 0,
+        "full_loads": 28,
+        "field_loads": 45
+      },
+      "cache_warm": null,
+      "cold_ms": 117.514109,
+      "p50_ms": 2.859073,
+      "p95_ms": 3.177296,
+      "p99_ms": 3.177296,
+      "min_ms": 2.8156280000000002,
+      "max_ms": 3.177296,
+      "mean_ms": 2.912908714285714
+    },
+    {
+      "id": "q3-002",
+      "class": "Q3",
+      "description": "Count buckets where battery voltage < 25 and solar > 100",
+      "rows": 1,
+      "answer_fingerprint": "0bd6a9ce48ef00c3",
+      "cache_stats": {
+        "budget_bytes": 268435456,
+        "used_bytes": 4029468,
+        "entries": 15,
+        "hits": 1445,
+        "misses": 88,
+        "evictions": 0,
+        "full_loads": 33,
+        "field_loads": 55
+      },
+      "cache_warm": null,
+      "cold_ms": 102.753687,
+      "p50_ms": 3.734929,
+      "p95_ms": 3.899801,
+      "p99_ms": 3.899801,
+      "min_ms": 3.65417,
+      "max_ms": 3.899801,
+      "mean_ms": 3.7494295714285717
+    },
+    {
+      "id": "q3-004",
+      "class": "Q3",
+      "description": "Count buckets where wind speed > 25 kn (12.86 m/s)",
+      "rows": 1,
+      "answer_fingerprint": "a4d2e574199e4551",
+      "cache_stats": {
+        "budget_bytes": 268435456,
+        "used_bytes": 2054532,
+        "entries": 10,
+        "hits": 1667,
+        "misses": 98,
+        "evictions": 0,
+        "full_loads": 38,
+        "field_loads": 60
+      },
+      "cache_warm": null,
+      "cold_ms": 101.52644,
+      "p50_ms": 2.2567350000000004,
+      "p95_ms": 2.569275,
+      "p99_ms": 2.569275,
+      "min_ms": 2.233143,
+      "max_ms": 2.569275,
+      "mean_ms": 2.323818
+    },
+    {
+      "id": "q4-001",
+      "class": "Q4",
+      "description": "Max wind per day over the 90-day correctness window (date_bin GROUP BY)",
+      "rows": 90,
+      "answer_fingerprint": "bf2c5178f9d63a65",
+      "cache_stats": {
+        "budget_bytes": 268435456,
+        "used_bytes": 5340096,
+        "entries": 26,
+        "hits": 3689,
+        "misses": 124,
+        "evictions": 0,
+        "full_loads": 51,
+        "field_loads": 73
+      },
+      "cache_warm": null,
+      "cold_ms": 274.83565999999996,
+      "p50_ms": 6.828633,
+      "p95_ms": 7.608045,
+      "p99_ms": 7.608045,
+      "min_ms": 6.567298,
+      "max_ms": 7.608045,
+      "mean_ms": 6.9391549999999995
+    },
+    {
+      "id": "q4-002",
+      "class": "Q4",
+      "description": "Mean battery voltage per hour (Q8-adjacent window aggregate; date_trunc)",
+      "rows": 24,
+      "answer_fingerprint": "e7fa725877c1f658",
+      "cache_stats": {
+        "budget_bytes": 268435456,
+        "used_bytes": 417216,
+        "entries": 2,
+        "hits": 3751,
+        "misses": 126,
+        "evictions": 0,
+        "full_loads": 52,
+        "field_loads": 74
+      },
+      "cache_warm": null,
+      "cold_ms": 38.220098,
+      "p50_ms": 11.928201,
+      "p95_ms": 18.388592,
+      "p99_ms": 18.388592,
+      "min_ms": 11.394865000000001,
+      "max_ms": 18.388592,
+      "mean_ms": 13.313664285714285
+    },
+    {
+      "id": "q4-005",
+      "class": "Q4",
+      "description": "Daily solar sum (sum aggregate over a day window)",
+      "rows": 29,
+      "answer_fingerprint": "848158dec2c6bdd7",
+      "cache_stats": {
+        "budget_bytes": 268435456,
+        "used_bytes": 2080576,
+        "entries": 10,
+        "hits": 4389,
+        "misses": 136,
+        "evictions": 0,
+        "full_loads": 57,
+        "field_loads": 79
+      },
+      "cache_warm": null,
+      "cold_ms": 106.536099,
+      "p50_ms": 6.99532,
+      "p95_ms": 7.120913000000001,
+      "p99_ms": 7.120913000000001,
+      "min_ms": 6.9100969999999995,
+      "max_ms": 7.120913000000001,
+      "mean_ms": 6.998343428571429
+    },
+    {
+      "id": "q5-001",
+      "class": "Q5",
+      "description": "Motoring in >25kn wind, runs >=5 min, max_gap 1m (spec 07 intervals example)",
+      "rows": 0,
+      "answer_fingerprint": "bd60acb658c79e45",
+      "cache_stats": {
+        "budget_bytes": 268435456,
+        "used_bytes": 6515566,
+        "entries": 39,
+        "hits": 4870,
+        "misses": 175,
+        "evictions": 0,
+        "full_loads": 70,
+        "field_loads": 105
+      },
+      "cache_warm": null,
+      "cold_ms": 267.500023,
+      "p50_ms": 4.75525,
+      "p95_ms": 4.929178,
+      "p99_ms": 4.929178,
+      "min_ms": 4.614064,
+      "max_ms": 4.929178,
+      "mean_ms": 4.760888142857143
+    },
+    {
+      "id": "q5-002",
+      "class": "Q5",
+      "description": "PV-1 energy query: electric-only motoring (motors pulling, diesel not running via IS DISTINCT FROM) >=40s",
+      "rows": 10,
+      "answer_fingerprint": "9538ee7efba11577",
+      "cache_stats": {
+        "budget_bytes": 268435456,
+        "used_bytes": 6081350,
+        "entries": 39,
+        "hits": 5351,
+        "misses": 214,
+        "evictions": 0,
+        "full_loads": 83,
+        "field_loads": 131
+      },
+      "cache_warm": null,
+      "cold_ms": 264.57054200000005,
+      "p50_ms": 5.1093079999999995,
+      "p95_ms": 5.301013,
+      "p99_ms": 5.301013,
+      "min_ms": 5.046049,
+      "max_ms": 5.301013,
+      "mean_ms": 5.129922142857142
+    },
+    {
+      "id": "q6-001",
+      "class": "Q6",
+      "description": "match(notes,'leak') AND heel/roll > 0.05 rad",
+      "rows": 24,
+      "answer_fingerprint": "ddefabc58db0a9c0",
+      "cache_stats": {
+        "budget_bytes": 268435456,
+        "used_bytes": 1906200,
+        "entries": 10,
+        "hits": 5629,
+        "misses": 224,
+        "evictions": 0,
+        "full_loads": 88,
+        "field_loads": 136
+      },
+      "cache_warm": null,
+      "cold_ms": 105.22740499999999,
+      "p50_ms": 3.0178510000000003,
+      "p95_ms": 3.4326130000000004,
+      "p99_ms": 3.4326130000000004,
+      "min_ms": 2.9728329999999996,
+      "max_ms": 3.4326130000000004,
+      "mean_ms": 3.0895317142857146
+    },
+    {
+      "id": "q6-002",
+      "class": "Q6",
+      "description": "match(notes,'leak OR water') AND depth < 3",
+      "rows": 37,
+      "answer_fingerprint": "22837b1161a92a8f",
+      "cache_stats": {
+        "budget_bytes": 268435456,
+        "used_bytes": 1813952,
+        "entries": 10,
+        "hits": 5923,
+        "misses": 234,
+        "evictions": 0,
+        "full_loads": 93,
+        "field_loads": 141
+      },
+      "cache_warm": null,
+      "cold_ms": 101.98085,
+      "p50_ms": 3.090074,
+      "p95_ms": 3.4243360000000003,
+      "p99_ms": 3.4243360000000003,
+      "min_ms": 3.071203,
+      "max_ms": 3.4243360000000003,
+      "mean_ms": 3.161029714285714
+    },
+    {
+      "id": "q6-003",
+      "class": "Q6",
+      "description": "match(logbook,'anchorage') AND wind > 15 kn",
+      "rows": 769,
+      "answer_fingerprint": "fa731d0054a05e13",
+      "cache_stats": {
+        "budget_bytes": 268435456,
+        "used_bytes": 2054532,
+        "entries": 10,
+        "hits": 6217,
+        "misses": 244,
+        "evictions": 0,
+        "full_loads": 98,
+        "field_loads": 146
+      },
+      "cache_warm": null,
+      "cold_ms": 103.716379,
+      "p50_ms": 4.077635,
+      "p95_ms": 4.120951000000001,
+      "p99_ms": 4.120951000000001,
+      "min_ms": 4.0091529999999995,
+      "max_ms": 4.120951000000001,
+      "mean_ms": 4.059436857142857
+    },
+    {
+      "id": "q6-004",
+      "class": "Q6",
+      "description": "match(alerts,'alarm') AND SOG > 0 (docs joined to telemetry, doc score)",
+      "rows": 193,
+      "answer_fingerprint": "16ed6dcc9bad1c6e",
+      "cache_stats": {
+        "budget_bytes": 268435456,
+        "used_bytes": 4828608,
+        "entries": 26,
+        "hits": 6855,
+        "misses": 270,
+        "evictions": 0,
+        "full_loads": 111,
+        "field_loads": 159
+      },
+      "cache_warm": null,
+      "cold_ms": 294.984464,
+      "p50_ms": 10.068115,
+      "p95_ms": 13.349635000000001,
+      "p99_ms": 13.349635000000001,
+      "min_ms": 9.66878,
+      "max_ms": 13.349635000000001,
+      "mean_ms": 10.610221857142859
+    },
+    {
+      "id": "q6-005",
+      "class": "Q6",
+      "description": "match(notes,'weather') AND pressure < 101000 Pa",
+      "rows": 21,
+      "answer_fingerprint": "4705daeae1c5badd",
+      "cache_stats": {
+        "budget_bytes": 268435456,
+        "used_bytes": 2087196,
+        "entries": 10,
+        "hits": 7165,
+        "misses": 280,
+        "evictions": 0,
+        "full_loads": 116,
+        "field_loads": 164
+      },
+      "cache_warm": null,
+      "cold_ms": 102.78109500000001,
+      "p50_ms": 3.1584450000000004,
+      "p95_ms": 3.267668,
+      "p99_ms": 3.267668,
+      "min_ms": 3.112352,
+      "max_ms": 3.267668,
+      "mean_ms": 3.1651010000000004
+    },
+    {
+      "id": "q7-001",
+      "class": "Q7",
+      "description": "within 5 nm of a point AND depth < 3 m (spec example) [narrowed to 05-07 00:00–06:00 UTC to keep the golden output small]",
+      "rows": 0,
+      "answer_fingerprint": "bd60acb658c79e45",
+      "cache_stats": {
+        "budget_bytes": 268435456,
+        "used_bytes": 6106780,
+        "entries": 5,
+        "hits": 7240,
+        "misses": 285,
+        "evictions": 0,
+        "full_loads": 117,
+        "field_loads": 168
+      },
+      "cache_warm": null,
+      "cold_ms": 28.919525,
+      "p50_ms": 4.874325,
+      "p95_ms": 8.024159,
+      "p99_ms": 8.024159,
+      "min_ms": 4.449527,
+      "max_ms": 8.024159,
+      "mean_ms": 5.463082857142857
+    },
+    {
+      "id": "q7-002",
+      "class": "Q7",
+      "description": "in_bbox region AND SOG > 6 kn [narrowed to 05-07 00:00–06:00 UTC to keep the golden output small]",
+      "rows": 0,
+      "answer_fingerprint": "bd60acb658c79e45",
+      "cache_stats": {
+        "budget_bytes": 268435456,
+        "used_bytes": 6131624,
+        "entries": 5,
+        "hits": 7315,
+        "misses": 290,
+        "evictions": 0,
+        "full_loads": 118,
+        "field_loads": 172
+      },
+      "cache_warm": null,
+      "cold_ms": 27.291107,
+      "p50_ms": 4.655657,
+      "p95_ms": 5.13553,
+      "p99_ms": 5.13553,
+      "min_ms": 4.475767,
+      "max_ms": 5.13553,
+      "mean_ms": 4.733750285714286
+    },
+    {
+      "id": "q8-001",
+      "class": "Q8",
+      "description": "Mean battery voltage per hour (spec Q8 example, broad)",
+      "rows": 696,
+      "answer_fingerprint": "0f283ff23dc17853",
+      "cache_stats": {
+        "budget_bytes": 268435456,
+        "used_bytes": 2093692,
+        "entries": 10,
+        "hits": 7977,
+        "misses": 300,
+        "evictions": 0,
+        "full_loads": 123,
+        "field_loads": 177
+      },
+      "cache_warm": null,
+      "cold_ms": 213.697479,
+      "p50_ms": 75.241375,
+      "p95_ms": 82.216916,
+      "p99_ms": 82.216916,
+      "min_ms": 69.060227,
+      "max_ms": 82.216916,
+      "mean_ms": 74.95120085714287
+    },
+    {
+      "id": "q8-002",
+      "class": "Q8",
+      "description": "Mean SOG per day (broad)",
+      "rows": 29,
+      "answer_fingerprint": "ec6ac8b6cacdb9e4",
+      "cache_stats": {
+        "budget_bytes": 268435456,
+        "used_bytes": 1879680,
+        "entries": 10,
+        "hits": 8599,
+        "misses": 310,
+        "evictions": 0,
+        "full_loads": 128,
+        "field_loads": 182
+      },
+      "cache_warm": null,
+      "cold_ms": 147.575418,
+      "p50_ms": 50.64421,
+      "p95_ms": 63.592397,
+      "p99_ms": 63.592397,
+      "min_ms": 46.778446,
+      "max_ms": 63.592397,
+      "mean_ms": 52.21054157142857
+    },
+    {
+      "id": "q8-006",
+      "class": "Q8",
+      "description": "Broad: mean house current per day",
+      "rows": 29,
+      "answer_fingerprint": "7d75afa68ddbb4f5",
+      "cache_stats": {
+        "budget_bytes": 268435456,
+        "used_bytes": 1842856,
+        "entries": 10,
+        "hits": 9221,
+        "misses": 320,
+        "evictions": 0,
+        "full_loads": 133,
+        "field_loads": 187
+      },
+      "cache_warm": null,
+      "cold_ms": 153.881844,
+      "p50_ms": 54.694215,
+      "p95_ms": 61.005883,
+      "p99_ms": 61.005883,
+      "min_ms": 50.847711,
+      "max_ms": 61.005883,
+      "mean_ms": 54.993709142857135
+    },
+    {
+      "id": "q7-006",
+      "class": "Q7",
+      "description": "in_bbox with count (geo + count aggregate)",
+      "rows": 0,
+      "answer_fingerprint": "bd60acb658c79e45",
+      "cache_stats": {
+        "budget_bytes": 268435456,
+        "used_bytes": 20054968,
+        "entries": 20,
+        "hits": 9481,
+        "misses": 340,
+        "evictions": 0,
+        "full_loads": 138,
+        "field_loads": 202
+      },
+      "cache_warm": null,
+      "cold_ms": 114.273478,
+      "p50_ms": 5.3327729999999995,
+      "p95_ms": 6.742985,
+      "p99_ms": 6.742985,
+      "min_ms": 5.112716,
+      "max_ms": 6.742985,
+      "mean_ms": 5.601861714285714
+    },
+    {
+      "id": "q6-006",
+      "class": "Q6",
+      "description": "match(notes,'bilge') AND bilge pump cycles > 0 (text + count)",
+      "rows": 9,
+      "answer_fingerprint": "e35b872c6befbf74",
+      "cache_stats": {
+        "budget_bytes": 268435456,
+        "used_bytes": 995964,
+        "entries": 10,
+        "hits": 9791,
+        "misses": 350,
+        "evictions": 0,
+        "full_loads": 143,
+        "field_loads": 207
+      },
+      "cache_warm": null,
+      "cold_ms": 103.13289300000001,
+      "p50_ms": 2.635035,
+      "p95_ms": 3.285038,
+      "p99_ms": 3.285038,
+      "min_ms": 2.552293,
+      "max_ms": 3.285038,
+      "mean_ms": 2.774045857142857
+    }
+  ],
+  "duckdb_baseline": null,
+  "by_class": {
+    "Q1": {
+      "p95_ms": 1.9388999999999998,
+      "edge_target_p95_ms": 20.0,
+      "status": "PASS",
+      "queries": [
+        {
+          "id": "q1-001",
+          "p95_ms": 1.867104
+        },
+        {
+          "id": "q1-002",
+          "p95_ms": 1.875474
+        },
+        {
+          "id": "q1-004",
+          "p95_ms": 1.9388999999999998
+        }
+      ]
+    },
+    "Q2": {
+      "p95_ms": 5.645423,
+      "edge_target_p95_ms": 150.0,
+      "status": "PASS",
+      "queries": [
+        {
+          "id": "q2-002",
+          "p95_ms": 2.651979
+        },
+        {
+          "id": "q2-003",
+          "p95_ms": 3.674133
+        },
+        {
+          "id": "q2-005",
+          "p95_ms": 5.645423
+        }
+      ]
+    },
+    "Q3": {
+      "p95_ms": 3.899801,
+      "edge_target_p95_ms": 50.0,
+      "status": "PASS",
+      "queries": [
+        {
+          "id": "q3-001",
+          "p95_ms": 3.177296
+        },
+        {
+          "id": "q3-002",
+          "p95_ms": 3.899801
+        },
+        {
+          "id": "q3-004",
+          "p95_ms": 2.569275
+        }
+      ]
+    },
+    "Q4": {
+      "p95_ms": 18.388592,
+      "edge_target_p95_ms": 400.0,
+      "status": "PASS",
+      "queries": [
+        {
+          "id": "q4-001",
+          "p95_ms": 7.608045
+        },
+        {
+          "id": "q4-002",
+          "p95_ms": 18.388592
+        },
+        {
+          "id": "q4-005",
+          "p95_ms": 7.120913000000001
+        }
+      ]
+    },
+    "Q5": {
+      "p95_ms": 5.301013,
+      "edge_target_p95_ms": 150.0,
+      "status": "PASS",
+      "queries": [
+        {
+          "id": "q5-001",
+          "p95_ms": 4.929178
+        },
+        {
+          "id": "q5-002",
+          "p95_ms": 5.301013
+        }
+      ]
+    },
+    "Q6": {
+      "p95_ms": 13.349635000000001,
+      "edge_target_p95_ms": 200.0,
+      "status": "PASS",
+      "queries": [
+        {
+          "id": "q6-001",
+          "p95_ms": 3.4326130000000004
+        },
+        {
+          "id": "q6-002",
+          "p95_ms": 3.4243360000000003
+        },
+        {
+          "id": "q6-003",
+          "p95_ms": 4.120951000000001
+        },
+        {
+          "id": "q6-004",
+          "p95_ms": 13.349635000000001
+        },
+        {
+          "id": "q6-005",
+          "p95_ms": 3.267668
+        },
+        {
+          "id": "q6-006",
+          "p95_ms": 3.285038
+        }
+      ]
+    },
+    "Q7": {
+      "p95_ms": 8.024159,
+      "edge_target_p95_ms": 300.0,
+      "status": "PASS",
+      "queries": [
+        {
+          "id": "q7-001",
+          "p95_ms": 8.024159
+        },
+        {
+          "id": "q7-002",
+          "p95_ms": 5.13553
+        },
+        {
+          "id": "q7-006",
+          "p95_ms": 6.742985
+        }
+      ]
+    },
+    "Q8": {
+      "p95_ms": 82.216916,
+      "edge_target_p95_ms": null,
+      "status": "PENDING",
+      "queries": [
+        {
+          "id": "q8-001",
+          "p95_ms": 82.216916
+        },
+        {
+          "id": "q8-002",
+          "p95_ms": 63.592397
+        },
+        {
+          "id": "q8-006",
+          "p95_ms": 61.005883
+        }
+      ]
+    }
+  },
+  "store_recipe": "ti-bench gen --root PARQUET --seed 42 --vessels 1 --days 90"
+}
