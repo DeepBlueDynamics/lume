@@ -5,6 +5,44 @@ const path = require('node:path');
 const {spawn} = require('node:child_process');
 const {adminStatus, readJson} = require('./pg');
 
+class EventStreamParser {
+  constructor(onEvent) {
+    this.buffer = '';
+    this.onEvent = onEvent;
+  }
+
+  feed(chunk) {
+    this.buffer += chunk.toString();
+    let idx;
+    while ((idx = this.buffer.indexOf('\n')) !== -1) {
+      const line = this.buffer.slice(0, idx).trim();
+      this.buffer = this.buffer.slice(idx + 1);
+      if (!line) continue;
+      try {
+        const obj = JSON.parse(line);
+        if (obj && typeof obj === 'object') {
+          this.onEvent(obj);
+        }
+      } catch (_) {
+        // Skip non-JSON lines (e.g. [Agent] logs, debug output)
+      }
+    }
+  }
+
+  flush() {
+    const line = this.buffer.trim();
+    this.buffer = '';
+    if (line) {
+      try {
+        const obj = JSON.parse(line);
+        if (obj && typeof obj === 'object') {
+          this.onEvent(obj);
+        }
+      } catch (_) {}
+    }
+  }
+}
+
 class ChatManager {
   constructor({binary, dataDir, getOptions = () => ({}), log = () => {}}) {
     this.binary = binary;
@@ -27,7 +65,7 @@ class ChatManager {
     }
   }
 
-  async ask(question, {timeoutMs = 180000} = {}) {
+  async ask(question, {timeoutMs = 180000, onEvent = null} = {}) {
     if (this.currentJob) {
       const err = new Error('Another chat job is in progress');
       err.status = 409;
@@ -63,7 +101,7 @@ class ChatManager {
     }
 
     // Build arguments array: question is passed directly as an argv element, NEVER evaluated through a shell
-    const args = ['chat', '--json', '--ti-store', store, '--docs-index', docsIndex];
+    const args = ['chat', '--json', '--events', '--ti-store', store, '--docs-index', docsIndex];
     if (options.chatOllamaUrl) {
       args.push('--ollama-url', options.chatOllamaUrl);
     }
@@ -90,6 +128,7 @@ class ChatManager {
       this.currentJob = child;
       let stdout = '';
       let stderr = '';
+      const parser = onEvent ? new EventStreamParser(onEvent) : null;
 
       const timer = timeoutMs
         ? setTimeout(() => {
@@ -108,6 +147,9 @@ class ChatManager {
       });
       child.stderr.on('data', chunk => {
         stderr += chunk.toString();
+        if (parser) {
+          parser.feed(chunk);
+        }
       });
 
       child.on('error', err => {
@@ -118,6 +160,9 @@ class ChatManager {
 
       child.on('close', (code, signal) => {
         if (timer) clearTimeout(timer);
+        if (parser) {
+          parser.flush();
+        }
         this.currentJob = null;
 
         let parsed = null;
@@ -173,10 +218,83 @@ function registerChatRoutes(router, app, getChatManager) {
       if (!body || typeof body.question !== 'string') {
         return res.status(400).json({error: 'question is required'});
       }
-      const result = await chatManager.ask(body.question);
-      res.json(result);
+
+      const acceptHeader = req.headers && req.headers.accept ? String(req.headers.accept) : '';
+      const wantsStream = acceptHeader.includes('application/x-ndjson');
+
+      if (!wantsStream) {
+        const result = await chatManager.ask(body.question);
+        return res.json(result);
+      }
+
+      // Stream application/x-ndjson
+      if (typeof res.setHeader === 'function') {
+        res.setHeader('Content-Type', 'application/x-ndjson');
+        res.setHeader('Cache-Control', 'no-cache, no-transform');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no');
+      }
+      if (typeof res.status === 'function') {
+        res.status(200);
+      }
+
+      let keepaliveTimer = null;
+      if (typeof res.write === 'function') {
+        keepaliveTimer = setInterval(() => {
+          try {
+            res.write(JSON.stringify({event: 'keepalive'}) + '\n');
+          } catch (_) {}
+        }, 10000);
+        if (typeof keepaliveTimer.unref === 'function') {
+          keepaliveTimer.unref();
+        }
+      }
+
+      const cleanup = () => {
+        if (keepaliveTimer) {
+          clearInterval(keepaliveTimer);
+          keepaliveTimer = null;
+        }
+      };
+
+      if (typeof req.on === 'function') {
+        req.on('close', cleanup);
+      }
+
+      const onEvent = eventObj => {
+        if (typeof res.write === 'function') {
+          try {
+            res.write(JSON.stringify(eventObj) + '\n');
+          } catch (_) {}
+        }
+      };
+
+      try {
+        const result = await chatManager.ask(body.question, {onEvent});
+        cleanup();
+        if (typeof res.write === 'function') {
+          res.write(JSON.stringify({event: 'result', ...result}) + '\n');
+        }
+        if (typeof res.end === 'function') {
+          res.end();
+        }
+      } catch (err) {
+        cleanup();
+        if (typeof res.write === 'function' && res.headersSent) {
+          try {
+            res.write(JSON.stringify({event: 'error', error: err.message, status: err.status || 500}) + '\n');
+          } catch (_) {}
+          if (typeof res.end === 'function') {
+            res.end();
+          }
+        } else if (typeof res.status === 'function' && typeof res.json === 'function') {
+          res.status(err.status || 500).json({error: err.message});
+        }
+      }
     } catch (error) {
-      res.status(error.status || 500).json({error: error.message});
+      if (typeof res.status === 'function' && typeof res.json === 'function') {
+        res.status(error.status || 500).json({error: error.message});
+      }
     }
   });
 
@@ -188,4 +306,5 @@ function registerChatRoutes(router, app, getChatManager) {
 module.exports = {
   ChatManager,
   registerChatRoutes,
+  EventStreamParser,
 };

@@ -364,6 +364,7 @@ fn lume_main() {
             let mut ollama_model = String::from("gemma4:31b-cloud");
             let mut verbose = false;
             let mut json_output = false;
+            let mut events = false;
             let mut db_dir = String::from(".lume-index");
             let mut ti_store: Option<String> = None;
             let mut docs_index: Option<String> = None;
@@ -390,6 +391,9 @@ fn lume_main() {
                 } else if arg == "--json" {
                     json_output = true;
                     idx += 1;
+                } else if arg == "--events" {
+                    events = true;
+                    idx += 1;
                 } else if arg == "-v" || arg == "-V" || arg == "--verbose" {
                     verbose = true;
                     idx += 1;
@@ -414,6 +418,7 @@ fn lume_main() {
                 ti_store: ti_store.as_deref(),
                 docs_index: docs_index.as_deref(),
                 json_output,
+                events,
             }) {
                 eprintln!("Error running agent: {}", e);
                 std::process::exit(1);
@@ -2744,6 +2749,7 @@ OPTIONS:
   --ti-store <ROOT>         Path to the TI store root directory
   --docs-index <INDEX>      Path to documentation index for lume_sql
   --json                    Emit structured JSON output
+  --events                  Emit live NDJSON events to stderr (thinking, tool_call, tool_result)
   --ollama-url <URL>        Ollama API URL [default: http://localhost:11434]
   --ollama-model <MODEL>    Ollama model name [default: gemma4:31b-cloud]
   -v, --verbose             Print verbose reasoning and tool logs

@@ -375,3 +375,121 @@ fn test_mock_ollama_sql_retry_and_json_shape() {
         "Expected exactly 4 turns on Ollama"
     );
 }
+
+#[test]
+fn test_mock_ollama_chat_events_ndjson() {
+    let fixture = TestDir::new();
+    let mock = MockOllama::start();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_lume"))
+        .args([
+            "chat",
+            "--json",
+            "--events",
+            "--ti-store",
+            fixture.store_root.to_str().unwrap(),
+            "--ollama-url",
+            &mock.url,
+            "--ollama-model",
+            "mock-test-model",
+            "What was our maximum speed over ground yesterday?",
+        ])
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "Command failed with status {:?}:\nSTDOUT: {}\nSTDERR: {}",
+        output.status.code(),
+        stdout,
+        stderr
+    );
+
+    // 1. Stdout must be unchanged valid JSON with answer, sql, tool_calls
+    let parsed: Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|_| {
+        panic!(
+            "Failed to parse stdout JSON: {}\nSTDERR: {}",
+            stdout, stderr
+        )
+    });
+    assert!(parsed.get("answer").is_some());
+    assert!(parsed.get("sql").is_some());
+    assert!(parsed.get("tool_calls").is_some());
+
+    // 2. Stderr must contain NDJSON lines with thinking, tool_call, tool_result events
+    let lines: Vec<&str> = stderr
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        .collect();
+    assert!(!lines.is_empty(), "Expected NDJSON event lines on stderr");
+
+    let mut events = Vec::new();
+    for line in lines {
+        if let Ok(v) = serde_json::from_str::<Value>(line) {
+            events.push(v);
+        }
+    }
+
+    assert!(
+        !events.is_empty(),
+        "Expected valid JSON events parsed from stderr: {}",
+        stderr
+    );
+
+    let thinking_events: Vec<&Value> = events
+        .iter()
+        .filter(|e| e.get("event").and_then(|v| v.as_str()) == Some("thinking"))
+        .collect();
+    assert!(
+        !thinking_events.is_empty(),
+        "Expected thinking events in stderr stream"
+    );
+    for e in &thinking_events {
+        assert!(e.get("turn").and_then(|v| v.as_u64()).is_some());
+    }
+
+    let tool_call_events: Vec<&Value> = events
+        .iter()
+        .filter(|e| e.get("event").and_then(|v| v.as_str()) == Some("tool_call"))
+        .collect();
+    assert_eq!(
+        tool_call_events.len(),
+        3,
+        "Expected 3 tool_call events (ti_schema, bad query, corrected query)"
+    );
+    assert_eq!(tool_call_events[0]["name"].as_str().unwrap(), "ti_schema");
+    assert_eq!(tool_call_events[1]["name"].as_str().unwrap(), "ti_query");
+    assert_eq!(tool_call_events[2]["name"].as_str().unwrap(), "ti_query");
+
+    let tool_result_events: Vec<&Value> = events
+        .iter()
+        .filter(|e| e.get("event").and_then(|v| v.as_str()) == Some("tool_result"))
+        .collect();
+    assert_eq!(tool_result_events.len(), 3, "Expected 3 tool_result events");
+
+    // Check ti_schema result
+    assert_eq!(tool_result_events[0]["name"].as_str().unwrap(), "ti_schema");
+    assert!(tool_result_events[0]["elapsed_ms"].is_number());
+    assert!(tool_result_events[0]["error"].is_null());
+
+    // Check bad query result (has error)
+    assert_eq!(tool_result_events[1]["name"].as_str().unwrap(), "ti_query");
+    assert!(tool_result_events[1]["elapsed_ms"].is_number());
+    assert!(tool_result_events[1]["error"].is_string());
+
+    // Check corrected query result (has rows)
+    assert_eq!(tool_result_events[2]["name"].as_str().unwrap(), "ti_query");
+    assert!(tool_result_events[2]["elapsed_ms"].is_number());
+    assert!(tool_result_events[2]["error"].is_null());
+    assert_eq!(tool_result_events[2]["rows"].as_u64(), Some(1));
+
+    // Ensure no secrets or API keys leaked into any event
+    for e in &events {
+        let text = e.to_string();
+        assert!(!text.to_lowercase().contains("bearer"));
+        assert!(!text.to_lowercase().contains("api_key"));
+    }
+}

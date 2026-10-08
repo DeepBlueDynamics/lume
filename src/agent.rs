@@ -1127,6 +1127,7 @@ pub struct AgentLoopArgs<'a> {
     pub ti_store: Option<&'a str>,
     pub docs_index: Option<&'a str>,
     pub json_output: bool,
+    pub events: bool,
 }
 
 pub fn run_agent_loop(args: AgentLoopArgs<'_>) -> Result<(), String> {
@@ -1142,10 +1143,12 @@ pub fn run_agent_loop(args: AgentLoopArgs<'_>) -> Result<(), String> {
         docs_index,
         #[cfg(feature = "ti")]
         json_output,
+        #[cfg(feature = "ti")]
+        events,
         ..
     } = args;
     #[cfg(feature = "ti")]
-    if ti_store.is_some() || docs_index.is_some() || json_output {
+    if ti_store.is_some() || docs_index.is_some() || json_output || events {
         return crate::chat_sql::run_chat_loop(
             question,
             ollama_url,
@@ -1155,6 +1158,7 @@ pub fn run_agent_loop(args: AgentLoopArgs<'_>) -> Result<(), String> {
             ti_store,
             docs_index,
             json_output,
+            events,
         );
     }
     let url = format!("{}/api/chat", resolve_ollama_url(ollama_url));

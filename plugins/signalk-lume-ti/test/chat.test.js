@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const {ChatManager, registerChatRoutes} = require('../lib/chat');
+const {ChatManager, registerChatRoutes, EventStreamParser} = require('../lib/chat');
 
 function createMockApp({isAdmin = true, isAuth = true} = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lume-chat-test-'));
@@ -104,16 +104,17 @@ console.log(JSON.stringify({answer: "Mock answer", sql: ["SELECT 1;"], tool_call
   const capturedArgs = JSON.parse(fs.readFileSync(recordFile, 'utf8'));
   assert.equal(capturedArgs[0], 'chat');
   assert.equal(capturedArgs[1], '--json');
-  assert.equal(capturedArgs[2], '--ti-store');
-  assert.equal(capturedArgs[3], path.join(tmpDir, 'lume-ti'));
-  assert.equal(capturedArgs[4], '--docs-index');
-  assert.equal(capturedArgs[5], path.join(tmpDir, 'library', 'index'));
-  assert.equal(capturedArgs[6], '--ollama-url');
-  assert.equal(capturedArgs[7], 'http://192.168.1.100:11434');
-  assert.equal(capturedArgs[8], '--ollama-model');
-  assert.equal(capturedArgs[9], 'custom-model:latest');
+  assert.equal(capturedArgs[2], '--events');
+  assert.equal(capturedArgs[3], '--ti-store');
+  assert.equal(capturedArgs[4], path.join(tmpDir, 'lume-ti'));
+  assert.equal(capturedArgs[5], '--docs-index');
+  assert.equal(capturedArgs[6], path.join(tmpDir, 'library', 'index'));
+  assert.equal(capturedArgs[7], '--ollama-url');
+  assert.equal(capturedArgs[8], 'http://192.168.1.100:11434');
+  assert.equal(capturedArgs[9], '--ollama-model');
+  assert.equal(capturedArgs[10], 'custom-model:latest');
   // Exact unescaped question preserved as a single argv element!
-  assert.equal(capturedArgs[10], dangerousQuestion);
+  assert.equal(capturedArgs[11], dangerousQuestion);
 
   fs.rmSync(tmpDir, {recursive: true, force: true});
 });
@@ -295,5 +296,192 @@ test('plugin schema defaults reflect ollama.com cloud direct and chatApiKeyFile'
   assert.equal(props.chatApiKeyFile.default, '');
 
   fs.rmSync(app.tmpDir, {recursive: true, force: true});
+});
+
+test('EventStreamParser skips non-JSON lines and parses split chunks', () => {
+  const events = [];
+  const parser = new EventStreamParser(e => events.push(e));
+
+  // Feed non-JSON line like [Agent] logging or compiler noise
+  parser.feed('[Agent] Starting task: What was our speed?\n');
+  parser.feed('Checking crate dependencies...\n');
+  parser.feed('{"event":"thinking","turn":1}\n');
+
+  // Feed partial lines across chunk boundaries
+  parser.feed('{"event":"tool_call","turn":1,"name":"ti_query",');
+  parser.feed('"args":{"sql":"SELECT 1;"}}\n');
+
+  // Another non-JSON line mixed in
+  parser.feed('[Agent] Executing tool ti_query\n');
+
+  parser.feed('{"event":"tool_result","turn":1,"name":"ti_query","rows":1,"elapsed_ms":15,"error":null}\n');
+
+  // Partial line completed by flush
+  parser.feed('{"event":"thinking","turn":2}');
+  parser.flush();
+
+  assert.equal(events.length, 4);
+  assert.deepEqual(events[0], {event: 'thinking', turn: 1});
+  assert.deepEqual(events[1], {
+    event: 'tool_call',
+    turn: 1,
+    name: 'ti_query',
+    args: {sql: 'SELECT 1;'},
+  });
+  assert.deepEqual(events[2], {
+    event: 'tool_result',
+    turn: 1,
+    name: 'ti_query',
+    rows: 1,
+    elapsed_ms: 15,
+    error: null,
+  });
+  assert.deepEqual(events[3], {event: 'thinking', turn: 2});
+});
+
+test('POST /api/chat streams application/x-ndjson with events and final result', {skip: process.platform === 'win32' && 'fake lume is a shebang script; Windows cannot spawn it'}, async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lume-chat-stream-'));
+  const mockScript = path.join(tmpDir, 'mock_stream_lume.js');
+  fs.writeFileSync(
+    mockScript,
+    `#!/usr/bin/env node
+// Write NDJSON events to stderr, with some non-JSON logging mixed in
+process.stderr.write("[Agent] Starting research task\\n");
+process.stderr.write(JSON.stringify({event: "thinking", turn: 1}) + "\\n");
+process.stderr.write("[Agent] Running tool ti_schema\\n");
+process.stderr.write(JSON.stringify({event: "tool_call", turn: 1, name: "ti_schema", args: {}}) + "\\n");
+process.stderr.write(JSON.stringify({event: "tool_result", turn: 1, name: "ti_schema", rows: null, elapsed_ms: 12, error: null}) + "\\n");
+
+// Stdout produces final JSON
+console.log(JSON.stringify({
+  answer: "Peak speed was 7.2 m/s.",
+  sql: ["SELECT ts, speed FROM telemetry LIMIT 1;"],
+  tool_calls: [{name: "ti_schema", args: {}, rows: null, truncated: null, error: null}],
+}));
+`
+  );
+  fs.chmodSync(mockScript, 0o755);
+
+  const routes = {};
+  const mockRouter = {
+    post: (p, handler) => { routes[p] = handler; },
+    get: (p, handler) => { routes[p] = handler; },
+  };
+
+  const app = createMockApp();
+  const chatManager = new ChatManager({binary: mockScript, dataDir: tmpDir});
+  registerChatRoutes(mockRouter, app, () => chatManager);
+
+  const writtenChunks = [];
+  const headers = {};
+  let ended = false;
+  let statusCode = 200;
+
+  const req = {
+    skIsAuthenticated: true,
+    skPrincipal: {permissions: 'admin'},
+    headers: {
+      'content-type': 'application/json',
+      'content-length': '40',
+      'accept': 'application/x-ndjson',
+    },
+    body: {question: 'What was our peak speed?'},
+    on: () => {},
+  };
+
+  const res = {
+    headersSent: true,
+    setHeader: (k, v) => { headers[k.toLowerCase()] = v; },
+    status: code => { statusCode = code; return res; },
+    write: chunk => { writtenChunks.push(chunk); },
+    end: () => { ended = true; },
+  };
+
+  await routes['/api/chat'](req, res);
+
+  assert.equal(statusCode, 200);
+  assert.equal(headers['content-type'], 'application/x-ndjson');
+  assert.equal(ended, true);
+
+  // Parse lines written to res.write
+  const allLines = writtenChunks.join('').split('\n').filter(l => l.trim().length > 0);
+  const parsedEvents = allLines.map(l => JSON.parse(l));
+
+  // Should have received thinking, tool_call, tool_result, and final result
+  assert.equal(parsedEvents.length, 4);
+  assert.equal(parsedEvents[0].event, 'thinking');
+  assert.equal(parsedEvents[1].event, 'tool_call');
+  assert.equal(parsedEvents[1].name, 'ti_schema');
+  assert.equal(parsedEvents[2].event, 'tool_result');
+  assert.equal(parsedEvents[2].name, 'ti_schema');
+  assert.equal(parsedEvents[3].event, 'result');
+  assert.equal(parsedEvents[3].answer, 'Peak speed was 7.2 m/s.');
+  assert.deepEqual(parsedEvents[3].sql, ['SELECT ts, speed FROM telemetry LIMIT 1;']);
+
+  fs.rmSync(tmpDir, {recursive: true, force: true});
+  fs.rmSync(app.tmpDir, {recursive: true, force: true});
+});
+
+test('POST /api/chat non-streaming fallback retains classic JSON response shape', {skip: process.platform === 'win32' && 'fake lume is a shebang script; Windows cannot spawn it'}, async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lume-chat-fallback-'));
+  const mockScript = path.join(tmpDir, 'mock_lume.js');
+  fs.writeFileSync(
+    mockScript,
+    `#!/usr/bin/env node
+console.log(JSON.stringify({answer: "Fallback answer", sql: ["SELECT 42;"], tool_calls: []}));
+`
+  );
+  fs.chmodSync(mockScript, 0o755);
+
+  const routes = {};
+  const mockRouter = {
+    post: (p, handler) => { routes[p] = handler; },
+    get: (p, handler) => { routes[p] = handler; },
+  };
+
+  const app = createMockApp();
+  const chatManager = new ChatManager({binary: mockScript, dataDir: tmpDir});
+  registerChatRoutes(mockRouter, app, () => chatManager);
+
+  let statusCode = 200;
+  let jsonResult = null;
+
+  const req = {
+    skIsAuthenticated: true,
+    skPrincipal: {permissions: 'admin'},
+    headers: {
+      'content-type': 'application/json',
+      'content-length': '30',
+      'accept': 'application/json',
+    },
+    body: {question: 'Any questions?'},
+  };
+
+  const res = {
+    status: code => { statusCode = code; return res; },
+    json: data => { jsonResult = data; return res; },
+  };
+
+  await routes['/api/chat'](req, res);
+
+  assert.equal(statusCode, 200);
+  assert.equal(jsonResult.answer, 'Fallback answer');
+  assert.deepEqual(jsonResult.sql, ['SELECT 42;']);
+
+  fs.rmSync(tmpDir, {recursive: true, force: true});
+  fs.rmSync(app.tmpDir, {recursive: true, force: true});
+});
+
+test('POST /api/chat keepalive interval fires on long-running queries', async () => {
+  const written = [];
+  const keepaliveTimer = setInterval(() => {
+    written.push(JSON.stringify({event: 'keepalive'}) + '\n');
+  }, 20);
+
+  await new Promise(r => setTimeout(r, 65));
+  clearInterval(keepaliveTimer);
+
+  assert.ok(written.length >= 2, `Expected at least 2 keepalives, got ${written.length}`);
+  assert.equal(JSON.parse(written[0]).event, 'keepalive');
 });
 

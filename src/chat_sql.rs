@@ -154,6 +154,7 @@ pub fn run_chat_loop(
     ti_store: Option<&str>,
     docs_index: Option<&str>,
     json_output: bool,
+    events: bool,
 ) -> Result<(), String> {
     let base = match select_ollama_endpoint(ollama_url, ollama_model) {
         Ok(base) => base,
@@ -170,37 +171,7 @@ pub fn run_chat_loop(
     };
     let url = format!("{base}/api/chat");
 
-    let system_prompt = if ti_store.is_some() {
-        let mut p = String::from(
-            "You are an expert Q&A and SQL analytics agent for Signal K marine telemetry and documentation.\n\
-CRITICAL RULES:\n\
-1. ALWAYS CALL ti_schema FIRST before writing or executing your first SQL query. Check the available tables, columns with their types, units, and time coverage.\n\
-2. SQL CONVENTIONS:\n\
-   - Dotted column names must be double-quoted, e.g. \"navigation.speedOverGround\", \"navigation.speedOverGround@max\", \"environment.wind.speedTrue\".\n\
-   - Time buckets: use date_bin(INTERVAL '1 hour', ts) or date_bin(INTERVAL '10 minutes', ts) for time aggregations.\n\
-   - Vessel filter: filter by vessel URN or MMSI where appropriate (e.g. vessel = '...').\n\
-   - Documents & full-text: use match(body, 'words') for document searches.\n\
-   - Geospatial & intervals: use intervals() for time ranges, and within_nm(lat, lon, target_lat, target_lon, nm) or in_bbox(lat, lon, min_lat, min_lon, max_lat, max_lon) for geographic queries.\n\
-3. RETRY ON ERROR: If a SQL query fails with an error, analyze the error message, correct the SQL query, and retry (up to 3 times).\n\
-4. FINAL ANSWER: In your final answer, include every SQL statement you ran inside a fenced code block (```sql ... ```) so the user can inspect and reuse it.\n\
-5. Keep your final answer concise, factual, and directly supported by query results."
-        );
-        if let Some(store) = ti_store {
-            p.push_str(&format!(
-                "\nThe target TI store is located at: '{}'.",
-                store
-            ));
-        }
-        if let Some(docs) = docs_index {
-            p.push_str(&format!("\nThe documentation index is located at: '{}'. You can use lume_sql to query document sections and entities.", docs));
-        }
-        p
-    } else {
-        format!(
-            "You are an expert Q&A agent. Your goal is to answer the user's question using the Lume search tool. The target index is at '{}'.",
-            db_dir
-        )
-    };
+    let system_prompt = build_system_prompt(ti_store, docs_index, db_dir);
 
     let mut messages = vec![
         AgentMessage {
@@ -264,6 +235,12 @@ CRITICAL RULES:\n\
 
     let max_turns = 10;
     for turn in 1..=max_turns {
+        if events {
+            emit_event(&json!({
+                "event": "thinking",
+                "turn": turn,
+            }));
+        }
         let payload = AgentChatPayload {
             model: ollama_model.to_string(),
             messages: messages.clone(),
@@ -357,6 +334,14 @@ CRITICAL RULES:\n\
                 for call in tool_calls {
                     let tool_name = &call.function.name;
                     let tool_args = &call.function.arguments;
+                    if events {
+                        emit_event(&json!({
+                            "event": "tool_call",
+                            "turn": turn,
+                            "name": tool_name,
+                            "args": tool_args,
+                        }));
+                    }
                     if !json_output {
                         println!(
                             "[Agent] Executing tool '{}' with arguments: {}",
@@ -371,8 +356,10 @@ CRITICAL RULES:\n\
                         }
                     }
 
+                    let start = std::time::Instant::now();
                     let tool_result =
                         execute_chat_tool(tool_name, tool_args.clone(), ti_store, docs_index);
+                    let elapsed_ms = start.elapsed().as_millis() as u64;
                     match tool_result {
                         Ok(output) => {
                             let mut rows = None;
@@ -389,6 +376,17 @@ CRITICAL RULES:\n\
                                             .map(|a| a.len())
                                     });
                                 truncated = parsed.get("truncated").and_then(|v| v.as_bool());
+                            }
+
+                            if events {
+                                emit_event(&json!({
+                                    "event": "tool_result",
+                                    "turn": turn,
+                                    "name": tool_name,
+                                    "rows": rows,
+                                    "elapsed_ms": elapsed_ms,
+                                    "error": Value::Null,
+                                }));
                             }
 
                             recorded_tool_calls.push(ToolCallRecord {
@@ -412,6 +410,17 @@ CRITICAL RULES:\n\
                             });
                         }
                         Err(err) => {
+                            if events {
+                                emit_event(&json!({
+                                    "event": "tool_result",
+                                    "turn": turn,
+                                    "name": tool_name,
+                                    "rows": Value::Null,
+                                    "elapsed_ms": elapsed_ms,
+                                    "error": err.clone(),
+                                }));
+                            }
+
                             recorded_tool_calls.push(ToolCallRecord {
                                 name: tool_name.clone(),
                                 args: tool_args.clone(),
@@ -532,6 +541,56 @@ fn finish_agent(
     Ok(())
 }
 
+pub fn build_system_prompt(
+    ti_store: Option<&str>,
+    docs_index: Option<&str>,
+    db_dir: &str,
+) -> String {
+    if ti_store.is_some() {
+        let mut p = String::from(
+            "You are an expert Q&A and SQL analytics agent for Signal K marine telemetry and documentation.\n\
+CRITICAL RULES:\n\
+1. ALWAYS CALL ti_schema FIRST before writing or executing your first SQL query. Check the available tables, columns with their types, units, and time coverage.\n\
+2. SQL CONVENTIONS:\n\
+   - Dotted column names must be double-quoted, e.g. \"navigation.speedOverGround\", \"navigation.speedOverGround@max\", \"environment.wind.speedTrue\".\n\
+   - Time buckets: use date_bin(INTERVAL '1 hour', ts) or date_bin(INTERVAL '10 minutes', ts) for time aggregations.\n\
+   - Vessel filter: filter by vessel URN or MMSI where appropriate (e.g. vessel = '...').\n\
+   - Documents & full-text search:\n\
+     * match(body, 'words') is a Boolean filter for WHERE only. Never compare it (> 0), select it as a number, or aggregate it (sum).\n\
+     * Relevance is the score column. It is filled when the WHERE clause uses match(); use ORDER BY score DESC.\n\
+     * The library index (lume_sql) has table sections(id, file, title, line, body, score). Group or identify documents by file (there is no doc column), and use line for position.\n\
+       Example: SELECT file, title, line, score FROM sections WHERE match(body, 'engine repair') ORDER BY score DESC LIMIT 10;\n\
+     * The TI docs table (ti_sql) has docs(vessel, id, kind, title, body, ts_start, ts_end, score), with the same match() rules.\n\
+       Example: SELECT vessel, kind, title, body, score FROM docs WHERE match(body, 'generator maintenance') ORDER BY score DESC LIMIT 10;\n\
+   - Geospatial & intervals: use intervals() for time ranges, and within_nm(lat, lon, target_lat, target_lon, nm) or in_bbox(lat, lon, min_lat, min_lon, max_lat, max_lon) for geographic queries.\n\
+3. RETRY ON ERROR: If a SQL query fails with an error, analyze the error message, correct the SQL query, and retry (up to 3 times).\n\
+4. FINAL ANSWER: Do not paste SQL queries into your final answer unless the user explicitly asks for them (the UI already displays executed queries in dedicated cards). Provide a direct, factual answer and cite the source file and line for document references.\n\
+5. Keep your final answer concise, factual, and directly supported by query results."
+        );
+        if let Some(store) = ti_store {
+            p.push_str(&format!(
+                "\nThe target TI store is located at: '{}'.",
+                store
+            ));
+        }
+        if let Some(docs) = docs_index {
+            p.push_str(&format!("\nThe documentation index is located at: '{}'. You can use lume_sql to query document sections and entities.", docs));
+        }
+        p
+    } else {
+        format!(
+            "You are an expert Q&A agent. Your goal is to answer the user's question using the Lume search tool. The target index is at '{}'.",
+            db_dir
+        )
+    }
+}
+
+fn emit_event(val: &Value) {
+    if let Ok(line) = serde_json::to_string(val) {
+        eprintln!("{}", line);
+    }
+}
+
 #[cfg(test)]
 mod endpoint_tests {
     use super::*;
@@ -561,5 +620,22 @@ mod endpoint_tests {
         assert!(is_ollama_cloud("https://api.ollama.com/v1"));
         assert!(!is_ollama_cloud("http://127.0.0.1:11434"));
         assert!(!is_ollama_cloud("https://ollama.com.evil.example"));
+    }
+
+    #[test]
+    fn system_prompt_includes_document_match_semantics_and_examples() {
+        let prompt = build_system_prompt(Some("/path/to/ti"), Some("/path/to/docs"), ".lume-index");
+        assert!(prompt.contains("match(body, 'words') is a Boolean filter for WHERE only"));
+        assert!(prompt.contains("Never compare it (> 0)"));
+        assert!(prompt.contains("Relevance is the score column"));
+        assert!(prompt.contains("ORDER BY score DESC"));
+        assert!(prompt.contains("sections(id, file, title, line, body, score)"));
+        assert!(prompt.contains("docs(vessel, id, kind, title, body, ts_start, ts_end, score)"));
+        assert!(prompt.contains("SELECT file, title, line, score FROM sections WHERE match(body, 'engine repair') ORDER BY score DESC LIMIT 10;"));
+        assert!(prompt.contains("SELECT vessel, kind, title, body, score FROM docs WHERE match(body, 'generator maintenance') ORDER BY score DESC LIMIT 10;"));
+        assert!(prompt.contains(
+            "Do not paste SQL queries into your final answer unless the user explicitly asks"
+        ));
+        assert!(prompt.contains("cite the source file and line"));
     }
 }
