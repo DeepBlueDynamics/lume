@@ -24,6 +24,7 @@ install -d -m 755 "$lib" "$lib/data/storage" "$etc"
 owner="$(docker run --rm --entrypoint sh "$image" -c 'echo "$(id -u app):$(id -g app)"')"
 chown "$owner" "$lib/data/storage" # the image's runtime `app` user
 install -m 644 "$src/docker-compose.yml" "$src/metadata.yaml" "$lib/"
+install -m 755 "$src/app-prestart.sh" "$lib/"
 
 cat > "$lib/prestart.sh" << EOF
 #!/bin/bash
@@ -32,6 +33,11 @@ set -e
 RUNTIME_ENV="/run/container-apps/$app/runtime.env"
 mkdir -p "\$(dirname "\$RUNTIME_ENV")"
 install -m 600 /dev/null "\$RUNTIME_ENV"
+set -a
+[ -f "$etc/env.defaults" ] && . "$etc/env.defaults"
+[ -f "$etc/env" ] && . "$etc/env"
+set +a
+[ -f "$lib/app-prestart.sh" ] && . "$lib/app-prestart.sh"
 EOF
 chmod 755 "$lib/prestart.sh"
 

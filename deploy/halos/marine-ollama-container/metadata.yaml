@@ -26,6 +26,6 @@ web_ui:
   enabled: false
 default_config:
   OLLAMA_IMAGE: ollama/ollama:latest
-  OLLAMA_MEMORY_LIMIT: 1g
+  OLLAMA_MEMORY_LIMIT: auto
   OLLAMA_KEEP_ALIVE: 10m
   OLLAMA_DEFAULT_MODEL: "-"

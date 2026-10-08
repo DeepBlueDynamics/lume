@@ -26,7 +26,7 @@ web_ui:
   enabled: false
 default_config:
   GRUB_IMAGE: deepbluedynamics/grubcrawler:latest-lite
-  GRUB_MEMORY_LIMIT: 1536m
+  GRUB_MEMORY_LIMIT: auto
   GRUB_MAX_CONCURRENT_CRAWLS: "1"
   GRUB_CRAWL_TIMEOUT: "60"
   GRUB_BROWSER_ENGINE: chromium

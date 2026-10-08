@@ -8,7 +8,7 @@ groups:
       - id: OLLAMA_MEMORY_LIMIT
         label: Memory Limit
         type: string
-        default: 1g
+        default: auto
         required: true
         description: Hard memory cap for Ollama container (e.g. 4g, 6g)
 

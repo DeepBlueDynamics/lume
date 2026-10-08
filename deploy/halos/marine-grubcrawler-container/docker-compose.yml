@@ -38,7 +38,7 @@ services:
     - PROXY_BYPASS=localhost,127.0.0.1
     - _HALOS_SYSTEMD_CHECK=${HALOS_SYSTEMD_STARTED:?Container must be started via
       systemctl, not docker compose directly}
-    mem_limit: ${GRUB_MEMORY_LIMIT:-1536m}
+    mem_limit: ${GRUB_MEMORY_LIMIT:-1g}
     cpus: 2
     shm_size: 512m
     healthcheck:
