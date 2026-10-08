@@ -188,7 +188,10 @@ impl ShoreReceiver {
             .values()
             .map(|s| s.chunks.values().map(|(_, d)| d.len() as u64).sum::<u64>())
             .sum();
-        if current_bytes + chunk.data.len() as u64 > self.max_staging_bytes {
+        if current_bytes
+            .checked_add(chunk.data.len() as u64)
+            .is_none_or(|bytes| bytes > self.max_staging_bytes)
+        {
             return Err(Error::InvalidInput(format!(
                 "exceeded in-flight staging byte capacity (max {} bytes)",
                 self.max_staging_bytes
