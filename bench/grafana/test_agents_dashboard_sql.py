@@ -17,15 +17,26 @@ LOGS_FIXTURE = ROOT / "tests/golden/otlp/logs.json"
 
 
 def find_lume_binary():
-    """Locate a compiled lume executable, checking cargo target paths and PATH."""
+    """Locate a lume built from this checkout (LUME_BIN overrides) that has `ti otlp`.
+
+    PATH is not searched: an installed lume may predate the OTLP receiver. A binary
+    built for another OS (a lane container's Linux build) fails to start and is skipped.
+    """
+    exe = ".exe" if os.name == "nt" else ""
     candidates = [
+        os.environ.get("LUME_BIN"),
         os.environ.get("CARGO_BIN_EXE_lume"),
-        str(ROOT / ".lanes/w3/target/debug/lume"),
-        str(ROOT / "target/debug/lume"),
-        shutil.which("lume"),
+        str(ROOT / f"target/debug/lume{exe}"),
+        str(ROOT / f"target/release/lume{exe}"),
     ]
     for c in candidates:
-        if c and os.path.isfile(c) and os.access(c, os.X_OK):
+        if not (c and os.path.isfile(c) and os.access(c, os.X_OK)):
+            continue
+        try:
+            probe = subprocess.run([c, "ti", "otlp", "--help"], capture_output=True, timeout=30)
+        except OSError:
+            continue
+        if probe.returncode == 0:
             return c
     return None
 
