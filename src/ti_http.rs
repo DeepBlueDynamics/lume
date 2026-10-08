@@ -184,6 +184,18 @@ impl TiServer {
         Ok(server)
     }
 
+    /// Explicit route credentials take precedence over the opt-in HTTP credential.
+    pub(crate) fn route_http_token(&self, path: &str) -> Option<&str> {
+        let path = path.split('?').next().unwrap_or(path);
+        if path.starts_with("/v1/") {
+            self.otlp_token.as_deref()
+        } else if path == "/ti/manifest" || path.starts_with("/ti/shards/") {
+            self.sync_token.as_deref()
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn otlp_only(&self) -> bool {
         self.otlp_only
     }
@@ -436,6 +448,7 @@ impl TiServer {
         path: &str,
         body: &[u8],
         headers_raw: &str,
+        http_authenticated: bool,
     ) -> Result<Reply, String> {
         let (path, query) = path.split_once('?').unwrap_or((path, ""));
         let req_headers = RequestHeaders(headers_raw);
@@ -450,11 +463,13 @@ impl TiServer {
             if body.len() > ti_ingest::otlp::MAX_BODY {
                 return Ok(Reply::error(413, "OTLP body exceeds 8 MiB"));
             }
-            if self.otlp_token.as_ref().is_some_and(|token| {
-                !req_headers
-                    .bearer_token()
-                    .is_some_and(|client| ti_sync::constant_time_bearer_eq(client, token))
-            }) {
+            if !http_authenticated
+                && self.otlp_token.as_ref().is_some_and(|token| {
+                    !req_headers
+                        .bearer_token()
+                        .is_some_and(|client| ti_sync::constant_time_bearer_eq(client, token))
+                })
+            {
                 return Ok(Reply::error(401, "OTLP requires a valid bearer token"));
             }
             if !req_headers.get("content-type").is_some_and(|v| {
@@ -493,23 +508,25 @@ impl TiServer {
 
         let is_sync_endpoint = path == "/ti/manifest" || path.starts_with("/ti/shards/");
         if is_sync_endpoint {
-            let Some(server_token) = &self.sync_token else {
-                return Ok(Reply::error(
-                    401,
-                    "Unauthorized: sync bearer token is not configured in ti.toml [sync].",
-                ));
-            };
-            let Some(client_token) = req_headers.bearer_token() else {
-                return Ok(Reply::error(
-                    401,
-                    "Unauthorized: Authorization: Bearer <token> required for sync endpoints.",
-                ));
-            };
-            if !ti_sync::constant_time_bearer_eq(client_token, server_token) {
-                return Ok(Reply::error(
-                    401,
-                    "Unauthorized: invalid bearer token for sync endpoints.",
-                ));
+            if !http_authenticated {
+                let Some(server_token) = &self.sync_token else {
+                    return Ok(Reply::error(
+                        401,
+                        "Unauthorized: sync bearer token is not configured in ti.toml [sync].",
+                    ));
+                };
+                let Some(client_token) = req_headers.bearer_token() else {
+                    return Ok(Reply::error(
+                        401,
+                        "Unauthorized: Authorization: Bearer <token> required for sync endpoints.",
+                    ));
+                };
+                if !ti_sync::constant_time_bearer_eq(client_token, server_token) {
+                    return Ok(Reply::error(
+                        401,
+                        "Unauthorized: invalid bearer token for sync endpoints.",
+                    ));
+                }
             }
 
             if path == "/ti/manifest" {
@@ -934,6 +951,17 @@ pub fn handle(
     headers: &str,
     initial: &[u8],
 ) -> std::io::Result<()> {
+    handle_authenticated(stream, server, method, path, headers, initial, false)
+}
+pub(crate) fn handle_authenticated(
+    stream: &mut TcpStream,
+    server: Option<&TiServer>,
+    method: &str,
+    path: &str,
+    headers: &str,
+    initial: &[u8],
+    http_authenticated: bool,
+) -> std::io::Result<()> {
     if method == "OPTIONS" {
         return Reply {
             status: 204,
@@ -986,7 +1014,7 @@ pub fn handle(
         }
     }
     server
-        .response(method, path, &body, headers)
+        .response(method, path, &body, headers, http_authenticated)
         .unwrap_or_else(|e| Reply::error(400, &e))
         .write(stream)
 }

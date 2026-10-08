@@ -114,9 +114,10 @@ lume ti repl --store <root> [--width <seconds>]
 **`lume serve` with TI** (`bce7779`, `39c0096`; needs `--features ti`):
 
 ```sh
-lume serve --ti-store <store> [--bind <IP>] [--port <PORT>] [--otlp] [--otlp-token-file <path>] [--pg <port>]
+lume serve --ti-store <store> [--bind <IP>] [--port <PORT>] [--http-token-file <path>] [--otlp] [--otlp-token-file <path>] [--pg <port>]
 ```
 
+- **Opt-in HTTP bearer (A11):** `--http-token-file <path>` works on plain/TI `lume serve` and `lume ti ingest --serve`. Read a trimmed, nonempty UTF-8 token at startup; restart to rotate it. Send `Authorization: Bearer <token>` on every HTTP request, including `/ti/*`, `/mcp`, `/message`, `/sse`, `/v1/*`, OPTIONS and unknown routes. Missing, incorrect or duplicate credentials return 401 with no body detail before dispatch/body parsing. A configured `[sync]` token takes precedence on `/ti/manifest` and `/ti/shards/*`; `--otlp-token-file` takes precedence on `/v1/*`. Other routes, and routes without a specific token, use the HTTP token. The three tokens may differ. PostgreSQL SCRAM is separate. Never put the bearer in a URL; use an HTTPS reverse proxy for remote access. With this flag, the unauthenticated non-loopback warning is suppressed. Without it, existing access and bind defaults remain unchanged; D51's default changes and roles are still PROPOSED.
 - With `--ti-store`, the server binds to **loopback `127.0.0.1` by default**. Pass `--bind <IP>` to expose it. Plain `lume serve` (no TI) still binds `0.0.0.0`. `/ti` and the TI server's `/mcp` send no wildcard CORS.
 - One shared engine serves both MCP and HTTP:
 
@@ -135,7 +136,7 @@ lume serve --ti-store <store> [--bind <IP>] [--port <PORT>] [--otlp] [--otlp-tok
 **`lume ti ingest`: the live service** (`75a1a4f`; needs `--features ti`):
 
 ```sh
-lume ti ingest --signalk ws://<host>:3000 --store <root> [--config <path>] [--token <file|token>] [--self-urn <urn>] [--serve] [--bind <IP>] [--port <port>] [--otlp] [--otlp-token-file <path>] [--pg <port>]
+lume ti ingest --signalk ws://<host>:3000 --store <root> [--config <path>] [--token <file|token>] [--self-urn <urn>] [--serve] [--bind <IP>] [--port <port>] [--http-token-file <path>] [--otlp] [--otlp-token-file <path>] [--pg <port>]
 ```
 
 - It connects to the Signal K WebSocket, subscribes per spec/06 and commits under the D16 group-commit WAL. It reconnects with exponential backoff. Live timestamps use the receive time (`8d232ca`). Notification errors are not fatal; notifications become `alerts` documents (`d656dd4`).

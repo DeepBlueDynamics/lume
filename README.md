@@ -120,7 +120,11 @@ lume serve --port 8080
 
 This exposes `lume_index`, `lume_search`, `lume_generate` and `lume_not_found` as MCP tools over HTTP. Search runs in-process through the `lume::search` library API. Built with `--features ti`, `lume serve --ti-store <store>` adds the [Lume TI](#lume-ti-telemetry-index) tools, OTLP ingestion (`--otlp`), and PostgreSQL wire access (`--pg`).
 
-Plain `lume serve` defaults to `0.0.0.0` and exposes unauthenticated MCP tools, including indexing. Use `--bind 127.0.0.1` for local access. TI serving defaults to loopback; an explicit non-loopback bind exposes unauthenticated `/ti` and MCP on a trusted LAN and prints a startup warning. The OTLP bearer protects ingestion routes only on a shared server; it does not authenticate TI or MCP. Standalone `lume ti otlp` exposes only its two ingestion endpoints.
+Plain `lume serve` defaults to `0.0.0.0` and exposes unauthenticated MCP tools, including indexing. Use `--bind 127.0.0.1` for local access. TI serving defaults to loopback; an explicit non-loopback bind exposes unauthenticated `/ti` and MCP on a trusted LAN and prints a startup warning.
+
+Opt in with `--http-token-file /path/to/token` on plain/TI `serve` or `ti ingest --serve` to require a bearer on every HTTP route, including MCP and SSE. The file is trimmed, must be nonempty, and is read at startup; restart to rotate it. Missing or wrong credentials return 401 with an empty body. Configured sync and OTLP tokens take precedence on their respective routes, so they can differ from the HTTP token; routes without their own token use the HTTP token. Use HTTPS through a trusted proxy for remote access: cleartext HTTP does not protect the bearer. No-flag defaults stay unchanged.
+
+The OTLP bearer protects ingestion routes only on a shared server; it does not authenticate TI or MCP. Standalone `lume ti otlp` exposes only its two ingestion endpoints.
 
 ### Text generation
 
@@ -181,7 +185,7 @@ graph LR
 | `lume answer <question>` | Cited answer, streamed | `--model` |
 | `lume generate <seed>` | Style-faithful generation | `--steer` |
 | `lume crawl <url>` | Save a page as Markdown | `GRUB_BASE_URL`, `NUTS_SERVICES_TOKEN` |
-| `lume serve` | MCP, TI HTTP, OTLP and pgwire server | `-p`/`--port` (5863), `--ti-store`, `--otlp`, `--otlp-token-file`, `--pg`, `--pg-bind` |
+| `lume serve` | MCP, TI HTTP, OTLP and pgwire server | `-p`/`--port` (5863), `--ti-store`, `--http-token-file`, `--otlp`, `--otlp-token-file`, `--pg`, `--pg-bind` |
 | `lume ti otlp` | Standalone OTLP metrics & logs receiver | `--store`, `--bind` (127.0.0.1), `--port` (4318), `--otlp-token-file` |
 | `lume ti <cmd>` | Telemetry SQL: `repl`, `query`, `explain`, `status`, `import-docs`, `ingest`, `otlp`, `verify` | `--store`, `--json`, `--width` (needs `--features ti`) |
 | `lume stream <query>` | NDJSON search dynamics for `viz/` | |

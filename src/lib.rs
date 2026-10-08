@@ -33,6 +33,7 @@ pub mod spelling;
 pub mod inversion;
 pub mod hybrid;
 pub mod agent;
+pub mod http_auth;
 pub mod crawl;
 pub mod crawl_list;
 pub mod document_extract;
