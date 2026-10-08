@@ -213,3 +213,33 @@ POST latency, nearest rank over every attempt, milliseconds:
 | 200 | 0.145 / 0.309 / 24470.47 (44274) | 0.156 / 0.365 / 24456.366 (4437) |
 
 HTTP 400, 413, `other`, and transport `error` are 0 on both endpoints in all three runs. At 10 and 50 agents every attempt is HTTP 200. At 200 agents the remaining attempts are HTTP 503 (4348 metric, 43527 log). The accept path writes that 503 when active connections are already at `MAX_CONCURRENT_CONNECTIONS` (64, `src/agent.rs`). Those rejects return in well under a millisecond, so the 200-agent p50 and p95 are 503 latency and the p99 includes the accepted posts. `sql.ok` is true in each artifact: the sum of per-vessel `max("claude_code.token.usage")` equals the token deltas in HTTP 200 metric posts, and `count(*)` from `docs` equals the HTTP 200 log posts.
+
+### Release, group commit (`15b9cab`)
+
+Same schedule, rate 1, seed 42, duration 300 s, measured 2026-10-08 against release `lume` and `ti-bench` (rustc 1.96.1, `lto` on). HEAD at measurement was `15b9cab159509f2ca42689960fc5322e34ad7c90`. The receiver is still `lume ti otlp`. An idle POST flushes immediately. Batches that arrive during that flush stage, and the next leader takes at most 32. Each POST waits for its group's fsync. A standalone receiver has no query path, so the dirty-flag reload does not run during these soaks. `sql.ok` is `lume ti query <sql> --store <dir> --json` after the spawned receiver was stopped. `docs_json` is the size of `docs/documents.json` at the end of the run and the `upsert_all` time of each log-bearing group (full-file read, atomic rewrite, and fsync). Recent soak documents are inside the 90-day retention window, so retention deletes do not add rewrites.
+
+| Agents | Offered metrics / logs | Attempts metrics / logs | HTTP 200 metrics / logs | HTTP 503 metrics / logs | Tokens stored = sent | Docs = 2xx logs | load_wall_s | RSS start / end / peak (bytes) | Artifact |
+|---:|---|---|---|---|---|---|---:|---|---|
+| 10 | 300 / 3000 | 300 / 3000 | 300 / 3000 | 0 / 0 | 2632 = 2632 | 3000 = 3000 | 299.987 | 36769792 / 48230400 / 52281344 | [agents10](../../bench/results/2026-10-08-otlp-soak-15b9cab-agents10.json) |
+| 50 | 1500 / 15000 | 1500 / 14999 | 1500 / 14999 | 0 / 0 | 12871 = 12871 | 14999 = 14999 | 300.369 | 36462592 / 967000064 / 990384128 | [agents50](../../bench/results/2026-10-08-otlp-soak-15b9cab-agents50.json) |
+| 200 | 6000 / 60000 | 5942 / 59540 | 1876 / 20764 | 4066 / 38776 | 15858 = 15858 | 20764 = 20764 | 300.569 | 36896768 / 1912934400 / 1975578624 | [agents200](../../bench/results/2026-10-08-otlp-soak-15b9cab-agents200.json) |
+
+POST latency, nearest rank over every attempt, milliseconds:
+
+| Agents | `/v1/logs` p50 / p95 / p99 (n) | `/v1/metrics` p50 / p95 / p99 (n) |
+|---:|---|---|
+| 10 | 7.774 / 33.355 / 55.482 (3000) | 46.58 / 57.663 / 68.185 (300) |
+| 50 | 178.166 / 385.992 / 450.211 (14999) | 205.12 / 378.589 / 453.243 (1500) |
+| 200 | 0.165 / 1330.731 / 1764.261 (59540) | 0.167 / 1328.47 / 1708.508 (5942) |
+
+`documents.json` at the end of the run, and `upsert_all` rewrite time per log-bearing group:
+
+| Agents | Bytes | Log-group commits | Rewrite p50 / p95 / max (µs) |
+|---:|---:|---:|---|
+| 10 | 1442955 | 3000 | 5384 / 7713 / 25990 |
+| 50 | 7246028 | 2862 | 8689 / 19942 / 138064 |
+| 200 | 10056248 | 784 | 15188 / 53668 / 261543 |
+
+HTTP 400, 413, `other`, and transport `error` are 0 in all three release runs. Attempted/offered is 3300/3300, 16499/16500, and 65482/66000. At 10 agents every attempt is HTTP 200, both p95 values are under 250 ms (logs 33.355, metrics 57.663), and `sql.ok` is true. At 50 agents there are no 503s, the schedule is above 95% attempted, and `sql.ok` is true. Both p95 values miss 250 ms (logs 385.992, metrics 378.589). The one unattempted log is the window closing, not a failed POST. At 200 agents there is no numeric target. The 503s are the 64-connection cap. Their p50 is the fast reject; p95 is about 1.3 s.
+
+At 10 agents each log is its own group (3000 commits). At 50 agents, 14999 logs share 2862 log-bearing groups (about 5.2 documents each). At 200 agents, 20764 acknowledged logs share 784 groups (about 26.5 documents each, under the cap of 32). One rewrite's p95 is 7.7 ms, 19.9 ms, and 53.7 ms at those three sizes. The 50-agent POST p95 is the queue of serialized group flushes, not a single rewrite. The file is still rewritten in full on every log group, and that cost grows with the store. `DocStore` was not changed.
