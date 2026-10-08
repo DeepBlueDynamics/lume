@@ -51,13 +51,17 @@ Setup and workflow: [SETUP.md](SETUP.md).
 
 The plan is [next-phase-2026-10-08.md](next-phase-2026-10-08.md). Pane names are as of the 2026-10-08 Hyperia restart; the lead is Annual Echidna.
 - **Codex (Inland Tarantula, `.lanes/w4`):** `ti/otlp`, an OTLP http/json receiver for agent telemetry (Hyperia and n8), recorded as D50. In progress.
-- **Grok 4.7 (Burning Gerbil, `.lanes/w5`, joined 2026-10-08):** `ti/pi-bench`, D48 gap 4 (moved over from Codex). In progress.
+- **Grok 4.7 (Burning Gerbil, `.lanes/w5`, joined 2026-10-08):**
+  - **Done:** A2 `ti/pi-bench`, D48 gap 4 (moved over from Codex). It adds the `scripts/cross-arm64.sh ti-query-bench` variant, the `scripts/pi-bench-recipe.sh store` 1-vessel × 90-day seed-42 store, and `ti-query-bench bench --pi`, which writes `bench/results/<date>-pi-<sha>.json`. The run on the Pi waits for Pi access.
+  - **Now:** A3 `ti/lint-lib`, clearing the 8 pre-existing strict-clippy errors in the `lume` lib.
 - **Antigravity (Panicky Parrot, `.lanes/w3`):**
   - **Done:** B1 `ti/plugin-cloud`, merged as 7aebf7c. The Ask tab defaults to `https://ollama.com` and `glm-5.3:cloud`. The `chatApiKeyFile` key is passed in the child env only.
   - **Done:** B2. Both HaLOS `.deb`s were rebuilt with the Maintainer `kord@deepbluedynamics.com` and the auto memory hooks.
   - **Done:** B3 docs, merged as 0f22550. SETUP §13 covers the Ask tab with ollama.com (the key is written from a hidden prompt, dd318b5), and §14 is an OTLP placeholder.
-  - **Now:** B4 `ti/pi-deploy`, scripted plugin deploy and Ollama retirement for the Pi.
-- **Pi (2026-10-08 07:25Z):** unreachable after a reboot. 192.168.68.29 times out. `halos.local` (192.168.68.61) is a different host with a different host key. The Pi steps below wait on it.
+  - **Done:** B4 `ti/pi-deploy`: `scripts/deploy-pi.sh` and `scripts/pi-retire-ollama.sh`, both with `--dry-run`.
+  - **Done:** B5, SETUP §14 OTLP exporter configs for Claude Code, Codex and Gemini, corrected in f56d0f3.
+  - **Now:** B6 `ti/deploy-test`, testing the deploy scripts against a throwaway local sshd container.
+- **Pi (2026-10-08 07:50Z):** back on DHCP at 192.168.68.61, where it answers as Signal K 2.31.1. Its SSH host key changed and the deploy key is rejected, which suggests a reflash. Waiting for the user to restore the key; the Pi steps below wait on it.
 - **Lead:**
   - remove the Ollama container from the Pi, which frees about 4.2 GB (4.5 GB is free now);
   - deploy the plugin and pull the published Grub image;
