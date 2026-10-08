@@ -12,10 +12,15 @@ deployment's secret mechanism, with the same password set in the plugin
 webapp PostgreSQL form. Only SCRAM verifiers are stored by the plugin.
 Restart Grafana, select Lume TI and use Save & Test. No wildcard bind is needed.
 
-The provisioning file's sslmode=disable is suitable only for local transport.
+The provisioning file's sslmode=disable is suitable only for local transport
+over loopback (127.0.0.1) or the docker0 gateway (172.17.0.1). For any external
+or non-loopback bind, sslmode=require is required (unless Lume is explicitly
+configured with --pg-allow-plaintext). When TLS is active, Lume uses the
+configured --pg-tls-cert/--pg-tls-key or auto-generates <store>/pg_cert.pem.
 For host-networked Grafana, change the datasource URL to 127.0.0.1:5864 and
 leave pgBind at 127.0.0.1. For the inspected Pi topology use halos.local:5864
-and the specific docker0 bind above. Do not publish pgwire to the LAN/shore.
+and the specific docker0 bind above (sslmode disable is fine over docker0 172.17.0.1;
+require elsewhere). Do not publish plaintext pgwire to the LAN/shore.
 
 Run bash tests/pg_smoke.sh halos.local:5864 grafana ti with PGPASSWORD or
 PGPASSFILE configured. It uses twenty source-pinned SQL cases plus actual

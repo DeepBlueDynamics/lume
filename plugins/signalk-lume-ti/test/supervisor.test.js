@@ -102,3 +102,47 @@ test('Supervisor restarts on crash with backoff', async () => {
   delete process.env.MOCK_LUME_CRASH;
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
+
+test('Supervisor passes TLS options only when set', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lume-sup-tls-'));
+  const storeDir = path.join(tmpDir, 'store');
+  const authFile = path.join(tmpDir, 'ti.toml');
+  fs.writeFileSync(authFile, 'auth', 'utf8');
+
+  // When unset, no TLS args
+  const supNoTls = new Supervisor({
+    binaryPath: mockLumeBin,
+    signalkUrl: 'ws://127.0.0.1:3000',
+    storeDir,
+    servePort: 5898,
+    pgPort: 5864,
+    pgAuthConfig: authFile,
+  });
+  const noTlsArgs = supNoTls.buildArgs();
+  assert.strictEqual(noTlsArgs.includes('--pg-require-tls'), false);
+  assert.strictEqual(noTlsArgs.some(a => a.startsWith('--pg-require-tls')), false);
+  assert.strictEqual(noTlsArgs.includes('--pg-tls-cert'), false);
+  assert.strictEqual(noTlsArgs.includes('--pg-tls-key'), false);
+  assert.strictEqual(noTlsArgs.includes('--pg-allow-plaintext'), false);
+
+  // When set, passes respective flags
+  const supTls = new Supervisor({
+    binaryPath: mockLumeBin,
+    signalkUrl: 'ws://127.0.0.1:3000',
+    storeDir,
+    servePort: 5898,
+    pgPort: 5864,
+    pgAuthConfig: authFile,
+    pgRequireTls: true,
+    pgTlsCert: '/path/to/cert.pem',
+    pgTlsKey: '/path/to/key.pem',
+    pgAllowPlaintext: true,
+  });
+  const tlsArgs = supTls.buildArgs();
+  assert.strictEqual(tlsArgs.includes('--pg-require-tls'), true);
+  assert.strictEqual(tlsArgs[tlsArgs.indexOf('--pg-tls-cert') + 1], '/path/to/cert.pem');
+  assert.strictEqual(tlsArgs[tlsArgs.indexOf('--pg-tls-key') + 1], '/path/to/key.pem');
+  assert.strictEqual(tlsArgs.includes('--pg-allow-plaintext'), true);
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});

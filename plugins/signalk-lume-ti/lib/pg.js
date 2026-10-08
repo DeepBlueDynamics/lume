@@ -34,6 +34,22 @@ async function deriveVerifier(password, salt = crypto.randomBytes(16)) {
     if (salted) salted.fill(0);
   }
 }
+function isLoopbackOrDocker0(ip) {
+  if (!ip || typeof ip !== 'string') return false;
+  const clean = ip.trim();
+  if (clean === '127.0.0.1' || clean === '::1' || clean === '172.17.0.1') return true;
+  if (clean.startsWith('127.')) return true;
+  if (clean === '::ffff:127.0.0.1' || clean === '::ffff:172.17.0.1' || clean.startsWith('::ffff:127.')) return true;
+  return false;
+}
+
+function isTlsActive(options) {
+  if (options.pgAllowPlaintext) return false;
+  if (options.pgRequireTls === true || options.pgRequireTls === 'true') return true;
+  if (options.pgRequireTls === false || options.pgRequireTls === 'false') return false;
+  return !isLoopbackOrDocker0(options.pgBind);
+}
+
 function pgOptions(config = {}) {
   const options = {
     enablePg: config.enablePg === true,
@@ -41,6 +57,10 @@ function pgOptions(config = {}) {
     pgUser: config.pgUser ?? 'grafana',
     pgBind: config.pgBind || '127.0.0.1',
     pgVerifier: config.pgVerifier || '',
+    pgRequireTls: config.pgRequireTls ?? 'auto',
+    pgTlsCert: config.pgTlsCert ? String(config.pgTlsCert) : null,
+    pgTlsKey: config.pgTlsKey ? String(config.pgTlsKey) : null,
+    pgAllowPlaintext: config.pgAllowPlaintext === true,
   };
   if (config.enablePg !== undefined && typeof config.enablePg !== 'boolean') throw new Error('enablePg must be boolean');
   if (!Number.isInteger(options.pgPort) || options.pgPort < 1 || options.pgPort > 65535) throw new Error('Invalid PostgreSQL port');
@@ -50,6 +70,13 @@ function pgOptions(config = {}) {
   }
   if (options.pgVerifier && !verifierValid(options.pgVerifier)) throw new Error('Invalid SCRAM verifier');
   if (options.enablePg && !options.pgVerifier) throw new Error('Set a PostgreSQL password before enabling pgwire');
+  if (options.pgRequireTls !== 'auto' && options.pgRequireTls !== true && options.pgRequireTls !== false &&
+      options.pgRequireTls !== 'true' && options.pgRequireTls !== 'false') {
+    throw new Error('pgRequireTls must be auto, true, or false');
+  }
+  if (config.pgAllowPlaintext !== undefined && typeof config.pgAllowPlaintext !== 'boolean') {
+    throw new Error('pgAllowPlaintext must be boolean');
+  }
   return options;
 }
 function writePgConfig(dataDir, config) {
@@ -115,9 +142,19 @@ function registerPgRoutes(router, app, getConfig, restart) {
   router.get('/api/pg/config', (req, res) => {
     const status = adminStatus(app, req);
     if (status !== 200) return res.status(status).json({error: 'Signal K administrator required'});
-    const options = pgOptions(getConfig());
+    const rawConfig = getConfig();
+    const options = pgOptions(rawConfig);
     const {pgVerifier, ...visible} = options;
-    res.json({...visible, passwordConfigured: Boolean(pgVerifier), pgPassword: ''});
+    const dataDir = typeof app.getDataDirPath === 'function' ? app.getDataDirPath() : '';
+    const autoCertPath = dataDir ? path.join(dataDir, 'lume-ti', 'pg_cert.pem') : '<store>/pg_cert.pem';
+    const tlsActive = isTlsActive(options);
+    res.json({
+      ...visible,
+      passwordConfigured: Boolean(pgVerifier),
+      pgPassword: '',
+      tlsActive,
+      autoCertPath,
+    });
   });
   router.post('/api/pg/config', async (req, res) => {
     const status = adminStatus(app, req);
@@ -126,7 +163,10 @@ function registerPgRoutes(router, app, getConfig, restart) {
     saving = true;
     try {
       const body = await readJson(req);
-      const allowed = new Set(['enablePg', 'pgPort', 'pgUser', 'pgBind', 'pgPassword']);
+      const allowed = new Set([
+        'enablePg', 'pgPort', 'pgUser', 'pgBind', 'pgPassword',
+        'pgRequireTls', 'pgTlsCert', 'pgTlsKey', 'pgAllowPlaintext'
+      ]);
       if (Object.keys(body).some(key => !allowed.has(key))) throw new Error('Unknown PostgreSQL option');
       const password = body.pgPassword;
       body.pgPassword = '';
@@ -147,4 +187,4 @@ function registerPgRoutes(router, app, getConfig, restart) {
     } finally { saving = false; }
   });
 }
-module.exports = {deriveVerifier, verifierValid, pgOptions, writePgConfig, registerPgRoutes, adminStatus, readJson};
+module.exports = {deriveVerifier, verifierValid, pgOptions, writePgConfig, registerPgRoutes, adminStatus, readJson, isLoopbackOrDocker0, isTlsActive};
