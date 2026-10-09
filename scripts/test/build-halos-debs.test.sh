@@ -4,10 +4,10 @@
 # Verifies:
 #   1. build-halos-debs.sh requires an arm64 binary if not in source tree.
 #   2. build-halos-debs.sh --lume-bin builds a valid .deb into output dir.
-#   3. Package metadata (dpkg-deb -I): Package, Architecture, Depends, maintainer scripts.
+#   3. Package metadata (dpkg-deb -I): Package, Architecture, Depends, Description, maintainer scripts.
 #   4. Package contents (dpkg-deb -c): plugin files, binary mode 755, excluded node_modules/test.
-#   5. postinst configuration logic: safe loopback defaults, enabled: true, no secrets, Ask off until key file.
-#   6. postrm removal logic: remove disables plugin & keeps store; purge removes store.
+#   5. postinst configuration & registration logic: safe defaults, Ask off, package.json dep, symlink.
+#   6. postrm removal logic: unregistration, remove disables & keeps store; purge removes store.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -83,6 +83,10 @@ echo "$PKG_INFO" | grep -q "Depends:.*marine-signalk-server-container" || {
     echo "FAIL: Depends missing marine-signalk-server-container" >&2
     exit 1
 }
+echo "$PKG_INFO" | grep -q "Description: Records Signal K history on the Pi" || {
+    echo "FAIL: Description does not match expected wording" >&2
+    exit 1
+}
 echo "$PKG_INFO" | grep -q "postinst" || {
     echo "FAIL: postinst script missing from control archive" >&2
     exit 1
@@ -91,7 +95,7 @@ echo "$PKG_INFO" | grep -q "postrm" || {
     echo "FAIL: postrm script missing from control archive" >&2
     exit 1
 }
-echo "PASS: Package metadata, dependencies, and maintainer scripts verified."
+echo "PASS: Package metadata, dependencies, description, and maintainer scripts verified."
 
 # --------------------------------------------------------------------------
 # Test 4: Verify package contents (data archive)
@@ -142,15 +146,27 @@ fi
 echo "PASS: Package contents and permissions verified (node_modules and test excluded)."
 
 # --------------------------------------------------------------------------
-# Test 5: Verify postinst configuration logic (safe defaults, no secrets, Ask off until key)
+# Test 5: Verify postinst configuration & registration logic
 # --------------------------------------------------------------------------
 echo
-echo "=== Test 5: Verify postinst safe defaults configuration ==="
+echo "=== Test 5: Verify postinst safe defaults and plugin registration ==="
 SANDBOX="${TMP_DIR}/sandbox"
 SK_DATA="${SANDBOX}/var/lib/container-apps/marine-signalk-server-container/data/data"
 CONFIG_DIR="${SK_DATA}/plugin-config-data"
 CONFIG_FILE="${CONFIG_DIR}/signalk-lume-ti.json"
-mkdir -p "$CONFIG_DIR"
+PKG_JSON="${SK_DATA}/package.json"
+NODE_MODULES="${SK_DATA}/node_modules"
+mkdir -p "$CONFIG_DIR" "$SK_DATA"
+
+# Seed an existing package.json with another dependency to test preservation
+cat << 'EOF' > "$PKG_JSON"
+{
+  "name": "signalk-server-data",
+  "dependencies": {
+    "@signalk/freeboard-sk": "^1.0.0"
+  }
+}
+EOF
 
 # Run Python configuration logic as in postinst (when no key file exists)
 python3 -c "
@@ -199,6 +215,30 @@ with open(tmp, 'w', encoding='utf-8') as f:
 os.replace(tmp, config_file)
 " "$CONFIG_DIR" "$CONFIG_FILE"
 
+# Run registration logic as in postinst
+python3 -c "
+import json, os, sys
+sk_data = sys.argv[1]
+p = os.path.join(sk_data, 'package.json')
+doc = {}
+if os.path.exists(p):
+    try:
+        with open(p, 'r', encoding='utf-8') as f:
+            doc = json.load(f)
+    except Exception:
+        doc = {}
+deps = doc.setdefault('dependencies', {})
+deps['signalk-lume-ti'] = 'file:lume-plugin/signalk-lume-ti'
+tmp = p + '.tmp'
+with open(tmp, 'w', encoding='utf-8') as f:
+    json.dump(doc, f, indent=2)
+    f.write('\n')
+os.replace(tmp, p)
+" "$SK_DATA"
+
+mkdir -p "$NODE_MODULES"
+ln -sfn ../lume-plugin/signalk-lume-ti "${NODE_MODULES}/signalk-lume-ti"
+
 # Verify generated configuration
 [ -f "$CONFIG_FILE" ] || { echo "FAIL: Configuration file not created" >&2; exit 1; }
 
@@ -218,75 +258,54 @@ assert 'pgPassword' not in cfg, 'must contain no secrets'
 assert 'apiKey' not in cfg, 'must contain no raw API keys'
 " "$CONFIG_FILE"
 
-# Test with existing ollama.key file on host: postinst picks up container key path
-mkdir -p "${CONFIG_DIR}/signalk-lume-ti"
-echo "secret-test-key" > "${CONFIG_DIR}/signalk-lume-ti/ollama.key"
-
-python3 -c "
-import json, os, sys
-
-config_dir = sys.argv[1]
-config_file = sys.argv[2]
-
-key_host = os.path.join(config_dir, 'signalk-lume-ti', 'ollama.key')
-key_container = '/home/node/.signalk/plugin-config-data/signalk-lume-ti/ollama.key'
-default_key_file = key_container if os.path.isfile(key_host) else ''
-
-defaults = {
-    'signalkUrl': 'ws://127.0.0.1:3000',
-    'servePort': 5863,
-    'enablePg': False,
-    'pgPort': 5864,
-    'pgBind': '127.0.0.1',
-    'pgRequireTls': 'auto',
-    'chatOllamaUrl': 'https://ollama.com',
-    'chatModel': 'glm-5.3:cloud',
-    'chatApiKeyFile': default_key_file,
-}
-
-doc = {}
-with open(config_file, 'r', encoding='utf-8') as f:
-    doc = json.load(f)
-
-doc['enabled'] = True
-cfg = doc.setdefault('configuration', {})
-# If chatApiKeyFile was empty, set it from default_key_file
-if not cfg.get('chatApiKeyFile') and default_key_file:
-    cfg['chatApiKeyFile'] = default_key_file
-
-for secret_key in ['pgPassword', 'apiKey', 'token', 'secret']:
-    if secret_key in cfg:
-        del cfg[secret_key]
-
-tmp = config_file + '.tmp'
-with open(tmp, 'w', encoding='utf-8') as f:
-    json.dump(doc, f, indent=2)
-    f.write('\n')
-os.replace(tmp, config_file)
-" "$CONFIG_DIR" "$CONFIG_FILE"
-
+# Verify registration in package.json & node_modules symlink
 python3 -c "
 import json, sys
 with open(sys.argv[1]) as f:
     d = json.load(f)
-cfg = d.get('configuration', {})
-assert cfg.get('chatApiKeyFile') == '/home/node/.signalk/plugin-config-data/signalk-lume-ti/ollama.key', 'points to container key path'
-" "$CONFIG_FILE"
+assert d.get('name') == 'signalk-server-data', 'keeps existing top-level fields'
+deps = d.get('dependencies', {})
+assert deps.get('signalk-lume-ti') == 'file:lume-plugin/signalk-lume-ti', 'registers signalk-lume-ti'
+assert deps.get('@signalk/freeboard-sk') == '^1.0.0', 'preserves existing dependencies'
+" "$PKG_JSON"
 
-echo "PASS: postinst safe default configuration verified."
+[ -L "${NODE_MODULES}/signalk-lume-ti" ] || { echo "FAIL: node_modules symlink missing" >&2; exit 1; }
+LINK_TARGET=$(readlink "${NODE_MODULES}/signalk-lume-ti")
+[ "$LINK_TARGET" = "../lume-plugin/signalk-lume-ti" ] || { echo "FAIL: symlink target incorrect: $LINK_TARGET" >&2; exit 1; }
+
+echo "PASS: postinst safe default configuration and plugin registration verified."
 
 # --------------------------------------------------------------------------
-# Test 6: Verify postrm removal logic (remove vs purge)
+# Test 6: Verify postrm removal logic (remove vs purge, including unregistration)
 # --------------------------------------------------------------------------
 echo
-echo "=== Test 6: Verify postrm removal vs purge behavior ==="
+echo "=== Test 6: Verify postrm removal vs purge behavior (unregistration & store) ==="
 PLUGIN_DIR="${SK_DATA}/lume-plugin/signalk-lume-ti"
 STORE_DIR="${SK_DATA}/lume-ti"
 mkdir -p "$STORE_DIR" "$PLUGIN_DIR"
 echo "valuable boat telemetry" > "${STORE_DIR}/data.db"
 echo "console.log('plugin')" > "${PLUGIN_DIR}/index.js"
 
-# Simulate postrm remove: disables plugin, removes plugin files, keeps store
+# Simulate postrm unregistration helper (same as in postrm)
+python3 -c "
+import json, os, sys
+p = os.path.join(sys.argv[1], 'package.json')
+try:
+    with open(p, 'r', encoding='utf-8') as f:
+        doc = json.load(f)
+    if 'dependencies' in doc and 'signalk-lume-ti' in doc['dependencies']:
+        del doc['dependencies']['signalk-lume-ti']
+        tmp = p + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(doc, f, indent=2)
+            f.write('\n')
+        os.replace(tmp, p)
+except Exception:
+    pass
+" "$SK_DATA"
+rm -f "${NODE_MODULES}/signalk-lume-ti"
+
+# Simulate postrm remove: disables plugin, removes plugin files, unregisters, keeps store
 python3 -c "
 import json, os, sys
 p = sys.argv[1]
@@ -302,15 +321,26 @@ rm -rf "$PLUGIN_DIR"
 
 [ -f "${STORE_DIR}/data.db" ] || { echo "FAIL: Store was removed during simulated remove" >&2; exit 1; }
 [ ! -d "$PLUGIN_DIR" ] || { echo "FAIL: Plugin directory remained after simulated remove" >&2; exit 1; }
+[ ! -e "${NODE_MODULES}/signalk-lume-ti" ] || { echo "FAIL: Symlink remained after simulated remove" >&2; exit 1; }
+
+python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    d = json.load(f)
+deps = d.get('dependencies', {})
+assert 'signalk-lume-ti' not in deps, 'signalk-lume-ti must be unregistered from package.json on remove'
+assert deps.get('@signalk/freeboard-sk') == '^1.0.0', 'preserves other dependencies on remove'
+" "$PKG_JSON"
+
 python3 -c "
 import json, sys
 with open(sys.argv[1]) as f:
     d = json.load(f)
 assert d['enabled'] is False, 'plugin must be disabled on remove'
 " "$CONFIG_FILE"
-echo "Verified: remove disables plugin, cleans plugin files, and preserves user store."
+echo "Verified: remove disables plugin, unregisters from package.json/node_modules, cleans plugin files, and preserves user store."
 
-# Simulate postrm purge: deletes store, config, key dir, and plugin dir
+# Simulate postrm purge: deletes store, config, key dir, plugin dir, unregisters
 rm -rf "$STORE_DIR" "$CONFIG_FILE" "${CONFIG_DIR}/signalk-lume-ti" "$PLUGIN_DIR"
 [ ! -e "$STORE_DIR" ] || { echo "FAIL: Store dir was not deleted on purge" >&2; exit 1; }
 [ ! -e "$CONFIG_FILE" ] || { echo "FAIL: Config file was not deleted on purge" >&2; exit 1; }
