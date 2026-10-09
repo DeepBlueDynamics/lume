@@ -85,6 +85,13 @@ module.exports = function (app) {
           default: 'ws://127.0.0.1:3000',
           description: 'WebSocket endpoint for live Signal K delta stream (usually ws://127.0.0.1:3000)',
         },
+        serverMode: {
+          type: 'string',
+          title: 'Query Server Mode',
+          default: 'embedded',
+          enum: ['embedded', 'external'],
+          description: 'embedded: the plugin runs lume inside Signal K. external: the marine-lume-container HaLOS app runs it, with its own memory limit; the plugin hands it these settings and talks to it on the port below. The container app sets this when installed.',
+        },
         servePort: {
           type: 'integer',
           title: 'Query Server Port',
@@ -270,6 +277,8 @@ module.exports = function (app) {
         pgTlsKey: pg.pgTlsKey,
         pgAllowPlaintext: pg.pgAllowPlaintext,
         tokenPath: fs.existsSync(tokenPath) ? tokenPath : null,
+        external: pluginConfig.serverMode === 'external',
+        argsFile: path.join(storeDir, 'server.args'),
         onLog: (line, isErr) => log(line, isErr),
         onStateChange: () => updateStatus(app, supervisor, storeDir),
       });
@@ -415,6 +424,7 @@ module.exports = function (app) {
 function updateStatus(app, supervisor, storeDir) {
   if (!supervisor) return;
   const status = supervisor.getStatus();
+  if (status.mode === 'external') return updateExternalStatus(app, status);
   const store = collectStoreStatus(storeDir);
 
   if (status.running) {
@@ -445,6 +455,27 @@ function updateStatus(app, supervisor, storeDir) {
       app.setPluginStatus(`Stopped (exit code: ${status.lastExitCode ?? 'none'})`);
     }
   }
+}
+
+/**
+ * Status for external mode: ask the container app's server whether it answers.
+ *
+ * @param {object} app
+ * @param {object} status - Supervisor status (mode 'external').
+ */
+function updateExternalStatus(app, status) {
+  const fail = msg => typeof app.setPluginError === 'function' && app.setPluginError(msg);
+  if (status.lastError) return fail(status.lastError);
+  const req = http.get({host: '127.0.0.1', port: status.servePort, path: '/ti/status', timeout: 3000}, res => {
+    res.resume();
+    if (res.statusCode === 200) {
+      if (typeof app.setPluginStatus === 'function') {
+        app.setPluginStatus(`External server (marine-lume-container) answering on 127.0.0.1:${status.servePort}`);
+      }
+    } else fail(`External server on 127.0.0.1:${status.servePort} returned HTTP ${res.statusCode}`);
+  });
+  req.on('timeout', () => req.destroy(new Error('timed out')));
+  req.on('error', err => fail(`External server on 127.0.0.1:${status.servePort} not reachable (${err.message}). Is marine-lume-container running? Set Query Server Mode to embedded to run lume inside Signal K instead.`));
 }
 
 /**
