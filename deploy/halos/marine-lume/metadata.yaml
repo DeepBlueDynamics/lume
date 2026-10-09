@@ -1,0 +1,33 @@
+name: Lume TI
+app_id: lume
+version: 0.12.0-1
+upstream_version: 0.12.0
+description: High-resolution timeseries store and query engine for Signal K
+long_description: |
+  Lume TI is a high-resolution timeseries store and query engine for Signal K.
+  It integrates directly with the HaLOS Marine Signal K server container,
+  capturing navigation, engine, and environmental metrics, and providing a
+  History API provider, Grafana-compatible pgwire interface, and conversational
+  Ask tab analytics with zero external database dependencies.
+homepage: https://github.com/DeepBlueDynamics/lume
+maintainer: DeepBlue Dynamics <kord@deepbluedynamics.com>
+license: BSD-3-Clause
+tags:
+  - role::plugin
+  - field::marine
+  - interface::daemon
+debian_section: net
+architecture: arm64
+depends:
+  - marine-signalk-server-container
+web_ui:
+  enabled: true
+  path: /admin/#/serverConfiguration/plugins/signalk-lume-ti
+default_config:
+  SIGNALK_URL: ws://127.0.0.1:3000
+  SERVE_PORT: "5863"
+  ENABLE_PG: "false"
+  PG_PORT: "5864"
+  PG_BIND: 127.0.0.1
+  CHAT_OLLAMA_URL: https://ollama.com
+  CHAT_MODEL: glm-5.3:cloud
