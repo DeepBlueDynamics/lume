@@ -640,7 +640,10 @@ fn fold_text(text: &str) -> Vec<Folded> {
     out
 }
 
-pub fn tokenize(text: &str) -> Vec<Token> {
+/// Tokenize text into folded tokens.
+/// If `stem` is true, stems English words using Snowball English stemmer.
+/// If `keep_hyphens` is true, preserves hyphens between alphanumeric characters.
+pub fn tokenize_with_options(text: &str, stem: bool, keep_hyphens: bool) -> Vec<Token> {
     let folded = fold_text(text);
     let mut tokens = Vec::new();
     let mut cur: Option<Token> = None;
@@ -666,7 +669,22 @@ pub fn tokenize(text: &str) -> Vec<Token> {
     if let Some(t) = cur {
         tokens.push(t);
     }
+    if stem {
+        let stemmer = rust_stemmers::Stemmer::create(rust_stemmers::Algorithm::English);
+        for t in &mut tokens {
+            if let Ok(s) = std::str::from_utf8(&t.bytes) {
+                let stemmed = stemmer.stem(s);
+                if stemmed.as_bytes() != t.bytes.as_slice() {
+                    t.bytes = stemmed.as_bytes().to_vec();
+                }
+            }
+        }
+    }
     tokens
+}
+
+pub fn tokenize(text: &str) -> Vec<Token> {
+    tokenize_with_options(text, false, false)
 }
 
 /// Build the canonical FST key bytes for a phrase: folded tokens joined
@@ -889,5 +907,17 @@ mod tests {
         assert_eq!(tags[1].surface, "MC-9876");
         assert_eq!(tags[1].id, "regex_book");
         assert_eq!(tags[1].kind, "BOOK");
+    }
+
+    #[test]
+    fn test_tokenize_with_stemming() {
+        let text = "connecting connected connections connect";
+        let unstemmed = tokenize_with_options(text, false, false);
+        let unstemmed_terms: Vec<&str> = unstemmed.iter().map(|t| std::str::from_utf8(&t.bytes).unwrap()).collect();
+        assert_eq!(unstemmed_terms, vec!["connecting", "connected", "connections", "connect"]);
+
+        let stemmed = tokenize_with_options(text, true, false);
+        let stemmed_terms: Vec<&str> = stemmed.iter().map(|t| std::str::from_utf8(&t.bytes).unwrap()).collect();
+        assert_eq!(stemmed_terms, vec!["connect", "connect", "connect", "connect"]);
     }
 }

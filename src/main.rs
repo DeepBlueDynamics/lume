@@ -1628,6 +1628,7 @@ fn run_indexing(
 
     // Make the db searchable (and the semantic session visible to the search
     // gate) before the slow extraction pass begins.
+    let stemmed = std::env::var("LUME_STEM").map(|v| v == "1").unwrap_or(false);
     let early_flush_start = Instant::now();
     let early_count = flush_searchable_indexes(&cached_files, tagger.as_ref(), &tagger_phrases, db_path)?;
     let early_state = IndexState {
@@ -1640,6 +1641,7 @@ fn run_indexing(
         tag_dict_path: tag_dict_path.clone(),
         semantic_session_id: semantic_session_id.clone(),
         cached_files: cached_files.clone(),
+        stemmed,
     };
     save_json(&db_path.join("state.json"), &early_state)?;
     println!(
@@ -1790,6 +1792,7 @@ fn run_indexing(
                                 tag_dict_path: tag_dict_path.clone(),
                                 semantic_session_id: semantic_session_id.clone(),
                                 cached_files: cached_files.clone(),
+                                stemmed,
                             };
                             let _ = save_json(&db_path.join("state.json"), &temp_state);
 
@@ -1842,6 +1845,7 @@ fn run_indexing(
         tag_dict_path,
         semantic_session_id,
         cached_files,
+        stemmed,
     };
     save_json(&db_path.join("state.json"), &state)?;
     println!("[💾] Index files written to {} ({} sections) in {:?}", db_dir, section_count, save_start.elapsed());

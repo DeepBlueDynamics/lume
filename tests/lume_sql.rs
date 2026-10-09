@@ -184,6 +184,7 @@ fn indexed_manual_cross_joins_small_durable_telemetry_store_and_cli() {
         tag_dict_path: None,
         semantic_session_id: None,
         cached_files: Default::default(),
+        stemmed: false,
     };
     lume::search::save_json(&index_root.join("state.json"), &state).unwrap();
     let store_root = fixture.root.join("store");

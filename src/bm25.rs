@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
-use crate::tokenize;
+use crate::{tokenize, tokenize_with_options};
 use crate::fast_retrieval::{MiniRoaring, PrimeFilter};
 use crate::Tagger;
 
@@ -210,6 +210,9 @@ pub struct Bm25Index {
     pub entity_posting_lists: HashMap<String, MiniRoaring>,
     pub entity_kinds: HashMap<String, String>,
     pub entity_labels: HashMap<String, String>,
+
+    #[serde(default)]
+    pub stemmed: bool,
 }
 
 /// A hit returned by the search query.
@@ -352,11 +355,12 @@ impl Bm25Index {
         let mut entity_posting_lists: HashMap<String, MiniRoaring> = HashMap::new();
         let mut entity_kinds = HashMap::new();
         let mut entity_labels = HashMap::new();
+        let stem = std::env::var("LUME_STEM").map(|v| v == "1").unwrap_or(false);
 
         for (doc_idx, sec) in sections.iter().enumerate() {
             let doc_id = doc_idx as u32;
-            let t_toks = tokenize(&sec.title);
-            let b_toks = tokenize(&sec.body);
+            let t_toks = tokenize_with_options(&sec.title, stem, false);
+            let b_toks = tokenize_with_options(&sec.body, stem, false);
             
             title_lens.push(t_toks.len());
             body_lens.push(b_toks.len());
@@ -496,6 +500,7 @@ impl Bm25Index {
             entity_posting_lists,
             entity_kinds,
             entity_labels,
+            stemmed: stem,
         }
     }
 
@@ -537,7 +542,7 @@ impl Bm25Index {
                 }
             };
         }
-        let query_tokens = filter_query_stopwords(tokenize(query));
+        let query_tokens = filter_query_stopwords(tokenize_with_options(query, self.stemmed, false));
         if query_tokens.is_empty() || self.num_docs == 0 {
             return Vec::new();
         }
@@ -778,8 +783,8 @@ impl Bm25Index {
                         diag!("     - Header: {:?}", sec.title);
                         diag!("     - Body Snippet: {:?}", diagnostic_body_preview(&sec.body));
                         
-                        let title_tokens = tokenize(&sec.title);
-                        let body_tokens = tokenize(&sec.body);
+                        let title_tokens = tokenize_with_options(&sec.title, self.stemmed, false);
+                        let body_tokens = tokenize_with_options(&sec.body, self.stemmed, false);
                         
                         let title_terms: Vec<String> = title_tokens.iter().map(|t| String::from_utf8_lossy(&t.bytes).to_string()).collect();
                         let body_terms: Vec<String> = body_tokens.iter().map(|t| String::from_utf8_lossy(&t.bytes).to_string()).collect();
@@ -964,5 +969,61 @@ These changes include blebbing, cell shrinkage, nuclear fragmentation, and chrom
         assert!((actual_ratio - expected_ratio).abs() < 1e-4);
 
         std::env::remove_var("LUME_COORD_FLOOR");
+    }
+
+    #[test]
+    fn test_stemming_tokenize_and_search_agreement() {
+        let sec1 = Section {
+            title: "Cellular Connections".to_string(),
+            body: "The device is connecting to wireless towers successfully.".to_string(),
+            line_number: 1,
+            filename: None,
+            entities: Vec::new(),
+        };
+        let sec2 = Section {
+            title: "Battery Maintenance".to_string(),
+            body: "Keep the battery charged overnight for longest longevity.".to_string(),
+            line_number: 10,
+            filename: None,
+            entities: Vec::new(),
+        };
+
+        // Case 1: unstemmed index (stemmed: false)
+        std::env::remove_var("LUME_STEM");
+        let unstemmed_index = Bm25Index::build(vec![sec1.clone(), sec2.clone()], None);
+        assert!(!unstemmed_index.stemmed);
+        let unstemmed_hits = unstemmed_index.search_quiet(
+            "connect",
+            SearchVariant::Classic,
+            &Bm25Params::default(),
+            None,
+        );
+        assert!(unstemmed_hits.is_empty(), "Unstemmed index should not match inflected forms for 'connect'");
+
+        // Case 2: stemmed index (force LUME_STEM=1)
+        std::env::set_var("LUME_STEM", "1");
+        let stemmed_index = Bm25Index::build(vec![sec1, sec2], None);
+        std::env::remove_var("LUME_STEM");
+        assert!(stemmed_index.stemmed);
+
+        // Searching for base form "connect" matches sec1
+        let stemmed_hits = stemmed_index.search_quiet(
+            "connect",
+            SearchVariant::Classic,
+            &Bm25Params::default(),
+            None,
+        );
+        assert_eq!(stemmed_hits.len(), 1, "Stemmed index should match inflected form via stemmed query");
+        assert_eq!(stemmed_hits[0].section_index, 0);
+
+        // Searching for inflected form "connection" also matches
+        let stemmed_hits_inflected = stemmed_index.search_quiet(
+            "connection",
+            SearchVariant::Classic,
+            &Bm25Params::default(),
+            None,
+        );
+        assert_eq!(stemmed_hits_inflected.len(), 1);
+        assert_eq!(stemmed_hits_inflected[0].section_index, 0);
     }
 }

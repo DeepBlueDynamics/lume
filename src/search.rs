@@ -72,6 +72,8 @@ pub struct IndexState {
     pub tag_dict_path: Option<String>,
     pub semantic_session_id: Option<String>,
     pub cached_files: HashMap<String, (u64, Vec<Section>)>,
+    #[serde(default)]
+    pub stemmed: bool,
 }
 
 pub struct LoadedIndex {
@@ -95,6 +97,16 @@ impl LoadedIndex {
         }
         let state: IndexState = load_json(&state_path)?;
 
+        if let Ok(val) = std::env::var("LUME_STEM") {
+            let env_stemmed = val == "1";
+            if env_stemmed != state.stemmed {
+                return Err(format!(
+                    "Stemming configuration mismatch: index was built with stemmed={}, but LUME_STEM={} is set in environment",
+                    state.stemmed, val
+                ));
+            }
+        }
+
         let bm25_path = db_path.join("bm25.json");
         if !bm25_path.exists() {
             return Err(format!(
@@ -102,7 +114,8 @@ impl LoadedIndex {
                 bm25_path.display()
             ));
         }
-        let bm25: Bm25Index = load_json(&bm25_path)?;
+        let mut bm25: Bm25Index = load_json(&bm25_path)?;
+        bm25.stemmed = state.stemmed;
         let spelling: Option<SpellIndex> = load_json(&db_path.join("spelling.json")).ok();
         let entity_graph: Option<EntityGraph> = load_json(&db_path.join("entity_graph.json")).ok();
 
@@ -690,6 +703,7 @@ mod tests {
             tag_dict_path: None,
             semantic_session_id: None,
             cached_files: HashMap::new(),
+            stemmed: false,
         };
         let index = LoadedIndex {
             state: Some(state),
@@ -725,6 +739,7 @@ mod tests {
             tag_dict_path: None,
             semantic_session_id: None,
             cached_files: HashMap::new(),
+            stemmed: false,
         };
         let index = LoadedIndex {
             state: Some(state),
@@ -762,6 +777,7 @@ mod tests {
             tag_dict_path: None,
             semantic_session_id: None,
             cached_files: HashMap::new(),
+            stemmed: false,
         };
         let index = LoadedIndex {
             state: Some(state),
@@ -867,5 +883,59 @@ mod tests {
             .collect();
         assert_eq!(names, vec![std::ffi::OsString::from("bm25.json")]);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_stemming_mismatch_refusal() {
+        let temp_dir = std::env::temp_dir().join("lume_test_stem_mismatch");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let state = IndexState {
+            target_dir: "/dummy".to_string(),
+            db_dir: temp_dir.display().to_string(),
+            semantic_enabled: false,
+            ollama_entities: false,
+            ollama_model: String::new(),
+            ollama_url: String::new(),
+            tag_dict_path: None,
+            semantic_session_id: None,
+            cached_files: HashMap::new(),
+            stemmed: false,
+        };
+        save_json(&temp_dir.join("state.json"), &state).unwrap();
+        let bm25 = Bm25Index::build(vec![], None);
+        save_json(&temp_dir.join("bm25.json"), &bm25).unwrap();
+
+        // 1. With no LUME_STEM in env, opening succeeds and uses state.stemmed (false)
+        std::env::remove_var("LUME_STEM");
+        let loaded = LoadedIndex::open(&temp_dir).unwrap();
+        assert!(!loaded.bm25.stemmed);
+
+        // 2. With LUME_STEM=1, opening unstemmed index fails with mismatch error
+        std::env::set_var("LUME_STEM", "1");
+        let err = LoadedIndex::open(&temp_dir).unwrap_err();
+        assert!(err.contains("Stemming configuration mismatch"));
+        assert!(err.contains("index was built with stemmed=false, but LUME_STEM=1"));
+
+        // 3. Now test a stemmed index
+        let state_stemmed = IndexState {
+            stemmed: true,
+            ..state
+        };
+        save_json(&temp_dir.join("state.json"), &state_stemmed).unwrap();
+
+        // With LUME_STEM=1, matches index
+        let loaded_stemmed = LoadedIndex::open(&temp_dir).unwrap();
+        assert!(loaded_stemmed.bm25.stemmed);
+
+        // With LUME_STEM=0, opening stemmed index fails with mismatch error
+        std::env::set_var("LUME_STEM", "0");
+        let err2 = LoadedIndex::open(&temp_dir).unwrap_err();
+        assert!(err2.contains("Stemming configuration mismatch"));
+        assert!(err2.contains("index was built with stemmed=true, but LUME_STEM=0"));
+
+        std::env::remove_var("LUME_STEM");
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
