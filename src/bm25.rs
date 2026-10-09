@@ -231,14 +231,40 @@ pub struct RankDebug {
 /// Simple, robust line-by-line Markdown section parser.
 /// Cuts sections at `#` headers and records their starting line numbers.
 pub fn parse_markdown(content: &str) -> Vec<Section> {
+    let use_fallback = std::env::var("LUME_TITLE_FALLBACK")
+        .map(|v| v == "1")
+        .unwrap_or(false);
+
+    let has_header = content.lines().any(|line| {
+        let trimmed = line.trim();
+        if trimmed.starts_with('#') {
+            let hashes_count = trimmed.chars().take_while(|&c| c == '#').count();
+            hashes_count > 0 && !trimmed[hashes_count..].trim().is_empty()
+        } else {
+            false
+        }
+    });
+
     let mut sections = Vec::new();
     let mut current_title = String::from("Introduction");
     let mut current_body = Vec::new();
     let mut start_line = 1;
+    let mut fallback_title_found = false;
 
     for (i, line) in content.lines().enumerate() {
         let line_num = i + 1;
         let trimmed = line.trim();
+
+        if use_fallback && !has_header && !fallback_title_found {
+            if !trimmed.is_empty() {
+                current_title = trimmed.to_string();
+                start_line = line_num;
+                fallback_title_found = true;
+                continue;
+            }
+            continue;
+        }
+
         if trimmed.starts_with('#') {
             let hashes_count = trimmed.chars().take_while(|&c| c == '#').count();
             let header_text = trimmed[hashes_count..].trim().to_string();
@@ -847,5 +873,42 @@ mod diagnostic_tests {
         assert!(index
             .search("bilge", SearchVariant::Classic, &params, None)
             .is_empty());
+    }
+    #[test]
+    fn test_parse_markdown_title_fallback() {
+        let plain_doc = "A Study on Cellular Apoptosis\n\n\
+Apoptosis is a form of programmed cell death that occurs in multicellular organisms. \
+Biochemical events lead to characteristic cell changes and death. \
+These changes include blebbing, cell shrinkage, nuclear fragmentation, and chromatin condensation.";
+
+        let md_doc = "# A Study on Cellular Apoptosis\n\n\
+Apoptosis is a form of programmed cell death that occurs in multicellular organisms. \
+Biochemical events lead to characteristic cell changes and death. \
+These changes include blebbing, cell shrinkage, nuclear fragmentation, and chromatin condensation.";
+
+        // Default behavior (no env var or LUME_TITLE_FALLBACK=0): plain text gets "Introduction"
+        std::env::remove_var("LUME_TITLE_FALLBACK");
+        let default_plain = parse_markdown(plain_doc);
+        assert_eq!(default_plain.len(), 1);
+        assert_eq!(default_plain[0].title, "Introduction");
+
+        let default_md = parse_markdown(md_doc);
+        assert_eq!(default_md.len(), 1);
+        assert_eq!(default_md[0].title, "A Study on Cellular Apoptosis");
+
+        // With LUME_TITLE_FALLBACK=1:
+        std::env::set_var("LUME_TITLE_FALLBACK", "1");
+        let fallback_plain = parse_markdown(plain_doc);
+        assert_eq!(fallback_plain.len(), 1);
+        assert_eq!(fallback_plain[0].title, "A Study on Cellular Apoptosis");
+
+        // Markdown with headers remains byte-identical
+        let fallback_md = parse_markdown(md_doc);
+        assert_eq!(fallback_md.len(), default_md.len());
+        assert_eq!(fallback_md[0].title, default_md[0].title);
+        assert_eq!(fallback_md[0].body, default_md[0].body);
+        assert_eq!(fallback_md[0].line_number, default_md[0].line_number);
+
+        std::env::remove_var("LUME_TITLE_FALLBACK");
     }
 }
