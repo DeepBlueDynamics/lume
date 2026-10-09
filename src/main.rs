@@ -1432,11 +1432,18 @@ fn split_body_into_chunks(body: &str, target: usize, hard_cap: usize) -> Vec<(us
 }
 
 fn chunk_text_file(path: &Path, content: &str) -> Vec<Section> {
+    let use_fallback = std::env::var("LUME_TITLE_FALLBACK")
+        .map(|v| v == "1")
+        .unwrap_or(false);
+    chunk_text_file_with_options(path, content, use_fallback)
+}
+
+fn chunk_text_file_with_options(path: &Path, content: &str, use_fallback: bool) -> Vec<Section> {
     let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let filename_str = path.to_string_lossy().to_string();
 
     if extension.to_lowercase() == "md" {
-        let raw_sections = lume::bm25::parse_markdown(content);
+        let raw_sections = lume::bm25::parse_markdown_with_options(content, use_fallback);
         let mut sections = Vec::new();
         for sec in raw_sections {
             // Split each chapter into retrieval-sized windows (~TARGET_LINES,
@@ -1463,15 +1470,59 @@ fn chunk_text_file(path: &Path, content: &str) -> Vec<Section> {
         }
         sections
     } else {
+        let ext_lower = extension.to_lowercase();
+        // Restrict first-line title fallback to plain text prose files (.txt / .text).
+        // Code files (.rs, .py, etc.) and structured config files must not extract
+        // comment lines or code definitions as document titles.
+        let is_prose = matches!(ext_lower.as_str(), "txt" | "text");
+
+        let doc_title_and_idx: Option<(String, usize)> = if use_fallback && is_prose {
+            content
+                .lines()
+                .enumerate()
+                .find(|(_, line)| !line.trim().is_empty())
+                .and_then(|(idx, line)| {
+                    let trimmed = line.trim();
+                    if trimmed.chars().count() <= 200 {
+                        Some((trimmed.to_string(), idx))
+                    } else {
+                        None
+                    }
+                })
+        } else {
+            None
+        };
+
         let lines: Vec<&str> = content.lines().collect();
         let chunk_size = 25;
         let mut sections = Vec::new();
         for (idx, chunk) in lines.chunks(chunk_size).enumerate() {
             let start_line = idx * chunk_size + 1;
             let end_line = start_line + chunk.len() - 1;
-            let body = chunk.join("\n");
+
+            let (title, body) = if let Some((ref dt, title_idx)) = doc_title_and_idx {
+                let chunk_lines: Vec<&str> = chunk
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(chunk_line_offset, &line)| {
+                        let global_line_idx = idx * chunk_size + chunk_line_offset;
+                        if global_line_idx == title_idx {
+                            None
+                        } else {
+                            Some(line)
+                        }
+                    })
+                    .collect();
+                (dt.clone(), chunk_lines.join("\n"))
+            } else {
+                (
+                    format!("Lines {}-{}", start_line, end_line),
+                    chunk.join("\n"),
+                )
+            };
+
             sections.push(Section {
-                title: format!("Lines {}-{}", start_line, end_line),
+                title,
                 body,
                 line_number: start_line,
                 filename: Some(filename_str.clone()),
@@ -3434,4 +3485,88 @@ LIST MODE:
   ZIM archives are skipped unless --formats names zim. --max-mb defaults to 128.
 "#
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn test_chunk_text_file_flag_off_byte_identical() {
+        let content = "My Title\nLine 2\nLine 3";
+        let path = Path::new("paper.txt");
+        let sections = chunk_text_file_with_options(path, content, false);
+        assert_eq!(sections.len(), 1);
+        assert_eq!(sections[0].title, "Lines 1-3");
+        assert_eq!(sections[0].body, content);
+        assert_eq!(sections[0].line_number, 1);
+    }
+
+    #[test]
+    fn test_chunk_text_file_flag_on_txt_with_title() {
+        let content = "My Title\nLine 2\nLine 3";
+        let path = Path::new("paper.txt");
+        let sections = chunk_text_file_with_options(path, content, true);
+        assert_eq!(sections.len(), 1);
+        assert_eq!(sections[0].title, "My Title");
+        assert_eq!(sections[0].body, "Line 2\nLine 3");
+        assert_eq!(sections[0].line_number, 1);
+    }
+
+    #[test]
+    fn test_chunk_text_file_flag_on_txt_with_empty_leading_lines() {
+        let content = "\n  \nMy Title\nLine 2\nLine 3";
+        let path = Path::new("paper.txt");
+        let sections = chunk_text_file_with_options(path, content, true);
+        assert_eq!(sections.len(), 1);
+        assert_eq!(sections[0].title, "My Title");
+        assert_eq!(sections[0].body, "\n  \nLine 2\nLine 3");
+        assert_eq!(sections[0].line_number, 1);
+    }
+
+    #[test]
+    fn test_chunk_text_file_flag_on_txt_with_long_first_line() {
+        let long_title = "a".repeat(201);
+        let content = format!("{}\nLine 2\nLine 3", long_title);
+        let path = Path::new("paper.txt");
+        let sections = chunk_text_file_with_options(path, &content, true);
+        assert_eq!(sections.len(), 1);
+        assert_eq!(sections[0].title, "Lines 1-3");
+        assert_eq!(sections[0].body, content);
+        assert_eq!(sections[0].line_number, 1);
+    }
+
+    #[test]
+    fn test_chunk_text_file_flag_on_code_file_not_affected() {
+        let content = "// Rust comment or title\nfn main() {}";
+        let path_rs = Path::new("main.rs");
+        let sections_rs = chunk_text_file_with_options(path_rs, content, true);
+        assert_eq!(sections_rs.len(), 1);
+        assert_eq!(sections_rs[0].title, "Lines 1-2");
+        assert_eq!(sections_rs[0].body, content);
+
+        let path_py = Path::new("script.py");
+        let sections_py = chunk_text_file_with_options(path_py, content, true);
+        assert_eq!(sections_py.len(), 1);
+        assert_eq!(sections_py[0].title, "Lines 1-2");
+        assert_eq!(sections_py[0].body, content);
+    }
+
+    #[test]
+    fn test_chunk_text_file_flag_on_multiple_chunks() {
+        let mut lines = vec!["Document Title".to_string()];
+        for i in 1..40 {
+            lines.push(format!("Content line {}", i));
+        }
+        let content = lines.join("\n");
+        let path = Path::new("doc.txt");
+        let sections = chunk_text_file_with_options(path, &content, true);
+        assert_eq!(sections.len(), 2);
+        assert_eq!(sections[0].title, "Document Title");
+        assert_eq!(sections[1].title, "Document Title");
+        assert!(!sections[0].body.contains("Document Title"));
+        assert!(sections[0].body.starts_with("Content line 1"));
+        assert!(sections[1].body.starts_with("Content line 25"));
+    }
 }
