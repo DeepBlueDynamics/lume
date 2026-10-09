@@ -1,15 +1,15 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
 
-use crate::bm25::{Bm25Index, Bm25Params, SearchVariant, Section, filter_query_stopwords};
-use crate::spelling::SpellIndex;
+use crate::bm25::{filter_query_stopwords, Bm25Index, Bm25Params, SearchVariant, Section};
 use crate::semantic_mesh::EntityGraph;
-use crate::Tagger;
-use crate::Entry;
+use crate::spelling::SpellIndex;
 use crate::tokenize;
+use crate::Entry;
+use crate::Tagger;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SearchMode {
@@ -74,6 +74,8 @@ pub struct IndexState {
     pub cached_files: HashMap<String, (u64, Vec<Section>)>,
     #[serde(default)]
     pub stemmed: bool,
+    #[serde(default)]
+    pub keep_hyphens: bool,
 }
 
 pub struct LoadedIndex {
@@ -85,8 +87,31 @@ pub struct LoadedIndex {
     pub cache_dir: Option<PathBuf>,
 }
 
+/// Optional configuration checks when loading an index from disk.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct OpenEnvChecks {
+    pub check_stem: Option<bool>,
+    pub check_keep_hyphens: Option<bool>,
+}
+
+impl OpenEnvChecks {
+    pub fn from_env() -> Self {
+        Self {
+            check_stem: std::env::var("LUME_STEM").ok().map(|v| v == "1"),
+            check_keep_hyphens: std::env::var("LUME_KEEP_HYPHENS").ok().map(|v| v == "1"),
+        }
+    }
+}
+
 impl LoadedIndex {
     pub fn open(db_dir: impl AsRef<Path>) -> Result<Self, String> {
+        Self::open_with_checks(db_dir, OpenEnvChecks::from_env())
+    }
+
+    pub fn open_with_checks(
+        db_dir: impl AsRef<Path>,
+        checks: OpenEnvChecks,
+    ) -> Result<Self, String> {
         let db_path = db_dir.as_ref();
         let state_path = db_path.join("state.json");
         if !state_path.exists() {
@@ -97,12 +122,22 @@ impl LoadedIndex {
         }
         let state: IndexState = load_json(&state_path)?;
 
-        if let Ok(val) = std::env::var("LUME_STEM") {
-            let env_stemmed = val == "1";
+        if let Some(env_stemmed) = checks.check_stem {
             if env_stemmed != state.stemmed {
                 return Err(format!(
-                    "Stemming configuration mismatch: index was built with stemmed={}, but LUME_STEM={} is set in environment",
-                    state.stemmed, val
+                    "Stemming configuration mismatch: index was built with stemmed={}, but LUME_STEM={} was requested",
+                    state.stemmed,
+                    if env_stemmed { "1" } else { "0" }
+                ));
+            }
+        }
+
+        if let Some(env_keep_hyphens) = checks.check_keep_hyphens {
+            if env_keep_hyphens != state.keep_hyphens {
+                return Err(format!(
+                    "Hyphen configuration mismatch: index was built with keep_hyphens={}, but LUME_KEEP_HYPHENS={} was requested",
+                    state.keep_hyphens,
+                    if env_keep_hyphens { "1" } else { "0" }
                 ));
             }
         }
@@ -116,6 +151,7 @@ impl LoadedIndex {
         }
         let mut bm25: Bm25Index = load_json(&bm25_path)?;
         bm25.stemmed = state.stemmed;
+        bm25.keep_hyphens = state.keep_hyphens;
         let spelling: Option<SpellIndex> = load_json(&db_path.join("spelling.json")).ok();
         let entity_graph: Option<EntityGraph> = load_json(&db_path.join("entity_graph.json")).ok();
 
@@ -200,14 +236,14 @@ pub fn save_json<T: Serialize>(path: &Path, val: &T) -> Result<(), String> {
     let tmp_path = parent.join(tmp_name);
 
     let written = (|| {
-        let file = File::create(&tmp_path).map_err(|e| {
-            format!("Failed to create file {}: {}", tmp_path.display(), e)
-        })?;
+        let file = File::create(&tmp_path)
+            .map_err(|e| format!("Failed to create file {}: {}", tmp_path.display(), e))?;
         let mut writer = io::BufWriter::new(file);
-        serde_json::to_writer_pretty(&mut writer, val).map_err(|e| {
-            format!("Failed to write JSON to {}: {}", path.display(), e)
-        })?;
-        writer.flush().map_err(|e| format!("Failed to flush {}: {}", tmp_path.display(), e))?;
+        serde_json::to_writer_pretty(&mut writer, val)
+            .map_err(|e| format!("Failed to write JSON to {}: {}", path.display(), e))?;
+        writer
+            .flush()
+            .map_err(|e| format!("Failed to flush {}: {}", tmp_path.display(), e))?;
         let file = writer
             .into_inner()
             .map_err(|e| format!("Failed to flush {}: {}", tmp_path.display(), e))?;
@@ -234,9 +270,8 @@ pub fn save_json<T: Serialize>(path: &Path, val: &T) -> Result<(), String> {
     // it has no directory fsync.
     #[cfg(unix)]
     {
-        let dir = File::open(parent).map_err(|e| {
-            format!("Failed to open directory {}: {}", parent.display(), e)
-        })?;
+        let dir = File::open(parent)
+            .map_err(|e| format!("Failed to open directory {}: {}", parent.display(), e))?;
         dir.sync_all()
             .map_err(|e| format!("Failed to sync directory {}: {}", parent.display(), e))?;
     }
@@ -244,14 +279,20 @@ pub fn save_json<T: Serialize>(path: &Path, val: &T) -> Result<(), String> {
 }
 
 pub fn load_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, String> {
-    let file = File::open(path).map_err(|e| format!("Failed to open file {}: {}", path.display(), e))?;
+    let file =
+        File::open(path).map_err(|e| format!("Failed to open file {}: {}", path.display(), e))?;
     let reader = io::BufReader::new(file);
-    let val = serde_json::from_reader(reader).map_err(|e| format!("Failed to parse JSON from {}: {}", path.display(), e))?;
+    let val = serde_json::from_reader(reader)
+        .map_err(|e| format!("Failed to parse JSON from {}: {}", path.display(), e))?;
     Ok(val)
 }
 
 pub fn load_tagger_csv(path: &Path) -> io::Result<Tagger> {
-    let kind = path.file_stem().and_then(|s| s.to_str()).unwrap_or("entity").to_string();
+    let kind = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("entity")
+        .to_string();
     let text = std::fs::read_to_string(path)?;
     let mut lines = text.lines();
     let header_line = match lines.next() {
@@ -283,8 +324,8 @@ pub fn load_tagger_csv(path: &Path) -> io::Result<Tagger> {
             .map(|s| s.trim().eq_ignore_ascii_case("true"))
             .unwrap_or(false);
 
-        let mut entry = Entry::new(phrase, kind.clone(), format!("csv-{}", i))
-            .with_regex(is_regex_val);
+        let mut entry =
+            Entry::new(phrase, kind.clone(), format!("csv-{}", i)).with_regex(is_regex_val);
         if let Some(out) = output_override {
             entry = entry.with_output(out);
         }
@@ -296,7 +337,11 @@ pub fn load_tagger_csv(path: &Path) -> io::Result<Tagger> {
 pub fn correct_query(spelling: &SpellIndex, query: &str) -> String {
     let mut words = Vec::new();
     for word in query.split_whitespace() {
-        let clean: String = word.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase();
+        let clean: String = word
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .collect::<String>()
+            .to_lowercase();
         if clean.is_empty() {
             words.push(word.to_string());
             continue;
@@ -370,7 +415,11 @@ pub fn best_snippet_with_cap(body: &str, query: &str, max_chars: usize) -> Strin
     }
 }
 
-pub fn search(index: &LoadedIndex, query: &str, opts: &SearchOptions) -> Result<SearchResults, String> {
+pub fn search(
+    index: &LoadedIndex,
+    query: &str,
+    opts: &SearchOptions,
+) -> Result<SearchResults, String> {
     let mut warnings = Vec::new();
 
     // 1. Spell correction
@@ -402,8 +451,20 @@ pub fn search(index: &LoadedIndex, query: &str, opts: &SearchOptions) -> Result<
                 use_relatedness: opts.use_relatedness,
                 ..Default::default()
             };
-            let walk = crate::graph_search::compute_skg_scores(&index.bm25, graph, &effective_query, &skg_params);
-            let label = |k: &str| index.bm25.entity_labels.get(k).cloned().unwrap_or_else(|| k.to_string());
+            let walk = crate::graph_search::compute_skg_scores(
+                &index.bm25,
+                graph,
+                &effective_query,
+                &skg_params,
+            );
+            let label = |k: &str| {
+                index
+                    .bm25
+                    .entity_labels
+                    .get(k)
+                    .cloned()
+                    .unwrap_or_else(|| k.to_string())
+            };
             skg_seeds = walk.seeds.iter().map(|s| label(s)).collect();
             skg_neighbors = walk.expanded.iter().map(|(k, w)| (label(k), *w)).collect();
             skg_scores = walk.scores;
@@ -412,7 +473,10 @@ pub fn search(index: &LoadedIndex, query: &str, opts: &SearchOptions) -> Result<
             if !graph_path.exists() {
                 warnings.push("\x1B[35m[SKG] No entity_graph.json found; graph boost disabled (re-run `lume index`).\x1B[0m".to_string());
             } else {
-                warnings.push("\x1B[35m[SKG] Failed to load entity_graph.json; graph boost disabled.\x1B[0m".to_string());
+                warnings.push(
+                    "\x1B[35m[SKG] Failed to load entity_graph.json; graph boost disabled.\x1B[0m"
+                        .to_string(),
+                );
             }
         }
     }
@@ -430,8 +494,15 @@ pub fn search(index: &LoadedIndex, query: &str, opts: &SearchOptions) -> Result<
     };
 
     if want_hybrid {
-        let token_opt = opts.auth_token.clone().or_else(crate::hybrid::load_nuts_token);
-        let has_session = index.state.as_ref().and_then(|s| s.semantic_session_id.as_ref()).is_some();
+        let token_opt = opts
+            .auth_token
+            .clone()
+            .or_else(crate::hybrid::load_nuts_token);
+        let has_session = index
+            .state
+            .as_ref()
+            .and_then(|s| s.semantic_session_id.as_ref())
+            .is_some();
 
         if !has_session {
             if opts.mode == SearchMode::HybridStrict {
@@ -445,7 +516,11 @@ pub fn search(index: &LoadedIndex, query: &str, opts: &SearchOptions) -> Result<
             warnings.push("[⚠️] Semantic search unavailable (no NUTS_SERVICES_TOKEN and shivvr endpoint is not local); falling back to lexical BM25.".to_string());
         } else {
             // Attempt hybrid search
-            let target_dir = index.state.as_ref().map(|s| s.target_dir.as_str()).unwrap_or("");
+            let target_dir = index
+                .state
+                .as_ref()
+                .map(|s| s.target_dir.as_str())
+                .unwrap_or("");
             let hybrid_res = crate::hybrid::execute_hybrid_search(
                 &index.bm25,
                 index.tagger.as_ref(),
@@ -468,7 +543,11 @@ pub fn search(index: &LoadedIndex, query: &str, opts: &SearchOptions) -> Result<
                     h_results.hits.truncate(opts.limit);
                     let mut hits = Vec::new();
                     for h in h_results.hits {
-                        let snippet = best_snippet_with_cap(&h.body, &effective_query, opts.max_snippet_chars);
+                        let snippet = best_snippet_with_cap(
+                            &h.body,
+                            &effective_query,
+                            opts.max_snippet_chars,
+                        );
                         hits.push(SearchResultHit {
                             rank: h.rank,
                             section_index: h.section_index,
@@ -513,7 +592,12 @@ pub fn search(index: &LoadedIndex, query: &str, opts: &SearchOptions) -> Result<
         SearchMode::HybridOrFallback => (Bm25Params::default(), SearchVariant::Classic),
         _ => (opts.bm25_params.clone(), opts.bm25_variant),
     };
-    let mut bm25_hits = index.bm25.search(&effective_query, lexical_variant, &lexical_params, index.tagger.as_ref());
+    let mut bm25_hits = index.bm25.search(
+        &effective_query,
+        lexical_variant,
+        &lexical_params,
+        index.tagger.as_ref(),
+    );
     crate::graph_search::apply_skg_boost(&mut bm25_hits, &skg_scores, beta);
     bm25_hits.truncate(opts.limit);
 
@@ -522,8 +606,11 @@ pub fn search(index: &LoadedIndex, query: &str, opts: &SearchOptions) -> Result<
         if let Some(sec) = index.bm25.sections.get(hit.section_index) {
             let filename = sec.filename.clone();
             let skg_score = skg_scores.get(&hit.section_index).copied();
-            let snippet = best_snippet_with_cap(&sec.body, &effective_query, opts.max_snippet_chars);
-            let entities = sec.entities.iter()
+            let snippet =
+                best_snippet_with_cap(&sec.body, &effective_query, opts.max_snippet_chars);
+            let entities = sec
+                .entities
+                .iter()
                 .filter(|&e| e != "__LUME_PROCESSED__")
                 .cloned()
                 .collect();
@@ -567,7 +654,11 @@ pub fn format_cli_output(
     let mut stderr = String::new();
 
     // 1. Header: Searching corpus: ...
-    let target_dir = index.state.as_ref().map(|s| s.target_dir.as_str()).unwrap_or("unknown");
+    let target_dir = index
+        .state
+        .as_ref()
+        .map(|s| s.target_dir.as_str())
+        .unwrap_or("unknown");
     stdout.push_str(&format!(
         "Searching corpus: {} ({} sections, db: {})\n",
         target_dir, results.total_sections, db_dir
@@ -595,7 +686,10 @@ pub fn format_cli_output(
                     .collect::<Vec<_>>()
                     .join(", ")
             };
-            stdout.push_str(&format!("[SKG walk] seeds: {} → neighbors: {}\n", seeds_str, neighbors_str));
+            stdout.push_str(&format!(
+                "[SKG walk] seeds: {} → neighbors: {}\n",
+                seeds_str, neighbors_str
+            ));
         }
     }
 
@@ -612,7 +706,10 @@ pub fn format_cli_output(
 
     // 5. Execution line & hits
     if results.executed_mode == SearchMode::LexicalOnly {
-        stdout.push_str(&format!("Executing lexical BM25 search (graph={})...\n", results.graph_beta));
+        stdout.push_str(&format!(
+            "Executing lexical BM25 search (graph={})...\n",
+            results.graph_beta
+        ));
         if results.hits.is_empty() {
             stdout.push_str("No hits found.\n");
         } else {
@@ -624,12 +721,7 @@ pub fn format_cli_output(
                 };
                 stdout.push_str(&format!(
                     "[{}] Score: {:.4}{} | {} (File: {}, Line: {})\n",
-                    hit.rank,
-                    hit.score,
-                    skg_tag,
-                    hit.title,
-                    filename,
-                    hit.line_number
+                    hit.rank, hit.score, skg_tag, hit.title, filename, hit.line_number
                 ));
                 if !hit.entities.is_empty() {
                     stdout.push_str(&format!("  Entities: {:?}\n", hit.entities));
@@ -704,6 +796,7 @@ mod tests {
             semantic_session_id: None,
             cached_files: HashMap::new(),
             stemmed: false,
+            keep_hyphens: false,
         };
         let index = LoadedIndex {
             state: Some(state),
@@ -720,7 +813,8 @@ mod tests {
             ..Default::default()
         };
 
-        let results = search(&index, "captain", &opts).expect("Lexical search should succeed without reading target_dir");
+        let results = search(&index, "captain", &opts)
+            .expect("Lexical search should succeed without reading target_dir");
         assert_eq!(results.executed_mode, SearchMode::LexicalOnly);
         assert_eq!(results.hits.len(), 1);
         assert_eq!(results.hits[0].title, "Chapter 1");
@@ -740,6 +834,7 @@ mod tests {
             semantic_session_id: None,
             cached_files: HashMap::new(),
             stemmed: false,
+            keep_hyphens: false,
         };
         let index = LoadedIndex {
             state: Some(state),
@@ -759,7 +854,10 @@ mod tests {
 
         let results = search(&index, "captain", &opts).expect("Search should fall back to lexical");
         assert_eq!(results.executed_mode, SearchMode::LexicalOnly);
-        assert!(results.warnings.iter().any(|w| w.contains("Semantic search unavailable")));
+        assert!(results
+            .warnings
+            .iter()
+            .any(|w| w.contains("Semantic search unavailable")));
         assert_eq!(results.hits.len(), 1);
         assert_eq!(results.hits[0].title, "Chapter 1");
     }
@@ -778,6 +876,7 @@ mod tests {
             semantic_session_id: None,
             cached_files: HashMap::new(),
             stemmed: false,
+            keep_hyphens: false,
         };
         let index = LoadedIndex {
             state: Some(state),
@@ -796,7 +895,10 @@ mod tests {
         };
 
         let res = search(&index, "captain", &opts);
-        assert!(res.is_err(), "HybridStrict must error when semantic session is missing");
+        assert!(
+            res.is_err(),
+            "HybridStrict must error when semantic session is missing"
+        );
     }
 
     #[test]
@@ -808,7 +910,8 @@ mod tests {
             graph_beta: 0.0,
             ..Default::default()
         };
-        let results = search(&index, "treasure", &opts).expect("Lexical search from parts should succeed");
+        let results =
+            search(&index, "treasure", &opts).expect("Lexical search from parts should succeed");
         assert_eq!(results.hits.len(), 1);
         assert_eq!(results.hits[0].title, "Chapter 2");
     }
@@ -902,21 +1005,29 @@ mod tests {
             semantic_session_id: None,
             cached_files: HashMap::new(),
             stemmed: false,
+            keep_hyphens: false,
         };
         save_json(&temp_dir.join("state.json"), &state).unwrap();
         let bm25 = Bm25Index::build(vec![], None);
         save_json(&temp_dir.join("bm25.json"), &bm25).unwrap();
 
-        // 1. With no LUME_STEM in env, opening succeeds and uses state.stemmed (false)
-        std::env::remove_var("LUME_STEM");
-        let loaded = LoadedIndex::open(&temp_dir).unwrap();
+        // 1. With no checks requested, opening succeeds and uses state.stemmed (false)
+        let loaded = LoadedIndex::open_with_checks(&temp_dir, OpenEnvChecks::default()).unwrap();
         assert!(!loaded.bm25.stemmed);
 
-        // 2. With LUME_STEM=1, opening unstemmed index fails with mismatch error
-        std::env::set_var("LUME_STEM", "1");
-        let err = LoadedIndex::open(&temp_dir).unwrap_err();
+        // 2. With check_stem = Some(true), opening unstemmed index fails with mismatch error
+        let err = match LoadedIndex::open_with_checks(
+            &temp_dir,
+            OpenEnvChecks {
+                check_stem: Some(true),
+                check_keep_hyphens: None,
+            },
+        ) {
+            Ok(_) => panic!("expected Err"),
+            Err(e) => e,
+        };
         assert!(err.contains("Stemming configuration mismatch"));
-        assert!(err.contains("index was built with stemmed=false, but LUME_STEM=1"));
+        assert!(err.contains("index was built with stemmed=false, but LUME_STEM=1 was requested"));
 
         // 3. Now test a stemmed index
         let state_stemmed = IndexState {
@@ -925,17 +1036,111 @@ mod tests {
         };
         save_json(&temp_dir.join("state.json"), &state_stemmed).unwrap();
 
-        // With LUME_STEM=1, matches index
-        let loaded_stemmed = LoadedIndex::open(&temp_dir).unwrap();
+        // With check_stem = Some(true), matches index
+        let loaded_stemmed = LoadedIndex::open_with_checks(
+            &temp_dir,
+            OpenEnvChecks {
+                check_stem: Some(true),
+                check_keep_hyphens: None,
+            },
+        )
+        .unwrap();
         assert!(loaded_stemmed.bm25.stemmed);
 
-        // With LUME_STEM=0, opening stemmed index fails with mismatch error
-        std::env::set_var("LUME_STEM", "0");
-        let err2 = LoadedIndex::open(&temp_dir).unwrap_err();
+        // With check_stem = Some(false), opening stemmed index fails with mismatch error
+        let err2 = match LoadedIndex::open_with_checks(
+            &temp_dir,
+            OpenEnvChecks {
+                check_stem: Some(false),
+                check_keep_hyphens: None,
+            },
+        ) {
+            Ok(_) => panic!("expected Err"),
+            Err(e) => e,
+        };
         assert!(err2.contains("Stemming configuration mismatch"));
-        assert!(err2.contains("index was built with stemmed=true, but LUME_STEM=0"));
+        assert!(err2.contains("index was built with stemmed=true, but LUME_STEM=0 was requested"));
 
-        std::env::remove_var("LUME_STEM");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_hyphen_mismatch_refusal() {
+        let temp_dir = std::env::temp_dir().join("lume_test_hyphen_mismatch");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let state = IndexState {
+            target_dir: "/dummy".to_string(),
+            db_dir: temp_dir.display().to_string(),
+            semantic_enabled: false,
+            ollama_entities: false,
+            ollama_model: String::new(),
+            ollama_url: String::new(),
+            tag_dict_path: None,
+            semantic_session_id: None,
+            cached_files: HashMap::new(),
+            stemmed: false,
+            keep_hyphens: false,
+        };
+        save_json(&temp_dir.join("state.json"), &state).unwrap();
+        let bm25 = Bm25Index::build(vec![], None);
+        save_json(&temp_dir.join("bm25.json"), &bm25).unwrap();
+
+        // 1. With no checks requested, opening succeeds and uses state.keep_hyphens (false)
+        let loaded = LoadedIndex::open_with_checks(&temp_dir, OpenEnvChecks::default()).unwrap();
+        assert!(!loaded.bm25.keep_hyphens);
+
+        // 2. With check_keep_hyphens = Some(true), opening unflagged index fails with mismatch error
+        let err = match LoadedIndex::open_with_checks(
+            &temp_dir,
+            OpenEnvChecks {
+                check_stem: None,
+                check_keep_hyphens: Some(true),
+            },
+        ) {
+            Ok(_) => panic!("expected Err"),
+            Err(e) => e,
+        };
+        assert!(err.contains("Hyphen configuration mismatch"));
+        assert!(err.contains(
+            "index was built with keep_hyphens=false, but LUME_KEEP_HYPHENS=1 was requested"
+        ));
+
+        // 3. Now test an index with keep_hyphens: true
+        let state_hyphens = IndexState {
+            keep_hyphens: true,
+            ..state
+        };
+        save_json(&temp_dir.join("state.json"), &state_hyphens).unwrap();
+
+        // With check_keep_hyphens = Some(true), matches index
+        let loaded_hyphens = LoadedIndex::open_with_checks(
+            &temp_dir,
+            OpenEnvChecks {
+                check_stem: None,
+                check_keep_hyphens: Some(true),
+            },
+        )
+        .unwrap();
+        assert!(loaded_hyphens.bm25.keep_hyphens);
+
+        // With check_keep_hyphens = Some(false), opening hyphen index fails with mismatch error
+        let err2 = match LoadedIndex::open_with_checks(
+            &temp_dir,
+            OpenEnvChecks {
+                check_stem: None,
+                check_keep_hyphens: Some(false),
+            },
+        ) {
+            Ok(_) => panic!("expected Err"),
+            Err(e) => e,
+        };
+        assert!(err2.contains("Hyphen configuration mismatch"));
+        assert!(err2.contains(
+            "index was built with keep_hyphens=true, but LUME_KEEP_HYPHENS=0 was requested"
+        ));
+
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

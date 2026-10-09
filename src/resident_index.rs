@@ -142,6 +142,8 @@ mod tests {
                 tag_dict_path: None,
                 semantic_session_id: None,
                 cached_files: HashMap::new(),
+                stemmed: false,
+                keep_hyphens: false,
             };
             save_json(&root.join("state.json"), &state).unwrap();
             let fixture = Self(root);

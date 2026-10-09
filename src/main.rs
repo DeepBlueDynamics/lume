@@ -3,20 +3,23 @@ use std::env;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, Instant};
+use std::time::{Instant, SystemTime};
 
-use lume::bm25::{Bm25Index, Section, Bm25Params, SearchVariant};
-use lume::spelling::SpellIndex;
-use lume::semantic_mesh::EntityGraph;
-use lume::Tagger;
+use lume::bm25::{Bm25Index, Bm25Params, SearchVariant, Section};
 use lume::search::{
-    search, format_cli_output, correct_query, load_json, save_json, load_tagger_csv,
-    BlendMode, IndexState, LoadedIndex, SearchMode, SearchOptions,
+    correct_query, format_cli_output, load_json, load_tagger_csv, save_json, search, BlendMode,
+    IndexState, LoadedIndex, SearchMode, SearchOptions,
 };
+use lume::semantic_mesh::EntityGraph;
+use lume::spelling::SpellIndex;
+use lume::Tagger;
 
 fn main() {
     // Debug builds of the TI serve path (DataFusion + pgwire futures) exceed the 1 MB Windows main stack.
-    let main = std::thread::Builder::new().stack_size(64 << 20).spawn(lume_main).expect("spawn main thread");
+    let main = std::thread::Builder::new()
+        .stack_size(64 << 20)
+        .spawn(lume_main)
+        .expect("spawn main thread");
     if let Err(panic) = main.join() {
         std::panic::resume_unwind(panic);
     }
@@ -24,7 +27,7 @@ fn main() {
 
 fn lume_main() {
     let mut args: Vec<String> = env::args().collect();
-    
+
     // Parse global --shivvr-url parameter first
     let mut shivvr_url = None;
     let mut idx = 1;
@@ -58,10 +61,14 @@ fn lume_main() {
     match subcommand.as_str() {
         #[cfg(feature = "pdf")]
         "__extract-document" => {
-            let result = args.get(2).ok_or_else(|| "missing document path".to_string()).and_then(|path| {
-                std::panic::catch_unwind(|| lume::document_extract::worker(Path::new(path)))
-                    .map_err(|_| "document parser panicked".to_string()).and_then(|r| r)
-            });
+            let result = args
+                .get(2)
+                .ok_or_else(|| "missing document path".to_string())
+                .and_then(|path| {
+                    std::panic::catch_unwind(|| lume::document_extract::worker(Path::new(path)))
+                        .map_err(|_| "document parser panicked".to_string())
+                        .and_then(|r| r)
+                });
             if serde_json::to_writer(std::io::stdout().lock(), &result).is_err() {
                 std::process::exit(1);
             }
@@ -105,10 +112,16 @@ fn lume_main() {
                 lume::ti_rules::run_cli(&args[3..])
             } else if args.get(2).is_some_and(|name| name == "backfill") {
                 lume::ti_parquet::run_cli(&args[3..])
-            } else if args.get(2).is_some_and(|name| name == "import-docs") && args[3..].iter().any(|flag| flag == "--parquet") {
+            } else if args.get(2).is_some_and(|name| name == "import-docs")
+                && args[3..].iter().any(|flag| flag == "--parquet")
+            {
                 lume::ti_parquet::run_docs_cli(&args[3..])
             } else {
-                ti_sql::cli::run_with_index(&args[2..], Some(&documents), Some(&lume::sql::register))
+                ti_sql::cli::run_with_index(
+                    &args[2..],
+                    Some(&documents),
+                    Some(&lume::sql::register),
+                )
             };
             if let Err(e) = result {
                 eprintln!("Error: {e}");
@@ -170,7 +183,9 @@ fn lume_main() {
                 return;
             }
             if args.iter().any(|a| a == "--list") {
-                match lume::crawl_list::parse_args(&args[2..]).and_then(|o| lume::crawl_list::run_list(&o)) {
+                match lume::crawl_list::parse_args(&args[2..])
+                    .and_then(|o| lume::crawl_list::run_list(&o))
+                {
                     Ok((ok, failed, skipped)) => {
                         println!("Fetched {ok}, failed {failed}, already present {skipped}");
                         if failed > 0 {
@@ -202,17 +217,30 @@ fn lume_main() {
                 }
             }
             let ti_store = args.iter().position(|a| a == "--ti-store").map(|pos| {
-                args.get(pos+1).filter(|s|!s.starts_with("--")).map(String::as_str).unwrap_or_else(|| {
-                    eprintln!("--ti-store requires a store root");std::process::exit(2);
-                })
+                args.get(pos + 1)
+                    .filter(|s| !s.starts_with("--"))
+                    .map(String::as_str)
+                    .unwrap_or_else(|| {
+                        eprintln!("--ti-store requires a store root");
+                        std::process::exit(2);
+                    })
             });
             let http_auth = lume::http_auth::HttpBearer::from_server_args(
-                &args, Path::new(ti_store.unwrap_or(".lume-index")),
-            ).unwrap_or_else(|error| { eprintln!("{error}"); std::process::exit(2); });
+                &args,
+                Path::new(ti_store.unwrap_or(".lume-index")),
+            )
+            .unwrap_or_else(|error| {
+                eprintln!("{error}");
+                std::process::exit(2);
+            });
             let docs_index = args.iter().position(|a| a == "--docs-index").map(|pos| {
-                args.get(pos + 1).filter(|s| !s.starts_with("--")).map(Path::new).unwrap_or_else(|| {
-                    eprintln!("--docs-index requires an index path"); std::process::exit(2);
-                })
+                args.get(pos + 1)
+                    .filter(|s| !s.starts_with("--"))
+                    .map(Path::new)
+                    .unwrap_or_else(|| {
+                        eprintln!("--docs-index requires an index path");
+                        std::process::exit(2);
+                    })
             });
             if args.iter().any(|a| a == "--otlp") && ti_store.is_none() {
                 eprintln!("--otlp requires --ti-store");
@@ -224,68 +252,109 @@ fn lume_main() {
                 std::process::exit(2);
             }
             if docs_index.is_some() && ti_store.is_none() {
-                eprintln!("--docs-index requires --ti-store"); std::process::exit(2);
+                eprintln!("--docs-index requires --ti-store");
+                std::process::exit(2);
             }
-            let bind=args.iter().position(|a|a=="--bind").map(|pos|{
-                args.get(pos+1).filter(|s|!s.starts_with("--")).map(String::as_str).unwrap_or_else(||{
-                    eprintln!("--bind requires an IP address");std::process::exit(2);
-                })
+            let bind = args.iter().position(|a| a == "--bind").map(|pos| {
+                args.get(pos + 1)
+                    .filter(|s| !s.starts_with("--"))
+                    .map(String::as_str)
+                    .unwrap_or_else(|| {
+                        eprintln!("--bind requires an IP address");
+                        std::process::exit(2);
+                    })
             });
             let pg_bind = args.iter().position(|a| a == "--pg-bind").map(|pos| {
-                args.get(pos + 1).filter(|s| !s.starts_with("--")).map(String::as_str).unwrap_or_else(|| {
-                    eprintln!("--pg-bind requires an IP address"); std::process::exit(2);
-                })
+                args.get(pos + 1)
+                    .filter(|s| !s.starts_with("--"))
+                    .map(String::as_str)
+                    .unwrap_or_else(|| {
+                        eprintln!("--pg-bind requires an IP address");
+                        std::process::exit(2);
+                    })
             });
-            let pg_auth_config = args.iter().position(|a| a == "--pg-auth-config").map(|pos| {
-                args.get(pos + 1).filter(|s| !s.starts_with("--")).map(std::path::Path::new).unwrap_or_else(|| {
-                    eprintln!("--pg-auth-config requires a path"); std::process::exit(2);
-                })
-            });
+            let pg_auth_config = args
+                .iter()
+                .position(|a| a == "--pg-auth-config")
+                .map(|pos| {
+                    args.get(pos + 1)
+                        .filter(|s| !s.starts_with("--"))
+                        .map(std::path::Path::new)
+                        .unwrap_or_else(|| {
+                            eprintln!("--pg-auth-config requires a path");
+                            std::process::exit(2);
+                        })
+                });
             let pg_tls_cert = args.iter().position(|a| a == "--pg-tls-cert").map(|pos| {
-                args.get(pos + 1).filter(|s| !s.starts_with("--")).map(std::path::PathBuf::from).unwrap_or_else(|| {
-                    eprintln!("--pg-tls-cert requires a path"); std::process::exit(2);
-                })
+                args.get(pos + 1)
+                    .filter(|s| !s.starts_with("--"))
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| {
+                        eprintln!("--pg-tls-cert requires a path");
+                        std::process::exit(2);
+                    })
             });
             let pg_tls_key = args.iter().position(|a| a == "--pg-tls-key").map(|pos| {
-                args.get(pos + 1).filter(|s| !s.starts_with("--")).map(std::path::PathBuf::from).unwrap_or_else(|| {
-                    eprintln!("--pg-tls-key requires a path"); std::process::exit(2);
-                })
+                args.get(pos + 1)
+                    .filter(|s| !s.starts_with("--"))
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| {
+                        eprintln!("--pg-tls-key requires a path");
+                        std::process::exit(2);
+                    })
             });
             #[cfg(feature = "ti")]
             let pg_allow_plaintext = args.iter().any(|a| a == "--pg-allow-plaintext");
-            let pg_require_tls = if let Some(arg) = args.iter().find(|a| a.starts_with("--pg-require-tls=")) {
-                match arg.strip_prefix("--pg-require-tls=").unwrap() {
-                    "true" | "1" => Some(true),
-                    "false" | "0" => Some(false),
-                    other => { eprintln!("Invalid --pg-require-tls value: {other}"); std::process::exit(2); }
-                }
-            } else if let Some(pos) = args.iter().position(|a| a == "--pg-require-tls") {
-                if let Some(next) = args.get(pos + 1).filter(|s| !s.starts_with("--")) {
-                    match next.as_str() {
+            let pg_require_tls =
+                if let Some(arg) = args.iter().find(|a| a.starts_with("--pg-require-tls=")) {
+                    match arg.strip_prefix("--pg-require-tls=").unwrap() {
                         "true" | "1" => Some(true),
                         "false" | "0" => Some(false),
-                        other => { eprintln!("Invalid --pg-require-tls value: {other}"); std::process::exit(2); }
+                        other => {
+                            eprintln!("Invalid --pg-require-tls value: {other}");
+                            std::process::exit(2);
+                        }
+                    }
+                } else if let Some(pos) = args.iter().position(|a| a == "--pg-require-tls") {
+                    if let Some(next) = args.get(pos + 1).filter(|s| !s.starts_with("--")) {
+                        match next.as_str() {
+                            "true" | "1" => Some(true),
+                            "false" | "0" => Some(false),
+                            other => {
+                                eprintln!("Invalid --pg-require-tls value: {other}");
+                                std::process::exit(2);
+                            }
+                        }
+                    } else {
+                        Some(true)
                     }
                 } else {
-                    Some(true)
-                }
-            } else {
-                None
-            };
+                    None
+                };
             #[cfg(not(feature = "ti"))]
             let _ = pg_require_tls;
-            if (pg_tls_cert.is_some() && pg_tls_key.is_none()) || (pg_tls_cert.is_none() && pg_tls_key.is_some()) {
-                eprintln!("Both --pg-tls-cert and --pg-tls-key must be specified together"); std::process::exit(2);
+            if (pg_tls_cert.is_some() && pg_tls_key.is_none())
+                || (pg_tls_cert.is_none() && pg_tls_key.is_some())
+            {
+                eprintln!("Both --pg-tls-cert and --pg-tls-key must be specified together");
+                std::process::exit(2);
             }
-            let pg=args.iter().position(|a|a=="--pg").map(|pos|{
-                args.get(pos+1).and_then(|s|s.parse::<u16>().ok()).unwrap_or_else(||{
-                    eprintln!("--pg requires a port from 0 to 65535");std::process::exit(2);
-                })
+            let pg = args.iter().position(|a| a == "--pg").map(|pos| {
+                args.get(pos + 1)
+                    .and_then(|s| s.parse::<u16>().ok())
+                    .unwrap_or_else(|| {
+                        eprintln!("--pg requires a port from 0 to 65535");
+                        std::process::exit(2);
+                    })
             });
             if pg.is_none() && (pg_bind.is_some() || pg_auth_config.is_some()) {
-                eprintln!("--pg-bind and --pg-auth-config require --pg"); std::process::exit(2);
+                eprintln!("--pg-bind and --pg-auth-config require --pg");
+                std::process::exit(2);
             }
-            if pg.is_some() && ti_store.is_none(){eprintln!("--pg requires --ti-store");std::process::exit(2);}
+            if pg.is_some() && ti_store.is_none() {
+                eprintln!("--pg requires --ti-store");
+                std::process::exit(2);
+            }
             #[cfg(feature = "ti")]
             let pg_options = lume::ti_pg::PgOptions {
                 tls_cert: pg_tls_cert,
@@ -295,7 +364,7 @@ fn lume_main() {
                 ..Default::default()
             };
             #[cfg(feature = "ti")]
-            let result=match ti_store{
+            let result = match ti_store {
                 Some(root) if args.iter().any(|a| a == "--otlp") => (|| {
                     let token = lume::ti_otlp::token(&args)?;
                     let address = bind.unwrap_or("127.0.0.1");
@@ -342,11 +411,7 @@ fn lume_main() {
             let result = if ti_store.is_some() {
                 Err("--ti-store requires a build with --features ti".to_string())
             } else {
-                lume::agent::serve_on_with_http_auth(
-                    port,
-                    bind.unwrap_or("127.0.0.1"),
-                    http_auth,
-                )
+                lume::agent::serve_on_with_http_auth(port, bind.unwrap_or("127.0.0.1"), http_auth)
             };
             if let Err(e) = result {
                 eprintln!("Error starting serve mode: {}", e);
@@ -367,7 +432,7 @@ fn lume_main() {
             let mut ti_store: Option<String> = None;
             let mut docs_index: Option<String> = None;
             let mut question_parts = Vec::new();
-            
+
             let mut idx = 2;
             while idx < args.len() {
                 let arg = &args[idx];
@@ -400,13 +465,13 @@ fn lume_main() {
                     idx += 1;
                 }
             }
-            
+
             let question = question_parts.join(" ");
             if question.trim().is_empty() {
                 eprintln!("Error: Missing question. Usage: lume agent <QUESTION>");
                 std::process::exit(1);
             }
-            
+
             if let Err(e) = lume::agent::run_agent_loop(lume::agent::AgentLoopArgs {
                 question: &question,
                 ollama_url: &ollama_url,
@@ -479,7 +544,9 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
                 i += 2;
             }
             "--token" => {
-                let val = args.get(i + 1).ok_or("--token requires a file or token value")?;
+                let val = args
+                    .get(i + 1)
+                    .ok_or("--token requires a file or token value")?;
                 if !std::path::Path::new(val).is_file() {
                     eprintln!("Deprecated: raw ingest --token exposes credentials in process arguments; use --token <token-file> instead.");
                 }
@@ -487,7 +554,12 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
                 i += 2;
             }
             "--docs-index" => {
-                docs_index = Some(args.get(i + 1).filter(|s| !s.starts_with("--")).ok_or("--docs-index requires an index path")?.clone());
+                docs_index = Some(
+                    args.get(i + 1)
+                        .filter(|s| !s.starts_with("--"))
+                        .ok_or("--docs-index requires an index path")?
+                        .clone(),
+                );
                 i += 2;
             }
             "--self-urn" => {
@@ -504,10 +576,13 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
             }
             "--nuts-auth" => {
                 i += 1;
-                if args.get(i).is_some_and(|s| !s.starts_with("--")) { i += 1; }
+                if args.get(i).is_some_and(|s| !s.starts_with("--")) {
+                    i += 1;
+                }
             }
             "--nuts-allow" => {
-                args.get(i + 1).filter(|s| !s.starts_with("--"))
+                args.get(i + 1)
+                    .filter(|s| !s.starts_with("--"))
                     .ok_or("--nuts-allow requires a list or @file")?;
                 i += 2;
             }
@@ -537,19 +612,35 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
                 i += 2;
             }
             "--pg-bind" => {
-                pg_bind = Some(args.get(i + 1).ok_or("--pg-bind requires an IP address")?.clone());
+                pg_bind = Some(
+                    args.get(i + 1)
+                        .ok_or("--pg-bind requires an IP address")?
+                        .clone(),
+                );
                 i += 2;
             }
             "--pg-auth-config" => {
-                pg_auth_config = Some(args.get(i + 1).ok_or("--pg-auth-config requires a path")?.clone());
+                pg_auth_config = Some(
+                    args.get(i + 1)
+                        .ok_or("--pg-auth-config requires a path")?
+                        .clone(),
+                );
                 i += 2;
             }
             "--pg-tls-cert" => {
-                pg_tls_cert = Some(args.get(i + 1).ok_or("--pg-tls-cert requires a path")?.clone());
+                pg_tls_cert = Some(
+                    args.get(i + 1)
+                        .ok_or("--pg-tls-cert requires a path")?
+                        .clone(),
+                );
                 i += 2;
             }
             "--pg-tls-key" => {
-                pg_tls_key = Some(args.get(i + 1).ok_or("--pg-tls-key requires a path")?.clone());
+                pg_tls_key = Some(
+                    args.get(i + 1)
+                        .ok_or("--pg-tls-key requires a path")?
+                        .clone(),
+                );
                 i += 2;
             }
             "--pg-allow-plaintext" => {
@@ -559,8 +650,14 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
             "--pg-require-tls" => {
                 if let Some(next) = args.get(i + 1).filter(|s| !s.starts_with("--")) {
                     match next.as_str() {
-                        "true" | "1" => { pg_require_tls = Some(true); i += 2; }
-                        "false" | "0" => { pg_require_tls = Some(false); i += 2; }
+                        "true" | "1" => {
+                            pg_require_tls = Some(true);
+                            i += 2;
+                        }
+                        "false" | "0" => {
+                            pg_require_tls = Some(false);
+                            i += 2;
+                        }
                         other => return Err(format!("Invalid --pg-require-tls value: {other}")),
                     }
                 } else {
@@ -590,30 +687,45 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
     if args.iter().any(|arg| arg == "--http-token-file") && !serve {
         return Err("--http-token-file requires --serve".into());
     }
-    if args.iter().any(|arg| arg == "--nuts-auth" || arg == "--nuts-allow") && !serve {
+    if args
+        .iter()
+        .any(|arg| arg == "--nuts-auth" || arg == "--nuts-allow")
+        && !serve
+    {
         return Err("--nuts-auth and --nuts-allow require --serve".into());
     }
-    if docs_index.is_some() && !serve { return Err("--docs-index requires --serve".into()); }
-    if pg.is_some() && !serve { return Err("--pg requires --serve".into()); }
+    if docs_index.is_some() && !serve {
+        return Err("--docs-index requires --serve".into());
+    }
+    if pg.is_some() && !serve {
+        return Err("--pg requires --serve".into());
+    }
     if pg.is_none() && (pg_bind.is_some() || pg_auth_config.is_some()) {
         return Err("--pg-bind and --pg-auth-config require --pg".into());
     }
-    if (pg_tls_cert.is_some() && pg_tls_key.is_none()) || (pg_tls_cert.is_none() && pg_tls_key.is_some()) {
+    if (pg_tls_cert.is_some() && pg_tls_key.is_none())
+        || (pg_tls_cert.is_none() && pg_tls_key.is_some())
+    {
         return Err("Both --pg-tls-cert and --pg-tls-key must be specified together".into());
     }
     if let Some(address) = &pg_bind {
-        address.parse::<std::net::IpAddr>().map_err(|_| "Invalid --pg-bind IP address")?;
+        address
+            .parse::<std::net::IpAddr>()
+            .map_err(|_| "Invalid --pg-bind IP address")?;
     }
     let store_root_str = store_root.ok_or("--store is required")?;
     let store_path = PathBuf::from(&store_root_str);
     let http_auth = lume::http_auth::HttpBearer::from_server_args(args, &store_path)?;
     if serve {
-        lume::http_auth::validate_bind(bind.as_deref().unwrap_or("127.0.0.1"), http_auth.is_some())?;
+        lume::http_auth::validate_bind(
+            bind.as_deref().unwrap_or("127.0.0.1"),
+            http_auth.is_some(),
+        )?;
     }
 
     let mut config = if let Some(ref cp) = config_path {
-        let content = fs::read_to_string(cp)
-            .map_err(|e| format!("Failed to read config file {cp}: {e}"))?;
+        let content =
+            fs::read_to_string(cp).map_err(|e| format!("Failed to read config file {cp}: {e}"))?;
         ti_contracts::TiConfig::from_toml(&content)
             .map_err(|e| format!("Invalid ti.toml config: {e}"))?
     } else {
@@ -634,10 +746,13 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
         config.signal_k.url = ti_ingest::service::normalize_signalk_url(&url);
     }
     if let Some(tok) = token_arg {
-        config.signal_k.token = ti_ingest::service::resolve_token(Some(&tok), config.signal_k.token.as_deref());
+        config.signal_k.token =
+            ti_ingest::service::resolve_token(Some(&tok), config.signal_k.token.as_deref());
     }
 
-    config.validate().map_err(|e| format!("Configuration validation failed: {e}"))?;
+    config
+        .validate()
+        .map_err(|e| format!("Configuration validation failed: {e}"))?;
 
     let running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
 
@@ -662,10 +777,14 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
                 };
                 let server = if let Some(path) = &docs_index {
                     server.with_docs_index(Path::new(path))?
-                } else { server };
+                } else {
+                    server
+                };
                 let server = if let Some(path) = &pg_auth_config {
                     server.with_pg_auth_config(Path::new(path))?
-                } else { server };
+                } else {
+                    server
+                };
                 // Validate credentials and auth-file policy before telemetry starts.
                 if pg.is_some() {
                     server.validate_pg_auth(pg_bind.as_deref().unwrap_or(&serve_bind))?;
@@ -676,8 +795,12 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
                     let _ = ti_server_clone.reload_engine();
                 }));
                 let pg_options = lume::ti_pg::PgOptions {
-                    tls_cert: pg_tls_cert.map(PathBuf::from).or_else(|| service.config.bind.pg_tls_cert.clone().map(PathBuf::from)),
-                    tls_key: pg_tls_key.map(PathBuf::from).or_else(|| service.config.bind.pg_tls_key.clone().map(PathBuf::from)),
+                    tls_cert: pg_tls_cert
+                        .map(PathBuf::from)
+                        .or_else(|| service.config.bind.pg_tls_cert.clone().map(PathBuf::from)),
+                    tls_key: pg_tls_key
+                        .map(PathBuf::from)
+                        .or_else(|| service.config.bind.pg_tls_key.clone().map(PathBuf::from)),
                     allow_plaintext: pg_allow_plaintext || service.config.bind.pg_allow_plaintext,
                     require_tls: pg_require_tls.or(service.config.bind.pg_require_tls),
                     ..Default::default()
@@ -698,7 +821,9 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
                 });
             }
             Err(e) => {
-                if pg.is_some() { return Err(format!("Failed to initialize integrated query server: {e}")); }
+                if pg.is_some() {
+                    return Err(format!("Failed to initialize integrated query server: {e}"));
+                }
                 eprintln!("Failed to initialize integrated query server: {e}");
             }
         }
@@ -708,7 +833,9 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
         "Starting live Signal K ingestion from {} into {}",
         service.config.signal_k.url, store_root_str
     );
-    service.run().map_err(|e| format!("Ingest service error: {e}"))?;
+    service
+        .run()
+        .map_err(|e| format!("Ingest service error: {e}"))?;
     println!("Ingest service shut down cleanly.");
     Ok(())
 }
@@ -781,13 +908,20 @@ fn handle_ti_sync(args: &[String]) -> Result<(), String> {
     let store_root = store_path.ok_or("missing required --store <root>")?;
 
     if !store_root.exists() {
-        return Err(format!("store root does not exist: {}", store_root.display()));
+        return Err(format!(
+            "store root does not exist: {}",
+            store_root.display()
+        ));
     }
 
     let ti_toml = store_root.join("ti.toml");
     let cfg = if ti_toml.exists() {
-        let content = std::fs::read_to_string(&ti_toml).map_err(|e| format!("failed to read ti.toml: {e}"))?;
-        Some(ti_contracts::TiConfig::from_toml(&content).map_err(|e| format!("invalid ti.toml: {e}"))?)
+        let content = std::fs::read_to_string(&ti_toml)
+            .map_err(|e| format!("failed to read ti.toml: {e}"))?;
+        Some(
+            ti_contracts::TiConfig::from_toml(&content)
+                .map_err(|e| format!("invalid ti.toml: {e}"))?,
+        )
     } else {
         None
     };
@@ -807,8 +941,8 @@ fn handle_ti_sync(args: &[String]) -> Result<(), String> {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                let meta = std::fs::metadata(&ti_toml)
-                    .map_err(|e| format!("cannot stat ti.toml: {e}"))?;
+                let meta =
+                    std::fs::metadata(&ti_toml).map_err(|e| format!("cannot stat ti.toml: {e}"))?;
                 if meta.permissions().mode() & 0o077 != 0 {
                     return Err("ti.toml containing inline sync token must not be group- or world-accessible (use chmod 600, or prefer token_file)".into());
                 }
@@ -829,10 +963,11 @@ fn handle_ti_sync(args: &[String]) -> Result<(), String> {
         .map_err(|e| format!("failed to open store: {e}"))?;
 
     let transport = ti_sync::HttpTransport::new(to, resolved_token);
-    let client = ti_sync::SyncClient::new(std::sync::Arc::new(std::sync::Mutex::new(store)), transport)
-        .with_chunk_size(chunk_size)
-        .with_link_budget(link_budget)
-        .with_idle_priority(idle);
+    let client =
+        ti_sync::SyncClient::new(std::sync::Arc::new(std::sync::Mutex::new(store)), transport)
+            .with_chunk_size(chunk_size)
+            .with_link_budget(link_budget)
+            .with_idle_priority(idle);
 
     let report = client.sync_all().map_err(|e| format!("sync failed: {e}"))?;
     println!(
@@ -844,7 +979,8 @@ fn handle_ti_sync(args: &[String]) -> Result<(), String> {
 }
 
 fn print_global_help() {
-    println!(r#"  _      _    _ __  __ ______
+    println!(
+        r#"  _      _    _ __  __ ______
   | |    | |  | |  \/  |  ____|
   | |    | |  | | \  / | |__
   | |    | |  | | |\/| |  __|
@@ -872,19 +1008,24 @@ SUBCOMMANDS:
   eval       Measure retrieval quality (Hit@k, MRR, nDCG@k) against a Q&A file
   stream     Stream the live phase/Weber search relaxation as NDJSON for the 3D visualizer
   answer     Agentic plan→retrieve→answer loop with citations, streamed for the visualizer
-"#, env!("CARGO_PKG_VERSION"));
+"#,
+        env!("CARGO_PKG_VERSION")
+    );
     #[cfg(feature = "ti")]
-    println!(r#"  sql        Read-only SQL over a Lume index (sql --help)
+    println!(
+        r#"  sql        Read-only SQL over a Lume index (sql --help)
 
 TIME SERIES (Lume TI):
   ti query   SQL over telemetry, documents and alerts in one store (ti --help)
   ti repl    Interactive SQL shell over a TI store
   ti ingest  Stream a live Signal K server into a store (--serve adds HTTP, --pg adds pgwire)
-  ti status  Store coverage, shards and ingest lag"#);
+  ti status  Store coverage, shards and ingest lag"#
+    );
 }
 
 fn print_index_help() {
-    println!(r#"lume-index
+    println!(
+        r#"lume-index
 Index a directory of text, code, and PDF files. Supports incremental updates.
 
 USAGE:
@@ -911,11 +1052,13 @@ ENV:
 
 ARGS:
   <DIR>                  Directory to index (omitted when running 'update')
-"#);
+"#
+    );
 }
 
 fn print_search_help() {
-    println!(r#"lume-search
+    println!(
+        r#"lume-search
 Query the index using lexical, semantic, or hybrid search.
 
 USAGE:
@@ -939,11 +1082,13 @@ ENV:
 
 ARGS:
   <QUERY>               Search query string
-"#);
+"#
+    );
 }
 
 fn print_eval_help() {
-    println!(r#"lume-eval
+    println!(
+        r#"lume-eval
 Measure retrieval quality against a Q&A file using the lexical BM25 + SKG-graph
 pipeline. Relevance is judged by answer-token containment (no human labels
 needed): a retrieved section counts as relevant when it contains at least
@@ -968,7 +1113,8 @@ OPTIONS:
 ARGS:
   <QNA_JSON>              Q&A file: a JSON array of {{question, answer}} objects
                          (as produced by 'python lib/lume_extractor.py qna')
-"#);
+"#
+    );
 }
 
 fn handle_index_init(args: &[String]) -> Result<(), String> {
@@ -1015,7 +1161,7 @@ fn handle_index_init(args: &[String]) -> Result<(), String> {
             let val = &args[idx + 1];
             if let Some(pos) = val.find('-') {
                 let start_str = &val[..pos];
-                let end_str = &val[pos+1..];
+                let end_str = &val[pos + 1..];
                 let start = start_str.parse::<usize>().unwrap_or(1);
                 let end = end_str.parse::<usize>().unwrap_or(usize::MAX);
                 chunk_range = Some((start, end));
@@ -1087,7 +1233,7 @@ fn handle_index_update(args: &[String]) -> Result<(), String> {
             let val = &args[idx + 1];
             if let Some(pos) = val.find('-') {
                 let start_str = &val[..pos];
-                let end_str = &val[pos+1..];
+                let end_str = &val[pos + 1..];
                 let start = start_str.parse::<usize>().unwrap_or(1);
                 let end = end_str.parse::<usize>().unwrap_or(usize::MAX);
                 chunk_range = Some((start, end));
@@ -1103,7 +1249,10 @@ fn handle_index_update(args: &[String]) -> Result<(), String> {
     let db_path = Path::new(&db_dir);
     let state_file_path = db_path.join("state.json");
     if !state_file_path.exists() {
-        return Err(format!("Index state file not found at {}. Run 'lume index <DIR>' first.", state_file_path.display()));
+        return Err(format!(
+            "Index state file not found at {}. Run 'lume index <DIR>' first.",
+            state_file_path.display()
+        ));
     }
 
     let state: IndexState = load_json(&state_file_path)?;
@@ -1167,7 +1316,12 @@ fn scan_directory(
         let path = entry.path();
         if path.is_dir() {
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if name == ".git" || name == "target" || name == ".venv" || name == ".lume-index" || path == db_dir {
+            if name == ".git"
+                || name == "target"
+                || name == ".venv"
+                || name == ".lume-index"
+                || path == db_dir
+            {
                 continue;
             }
             if is_ignored(&path, root, ignores) {
@@ -1182,7 +1336,28 @@ fn scan_directory(
                 let ext_lower = ext.to_lowercase();
                 if matches!(
                     ext_lower.as_str(),
-                    "pdf" | "epub" | "txt" | "md" | "rs" | "py" | "js" | "ts" | "go" | "c" | "cpp" | "h" | "java" | "sh" | "yml" | "yaml" | "toml" | "html" | "css" | "ini" | "cfg" | "conf"
+                    "pdf"
+                        | "epub"
+                        | "txt"
+                        | "md"
+                        | "rs"
+                        | "py"
+                        | "js"
+                        | "ts"
+                        | "go"
+                        | "c"
+                        | "cpp"
+                        | "h"
+                        | "java"
+                        | "sh"
+                        | "yml"
+                        | "yaml"
+                        | "toml"
+                        | "html"
+                        | "css"
+                        | "ini"
+                        | "cfg"
+                        | "conf"
                 ) {
                     files.push(path);
                 }
@@ -1203,7 +1378,10 @@ fn find_extractor_script() -> PathBuf {
         if p.exists() {
             return p;
         }
-        eprintln!("[⚠️] LUME_EXTRACTOR_PATH is set but {} does not exist; falling back to auto-detection", p.display());
+        eprintln!(
+            "[⚠️] LUME_EXTRACTOR_PATH is set but {} does not exist; falling back to auto-detection",
+            p.display()
+        );
     }
     if let Ok(exe) = env::current_exe() {
         for dir in exe.ancestors().skip(1) {
@@ -1317,22 +1495,37 @@ fn read_text_tolerant(path: &Path) -> Result<Option<String>, String> {
         if total == 0 || bad * 20 > total {
             None
         } else if bad > 0 {
-            Some(s.chars().filter(|&c| c != '\u{FFFD}' && c != '\0').collect())
+            Some(
+                s.chars()
+                    .filter(|&c| c != '\u{FFFD}' && c != '\0')
+                    .collect(),
+            )
         } else {
             Some(s)
         }
     }
 
-    let bytes = fs::read(path).map_err(|e| format!("Failed to read file {}: {}", path.display(), e))?;
+    let bytes =
+        fs::read(path).map_err(|e| format!("Failed to read file {}: {}", path.display(), e))?;
     if bytes.is_empty() {
         return Ok(Some(String::new()));
     }
     if bytes.len() >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE {
-        let utf16: Vec<u16> = bytes[2..].as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+        let utf16: Vec<u16> = bytes[2..]
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
         return Ok(accept(String::from_utf16_lossy(&utf16)));
     }
     if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
-        let utf16: Vec<u16> = bytes[2..].as_chunks::<2>().0.iter().map(|c| u16::from_be_bytes([c[0], c[1]])).collect();
+        let utf16: Vec<u16> = bytes[2..]
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| u16::from_be_bytes([c[0], c[1]]))
+            .collect();
         return Ok(accept(String::from_utf16_lossy(&utf16)));
     }
     // BOM-less UTF-16: NUL bytes are valid UTF-8, so a UTF-16 file of mostly
@@ -1343,9 +1536,19 @@ fn read_text_tolerant(path: &Path) -> Result<Option<String>, String> {
     if nul_total * 4 > bytes.len() {
         let odd_nuls = bytes.iter().skip(1).step_by(2).filter(|&&b| b == 0).count();
         let utf16: Vec<u16> = if odd_nuls * 2 >= nul_total {
-            bytes.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes([c[0], c[1]])).collect()
+            bytes
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .collect()
         } else {
-            bytes.as_chunks::<2>().0.iter().map(|c| u16::from_be_bytes([c[0], c[1]])).collect()
+            bytes
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_be_bytes([c[0], c[1]]))
+                .collect()
         };
         return Ok(accept(String::from_utf16_lossy(&utf16)));
     }
@@ -1396,9 +1599,12 @@ fn flush_searchable_indexes(
     save_json(&db_path.join("spelling.json"), &spelling)?;
     save_json(&db_path.join("entity_graph.json"), &entity_graph)?;
     // Publish only after every searchable table has been written.
-    save_json(&db_path.join("manifest.json"), &serde_json::json!({
-        "generation": lume::uuid_v4(), "sections": count,
-    }))?;
+    save_json(
+        &db_path.join("manifest.json"),
+        &serde_json::json!({
+            "generation": lume::uuid_v4(), "sections": count,
+        }),
+    )?;
     Ok(count)
 }
 
@@ -1418,7 +1624,10 @@ fn format_eta(secs: f64) -> String {
     }
 }
 
-#[allow(clippy::too_many_arguments, reason = "private CLI entry; the ten index flags stay positional")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "private CLI entry; the ten index flags stay positional"
+)]
 fn run_indexing(
     target_dir: &str,
     db_dir: &str,
@@ -1445,13 +1654,21 @@ fn run_indexing(
     let scan_start = Instant::now();
     let ignores = load_lumeignore(target_path);
     if !ignores.is_empty() {
-        println!("[🚫] .lumeignore active ({} patterns): {}", ignores.len(), ignores.join(", "));
+        println!(
+            "[🚫] .lumeignore active ({} patterns): {}",
+            ignores.len(),
+            ignores.join(", ")
+        );
     }
     let mut files = Vec::new();
-    scan_directory(target_path, target_path, db_path, &ignores, &mut files).map_err(|e| format!("Failed to scan directory: {}", e))?;
+    scan_directory(target_path, target_path, db_path, &ignores, &mut files)
+        .map_err(|e| format!("Failed to scan directory: {}", e))?;
     let scan_duration = scan_start.elapsed();
     let total_files = files.len();
-    println!("[📁] Scanned {} indexable files in {:?}", total_files, scan_duration);
+    println!(
+        "[📁] Scanned {} indexable files in {:?}",
+        total_files, scan_duration
+    );
 
     // Tagger is loaded up front so mid-run index flushes can use it.
     let mut tagger = None;
@@ -1460,11 +1677,15 @@ fn run_indexing(
         let tag_dict_p = Path::new(tag_dict);
         if tag_dict_p.exists() {
             println!("[📊] Loading tagger dictionary from: {}", tag_dict);
-            let t = load_tagger_csv(tag_dict_p).map_err(|e| format!("Failed to load tagger dictionary: {}", e))?;
+            let t = load_tagger_csv(tag_dict_p)
+                .map_err(|e| format!("Failed to load tagger dictionary: {}", e))?;
             tagger_phrases = t.phrases().to_vec();
             tagger = Some(t);
         } else {
-            eprintln!("[⚠️] Dictionary path {} does not exist. Skipping tagger.", tag_dict);
+            eprintln!(
+                "[⚠️] Dictionary path {} does not exist. Skipping tagger.",
+                tag_dict
+            );
         }
     }
 
@@ -1481,14 +1702,15 @@ fn run_indexing(
         processed_paths.insert(path_str.clone());
 
         let metadata = fs::metadata(file_path).map_err(|e| e.to_string())?;
-        let mtime = metadata.modified()
+        let mtime = metadata
+            .modified()
             .map_err(|e| e.to_string())?
             .duration_since(SystemTime::UNIX_EPOCH)
             .map_err(|e| e.to_string())?
             .as_secs();
 
-        let mut needs_index = force 
-            || !cached_files.contains_key(&path_str) 
+        let mut needs_index = force
+            || !cached_files.contains_key(&path_str)
             || cached_files.get(&path_str).unwrap().0 != mtime;
 
         if !needs_index && ollama_entities {
@@ -1501,17 +1723,31 @@ fn run_indexing(
 
         if needs_index {
             let file_start = Instant::now();
-            let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+            let ext = file_path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
             let mut sections = if ext == "pdf" || ext == "epub" {
                 println!("[⚙️] {} Processing document: {}", file_progress, path_str);
                 let script = find_extractor_script();
-                match lume::document_extract::extract(file_path, if ext == "pdf" { Some(&script) } else { None }) {
+                match lume::document_extract::extract(
+                    file_path,
+                    if ext == "pdf" { Some(&script) } else { None },
+                ) {
                     Ok(report) => {
                         units_skipped_documents += report.skipped_units;
                         if report.skipped_units > 0 {
-                            eprintln!("[⚠️] {}: skipped {} pages/chapters: {}", path_str, report.skipped_units, report.warnings.join("; "));
+                            eprintln!(
+                                "[⚠️] {}: skipped {} pages/chapters: {}",
+                                path_str,
+                                report.skipped_units,
+                                report.warnings.join("; ")
+                            );
                         }
-                        if report.sections.is_empty() { files_skipped_documents += 1; }
+                        if report.sections.is_empty() {
+                            files_skipped_documents += 1;
+                        }
                         report.sections
                     }
                     Err(error) => {
@@ -1525,7 +1761,10 @@ fn run_indexing(
                 let content = match read_text_tolerant(file_path)? {
                     Some(c) => c,
                     None => {
-                        println!("[⚠️] {} Skipping {}: content is not text (binary or undecodable)", file_progress, path_str);
+                        println!(
+                            "[⚠️] {} Skipping {}: content is not text (binary or undecodable)",
+                            file_progress, path_str
+                        );
                         files_skipped_binary += 1;
                         continue;
                     }
@@ -1533,22 +1772,35 @@ fn run_indexing(
                 if ext == "html" || ext == "htm" {
                     let (_title, cleaned) = lume::crawl::clean_html_to_markdown(&content);
                     let chunks = chunk_text_file(file_path, &cleaned);
-                    println!("[⚙️] {} Processing HTML file (cleaned): {} (parsed into {} chunks)", file_progress, path_str, chunks.len());
+                    println!(
+                        "[⚙️] {} Processing HTML file (cleaned): {} (parsed into {} chunks)",
+                        file_progress,
+                        path_str,
+                        chunks.len()
+                    );
                     chunks
                 } else {
                     let chunks = chunk_text_file(file_path, &content);
-                    println!("[⚙️] {} Processing text file: {} (parsed into {} chunks)", file_progress, path_str, chunks.len());
+                    println!(
+                        "[⚙️] {} Processing text file: {} (parsed into {} chunks)",
+                        file_progress,
+                        path_str,
+                        chunks.len()
+                    );
                     chunks
                 }
             };
-            
+
             let parse_duration = file_start.elapsed();
             println!("[🕒] Parsed/chunked in {:?}", parse_duration);
 
             if !force {
                 if let Some((_, cached_sections)) = cached_files.get(&path_str) {
                     for sec in &mut sections {
-                        if let Some(matching_cached) = cached_sections.iter().find(|cs| cs.title == sec.title && cs.line_number == sec.line_number) {
+                        if let Some(matching_cached) = cached_sections
+                            .iter()
+                            .find(|cs| cs.title == sec.title && cs.line_number == sec.line_number)
+                        {
                             if !matching_cached.entities.is_empty() {
                                 sec.entities = matching_cached.entities.clone();
                             }
@@ -1561,8 +1813,16 @@ fn run_indexing(
             files_indexed += 1;
 
             if last_flush.elapsed() >= FLUSH_INTERVAL {
-                match flush_searchable_indexes(&cached_files, tagger.as_ref(), &tagger_phrases, db_path) {
-                    Ok(n) => println!("[💾] {} Searchable index flushed mid-run ({} sections)", file_progress, n),
+                match flush_searchable_indexes(
+                    &cached_files,
+                    tagger.as_ref(),
+                    &tagger_phrases,
+                    db_path,
+                ) {
+                    Ok(n) => println!(
+                        "[💾] {} Searchable index flushed mid-run ({} sections)",
+                        file_progress, n
+                    ),
                     Err(e) => eprintln!("[⚠️] Mid-run index flush failed: {}", e),
                 }
                 last_flush = Instant::now();
@@ -1579,10 +1839,12 @@ fn run_indexing(
     }
 
     if files_skipped_documents > 0 || units_skipped_documents > 0 {
-        eprintln!("[⚠️] Extraction warnings: {} files skipped, {} pages/chapters skipped.", files_skipped_documents, units_skipped_documents);
+        eprintln!(
+            "[⚠️] Extraction warnings: {} files skipped, {} pages/chapters skipped.",
+            files_skipped_documents, units_skipped_documents
+        );
     }
     let all_sections = collect_all_sections(&cached_files);
-
 
     println!(
         "[📊] Indexing {} sections total ({} files indexed this run, {} skipped as binary, {} files in corpus)...",
@@ -1597,7 +1859,10 @@ fn run_indexing(
     if semantic_enabled {
         let semantic_start = Instant::now();
         let shivver_url = lume::hybrid::get_shivvr_base_url();
-        println!("[🌐] Initializing semantic vector store session on {}...", shivver_url);
+        println!(
+            "[🌐] Initializing semantic vector store session on {}...",
+            shivver_url
+        );
         if let Some(token) = lume::hybrid::load_nuts_token() {
             // Fingerprint the corpus with the SAME function the search path uses
             // (get_corpus_metadata), so the saved session cache actually matches
@@ -1614,7 +1879,11 @@ fn run_indexing(
                 &token,
             ) {
                 Ok(sess_id) => {
-                    println!("[🌐] Ingested into semantic session: {} (completed in {:?})", sess_id, semantic_start.elapsed());
+                    println!(
+                        "[🌐] Ingested into semantic session: {} (completed in {:?})",
+                        sess_id,
+                        semantic_start.elapsed()
+                    );
                     semantic_session_id = Some(sess_id);
                 }
                 Err(err) => {
@@ -1628,9 +1897,15 @@ fn run_indexing(
 
     // Make the db searchable (and the semantic session visible to the search
     // gate) before the slow extraction pass begins.
-    let stemmed = std::env::var("LUME_STEM").map(|v| v == "1").unwrap_or(false);
+    let stemmed = std::env::var("LUME_STEM")
+        .map(|v| v == "1")
+        .unwrap_or(false);
+    let keep_hyphens = std::env::var("LUME_KEEP_HYPHENS")
+        .map(|v| v == "1")
+        .unwrap_or(false);
     let early_flush_start = Instant::now();
-    let early_count = flush_searchable_indexes(&cached_files, tagger.as_ref(), &tagger_phrases, db_path)?;
+    let early_count =
+        flush_searchable_indexes(&cached_files, tagger.as_ref(), &tagger_phrases, db_path)?;
     let early_state = IndexState {
         target_dir: target_dir.to_string(),
         db_dir: db_dir.to_string(),
@@ -1642,11 +1917,14 @@ fn run_indexing(
         semantic_session_id: semantic_session_id.clone(),
         cached_files: cached_files.clone(),
         stemmed,
+        keep_hyphens,
     };
     save_json(&db_path.join("state.json"), &early_state)?;
     println!(
         "[💾] Index searchable: {} sections written to {} in {:?}",
-        early_count, db_dir, early_flush_start.elapsed()
+        early_count,
+        db_dir,
+        early_flush_start.elapsed()
     );
     last_flush = Instant::now();
 
@@ -1734,8 +2012,12 @@ fn run_indexing(
                             idx
                         };
                         let started = Instant::now();
-                        let result = run_extractor_entities(&tasks[idx].body, ollama_url, ollama_model);
-                        if tx.send((worker_id, idx, result, started.elapsed())).is_err() {
+                        let result =
+                            run_extractor_entities(&tasks[idx].body, ollama_url, ollama_model);
+                        if tx
+                            .send((worker_id, idx, result, started.elapsed()))
+                            .is_err()
+                        {
                             break;
                         }
                     });
@@ -1793,14 +2075,23 @@ fn run_indexing(
                                 semantic_session_id: semantic_session_id.clone(),
                                 cached_files: cached_files.clone(),
                                 stemmed,
+                                keep_hyphens,
                             };
                             let _ = save_json(&db_path.join("state.json"), &temp_state);
 
                             // Periodically rewrite the searchable indexes so
                             // long extraction runs can be queried mid-flight.
                             if last_flush.elapsed() >= FLUSH_INTERVAL {
-                                match flush_searchable_indexes(&cached_files, tagger.as_ref(), &tagger_phrases, db_path) {
-                                    Ok(n) => println!("  [💾] Searchable index flushed mid-run ({} sections)", n),
+                                match flush_searchable_indexes(
+                                    &cached_files,
+                                    tagger.as_ref(),
+                                    &tagger_phrases,
+                                    db_path,
+                                ) {
+                                    Ok(n) => println!(
+                                        "  [💾] Searchable index flushed mid-run ({} sections)",
+                                        n
+                                    ),
                                     Err(e) => eprintln!("  [⚠️] Mid-run index flush failed: {}", e),
                                 }
                                 last_flush = Instant::now();
@@ -1828,12 +2119,16 @@ fn run_indexing(
                 ok_count, skipped, fail_count, elapsed_all, rate, num_workers
             );
         } else {
-            println!("[🕒] Entity extraction: all {} eligible chunks already cached.", skipped);
+            println!(
+                "[🕒] Entity extraction: all {} eligible chunks already cached.",
+                skipped
+            );
         }
     }
 
     let save_start = Instant::now();
-    let section_count = flush_searchable_indexes(&cached_files, tagger.as_ref(), &tagger_phrases, db_path)?;
+    let section_count =
+        flush_searchable_indexes(&cached_files, tagger.as_ref(), &tagger_phrases, db_path)?;
 
     let state = IndexState {
         target_dir: target_dir.to_string(),
@@ -1846,11 +2141,20 @@ fn run_indexing(
         semantic_session_id,
         cached_files,
         stemmed,
+        keep_hyphens,
     };
     save_json(&db_path.join("state.json"), &state)?;
-    println!("[💾] Index files written to {} ({} sections) in {:?}", db_dir, section_count, save_start.elapsed());
+    println!(
+        "[💾] Index files written to {} ({} sections) in {:?}",
+        db_dir,
+        section_count,
+        save_start.elapsed()
+    );
 
-    println!("[⏱️] Total indexing job completed in {:?}", total_start.elapsed());
+    println!(
+        "[⏱️] Total indexing job completed in {:?}",
+        total_start.elapsed()
+    );
     Ok(())
 }
 
@@ -1882,19 +2186,32 @@ fn handle_search(args: &[String]) -> Result<(), String> {
             db_dir = args[idx + 1].clone();
             idx += 2;
         } else if (arg == "-l" || arg == "--limit") && idx + 1 < args.len() {
-            limit = args[idx + 1].parse::<usize>().map_err(|_| format!("Invalid limit: {}", args[idx + 1]))?;
+            limit = args[idx + 1]
+                .parse::<usize>()
+                .map_err(|_| format!("Invalid limit: {}", args[idx + 1]))?;
             idx += 2;
         } else if (arg == "-a" || arg == "--alpha") && idx + 1 < args.len() {
-            alpha = args[idx + 1].parse::<f32>().map_err(|_| format!("Invalid alpha: {}", args[idx + 1]))?;
+            alpha = args[idx + 1]
+                .parse::<f32>()
+                .map_err(|_| format!("Invalid alpha: {}", args[idx + 1]))?;
             idx += 2;
         } else if (arg == "-g" || arg == "--graph") && idx + 1 < args.len() {
-            graph_beta = Some(args[idx + 1].parse::<f64>().map_err(|_| format!("Invalid graph weight: {}", args[idx + 1]))?);
+            graph_beta = Some(
+                args[idx + 1]
+                    .parse::<f64>()
+                    .map_err(|_| format!("Invalid graph weight: {}", args[idx + 1]))?,
+            );
             idx += 2;
         } else if arg == "--scoring" && idx + 1 < args.len() {
             use_relatedness = match args[idx + 1].to_lowercase().as_str() {
                 "relatedness" | "significance" | "skg" => true,
                 "jaccard" | "overlap" => false,
-                other => return Err(format!("Invalid --scoring '{}': expected 'relatedness' or 'jaccard'", other)),
+                other => {
+                    return Err(format!(
+                        "Invalid --scoring '{}': expected 'relatedness' or 'jaccard'",
+                        other
+                    ))
+                }
             };
             idx += 2;
         } else if arg.starts_with('-') {
@@ -1914,7 +2231,10 @@ fn handle_search(args: &[String]) -> Result<(), String> {
 
     let beta = match graph_beta {
         Some(v) => v,
-        None => std::env::var("GRAPH_ALPHA").ok().and_then(|s| s.parse().ok()).unwrap_or(0.4),
+        None => std::env::var("GRAPH_ALPHA")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0.4),
     };
 
     let mode = if alpha > 0.0 {
@@ -1929,7 +2249,10 @@ fn handle_search(args: &[String]) -> Result<(), String> {
         (Bm25Params::default(), SearchVariant::Classic)
     };
 
-    let blend_mode = if std::env::var("LUME_BLEND_NORM").map(|v| v == "1" || v == "true").unwrap_or(false) {
+    let blend_mode = if std::env::var("LUME_BLEND_NORM")
+        .map(|v| v == "1" || v == "true")
+        .unwrap_or(false)
+    {
         BlendMode::Normalized
     } else {
         BlendMode::Multiplicative
@@ -1987,29 +2310,57 @@ fn handle_eval(args: &[String]) -> Result<(), String> {
     while idx < args.len() {
         let arg = &args[idx];
         match arg.as_str() {
-            "--db" if idx + 1 < args.len() => { db_dir = args[idx + 1].clone(); idx += 2; }
+            "--db" if idx + 1 < args.len() => {
+                db_dir = args[idx + 1].clone();
+                idx += 2;
+            }
             "-k" | "--limit" if idx + 1 < args.len() => {
-                k = args[idx + 1].parse().map_err(|_| format!("Invalid limit: {}", args[idx + 1]))?; idx += 2;
+                k = args[idx + 1]
+                    .parse()
+                    .map_err(|_| format!("Invalid limit: {}", args[idx + 1]))?;
+                idx += 2;
             }
             "-g" | "--graph" if idx + 1 < args.len() => {
-                beta = args[idx + 1].parse().map_err(|_| format!("Invalid graph weight: {}", args[idx + 1]))?; idx += 2;
+                beta = args[idx + 1]
+                    .parse()
+                    .map_err(|_| format!("Invalid graph weight: {}", args[idx + 1]))?;
+                idx += 2;
             }
             "-t" | "--threshold" if idx + 1 < args.len() => {
-                threshold = args[idx + 1].parse().map_err(|_| format!("Invalid threshold: {}", args[idx + 1]))?; idx += 2;
+                threshold = args[idx + 1]
+                    .parse()
+                    .map_err(|_| format!("Invalid threshold: {}", args[idx + 1]))?;
+                idx += 2;
             }
             "-n" | "--max-questions" if idx + 1 < args.len() => {
-                max_questions = Some(args[idx + 1].parse().map_err(|_| format!("Invalid count: {}", args[idx + 1]))?); idx += 2;
+                max_questions = Some(
+                    args[idx + 1]
+                        .parse()
+                        .map_err(|_| format!("Invalid count: {}", args[idx + 1]))?,
+                );
+                idx += 2;
             }
             "--scoring" if idx + 1 < args.len() => {
                 use_relatedness = match args[idx + 1].to_lowercase().as_str() {
                     "relatedness" | "significance" | "skg" => true,
                     "jaccard" | "overlap" => false,
-                    other => return Err(format!("Invalid --scoring '{}': expected 'relatedness' or 'jaccard'", other)),
+                    other => {
+                        return Err(format!(
+                            "Invalid --scoring '{}': expected 'relatedness' or 'jaccard'",
+                            other
+                        ))
+                    }
                 };
                 idx += 2;
             }
-            "--compare" => { compare = true; idx += 1; }
-            "-c" | "--spell-check" => { spell_check = true; idx += 1; }
+            "--compare" => {
+                compare = true;
+                idx += 1;
+            }
+            "-c" | "--spell-check" => {
+                spell_check = true;
+                idx += 1;
+            }
             other if other.starts_with('-') => return Err(format!("Unknown option: {}", other)),
             _ => {
                 if qna_path_opt.is_some() {
@@ -2024,7 +2375,8 @@ fn handle_eval(args: &[String]) -> Result<(), String> {
     let qna_path = qna_path_opt.ok_or_else(|| String::from("Missing Q&A file path"))?;
 
     // Load the Q&A set (UTF-8-tolerant: cp1252 smart quotes won't abort).
-    let qna_bytes = std::fs::read(&qna_path).map_err(|e| format!("Failed to read {}: {}", qna_path, e))?;
+    let qna_bytes =
+        std::fs::read(&qna_path).map_err(|e| format!("Failed to read {}: {}", qna_path, e))?;
     let mut questions = lume::eval::parse_qna(&qna_bytes)?;
     if let Some(n) = max_questions {
         questions.truncate(n);
@@ -2034,7 +2386,10 @@ fn handle_eval(args: &[String]) -> Result<(), String> {
     let db_path = Path::new(&db_dir);
     let state_file_path = db_path.join("state.json");
     if !state_file_path.exists() {
-        return Err(format!("Index state file not found at {}. Index the corpus first.", state_file_path.display()));
+        return Err(format!(
+            "Index state file not found at {}. Index the corpus first.",
+            state_file_path.display()
+        ));
     }
     lume::hybrid::set_cache_dir(db_path);
     let state: IndexState = load_json(&state_file_path)?;
@@ -2052,14 +2407,38 @@ fn handle_eval(args: &[String]) -> Result<(), String> {
 
     let graph_edges = graph.as_ref().map(|g| g.edges.len()).unwrap_or(0);
     println!("\n\x1B[1;36m═══ Lume Retrieval Evaluation ═══\x1B[0m");
-    println!("  Corpus      : {} ({} sections)", state.target_dir, bm25.sections.len());
-    println!("  Q&A file    : {} ({} questions)", qna_path, questions.len());
-    println!("  Graph       : {} edges  |  graph β = {}", graph_edges, beta);
-    println!("  Relevance   : answer-token recall ≥ {:.2}  |  metrics @{}", threshold, k);
+    println!(
+        "  Corpus      : {} ({} sections)",
+        state.target_dir,
+        bm25.sections.len()
+    );
+    println!(
+        "  Q&A file    : {} ({} questions)",
+        qna_path,
+        questions.len()
+    );
+    println!(
+        "  Graph       : {} edges  |  graph β = {}",
+        graph_edges, beta
+    );
+    println!(
+        "  Relevance   : answer-token recall ≥ {:.2}  |  metrics @{}",
+        threshold, k
+    );
 
     let run = |use_rel: bool| -> lume::eval::EvalAggregate {
-        run_eval_pass(&bm25, graph.as_ref(), &spelling, tagger.as_ref(),
-            &questions, k, beta, use_rel, threshold, spell_check)
+        run_eval_pass(
+            &bm25,
+            graph.as_ref(),
+            &spelling,
+            tagger.as_ref(),
+            &questions,
+            k,
+            beta,
+            use_rel,
+            threshold,
+            spell_check,
+        )
     };
 
     if compare {
@@ -2068,7 +2447,11 @@ fn handle_eval(args: &[String]) -> Result<(), String> {
         print_eval_compare(&jac, &rel, k);
     } else {
         let agg = run(use_relatedness);
-        let mode = if use_relatedness { "relatedness (significance)" } else { "jaccard (overlap)" };
+        let mode = if use_relatedness {
+            "relatedness (significance)"
+        } else {
+            "jaccard (overlap)"
+        };
         print_eval_report(&agg, k, mode);
     }
     Ok(())
@@ -2091,11 +2474,19 @@ fn run_eval_pass(
     spell_check: bool,
 ) -> lume::eval::EvalAggregate {
     let params = Bm25Params::default();
-    let skg_params = lume::graph_search::SkgBoostParams { beta, use_relatedness, ..Default::default() };
+    let skg_params = lume::graph_search::SkgBoostParams {
+        beta,
+        use_relatedness,
+        ..Default::default()
+    };
     let mut agg = lume::eval::EvalAggregate::new(k);
 
     for q in questions {
-        let query = if spell_check { correct_query(spelling, &q.question) } else { q.question.clone() };
+        let query = if spell_check {
+            correct_query(spelling, &q.question)
+        } else {
+            q.question.clone()
+        };
 
         // SKG boost from the question's entities (no-op when β=0 or no graph).
         let skg_scores = match graph {
@@ -2116,12 +2507,22 @@ fn run_eval_pass(
         for h in &hits {
             if let Some(sec) = bm25.sections.get(h.section_index) {
                 match lume::eval::is_relevant(&q.answer, &sec.body, threshold) {
-                    Some(r) => { judgeable = true; rels.push(r); }
-                    None => { rels.clear(); break; }
+                    Some(r) => {
+                        judgeable = true;
+                        rels.push(r);
+                    }
+                    None => {
+                        rels.clear();
+                        break;
+                    }
                 }
             }
         }
-        agg.record(if judgeable { Some(rels.as_slice()) } else { None });
+        agg.record(if judgeable {
+            Some(rels.as_slice())
+        } else {
+            None
+        });
     }
     agg
 }
@@ -2137,23 +2538,52 @@ fn print_eval_report(agg: &lume::eval::EvalAggregate, k: usize, mode: &str) {
     println!("  │ nDCG@{:<7} │ {:>7.4} │", k, agg.ndcg());
     println!("  └──────────────┴─────────┘");
     if agg.skipped > 0 {
-        println!("  ({} questions skipped — answer had no scorable content tokens)", agg.skipped);
+        println!(
+            "  ({} questions skipped — answer had no scorable content tokens)",
+            agg.skipped
+        );
     }
 }
 
 fn print_eval_compare(jac: &lume::eval::EvalAggregate, rel: &lume::eval::EvalAggregate, k: usize) {
     let d = |a: f64, b: f64| {
         let delta = b - a;
-        let color = if delta > 0.0 { "\x1B[32m" } else if delta < 0.0 { "\x1B[31m" } else { "\x1B[0m" };
+        let color = if delta > 0.0 {
+            "\x1B[32m"
+        } else if delta < 0.0 {
+            "\x1B[31m"
+        } else {
+            "\x1B[0m"
+        };
         format!("{}{:+.4}\x1B[0m", color, delta)
     };
-    println!("\n  \x1B[1mScoring comparison ({} questions judged)\x1B[0m", rel.judged);
+    println!(
+        "\n  \x1B[1mScoring comparison ({} questions judged)\x1B[0m",
+        rel.judged
+    );
     println!("  ┌──────────────┬──────────┬──────────────┬───────────┐");
     println!("  │ Metric       │  Jaccard │ Relatedness  │   Δ       │");
     println!("  ├──────────────┼──────────┼──────────────┼───────────┤");
-    println!("  │ Hit@{:<8} │ {:>7.1}% │ {:>11.1}% │ {} │", k, jac.hit_rate() * 100.0, rel.hit_rate() * 100.0, d(jac.hit_rate(), rel.hit_rate()));
-    println!("  │ MRR          │ {:>8.4} │ {:>12.4} │ {} │", jac.mrr(), rel.mrr(), d(jac.mrr(), rel.mrr()));
-    println!("  │ nDCG@{:<7} │ {:>8.4} │ {:>12.4} │ {} │", k, jac.ndcg(), rel.ndcg(), d(jac.ndcg(), rel.ndcg()));
+    println!(
+        "  │ Hit@{:<8} │ {:>7.1}% │ {:>11.1}% │ {} │",
+        k,
+        jac.hit_rate() * 100.0,
+        rel.hit_rate() * 100.0,
+        d(jac.hit_rate(), rel.hit_rate())
+    );
+    println!(
+        "  │ MRR          │ {:>8.4} │ {:>12.4} │ {} │",
+        jac.mrr(),
+        rel.mrr(),
+        d(jac.mrr(), rel.mrr())
+    );
+    println!(
+        "  │ nDCG@{:<7} │ {:>8.4} │ {:>12.4} │ {} │",
+        k,
+        jac.ndcg(),
+        rel.ndcg(),
+        d(jac.ndcg(), rel.ndcg())
+    );
     println!("  └──────────────┴──────────┴──────────────┴───────────┘");
     println!("  Δ = relatedness − jaccard (positive favors significance scoring).");
 }
@@ -2177,19 +2607,37 @@ fn handle_stream(args: &[String]) -> Result<(), String> {
     while idx < args.len() {
         let arg = &args[idx];
         match arg.as_str() {
-            "--db" if idx + 1 < args.len() => { db_dir = args[idx + 1].clone(); idx += 2; }
+            "--db" if idx + 1 < args.len() => {
+                db_dir = args[idx + 1].clone();
+                idx += 2;
+            }
             "-k" | "--candidates" if idx + 1 < args.len() => {
-                candidates = args[idx + 1].parse().map_err(|_| format!("Invalid candidates: {}", args[idx + 1]))?; idx += 2;
+                candidates = args[idx + 1]
+                    .parse()
+                    .map_err(|_| format!("Invalid candidates: {}", args[idx + 1]))?;
+                idx += 2;
             }
             "--steps" if idx + 1 < args.len() => {
-                steps = args[idx + 1].parse().map_err(|_| format!("Invalid steps: {}", args[idx + 1]))?; idx += 2;
+                steps = args[idx + 1]
+                    .parse()
+                    .map_err(|_| format!("Invalid steps: {}", args[idx + 1]))?;
+                idx += 2;
             }
             "-g" | "--graph" if idx + 1 < args.len() => {
-                beta = args[idx + 1].parse().map_err(|_| format!("Invalid graph weight: {}", args[idx + 1]))?; idx += 2;
+                beta = args[idx + 1]
+                    .parse()
+                    .map_err(|_| format!("Invalid graph weight: {}", args[idx + 1]))?;
+                idx += 2;
             }
-            "--add" if idx + 1 < args.len() => { queries.push(args[idx + 1].clone()); idx += 2; }
+            "--add" if idx + 1 < args.len() => {
+                queries.push(args[idx + 1].clone());
+                idx += 2;
+            }
             other if other.starts_with('-') => return Err(format!("Unknown option: {}", other)),
-            _ => { queries.push(arg.clone()); idx += 1; }
+            _ => {
+                queries.push(arg.clone());
+                idx += 1;
+            }
         }
     }
     if queries.is_empty() {
@@ -2199,7 +2647,10 @@ fn handle_stream(args: &[String]) -> Result<(), String> {
     let db_path = Path::new(&db_dir);
     let state_file_path = db_path.join("state.json");
     if !state_file_path.exists() {
-        return Err(format!("Index state file not found at {}. Index the corpus first.", state_file_path.display()));
+        return Err(format!(
+            "Index state file not found at {}. Index the corpus first.",
+            state_file_path.display()
+        ));
     }
     lume::hybrid::set_cache_dir(db_path);
     let _state: IndexState = load_json(&state_file_path)?;
@@ -2207,14 +2658,27 @@ fn handle_stream(args: &[String]) -> Result<(), String> {
 
     // Quiet candidate retrieval per query (BM25 + optional SKG), unioned with
     // overlap membership. Nothing here touches stdout (the NDJSON channel).
-    let graph: Option<EntityGraph> = if beta > 0.0 { load_json(&db_path.join("entity_graph.json")).ok() } else { None };
+    let graph: Option<EntityGraph> = if beta > 0.0 {
+        load_json(&db_path.join("entity_graph.json")).ok()
+    } else {
+        None
+    };
     let cands = retrieve_union(&bm25, graph.as_ref(), beta, &queries, candidates);
     if cands.is_empty() {
         return Err("no candidates retrieved for any query".to_string());
     }
 
-    let sp = lume::stream::StreamParams { steps, candidates, ..Default::default() };
-    eprintln!("[stream] queries={:?}  union_candidates={}  steps={}", queries, cands.len(), steps);
+    let sp = lume::stream::StreamParams {
+        steps,
+        candidates,
+        ..Default::default()
+    };
+    eprintln!(
+        "[stream] queries={:?}  union_candidates={}  steps={}",
+        queries,
+        cands.len(),
+        steps
+    );
     lume::stream::run(&bm25, &queries, &cands, &sp, true)
 }
 
@@ -2236,22 +2700,39 @@ fn retrieve_union(
         let mut hits = bm25.search(q, SearchVariant::Classic, &params, None);
         if let Some(g) = graph {
             if beta > 0.0 {
-                let skg = lume::graph_search::SkgBoostParams { beta, ..Default::default() };
+                let skg = lume::graph_search::SkgBoostParams {
+                    beta,
+                    ..Default::default()
+                };
                 let walk = lume::graph_search::compute_skg_scores(bm25, g, q, &skg);
                 lume::graph_search::apply_skg_boost(&mut hits, &walk.scores, beta);
             }
         }
         hits.truncate(candidates);
         for h in &hits {
-            let e = union.entry(h.section_index).or_insert_with(|| { order.push(h.section_index); (h.score, Vec::new()) });
-            if h.score > e.0 { e.0 = h.score; }
-            if !e.1.contains(&qi) { e.1.push(qi); }
+            let e = union.entry(h.section_index).or_insert_with(|| {
+                order.push(h.section_index);
+                (h.score, Vec::new())
+            });
+            if h.score > e.0 {
+                e.0 = h.score;
+            }
+            if !e.1.contains(&qi) {
+                e.1.push(qi);
+            }
         }
     }
-    order.iter().map(|sid| {
-        let (score, members) = union[sid].clone();
-        lume::stream::Candidate { section_id: *sid, score, members }
-    }).collect()
+    order
+        .iter()
+        .map(|sid| {
+            let (score, members) = union[sid].clone();
+            lume::stream::Candidate {
+                section_id: *sid,
+                score,
+                members,
+            }
+        })
+        .collect()
 }
 
 /// `lume answer <question>` — agentic plan → retrieve → evaluate → refine →
@@ -2269,22 +2750,47 @@ fn handle_answer(args: &[String]) -> Result<(), String> {
     let mut beta = 0.4f64;
     let mut max_rounds = 3usize;
     let mut model = String::from("gpt-4o-mini:latest");
-    let mut ollama_url = std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".to_string());
+    let mut ollama_url =
+        std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".to_string());
     let mut words: Vec<String> = Vec::new();
 
     let mut idx = 0;
     while idx < args.len() {
         let arg = &args[idx];
         match arg.as_str() {
-            "--db" if idx + 1 < args.len() => { db_dir = args[idx + 1].clone(); idx += 2; }
-            "-k" | "--candidates" if idx + 1 < args.len() => { candidates = args[idx + 1].parse().map_err(|_| "bad -k")?; idx += 2; }
-            "--steps" if idx + 1 < args.len() => { steps = args[idx + 1].parse().map_err(|_| "bad --steps")?; idx += 2; }
-            "-g" | "--graph" if idx + 1 < args.len() => { beta = args[idx + 1].parse().map_err(|_| "bad -g")?; idx += 2; }
-            "--rounds" if idx + 1 < args.len() => { max_rounds = args[idx + 1].parse().map_err(|_| "bad --rounds")?; idx += 2; }
-            "--model" if idx + 1 < args.len() => { model = args[idx + 1].clone(); idx += 2; }
-            "--ollama-url" if idx + 1 < args.len() => { ollama_url = args[idx + 1].clone(); idx += 2; }
+            "--db" if idx + 1 < args.len() => {
+                db_dir = args[idx + 1].clone();
+                idx += 2;
+            }
+            "-k" | "--candidates" if idx + 1 < args.len() => {
+                candidates = args[idx + 1].parse().map_err(|_| "bad -k")?;
+                idx += 2;
+            }
+            "--steps" if idx + 1 < args.len() => {
+                steps = args[idx + 1].parse().map_err(|_| "bad --steps")?;
+                idx += 2;
+            }
+            "-g" | "--graph" if idx + 1 < args.len() => {
+                beta = args[idx + 1].parse().map_err(|_| "bad -g")?;
+                idx += 2;
+            }
+            "--rounds" if idx + 1 < args.len() => {
+                max_rounds = args[idx + 1].parse().map_err(|_| "bad --rounds")?;
+                idx += 2;
+            }
+            "--model" if idx + 1 < args.len() => {
+                model = args[idx + 1].clone();
+                idx += 2;
+            }
+            "--ollama-url" if idx + 1 < args.len() => {
+                ollama_url = args[idx + 1].clone();
+                idx += 2;
+            }
             other if other.starts_with('-') => return Err(format!("Unknown option: {}", other)),
-            _ => { words.push(arg.clone()); idx += 1; }
+            _ => {
+                words.push(arg.clone());
+                idx += 1;
+            }
         }
     }
     let question = words.join(" ");
@@ -2294,11 +2800,18 @@ fn handle_answer(args: &[String]) -> Result<(), String> {
 
     let db_path = Path::new(&db_dir);
     if !db_path.join("state.json").exists() {
-        return Err(format!("Index not found at {}. Index the corpus first.", db_dir));
+        return Err(format!(
+            "Index not found at {}. Index the corpus first.",
+            db_dir
+        ));
     }
     lume::hybrid::set_cache_dir(db_path);
     let bm25: Bm25Index = load_json(&db_path.join("bm25.json"))?;
-    let graph: Option<EntityGraph> = if beta > 0.0 { load_json(&db_path.join("entity_graph.json")).ok() } else { None };
+    let graph: Option<EntityGraph> = if beta > 0.0 {
+        load_json(&db_path.join("entity_graph.json")).ok()
+    } else {
+        None
+    };
 
     let emit = |v: serde_json::Value| println!("{}", v);
     emit(serde_json::json!({ "type": "question", "text": question, "model": model }));
@@ -2307,11 +2820,18 @@ fn handle_answer(args: &[String]) -> Result<(), String> {
     // --- Plan ---
     let mut queries = match lume::answer::plan_queries(&ollama_url, &model, &question) {
         Ok(q) => q,
-        Err(e) => { eprintln!("[answer] planner failed ({e}); using the question verbatim"); vec![question.clone()] }
+        Err(e) => {
+            eprintln!("[answer] planner failed ({e}); using the question verbatim");
+            vec![question.clone()]
+        }
     };
     emit(serde_json::json!({ "type": "plan", "round": 1, "queries": queries, "note": "" }));
 
-    let sp = lume::stream::StreamParams { steps, candidates, ..Default::default() };
+    let sp = lume::stream::StreamParams {
+        steps,
+        candidates,
+        ..Default::default()
+    };
     // Passages handed to the model. Scale with -k (capped) so raising candidates
     // actually widens what the evaluator/answerer can see, instead of a fixed 10.
     let n_feed = candidates.clamp(10, 20);
@@ -2321,27 +2841,45 @@ fn handle_answer(args: &[String]) -> Result<(), String> {
     loop {
         cands = retrieve_union(&bm25, graph.as_ref(), beta, &queries, candidates);
         if cands.is_empty() {
-            emit(serde_json::json!({ "type": "evaluate", "round": round, "sufficient": false, "note": "no candidates retrieved" }));
+            emit(
+                serde_json::json!({ "type": "evaluate", "round": round, "sufficient": false, "note": "no candidates retrieved" }),
+            );
             break;
         }
         // Animate this round's field (no terminal "done" — the loop continues).
         lume::stream::run(&bm25, &queries, &cands, &sp, false)?;
 
-        if round >= max_rounds { break; }
+        if round >= max_rounds {
+            break;
+        }
         let passages = numbered_passages(&bm25, &cands, n_feed);
         match lume::answer::evaluate(&ollama_url, &model, &question, &passages) {
             Ok(v) => {
-                emit(serde_json::json!({ "type": "evaluate", "round": round, "sufficient": v.sufficient, "note": v.note }));
-                if v.sufficient || v.queries.is_empty() { break; }
+                emit(
+                    serde_json::json!({ "type": "evaluate", "round": round, "sufficient": v.sufficient, "note": v.note }),
+                );
+                if v.sufficient || v.queries.is_empty() {
+                    break;
+                }
                 let mut added = false;
                 for q in v.queries {
-                    if !queries.iter().any(|e| e.eq_ignore_ascii_case(&q)) { queries.push(q); added = true; }
+                    if !queries.iter().any(|e| e.eq_ignore_ascii_case(&q)) {
+                        queries.push(q);
+                        added = true;
+                    }
                 }
-                if !added { break; }
+                if !added {
+                    break;
+                }
                 round += 1;
-                emit(serde_json::json!({ "type": "plan", "round": round, "queries": queries, "note": "refined" }));
+                emit(
+                    serde_json::json!({ "type": "plan", "round": round, "queries": queries, "note": "refined" }),
+                );
             }
-            Err(e) => { eprintln!("[answer] evaluate failed ({e}); answering with what we have"); break; }
+            Err(e) => {
+                eprintln!("[answer] evaluate failed ({e}); answering with what we have");
+                break;
+            }
         }
     }
 
@@ -2349,12 +2887,22 @@ fn handle_answer(args: &[String]) -> Result<(), String> {
     let nq = queries.len();
     // Feed top-N candidates by score; track marker(1-based) -> node id (= nq + cands index).
     let mut ranked: Vec<usize> = (0..cands.len()).collect();
-    ranked.sort_by(|&a, &b| cands[b].score.partial_cmp(&cands[a].score).unwrap_or(std::cmp::Ordering::Equal));
+    ranked.sort_by(|&a, &b| {
+        cands[b]
+            .score
+            .partial_cmp(&cands[a].score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     let fed: Vec<usize> = ranked.into_iter().take(n_feed).collect();
     let mut numbered = String::new();
     for (k, &ci) in fed.iter().enumerate() {
         if let Some(sec) = bm25.sections.get(cands[ci].section_id) {
-            let snip: String = sec.body.split_whitespace().take(180).collect::<Vec<_>>().join(" ");
+            let snip: String = sec
+                .body
+                .split_whitespace()
+                .take(180)
+                .collect::<Vec<_>>()
+                .join(" ");
             numbered.push_str(&format!("[{}] {}: {}\n", k + 1, sec.title.trim(), snip));
         }
     }
@@ -2376,11 +2924,21 @@ fn handle_answer(args: &[String]) -> Result<(), String> {
 /// Numbered passage block for the evaluator/answerer prompts (top-N by score).
 fn numbered_passages(bm25: &Bm25Index, cands: &[lume::stream::Candidate], n: usize) -> String {
     let mut ranked: Vec<usize> = (0..cands.len()).collect();
-    ranked.sort_by(|&a, &b| cands[b].score.partial_cmp(&cands[a].score).unwrap_or(std::cmp::Ordering::Equal));
+    ranked.sort_by(|&a, &b| {
+        cands[b]
+            .score
+            .partial_cmp(&cands[a].score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     let mut s = String::new();
     for (k, &ci) in ranked.iter().take(n).enumerate() {
         if let Some(sec) = bm25.sections.get(cands[ci].section_id) {
-            let snip: String = sec.body.split_whitespace().take(180).collect::<Vec<_>>().join(" ");
+            let snip: String = sec
+                .body
+                .split_whitespace()
+                .take(180)
+                .collect::<Vec<_>>()
+                .join(" ");
             s.push_str(&format!("[{}] {}: {}\n", k + 1, sec.title.trim(), snip));
         }
     }
@@ -2388,7 +2946,8 @@ fn numbered_passages(bm25: &Bm25Index, cands: &[lume::stream::Candidate], n: usi
 }
 
 fn print_answer_help() {
-    println!(r#"lume-answer
+    println!(
+        r#"lume-answer
 Agentic question answering over the index: plan search queries, retrieve and
 animate the field, evaluate/refine, then synthesize a cited answer with a local
 Ollama model. Streams NDJSON (question, plan, evaluate, relaxation frames, answer)
@@ -2409,11 +2968,13 @@ OPTIONS:
 
 ARGS:
   <QUESTION...>          The question to answer (remaining args joined)
-"#);
+"#
+    );
 }
 
 fn print_stream_help() {
-    println!(r#"lume-stream
+    println!(
+        r#"lume-stream
 Stream the live phase-binding + Weber search relaxation as NDJSON frames (one per
 step) on stdout, for the 3D vector visualizer. Requires a reachable shivvr
 endpoint (used read-only to embed the query and candidates).
@@ -2436,11 +2997,13 @@ ARGS:
 Each frame is a JSON object: {{type:"frame", step, r_global, nodes:[{{id, pos[3],
 vel[3], acc[3], phase, cos_q, approach_vel, approach_acc, cluster, is_query}}]}}.
 A leading {{type:"meta"}} frame carries node labels; a trailing {{type:"done"}}.
-"#);
+"#
+    );
 }
 
 fn print_generate_help() {
-    println!(r#"lume-generate
+    println!(
+        r#"lume-generate
 Generate style-faithful text from the indexed corpus without an LLM.
 
 USAGE:
@@ -2460,7 +3023,8 @@ ARGS:
                          runs the inversion-steered loop: embed target → invert
                          to seed concepts → generate, score by embedding match,
                          re-steer with graph neighbors until it round-trips.
-"#);
+"#
+    );
 }
 
 fn handle_generate(args: &[String]) -> Result<(), String> {
@@ -2483,17 +3047,28 @@ fn handle_generate(args: &[String]) -> Result<(), String> {
             db_dir = args[idx + 1].clone();
             idx += 2;
         } else if (arg == "-l" || arg == "--limit" || arg == "--tokens") && idx + 1 < args.len() {
-            limit = args[idx + 1].parse::<usize>().map_err(|_| format!("Invalid limit: {}", args[idx + 1]))?;
+            limit = args[idx + 1]
+                .parse::<usize>()
+                .map_err(|_| format!("Invalid limit: {}", args[idx + 1]))?;
             idx += 2;
         } else if arg == "--steer" && idx + 1 < args.len() {
             let val = &args[idx + 1];
-            steer_tags = val.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+            steer_tags = val
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
             idx += 2;
         } else if arg == "--attempts" && idx + 1 < args.len() {
-            attempts = args[idx + 1].parse::<usize>().map_err(|_| format!("Invalid attempts: {}", args[idx + 1]))?.max(1);
+            attempts = args[idx + 1]
+                .parse::<usize>()
+                .map_err(|_| format!("Invalid attempts: {}", args[idx + 1]))?
+                .max(1);
             idx += 2;
         } else if arg == "--threshold" && idx + 1 < args.len() {
-            threshold = args[idx + 1].parse::<f64>().map_err(|_| format!("Invalid threshold: {}", args[idx + 1]))?;
+            threshold = args[idx + 1]
+                .parse::<f64>()
+                .map_err(|_| format!("Invalid threshold: {}", args[idx + 1]))?;
             idx += 2;
         } else if arg.starts_with('-') {
             return Err(format!("Unknown option: {}", arg));
@@ -2509,7 +3084,10 @@ fn handle_generate(args: &[String]) -> Result<(), String> {
     let db_path = Path::new(&db_dir);
     let state_file_path = db_path.join("state.json");
     if !state_file_path.exists() {
-        return Err(format!("Index state file not found at {}. Index the directory first.", state_file_path.display()));
+        return Err(format!(
+            "Index state file not found at {}. Index the directory first.",
+            state_file_path.display()
+        ));
     }
 
     let state: IndexState = load_json(&state_file_path)?;
@@ -2526,7 +3104,9 @@ fn handle_generate(args: &[String]) -> Result<(), String> {
     println!("[🧠] Building Markov Chain from index corpus...");
     let bodies: Vec<&str> = bm25.sections.iter().map(|s| s.body.as_str()).collect();
     if bodies.is_empty() {
-        return Err(String::from("No sections found in BM25 index to generate text."));
+        return Err(String::from(
+            "No sections found in BM25 index to generate text.",
+        ));
     }
 
     let chain = lume::semantic_mesh::MarkovChain::build(&bodies);
@@ -2539,14 +3119,29 @@ fn handle_generate(args: &[String]) -> Result<(), String> {
     let token = lume::hybrid::load_nuts_token();
     if let (Some(token), Some(target)) = (token, seed_word.as_deref()) {
         match run_inversion_steered_generate(
-            &chain, &bm25, db_path, tagger.as_ref(), target, &steer_tags, limit, attempts, threshold, &token,
+            &chain,
+            &bm25,
+            db_path,
+            tagger.as_ref(),
+            target,
+            &steer_tags,
+            limit,
+            attempts,
+            threshold,
+            &token,
         ) {
             Ok(()) => return Ok(()),
-            Err(e) => eprintln!("[⚠️] Vector-steered generation unavailable ({}); using plain Markov.", e),
+            Err(e) => eprintln!(
+                "[⚠️] Vector-steered generation unavailable ({}); using plain Markov.",
+                e
+            ),
         }
     }
 
-    println!("[🧠] Generating steered synthesis (max {} tokens, steer={:?})...", limit, steer_tags);
+    println!(
+        "[🧠] Generating steered synthesis (max {} tokens, steer={:?})...",
+        limit, steer_tags
+    );
     let (simulated, _history) = chain.generate_steered(
         seed_word.as_deref(),
         limit,
@@ -2580,7 +3175,7 @@ fn run_inversion_steered_generate(
     threshold: f64,
     token: &str,
 ) -> Result<(), String> {
-    use lume::hybrid::{embed_text, cosine_similarity};
+    use lume::hybrid::{cosine_similarity, embed_text};
 
     println!("[🔄] Embedding target \"{}\" (768-d GTR-T5)...", target);
     let target_vec = embed_text(target, token)?;
@@ -2589,7 +3184,11 @@ fn run_inversion_steered_generate(
     // fold those into the steer set.
     let mut steer: Vec<String> = base_steer.to_vec();
     if let Ok(inv) = lume::inversion::invert_vector(&target_vec, Some(48), token) {
-        println!("[🔄] Target inverts to: \"{}\" (self-similarity {:.3})", inv.text.trim(), inv.similarity);
+        println!(
+            "[🔄] Target inverts to: \"{}\" (self-similarity {:.3})",
+            inv.text.trim(),
+            inv.similarity
+        );
         for tok in lume::bm25::filter_query_stopwords(lume::tokenize(&inv.text)) {
             let w = String::from_utf8_lossy(&tok.bytes).to_string();
             if w.len() > 2 && !steer.iter().any(|s| s.eq_ignore_ascii_case(&w)) {
@@ -2603,7 +3202,10 @@ fn run_inversion_steered_generate(
     let mut neighbor_pool: Vec<String> = Vec::new();
     if let Ok(graph) = load_json::<EntityGraph>(&db_path.join("entity_graph.json")) {
         let walk = lume::graph_search::compute_skg_scores(
-            bm25, &graph, target, &lume::graph_search::SkgBoostParams::default(),
+            bm25,
+            &graph,
+            target,
+            &lume::graph_search::SkgBoostParams::default(),
         );
         for (key, _w) in walk.expanded {
             let label = bm25.entity_labels.get(&key).cloned().unwrap_or(key);
@@ -2626,12 +3228,22 @@ fn run_inversion_steered_generate(
         }
 
         let (cand, _hist) = chain.generate_steered(
-            Some(target), limit, tagger, &bm25.entity_posting_lists, &bm25.posting_lists, &this_steer,
+            Some(target),
+            limit,
+            tagger,
+            &bm25.entity_posting_lists,
+            &bm25.posting_lists,
+            &this_steer,
         );
         let cand_vec = embed_text(&cand, token)?;
         let score = cosine_similarity(&cand_vec, &target_vec);
-        println!("  [🎯] attempt {}/{}: match {:.3}{}", attempt, attempts, score,
-            if score > best_score { " (best)" } else { "" });
+        println!(
+            "  [🎯] attempt {}/{}: match {:.3}{}",
+            attempt,
+            attempts,
+            score,
+            if score > best_score { " (best)" } else { "" }
+        );
         if score > best_score {
             best_score = score;
             best_text = cand;
@@ -2641,12 +3253,20 @@ fn run_inversion_steered_generate(
         }
     }
 
-    let band = if best_score >= 0.95 { "🟢 lossless" }
-        else if best_score >= 0.75 { "🔵 faithful" }
-        else if best_score >= 0.50 { "🟡 concept-related" }
-        else { "🔴 low / off-target" };
+    let band = if best_score >= 0.95 {
+        "🟢 lossless"
+    } else if best_score >= 0.75 {
+        "🔵 faithful"
+    } else if best_score >= 0.50 {
+        "🟡 concept-related"
+    } else {
+        "🔴 low / off-target"
+    };
 
-    println!("\n--- Generated Text (match {:.3} — {}) ---", best_score, band);
+    println!(
+        "\n--- Generated Text (match {:.3} — {}) ---",
+        best_score, band
+    );
     println!("{}", best_text);
     println!("----------------------\n");
     Ok(())
@@ -2679,10 +3299,14 @@ fn handle_summarize(args: &[String]) -> Result<(), String> {
             ollama_model = args[idx + 1].clone();
             idx += 2;
         } else if arg == "--queries" && idx + 1 < args.len() {
-            queries = args[idx + 1].parse::<usize>().map_err(|_| format!("Invalid queries count: {}", args[idx + 1]))?;
+            queries = args[idx + 1]
+                .parse::<usize>()
+                .map_err(|_| format!("Invalid queries count: {}", args[idx + 1]))?;
             idx += 2;
         } else if arg == "--hits-per-query" && idx + 1 < args.len() {
-            hits_per_query = args[idx + 1].parse::<usize>().map_err(|_| format!("Invalid hits per query: {}", args[idx + 1]))?;
+            hits_per_query = args[idx + 1]
+                .parse::<usize>()
+                .map_err(|_| format!("Invalid hits per query: {}", args[idx + 1]))?;
             idx += 2;
         } else if arg == "-v" || arg == "-V" || arg == "--verbose" {
             verbose = true;
@@ -2710,7 +3334,8 @@ fn handle_summarize(args: &[String]) -> Result<(), String> {
 }
 
 fn print_summarize_help() {
-    println!(r#"Lume Agentic Document Summarizer
+    println!(
+        r#"Lume Agentic Document Summarizer
 
 USAGE:
   lume summarize [OPTIONS] [FILE]
@@ -2724,11 +3349,13 @@ OPTIONS:
   -v, --verbose             Print verbose execution traces
 
 If FILE is omitted, Lume will summarize the largest file in the index database.
-"#);
+"#
+    );
 }
 
 fn print_serve_help() {
-    println!(r#"lume serve
+    println!(
+        r#"lume serve
 Start the Model Context Protocol (MCP) server over HTTP.
 
 USAGE:
@@ -2755,11 +3382,13 @@ OPTIONS:
   --pg-allow-plaintext Allow unencrypted Postgres connections on non-loopback binds
   --bind <IP>           Bind address [default: 127.0.0.1]
   -h, --help             Prints help information
-"#);
+"#
+    );
 }
 
 fn print_agent_help() {
-    println!(r#"lume agent
+    println!(
+        r#"lume agent
 Run a stateful autonomous research agent loop to resolve a question.
 
 USAGE:
@@ -2778,11 +3407,13 @@ OPTIONS:
 
 ARGS:
   <QUESTION>                The query or question to research
-"#);
+"#
+    );
 }
 
 fn print_crawl_help() {
-    println!(r#"lume crawl
+    println!(
+        r#"lume crawl
 Stealth crawl webpage content and save it to the personal search collection.
 
 USAGE:
@@ -2805,5 +3436,6 @@ LIST MODE:
   Markdown. A local Grub (GRUB_BASE_URL, default http://localhost:6792) handles HTML and
   retries blocked downloads when it is reachable; otherwise rows are fetched directly.
   ZIM archives are skipped unless --formats names zim. --max-mb defaults to 128.
-"#);
+"#
+    );
 }
