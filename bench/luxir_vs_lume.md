@@ -59,9 +59,15 @@ The evaluation is managed through a shared test harness ([`prepare.py`](luxir/pr
 | Run | nDCG@10 | Recall@100 | R_cap@100 | MRR@10 | p50 ms | p95 ms | p99 ms | QPS |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | **lume-released-bm25-scifact** | 0.6447 | 0.8726 | 0.8726 | 0.6084 | 286.03 | 314.59 | 325.94 | 17.09 |
-| **luxir-bm25-scifact** | 0.6793 | 0.9213 | 0.9213 | 0.6445 | 0.33 | 0.43 | 0.49 | 4775.97 |
-| **luxir-hybrid-scifact** | 0.6943 | 0.9563 | 0.9563 | 0.6637 | 1.09 | 1.81 | 2.64 | 2329.37 |
-| **luxir-bm25-trec-covid** | 0.6052 | 0.1061 | 0.4588 | 0.8758 | 1.24 | 2.19 | 2.71 | 4485.07 |
+| **lume-released-default-scifact** | 0.6447 | 0.8726 | 0.8726 | 0.6084 | 324.33 | 357.49 | 380.99 | 17.90 |
+| **lume-resident-bm25-scifact** | 0.6447 | 0.8726 | 0.8726 | 0.6084 | 5.66 | 9.32 | 10.88 | 509.77 |
+| **lume-resident-default-scifact** | 0.6447 | 0.8726 | 0.8726 | 0.6084 | 6.18 | 9.91 | 12.47 | 491.68 |
+| **luxir-bm25-scifact** | 0.6793 | 0.9213 | 0.9213 | 0.6445 | 0.36 | 0.45 | 0.49 | 4493.40 |
+| **luxir-hybrid-scifact** | 0.6943 | 0.9563 | 0.9563 | 0.6637 | 1.77 | 2.81 | 3.57 | 1766.84 |
+| **lume-released-bm25-trec-covid** | 0.5611 | 0.0995 | 0.4424 | 0.8424 | 7892.27 | 8615.48 | 8873.45 | not run |
+| **lume-resident-bm25-trec-covid** | 0.5611 | 0.0995 | 0.4424 | 0.8424 | 98.99 | 172.52 | 187.43 | 39.68 |
+| **lume-resident-default-trec-covid** | 0.5611 | 0.0995 | 0.4424 | 0.8424 | 115.60 | 169.91 | 225.68 | 47.22 |
+| **luxir-bm25-trec-covid** | 0.6052 | 0.1061 | 0.4588 | 0.8758 | 1.26 | 2.07 | 3.03 | 4196.79 |
 
 *(Evaluated across user-defined bridge network `luxir-bench-net` using persistent HTTP connection pooling with 8 and 16 concurrent workers.)*
 
