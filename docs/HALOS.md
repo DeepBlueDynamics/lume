@@ -1,7 +1,7 @@
 # Email draft: marine-lume for HaLOS
 
-**Draft status:** the software exists; the one-command Debian package below is
-the approved deliverable, not a published or verified installer yet.
+**Draft status:** the package builder and release pipeline are added; the first
+release asset and a verified HaLOS installation are still pending.
 
 **Subject: marine-lume — boat history and document search for HaLOS**
 
@@ -19,11 +19,20 @@ It lets you:
 - Provide history to Freeboard and other Signal K History API clients.
 - Search your own manuals and documents in the Library tab, offline after indexing.
 
-The planned install is a download from GitHub Releases followed by:
+Once a release containing the package is published, download its asset and
+checksum file, verify it, then install. Replace `0.12.0` with that release's
+version; the Debian package adds `-1`:
 
 ```sh
-sudo apt install ./marine-lume_<ver>_arm64.deb
+VERSION=0.12.0
+BASE="https://github.com/DeepBlueDynamics/lume/releases/download/v${VERSION}"
+curl -fLO "${BASE}/marine-lume_${VERSION}-1_arm64.deb"
+curl -fLO "${BASE}/SHA256SUMS"
+awk -v file="marine-lume_${VERSION}-1_arm64.deb" '$2 == file' SHA256SUMS | sha256sum --check --strict - &&
+  sudo apt install "./marine-lume_${VERSION}-1_arm64.deb"
 ```
+
+These commands depend on the first package release, which is still pending.
 
 After installation, open **Signal K → Webapps → Lume**. Enable recording and
 approve its Signal K read-only access request if required. Keep the vessel's
@@ -69,8 +78,9 @@ Would you be interested in trying it and reviewing the HaLOS integration?
 
 ## Still to do before the email
 
-- Build and publish the arm64 `marine-lume` package with checksums; replace the
-  placeholder version above with a working release link.
+- [x] Pipeline added: build the arm64 `marine-lume` package and include it in
+  release checksums. **First release pending**; confirm the asset download and
+  replace the example version above with the published version.
 - Test install, upgrade and rollback against HaLOS's persistent Signal K layout,
   plugin registration and restart. Set the visible Webapps name to **Lume**.
 - Test that remove preserves data and purge deletes only Lume-owned data;

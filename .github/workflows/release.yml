@@ -205,9 +205,43 @@ jobs:
           path: dist/*.tgz
           retention-days: 3
 
+  halos-deb:
+    name: HaLOS marine-lume package
+    needs: [check, build]
+    runs-on: ubuntu-22.04-arm
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.tag }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-aarch64-unknown-linux-gnu
+          path: bins/arm64
+
+      - name: Build marine-lume Debian package
+        env:
+          RELEASE_VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          chmod +x bins/arm64/lume
+          bash scripts/build-halos-debs.sh --app marine-lume --lume-bin bins/arm64/lume --output dist/halos
+          deb="dist/halos/marine-lume_${RELEASE_VERSION}-1_arm64.deb"
+          test -f "$deb"
+          test "$(dpkg-deb -f "$deb" Package)" = marine-lume
+          test "$(dpkg-deb -f "$deb" Architecture)" = arm64
+          test "$(dpkg-deb -f "$deb" Version)" = "${RELEASE_VERSION}-1"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-halos-deb
+          path: dist/halos/marine-lume_*_arm64.deb
+          if-no-files-found: error
+          retention-days: 3
+
   release:
     name: Publish GitHub Release
-    needs: [check, build, plugin]
+    needs: [check, build, plugin, halos-deb]
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
@@ -242,7 +276,7 @@ jobs:
   # the release. Skips quietly when the secrets aren't set.
   notify-discord:
     name: Notify Discord
-    needs: [check, build, plugin, release]
+    needs: [check, build, plugin, halos-deb, release]
     if: always()
     runs-on: ubuntu-latest
     continue-on-error: true
