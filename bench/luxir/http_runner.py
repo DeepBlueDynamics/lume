@@ -10,12 +10,13 @@ from urllib.parse import urlsplit
 
 class JsonClient:
     """One connection per worker; responses are fully drained for reuse."""
-    def __init__(self, url, headers=None, timeout=300):
+    def __init__(self, url, headers=None, timeout=300, close_after_response=False):
         self.url = urlsplit(url)
         if self.url.scheme not in ("http", "https"):
             raise ValueError("HTTP(S) URL required")
         self.headers = {"Content-Type": "application/json", **(headers or {})}
         self.timeout = timeout
+        self.close_after_response = close_after_response
         self.connection = None
 
     def close(self):
@@ -38,7 +39,7 @@ class JsonClient:
             body = response.read()
             status = response.status
             closes = response.will_close
-            if closes:
+            if closes or self.close_after_response:
                 self.close()
             if not 200 <= status < 300:
                 raise ValueError("HTTP status " + str(status))

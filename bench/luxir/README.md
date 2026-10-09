@@ -35,7 +35,9 @@ Put document-level runs in the shared runs directory:
   per worker, TCP_NODELAY, eight workers followed by sixteen. Record driver
   CPU time, errors and the 16/8 QPS gain; a gain indicates client saturation
   still needs investigation. Both engines and their drivers must use one
-  user-defined Docker network, addressed by container names.
+  user-defined Docker network `luxir-bench-net`, addressed by container names
+  (`lume-engine:5863`, `luxir-bench:9400`). Lume's bearer check stays enabled
+  for both released and resident variants.
   A missing throughput result is shown as “not run,” not zero.
 
 The scorer macro-averages over all test qids, including zero scores for queries
@@ -77,6 +79,10 @@ JSON files every time (src/search.rs). A long-running process therefore
 does not provide a resident-index comparison. The approved comparison has two separately labeled Lume rows: released
 v0.12.2 including per-request loads, and a resident-index fix with identical
 rankings. Warm released means a warmed process/filesystem, not a retained index.
+Released Lume closes the connection after each response; the client reconnects
+per request, included in latency. The shared client uses an explicit
+close-after-response setting for this verified server behavior, so it does
+not time a doomed reuse attempt. Unexpected drops are errors.
 The fixed-source base is 5e71ed8; release tag v0.12.2 is 5d88268.
 Plain .txt indexing splits files into consecutive 25-line sections titled
 `Lines <start>-<end>` and preserves the source filename (src/main.rs). The

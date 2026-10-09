@@ -142,7 +142,7 @@ def request(url, db, query, graph, token, client=None):
         if token:
             headers["Authorization"] = "Bearer " + token
         if client is None:
-            temporary = JsonClient(url, headers)
+            temporary = JsonClient(url, headers, close_after_response=True)
             try:
                 reply = temporary.post(payload)
             finally:
@@ -167,7 +167,7 @@ def benchmark(root, dataset, variant, url, db, token):
     with (root / dataset / "queries.tsv").open(encoding="utf-8") as source:
         queries = list(csv.reader(source, delimiter="\t"))
     headers = {"Authorization": "Bearer " + token} if token else {}
-    client = JsonClient(url, headers)
+    client = JsonClient(url, headers, close_after_response=True)
     for mode, graph in (("bm25", 0), ("default", .4)):
         name = "lume-" + variant + "-" + mode + "-" + dataset
         samples, results = {}, {}
@@ -204,9 +204,9 @@ def benchmark(root, dataset, variant, url, db, token):
             for qid, _ in queries:
                 out.write(json.dumps({"qid": qid, "ms": statistics.median(samples[qid])}) + "\n")
         operation = lambda worker_client, query: request(url, db, query, graph, token, worker_client)
-        measured = [throughput(lambda: JsonClient(url, headers), [q for _, q in queries],
+        measured = [throughput(lambda: JsonClient(url, headers, close_after_response=True), [q for _, q in queries],
                                operation, workers=workers) for workers in (8, 16)]
-        row = {**measured[0], "worker_scaling": measured,
+        row = {**measured[0], "transport": "fresh connection per request; connect time included; server closes each response", "worker_scaling": measured,
                "qps_gain_16_over_8": measured[1]["qps"] / measured[0]["qps"] - 1}
         (runs / (name + ".throughput.json")).write_text(json.dumps(row, indent=2) + "\n")
         print(name, json.dumps(row), flush=True)

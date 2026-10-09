@@ -39,6 +39,22 @@ class RunnerTests(unittest.TestCase):
             server.server_close()
             thread.join()
 
+    def test_known_one_request_server_closes_client_connection(self):
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever)
+        thread.start()
+        client = JsonClient("http://127.0.0.1:" + str(server.server_port), close_after_response=True)
+        try:
+            self.assertEqual(client.post({"q": 1}), {"q": 1})
+            self.assertIsNone(client.connection)
+            self.assertEqual(client.post({"q": 2}), {"q": 2})
+            self.assertIsNone(client.connection)
+        finally:
+            client.close()
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
     def test_workers_are_really_concurrent_and_errors_counted(self):
         lock = threading.Lock()
         active = [0, 0]
