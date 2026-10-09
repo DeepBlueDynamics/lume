@@ -15,6 +15,7 @@ import tarfile
 import threading
 import time
 import urllib.request
+from http_runner import JsonClient, throughput
 
 RELEASE = "v0.12.2"
 ASSET = "lume-" + RELEASE + "-x86_64-unknown-linux-gnu.tar.gz"
@@ -129,7 +130,7 @@ def document_hits(text):
     return sorted(scores.items(), key=lambda pair: (-pair[1], pair[0]))[:100]
 
 
-def request(url, db, query, graph, token):
+def request(url, db, query, graph, token, client=None):
     # Ask for enough sections to collapse to 100 documents. Increasing the
     # limit does not change ranking; the server returns its own section order.
     limit = 100
@@ -140,9 +141,14 @@ def request(url, db, query, graph, token):
         headers = {"Content-Type": "application/json"}
         if token:
             headers["Authorization"] = "Bearer " + token
-        req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers=headers)
-        with urllib.request.urlopen(req, timeout=300) as response:
-            reply = json.load(response)
+        if client is None:
+            temporary = JsonClient(url, headers)
+            try:
+                reply = temporary.post(payload)
+            finally:
+                temporary.close()
+        else:
+            reply = client.post(payload)
         if "error" in reply or reply.get("result", {}).get("isError"):
             raise ValueError("MCP search error: " + str(reply))
         text = "\n".join(c["text"] for c in reply["result"]["content"] if c["type"] == "text")
@@ -160,13 +166,15 @@ def benchmark(root, dataset, variant, url, db, token):
     runs.mkdir(exist_ok=True)
     with (root / dataset / "queries.tsv").open(encoding="utf-8") as source:
         queries = list(csv.reader(source, delimiter="\t"))
+    headers = {"Authorization": "Bearer " + token} if token else {}
+    client = JsonClient(url, headers)
     for mode, graph in (("bm25", 0), ("default", .4)):
         name = "lume-" + variant + "-" + mode + "-" + dataset
         samples, results = {}, {}
         for pass_no in range(4):
             for qid, query in queries:
                 start = time.perf_counter()
-                hits = request(url, db, query, graph, token)
+                hits = request(url, db, query, graph, token, client)
                 ms = (time.perf_counter() - start) * 1000
                 if pass_no:
                     if qid in results and results[qid] != hits:
@@ -195,31 +203,16 @@ def benchmark(root, dataset, variant, url, db, token):
         with (runs / (name + ".lat.jsonl")).open("w", encoding="utf-8", newline="\n") as out:
             for qid, _ in queries:
                 out.write(json.dumps({"qid": qid, "ms": statistics.median(samples[qid])}) + "\n")
-        deadline = time.perf_counter() + 60
-        counter, errors = 0, 0
-        lock = threading.Lock()
-        def worker(number):
-            nonlocal counter, errors
-            i = number
-            while time.perf_counter() < deadline:
-                try:
-                    request(url, db, queries[i % len(queries)][1], graph, token)
-                    with lock:
-                        counter += 1
-                except Exception:
-                    with lock:
-                        errors += 1
-                i += 8
-        start = time.perf_counter()
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            list(pool.map(worker, range(8)))
-        elapsed = time.perf_counter() - start
-        throughput = {"qps": counter / elapsed, "seconds": elapsed, "concurrency": 8,
-                      "requests": counter, "errors": errors}
-        (runs / (name + ".throughput.json")).write_text(json.dumps(throughput, indent=2) + "\n")
-        print(name, json.dumps(throughput), flush=True)
-        if errors:
+        operation = lambda worker_client, query: request(url, db, query, graph, token, worker_client)
+        measured = [throughput(lambda: JsonClient(url, headers), [q for _, q in queries],
+                               operation, workers=workers) for workers in (8, 16)]
+        row = {**measured[0], "worker_scaling": measured,
+               "qps_gain_16_over_8": measured[1]["qps"] / measured[0]["qps"] - 1}
+        (runs / (name + ".throughput.json")).write_text(json.dumps(row, indent=2) + "\n")
+        print(name, json.dumps(row), flush=True)
+        if any(item["errors"] for item in measured):
             raise ValueError("throughput errors; run is not a clean comparison")
+    client.close()
 
 
 def main():

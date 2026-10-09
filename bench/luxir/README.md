@@ -31,12 +31,18 @@ Put document-level runs in the shared runs directory:
   RSS and idle loaded-index RSS. Use explicit units in field names.
 - Optional matching `.throughput.json`: qps plus measured seconds,
   concurrency, successful requests and errors for 8 clients over 60 seconds.
+  Use the shared `http_runner.py` transport: one persistent HTTP connection
+  per worker, TCP_NODELAY, eight workers followed by sixteen. Record driver
+  CPU time, errors and the 16/8 QPS gain; a gain indicates client saturation
+  still needs investigation. Both engines and their drivers must use one
+  user-defined Docker network, addressed by container names.
   A missing throughput result is shown as “not run,” not zero.
 
 The scorer macro-averages over all test qids, including zero scores for queries
 without retrieved documents. nDCG@10 uses linear relevance gain and log2
 discount. Recall@100 and MRR@10 treat positive judgments as relevant.
-Unjudged documents receive zero gain. Latency percentiles use linear
+R_cap@100 divides relevant hits by min(100, relevant judgments), alongside
+uncapped Recall@100. Unjudged documents receive zero gain. Latency percentiles use linear
 interpolation over the per-query median latencies. Duplicate documents,
 inconsistent ranks and incomplete latency coverage are rejected.
 

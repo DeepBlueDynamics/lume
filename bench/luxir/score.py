@@ -49,7 +49,7 @@ def evaluate(qrels, run):
         raise ValueError("empty qrels")
     if set(run) - set(qrels):
         raise ValueError("run contains queries outside test split")
-    totals = [0.0, 0.0, 0.0]
+    totals = [0.0, 0.0, 0.0, 0.0]
     per_query = {}
     for qid, judged in qrels.items():
         docs = run.get(qid, [])
@@ -58,11 +58,12 @@ def evaluate(qrels, run):
         ideal = sum(g / math.log2(i + 2) for i, g in enumerate(sorted(judged.values(), reverse=True)[:10]))
         ndcg = dcg / ideal if ideal else 0.0
         recall = len(set(docs[:100]) & relevant) / len(relevant) if relevant else 0.0
+        capped_recall = len(set(docs[:100]) & relevant) / min(100, len(relevant)) if relevant else 0.0
         mrr = next((1.0 / (i + 1) for i, d in enumerate(docs[:10]) if d in relevant), 0.0)
-        per_query[qid] = {"ndcg_10": ndcg, "recall_100": recall, "mrr_10": mrr}
-        for i, value in enumerate((ndcg, recall, mrr)):
+        per_query[qid] = {"ndcg_10": ndcg, "recall_100": recall, "mrr_10": mrr, "r_cap_100": capped_recall}
+        for i, value in enumerate((ndcg, recall, mrr, capped_recall)):
             totals[i] += value
-    return dict(zip(("ndcg_10", "recall_100", "mrr_10"), (v / len(qrels) for v in totals))), per_query
+    return dict(zip(("ndcg_10", "recall_100", "mrr_10", "r_cap_100"), (v / len(qrels) for v in totals))), per_query
 
 
 def percentile(values, fraction):
@@ -113,6 +114,7 @@ def summarize(root):
             rows.append(row)
     return {"metric_conventions": {"ndcg": "linear relevance gain, log2 discount, depth 10",
                                    "recall": "positive qrels, depth 100",
+                                   "r_cap": "positive hits / min(100, positive qrels), depth 100",
                                    "mrr": "first positive qrel, depth 10",
                                    "aggregation": "macro average across every test qid; missing retrieval is zero",
                                    "latency": "linear interpolation over per-query medians from 3 timed passes"},
@@ -120,12 +122,12 @@ def summarize(root):
 
 
 def table(report):
-    lines = ["| Run | nDCG@10 | Recall@100 | MRR@10 | p50 ms | p95 ms | p99 ms | QPS |",
-             "|---|---:|---:|---:|---:|---:|---:|---:|"]
+    lines = ["| Run | nDCG@10 | Recall@100 | R_cap@100 | MRR@10 | p50 ms | p95 ms | p99 ms | QPS |",
+             "|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
     for row in report["results"]:
         throughput = row["throughput"] or {}
         qps = throughput.get("qps")
-        cells = [row["run"]] + [f'{row[k]:.4f}' for k in ("ndcg_10", "recall_100", "mrr_10")] + [
+        cells = [row["run"]] + [f'{row[k]:.4f}' for k in ("ndcg_10", "recall_100", "r_cap_100", "mrr_10")] + [
             f'{row[k]:.2f}' for k in ("p50_ms", "p95_ms", "p99_ms")] + [
             f"{qps:.2f}" if qps is not None else "not run"]
         lines.append("| " + " | ".join(cells) + " |")

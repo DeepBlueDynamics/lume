@@ -21,7 +21,7 @@ class ScoreTests(unittest.TestCase):
     def test_depth_limits(self):
         docs = ["x" + str(i) for i in range(100)] + ["a"]
         result, _ = score.evaluate({"q": {"a": 1}}, {"q": docs})
-        self.assertEqual(result, {"ndcg_10": 0, "recall_100": 0, "mrr_10": 0})
+        self.assertEqual(result, {"ndcg_10": 0, "recall_100": 0, "mrr_10": 0, "r_cap_100": 0})
 
     def test_negative_upstream_judgment_has_zero_gain(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -32,6 +32,12 @@ class ScoreTests(unittest.TestCase):
             metrics, _ = score.evaluate(qrels, {"q": ["x", "a"]})
             self.assertEqual(metrics["recall_100"], 1)
             self.assertEqual(metrics["mrr_10"], .5)
+
+    def test_capped_recall_with_more_than_100_relevant_documents(self):
+        qrels = {"q": {str(i): 1 for i in range(200)}}
+        metrics, _ = score.evaluate(qrels, {"q": [str(i) for i in range(100)]})
+        self.assertEqual(metrics["recall_100"], .5)
+        self.assertEqual(metrics["r_cap_100"], 1)
 
     def test_percentiles(self):
         self.assertEqual(score.percentile([1, 2, 3, 4], .5), 2.5)
