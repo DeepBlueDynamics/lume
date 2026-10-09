@@ -2397,7 +2397,7 @@ dependencies = [
 
 [[package]]
 name = "lume"
-version = "0.12.2"
+version = "0.12.3"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
