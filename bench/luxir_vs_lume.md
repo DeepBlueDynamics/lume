@@ -59,11 +59,11 @@ The evaluation is managed through a shared test harness ([`prepare.py`](luxir/pr
 | Run | nDCG@10 | Recall@100 | R_cap@100 | MRR@10 | p50 ms | p95 ms | p99 ms | QPS |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | **lume-released-bm25-scifact** | 0.6447 | 0.8726 | 0.8726 | 0.6084 | 286.03 | 314.59 | 325.94 | 17.09 |
-| **luxir-bm25-scifact** | 0.6793 | 0.9213 | 0.9213 | 0.6445 | 2.03 | 2.55 | 2.93 | *re-timing* |
-| **luxir-hybrid-scifact** | 0.6943 | 0.9563 | 0.9563 | 0.6637 | 4.14 | 5.37 | 6.06 | *re-timing* |
-| **luxir-bm25-trec-covid** | 0.6052 | 0.1061 | 0.4588 | 0.8758 | 3.12 | 4.06 | 4.68 | *re-timing* |
+| **luxir-bm25-scifact** | 0.6793 | 0.9213 | 0.9213 | 0.6445 | 0.33 | 0.43 | 0.49 | 4775.97 |
+| **luxir-hybrid-scifact** | 0.6943 | 0.9563 | 0.9563 | 0.6637 | 1.09 | 1.81 | 2.64 | 2329.37 |
+| **luxir-bm25-trec-covid** | 0.6052 | 0.1061 | 0.4588 | 0.8758 | 1.24 | 2.19 | 2.71 | 4485.07 |
 
-*(Note: Luxir throughput passes are scheduled for final re-timing over `luxir-bench-net` with persistent connection pooling following host clearance.)*
+*(Evaluated across user-defined bridge network `luxir-bench-net` using persistent HTTP connection pooling with 8 and 16 concurrent workers.)*
 
 ---
 
@@ -123,7 +123,7 @@ A detailed source-level audit was conducted to analyze why Luxir achieves **0.67
 ## 7. Architectural Differences & Talking Points
 
 1. **Standalone Search Engine vs. Embedded Database Engine**:
-   - **Luxir** is a purpose-built, high-throughput search daemon in modern C++20. It excels at lexical quality, instant indexing (>24,000 docs/sec), rich search primitives (phrase with slop, full booleans, multi-select facets), and raw query latency (2–4 ms).
+   - **Luxir** is a purpose-built, high-throughput search daemon in modern C++20. It excels at lexical quality, instant indexing (>24,000 docs/sec), rich search primitives (phrase with slop, full booleans, multi-select facets), and raw query latency (0.33–1.24 ms p50).
    - **Lume** is a versatile multi-model Rust engine integrating full-text BM25 search, knowledge-graph entity walks (SKG), time-series stream aggregation, and a complete relational SQL interface.
 2. **Platform Portability**:
    - **Lume** runs natively on ARM64 and low-power edge devices (Raspberry Pi 5).
