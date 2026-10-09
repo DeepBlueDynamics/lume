@@ -1,0 +1,62 @@
+#!/bin/sh
+set -e
+
+# postrm script for marine-lume-container
+SK_DATA="/var/lib/container-apps/marine-signalk-server-container/data/data"
+PLUGIN_DEST="$SK_DATA/lume-plugin/signalk-lume-ti"
+CONFIG_FILE="$SK_DATA/plugin-config-data/signalk-lume-ti.json"
+STORE_DIR="$SK_DATA/lume-ti"
+
+restart_signalk() {
+    if command -v systemctl >/dev/null 2>&1; then
+        if [ -d /run/systemd/system ]; then
+            echo "Restarting marine-signalk-server-container..."
+            systemctl restart marine-signalk-server-container || true
+        fi
+    fi
+}
+
+case "$1" in
+    remove)
+        # On remove: disable plugin in config, clean up plugin directory, leave store intact
+        if [ -f "$CONFIG_FILE" ]; then
+            python3 -c "
+import json, os, sys
+p = sys.argv[1]
+try:
+    with open(p, 'r', encoding='utf-8') as f:
+        d = json.load(f)
+    d['enabled'] = False
+    tmp = p + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(d, f, indent=2)
+        f.write('\n')
+    os.replace(tmp, p)
+    try:
+        os.chown(p, 1000, 1000)
+    except Exception:
+        pass
+except Exception:
+    pass
+" "$CONFIG_FILE" 2>/dev/null || true
+        fi
+        rm -rf "$PLUGIN_DEST" 2>/dev/null || true
+        restart_signalk
+        ;;
+    purge)
+        # On purge: remove configuration and user's timeseries store
+        rm -rf "$STORE_DIR" 2>/dev/null || true
+        rm -f "$CONFIG_FILE" 2>/dev/null || true
+        rm -rf "$SK_DATA/plugin-config-data/signalk-lume-ti" 2>/dev/null || true
+        rm -rf "$PLUGIN_DEST" 2>/dev/null || true
+        restart_signalk
+        ;;
+    upgrade|failed-upgrade|abort-install|abort-upgrade)
+        ;;
+    *)
+        echo "postrm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

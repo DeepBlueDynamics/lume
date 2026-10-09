@@ -1,0 +1,108 @@
+#!/bin/sh
+set -e
+
+# postinst script for marine-lume-container
+SK_DATA="/var/lib/container-apps/marine-signalk-server-container/data/data"
+PLUGIN_DEST="$SK_DATA/lume-plugin/signalk-lume-ti"
+CONFIG_DIR="$SK_DATA/plugin-config-data"
+CONFIG_FILE="$CONFIG_DIR/signalk-lume-ti.json"
+
+case "$1" in
+    configure)
+        # Ensure plugin directory and binary permissions
+        if [ -d "$PLUGIN_DEST" ]; then
+            chown -R 1000:1000 "$PLUGIN_DEST" 2>/dev/null || true
+            if [ -f "$PLUGIN_DEST/bin/linux-arm64/lume" ]; then
+                chmod 755 "$PLUGIN_DEST/bin/linux-arm64/lume" 2>/dev/null || true
+            fi
+        fi
+
+        # Enable plugin with safe defaults (loopback, no secrets)
+        mkdir -p "$CONFIG_DIR"
+        chown 1000:1000 "$CONFIG_DIR" 2>/dev/null || true
+        chmod 755 "$CONFIG_DIR" 2>/dev/null || true
+
+        python3 -c "
+import json, os, sys
+
+config_dir = sys.argv[1]
+config_file = sys.argv[2]
+
+defaults = {
+    'signalkUrl': 'ws://127.0.0.1:3000',
+    'servePort': 5863,
+    'enablePg': False,
+    'pgPort': 5864,
+    'pgBind': '127.0.0.1',
+    'pgRequireTls': 'auto',
+    'chatOllamaUrl': 'https://ollama.com',
+    'chatModel': 'glm-5.3:cloud',
+}
+
+doc = {}
+if os.path.exists(config_file):
+    try:
+        with open(config_file, 'r', encoding='utf-8') as f:
+            doc = json.load(f)
+    except Exception:
+        doc = {}
+
+doc['enabled'] = True
+cfg = doc.setdefault('configuration', {})
+for k, v in defaults.items():
+    cfg.setdefault(k, v)
+
+# Ensure no secrets in config
+if 'pgPassword' in cfg:
+    del cfg['pgPassword']
+
+tmp = config_file + '.tmp'
+with open(tmp, 'w', encoding='utf-8') as f:
+    json.dump(doc, f, indent=2)
+    f.write('\n')
+
+os.replace(tmp, config_file)
+try:
+    os.chown(config_file, 1000, 1000)
+    os.chmod(config_file, 0o644)
+except Exception:
+    pass
+" "$CONFIG_DIR" "$CONFIG_FILE" 2>/dev/null || {
+            if [ ! -f "$CONFIG_FILE" ]; then
+                cat << 'EOF' > "$CONFIG_FILE"
+{
+  "enabled": true,
+  "configuration": {
+    "signalkUrl": "ws://127.0.0.1:3000",
+    "servePort": 5863,
+    "enablePg": false,
+    "pgPort": 5864,
+    "pgBind": "127.0.0.1",
+    "pgRequireTls": "auto",
+    "chatOllamaUrl": "https://ollama.com",
+    "chatModel": "glm-5.3:cloud"
+  }
+}
+EOF
+                chown 1000:1000 "$CONFIG_FILE" 2>/dev/null || true
+                chmod 644 "$CONFIG_FILE" 2>/dev/null || true
+            fi
+        }
+
+        # Restart Signal K container if systemd is active
+        if command -v systemctl >/dev/null 2>&1; then
+            if [ -d /run/systemd/system ]; then
+                echo "Restarting marine-signalk-server-container..."
+                systemctl restart marine-signalk-server-container || true
+            fi
+        fi
+        ;;
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

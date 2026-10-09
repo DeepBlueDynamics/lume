@@ -1,0 +1,12 @@
+Package: marine-lume-container
+Version: 0.12.0-1
+Section: net
+Priority: optional
+Architecture: arm64
+Maintainer: DeepBlue Dynamics <kord@deepbluedynamics.com>
+Depends: marine-signalk-server-container
+Description: Lume TI timeseries store and query engine for Signal K
+ Lume TI is a high-resolution timeseries store and query engine for Signal K.
+ It integrates directly with the HaLOS Marine Signal K server container,
+ capturing navigation, engine, and environmental data at full resolution with
+ minimal CPU and memory footprint on Raspberry Pi 5.
