@@ -12,7 +12,7 @@ The `marine-lume` package adds Lume TI to the Signal K server that is already on
 
 - A history of Signal K data on the Pi, kept in 10-second buckets.
 - A SQL console, an Ask tab, a Library tab, and a status page, under **Webapps → Lume TI**.
-- A Signal K History API provider named `signalk-lume-ti`, so other apps such as Freeboard can read that history. Signal K uses one default history provider. If another provider is already the default, clients must pass `provider=signalk-lume-ti`, or you set Lume as the default in **Admin → Data → Preferences**. Installing the plugin does not change that default.
+- A Signal K History API provider named `signalk-lume-ti`, so other apps such as Freeboard can read that history. Signal K uses one default history provider. If another provider is already the default, clients must pass `provider=signalk-lume-ti`, or an admin makes Lume the default history provider in Signal K. Installing the plugin does not change that default.
 - Lume's own health numbers, in a separate table called `telemetry_lume`. Those numbers are about Lume, not about the boat. The table appears only after the first data has been recorded.
 
 The query service stays on `127.0.0.1:5863` inside the Pi. The package does not open a new port on the boat network. PostgreSQL for Grafana is off until you turn it on.
@@ -58,7 +58,7 @@ The package does the following, from `deploy/halos/marine-lume/debian/postinst`:
 
 You do not have to turn the plugin on by hand. To change a setting later, open Signal K admin and go to **Server → Plugin Config**, then **Lume TI**.
 
-Open the pages from **Webapps → Lume TI**. The plugin path on Signal K is `/signalk-lume-ti` (`signalk.appPath` in `plugins/signalk-lume-ti/package.json`). On the Pi, Signal K is at port 3000, so that page is `http://127.0.0.1:3000/signalk-lume-ti/`. From a phone or laptop, use the same Signal K admin you already use, then the Webapps menu. This repo does not include HaLOS `/etc/halos/routing.d` or `webapps.d`, so this guide does not give a public `https://` address for that page.
+Open the pages from **Webapps → Lume TI**. The plugin path on Signal K is `/signalk-lume-ti` (`signalk.appPath` in `plugins/signalk-lume-ti/package.json`). On the Pi, Signal K is at port 3000, so that page is `http://127.0.0.1:3000/signalk-lume-ti/`. From a phone or laptop on the boat network, HaLOS publishes Signal K on port 4430, so the page is `https://halos.local:4430/signalk-lume-ti/` (use the Pi's IP if `halos.local` does not resolve; the certificate is HaLOS's own). You can also open it from the Signal K admin, under **Webapps**.
 
 Before you rely on history, pin the boat's identity in **Server → Settings → Vessel Base Data**. If that identity changes, old and new history split apart.
 
@@ -82,10 +82,10 @@ The version line should say `0.12.2-1`.
 
 In Signal K admin, the Lume TI plugin status should start with `Running` and show a process id, lag, how much has been ingested, and disk use. After you approve access and the boat is sending data, `Ingested` rises above 0. If Lume is in its own container instead, the line says `External server (marine-lume-container) answering on 127.0.0.1:5863`.
 
-This asks Signal K whether the plugin is loaded:
+This shows whether the plugin has started Lume (in embedded mode it runs inside the Signal K container):
 
 ```sh
-curl -s http://127.0.0.1:3000/signalk/v1/api/plugins/signalk-lume-ti
+pgrep -af "lume ti ingest"
 ```
 
 This asks Lume whether its own health table answers. Run it on the Pi:
@@ -159,7 +159,7 @@ To remove the plugin and keep the history:
 sudo apt remove marine-lume
 ```
 
-That turns the plugin off, removes the plugin files and the `node_modules` link, and restarts Signal K. The history stays in `/var/lib/container-apps/marine-signalk-server-container/data/data/lume-ti`.
+That turns the plugin off, removes the plugin files and the `node_modules` link, and restarts Signal K. The history stays in `/var/lib/container-apps/marine-signalk-server-container/data/data/plugin-config-data/signalk-lume-ti/lume-ti`.
 
 To remove the history and the plugin settings as well, including the Ask key file:
 
@@ -171,7 +171,7 @@ Purge deletes that store directory, `plugin-config-data/signalk-lume-ti.json`, a
 
 ## 8. Troubleshooting
 
-**The Lume page is not found.** Open it from **Webapps → Lume TI**. Do not guess a `https://` address. On the Pi the Signal K path is `http://127.0.0.1:3000/signalk-lume-ti/`. This repo does not document HaLOS's public route for that path.
+**The Lume page is not found.** Use exactly `https://halos.local:4430/signalk-lume-ti/` (one copy of the address, with the trailing slash), or open it from **Webapps → Lume TI**. On the Pi itself it is `http://127.0.0.1:3000/signalk-lume-ti/`. If it is still not found, check the plugin is installed and enabled (section 3).
 
 **No boat data.** In **Security → Access Requests**, approve the Lume TI device. Until that approval, when anonymous read-only access is off, the status stays on `Running` with `Ingested: 0`, and the log says `Access request pending administrator approval`. The plugin asks for read-only access and stores the token itself. After approval, the SQL console preset **Recent SOG & Wind** should show rows once the boat has sent data. Also confirm the vessel identity in **Server → Settings → Vessel Base Data** has not changed.
 
@@ -223,7 +223,7 @@ Restart Signal K the way you usually restart it. Then enable **Lume TI** in **Se
 
 **Approve the access request before you expect data.** Security is on by default on this stock server. Open **Security → Access Requests** and approve Lume TI. Until you do, the status shows `Running` with `Ingested: 0`, and the log says `Access request pending administrator approval`. Nothing is recorded until then.
 
-Signal K uses one default History API provider. If another provider is the default, clients must pass `provider=signalk-lume-ti`, or you choose Lume in **Admin → Data → Preferences**.
+Signal K uses one default History API provider. If another provider is the default, clients must pass `provider=signalk-lume-ti`, or an admin makes Lume the default history provider.
 
 `telemetry_lume` appears only after the first data has been recorded. Querying it earlier says the table was not found.
 
