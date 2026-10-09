@@ -39,6 +39,8 @@ The default build has **four runtime dependencies** (`tantivy-fst`, `ureq`, `ser
 
 ## Install
 
+**Install on HaLOS:** on the boat's Pi, install the `marine-lume` package. A plain 64-bit Linux Signal K server uses the plugin tarball instead. Both are in [Install Lume on HaLOS](docs/HALOS.md).
+
 Prebuilt binaries (with Lume TI) for Linux x64/arm64, macOS Intel/Apple Silicon and Windows x64 are on [GitHub Releases](https://github.com/DeepBlueDynamics/lume/releases), each with `SHA256SUMS`.
 
 ```bash
@@ -355,15 +357,11 @@ See [`bench/grafana/README.md`](bench/grafana/README.md) for import and provisio
 
 ### Raspberry Pi deployment & Signal K plugin
 
-- **Signal K plugin (`plugins/signalk-lume-ti`)**: embeds Lume TI into Signal K.
-  - The **Ask** tab defaults to calling `https://ollama.com` directly (`glm-5.3:cloud`) via `chatApiKeyFile` (passing `OLLAMA_API_KEY` in the child environment only; no local model container needed, freeing ~4.2 GB disk).
-  - Supervised ingestion manages the `lume` child process and exposes an `otlpEnabled` receiver setting, pinning query endpoints to loopback `127.0.0.1` to prevent unauthenticated network access.
-- **Deployment scripts**:
-  - `scripts/provision-pi.sh <ssh-host> [--dry-run] [--lume-bin <path>] [--debs <dir>] [--with-ollama]`: idempotent host provisioner configuring memory cgroups (`cgroup_enable=memory cgroup_memory=1` in `cmdline.txt`), pinning self vessel UUID, installing HaLOS `.deb` packages, and deploying the plugin.
-  - `scripts/deploy-pi.sh <ssh-host> [--dry-run] [--lume-bin <path>]`: stages the plugin and arm64 `lume` binary (mode 755) to `/var/lib/container-apps/.../signalk-lume-ti` and restarts the service.
-  - `scripts/pi-retire-ollama.sh <ssh-host> [--dry-run]`: stops and disables `marine-ollama-container` and removes the 4.2 GB Docker image while keeping persistent models and data.
-  - All scripts support `LUME_DEPLOY_SSH_CONFIG` to isolate SSH configurations without modifying `~/.ssh/config`.
-- **HaLOS container packages (`deploy/halos/`)**: Debian packages for Grub Crawler (`marine-grubcrawler-container`) and Ollama gateway (`marine-ollama-container`) feature dynamic RAM auto-sizing via `app-prestart.sh` (`MEMORY_LIMIT=auto`).
+Install on a HaLOS Pi, or on another 64-bit Linux Signal K server, with [Install Lume on HaLOS](docs/HALOS.md). On HaLOS that is the `marine-lume` package. The same guide covers the Ask tab key and the optional Lume container, Grafana and Grub apps. Do not follow a second install procedure from this page.
+
+The Signal K plugin is [`plugins/signalk-lume-ti`](plugins/signalk-lume-ti). It records history, serves the SQL console, Ask tab and Library, and registers a History API provider. The Ask tab defaults to `https://ollama.com` and `glm-5.3:cloud`. The query service stays on `127.0.0.1`.
+
+Maintainer scripts, not the boat install: `scripts/provision-pi.sh`, `scripts/deploy-pi.sh`, `scripts/pi-set-ollama-key.sh`, and `scripts/pi-retire-ollama.sh`. Each script's header lists its flags. `LUME_DEPLOY_SSH_CONFIG` selects an SSH config file without editing `~/.ssh/config`.
 
 ### Measured
 
