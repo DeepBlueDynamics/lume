@@ -47,7 +47,19 @@ per-query quality metrics are preserved in it.
 ## Fair execution and current Lume limitation
 
 Use Linux Docker containers on the desktop with `--cpus 8 --memory 8g`.
-Publish ports on 127.0.0.1 only. Pin and checksum the released v0.12.1 Lume
+Serve the Lume index from the named Linux Docker volume `lume-luxir-indexes`
+(`/indexes/scifact`), never from the Windows bind mount. The SciFact copy was
+SHA-256 checked against all five original files (57,804,471 bytes). Inputs
+and output runs may stay on the bind mount. The initial bind-mount run was
+stopped before completion and is excluded from results. Parrot confirmed Luxir's indexes live in the Linux named volume
+`luxir-bench-data` at `/var/lib/luxir_data`; its Windows input mount is
+read-only. Both latency harnesses measure client wall-clock HTTP requests,
+including serialization, transport, search and JSON decoding, after one
+full warmup and with three timed passes (per-query median).
+Only one engine may build or time on the desktop at once. Exchange START
+and DONE mail with the other benchmark agent and wait for its DONE before
+starting; Rust builds must also stay outside timed runs.
+Publish ports on 127.0.0.1 only. Pin and checksum the released v0.12.2 Lume
 Linux x64 binary; do not substitute a compiled lane binary. Run SciFact end
 to end before TREC-COVID. Phase 1 is lexical: Lume alpha=0, graph=0 and
 graph=0.4; record all deviations from defaults. Hybrid alpha=0.5 with Shivvr
@@ -56,9 +68,10 @@ is phase 2, after phase 1.
 Source inspection at 7183552 (also confirmed by the lead at release tag v0.12.2, 5d88268) found that MCP `lume_search` calls
 `LoadedIndex::open` per request (src/agent.rs), which deserializes the index
 JSON files every time (src/search.rs). A long-running process therefore
-does not provide a resident-index comparison. Lume latency/throughput
-measurements are on hold pending the lead's ruling; do not label these
-per-request loads “warm index” or silently change the released binary.
+does not provide a resident-index comparison. The approved comparison has two separately labeled Lume rows: released
+v0.12.2 including per-request loads, and a resident-index fix with identical
+rankings. Warm released means a warmed process/filesystem, not a retained index.
+The fixed-source base is 5e71ed8; release tag v0.12.2 is 5d88268.
 Plain .txt indexing splits files into consecutive 25-line sections titled
 `Lines <start>-<end>` and preserves the source filename (src/main.rs). The
 benchmark must map `<BEIR id>.txt` back to that document ID and take its maximum
