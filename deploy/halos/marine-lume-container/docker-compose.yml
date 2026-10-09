@@ -1,0 +1,37 @@
+services:
+  lume:
+    image: ${LUME_IMAGE:-deepbluedynamics/lume:0.12.1}
+    container_name: lume
+    init: true
+    restart: unless-stopped
+    logging:
+      driver: journald
+      options:
+        tag: '{{.Name}}'
+    # Host network, like Signal K: ingest reads ws://127.0.0.1:3000 and the
+    # plugin queries 127.0.0.1:5863. lume binds loopback (and docker0 for
+    # Grafana's pgwire) as the plugin's arguments say; nothing is published.
+    network_mode: host
+    # Signal K's node user: the store, token and library index are shared
+    # with the plugin, which still runs lume for the Ask tab and the Library.
+    user: "1000:1000"
+    volumes:
+    - /var/lib/container-apps/marine-signalk-server-container/data/data:/home/node/.signalk
+    environment:
+    - RUST_BACKTRACE=1
+    # Written by the plugin in external mode: its data dir is
+    # plugin-config-data/signalk-lume-ti and the store is lume-ti under it.
+    - LUME_ARGS_FILE=/home/node/.signalk/plugin-config-data/signalk-lume-ti/lume-ti/server.args
+    - _HALOS_SYSTEMD_CHECK=${HALOS_SYSTEMD_STARTED:?Container must be started via
+      systemctl, not docker compose directly}
+    mem_limit: ${LUME_MEMORY_LIMIT:-1g}
+    # SIGTERM flushes the WAL and seals open buckets before exit.
+    stop_grace_period: 30s
+    healthcheck:
+      test:
+      - CMD
+      - /usr/local/bin/lume-container-health
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3

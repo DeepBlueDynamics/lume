@@ -1,0 +1,45 @@
+#!/bin/bash
+# Run `lume ti ingest --serve` from the arguments the signalk-lume-ti plugin
+# writes in external server mode (one per line), and restart it when they change
+# or when it exits. With no args file (embedded mode) the container idles.
+set -u
+args_file="${LUME_ARGS_FILE:-/home/node/.signalk/plugin-config-data/signalk-lume-ti/lume-ti/server.args}"
+child=""
+current=""
+
+stop_child() {
+    if [ -n "$child" ] && kill -0 "$child" 2> /dev/null; then
+        kill -TERM "$child"
+        wait "$child"
+    fi
+    child=""
+}
+trap 'stop_child; exit 0' TERM INT
+
+while true; do
+    sum=""
+    [ -f "$args_file" ] && sum="$(cksum < "$args_file")"
+    if [ "$sum" != "$current" ]; then
+        stop_child
+        current="$sum"
+        if [ -n "$sum" ]; then
+            mapfile -t args < "$args_file"
+            if [ "${args[0]:-}" != "ti" ] || [ "${args[1]:-}" != "ingest" ]; then
+                echo "lume-container: $args_file does not start with 'ti ingest'; ignoring it" >&2
+            else
+                echo "lume-container: starting lume ${args[*]}"
+                /usr/local/bin/lume "${args[@]}" &
+                child=$!
+            fi
+        else
+            echo "lume-container: waiting for $args_file (set the plugin's Query Server Mode to external)"
+        fi
+    elif [ -n "$child" ] && ! kill -0 "$child" 2> /dev/null; then
+        wait "$child"
+        echo "lume-container: lume exited with status $?; restarting in 5 s" >&2
+        child=""
+        current=""
+    fi
+    sleep 5 &
+    wait $!
+done
