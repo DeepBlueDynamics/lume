@@ -3,3 +3,6 @@ tests/pg_smoke.sh text eol=lf
 
 # Shell scripts run on Linux (Pi, CI); keep LF on Windows checkouts.
 *.sh text eol=lf
+
+# HaLOS package files are packed into .debs; maintainer scripts and control must stay LF.
+deploy/halos/** text eol=lf
