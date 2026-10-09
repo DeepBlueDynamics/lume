@@ -1,0 +1,13 @@
+Package: marine-lume
+Version: 0.12.0-1
+Section: net
+Priority: optional
+Architecture: arm64
+Maintainer: DeepBlue Dynamics <kord@deepbluedynamics.com>
+Depends: marine-signalk-server-container
+Description: Records Signal K history on the Pi and lets you query it with SQL or plain-English questions.
+ Records Signal K history on the Pi and lets you query it with SQL or
+ plain-English questions. It integrates directly with the HaLOS Marine
+ Signal K server container, capturing navigation, engine, and environmental
+ data into 10-second bucket aggregates with minimal CPU and memory footprint
+ on Raspberry Pi 5.

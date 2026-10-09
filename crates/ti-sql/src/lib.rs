@@ -1,0 +1,37 @@
+//! Read-only DataFusion SQL over Lume TI shards.
+#![forbid(unsafe_code)]
+mod aggregate;
+mod analyzer;
+mod catalog;
+mod classifier;
+pub mod cli;
+mod doc_ranges;
+mod docs;
+mod engine;
+mod fixture;
+pub use engine::*;
+mod geo;
+mod intervals;
+mod materialize;
+mod memory;
+pub mod postgres;
+mod provider;
+mod raw;
+mod rewrite;
+pub mod rules;
+mod session;
+mod store;
+mod timestamp;
+mod verify;
+pub use catalog::*;
+pub use classifier::*;
+pub use datafusion;
+pub use docs::DocsProvider;
+pub use fixture::*;
+pub use materialize::*;
+pub use provider::*;
+pub use raw::register_raw;
+pub use rewrite::*;
+pub use session::*;
+pub use store::*;
+pub use verify::*;

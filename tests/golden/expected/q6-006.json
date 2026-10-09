@@ -1,0 +1,22 @@
+[
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-01 00:00:00",
+    "cycles": 1
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-21 00:00:50",
+    "cycles": 4
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-26 00:00:50",
+    "cycles": 3
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-28 12:00:50",
+    "cycles": 2
+  }
+]

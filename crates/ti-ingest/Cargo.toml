@@ -1,0 +1,30 @@
+[package]
+name = "ti-ingest"
+version = "0.1.0"
+edition = "2021"
+license = "BSD-3-Clause"
+description = "Ingest pipeline for Lume Telemetry Index (decode, normalize, bucket, watermark)"
+
+[[example]]
+name = "profile_backfill"
+required-features = ["backfill-profile"]
+
+[features]
+backfill-profile = []
+
+[dependencies]
+ti-contracts = { path = "../ti-contracts" }
+ti-store = { path = "../ti-store" }
+ti-geo = { path = "../ti-geo" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+ureq = "2.12"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+parquet = { version = "59.2", default-features = false, features = ["arrow", "snap", "flate2-rust_backend", "zstd"] }
+arrow-array = "59.2"
+arrow-schema = "59.2"
+tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
+blake3 = { version = "1.5", features = ["pure"] }
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,0 +1,277 @@
+{
+  "version": 1,
+  "bucket_width_seconds": 10,
+  "epoch": "2020-01-01T00:00:00Z",
+  "vessels": [
+    "robots.urn:robot:1",
+    "robots.urn:robot:2",
+    "robots.urn:robot:3"
+  ],
+  "entries": [
+    {
+      "id": "robots-01",
+      "class": "W9",
+      "description": "Point lookup at a charging bucket",
+      "ti_sql": "SELECT \"robot.motor_current@mean\" AS current, \"robot.mode\" AS mode FROM telemetry WHERE entity='robots.urn:robot:1' AND ts=TIMESTAMP '2026-05-01 00:17:00'",
+      "oracle_sql": "SELECT \"robot.motor_current@mean\" AS current, \"robot.mode\" AS mode FROM telemetry WHERE entity='robots.urn:robot:1' AND ts=TIMESTAMP '2026-05-01 00:17:00'",
+      "tolerance": {
+        "sort": [
+          "current",
+          "mode"
+        ],
+        "exact": [
+          "mode"
+        ],
+        "bsi": {
+          "current": 2
+        }
+      },
+      "expected_path": "expected/robots-01.json"
+    },
+    {
+      "id": "robots-02",
+      "class": "W9",
+      "description": "Two-day bucket counts per robot",
+      "ti_sql": "SELECT entity, count(*) AS n FROM telemetry WHERE entity LIKE 'robots.urn:%' GROUP BY entity ORDER BY entity",
+      "oracle_sql": "SELECT entity, count(*) AS n FROM telemetry WHERE entity LIKE 'robots.urn:%' GROUP BY entity ORDER BY entity",
+      "tolerance": {
+        "sort": [
+          "entity",
+          "n"
+        ],
+        "exact": [
+          "entity",
+          "n"
+        ],
+        "bsi": {}
+      },
+      "expected_path": "expected/robots-02.json"
+    },
+    {
+      "id": "robots-03",
+      "class": "W9",
+      "description": "Battery threshold counts",
+      "ti_sql": "SELECT vessel, count(*) AS n FROM telemetry WHERE \"robot.battery_voltage@min\" < 24.6 GROUP BY vessel ORDER BY vessel",
+      "oracle_sql": "SELECT vessel, count(*) AS n FROM telemetry WHERE \"robot.battery_voltage@min\" < 24.6 GROUP BY vessel ORDER BY vessel",
+      "tolerance": {
+        "sort": [
+          "vessel",
+          "n"
+        ],
+        "exact": [
+          "vessel",
+          "n"
+        ],
+        "bsi": {}
+      },
+      "expected_path": "expected/robots-03.json"
+    },
+    {
+      "id": "robots-04",
+      "class": "W9",
+      "description": "Daily current rollup",
+      "ti_sql": "SELECT entity, CAST(date_bin(INTERVAL '1 day',ts) AS DATE) AS day, min(\"robot.motor_current@min\") AS current FROM telemetry WHERE entity LIKE 'robots.urn:%' GROUP BY entity,day ORDER BY entity,day",
+      "oracle_sql": "SELECT entity, CAST(time_bucket(INTERVAL '1 day',ts) AS DATE) AS day, min(\"robot.motor_current@min\") AS current FROM telemetry WHERE entity LIKE 'robots.urn:%' GROUP BY entity,day ORDER BY entity,day",
+      "tolerance": {
+        "sort": [
+          "entity",
+          "day",
+          "current"
+        ],
+        "exact": [
+          "entity",
+          "day"
+        ],
+        "bsi": {
+          "current": 2
+        }
+      },
+      "expected_path": "expected/robots-04.json"
+    },
+    {
+      "id": "robots-05",
+      "class": "W9",
+      "description": "Single-valued charging states",
+      "ti_sql": "SELECT vessel,count(*) AS n FROM telemetry WHERE \"robot.mode\"='charging' GROUP BY vessel ORDER BY vessel",
+      "oracle_sql": "SELECT vessel,count(*) AS n FROM telemetry WHERE \"robot.mode\"='charging' GROUP BY vessel ORDER BY vessel",
+      "tolerance": {
+        "sort": [
+          "vessel",
+          "n"
+        ],
+        "exact": [
+          "vessel",
+          "n"
+        ],
+        "bsi": {}
+      },
+      "expected_path": "expected/robots-05.json"
+    },
+    {
+      "id": "robots-06",
+      "class": "W9",
+      "description": "AND/NOT set and numeric predicates",
+      "ti_sql": "SELECT vessel,count(*) AS n FROM telemetry WHERE \"robot.fault\"='battery' AND NOT (\"robot.mode\"='charging') AND \"robot.battery_voltage@min\"<24.6 GROUP BY vessel ORDER BY vessel",
+      "oracle_sql": "SELECT vessel,count(*) AS n FROM telemetry WHERE \"robot.fault\"='battery' AND NOT (\"robot.mode\"='charging') AND \"robot.battery_voltage@min\"<24.6 GROUP BY vessel ORDER BY vessel",
+      "tolerance": {
+        "sort": [
+          "vessel",
+          "n"
+        ],
+        "exact": [
+          "vessel",
+          "n"
+        ],
+        "bsi": {}
+      },
+      "expected_path": "expected/robots-06.json"
+    },
+    {
+      "id": "robots-07",
+      "class": "W9",
+      "description": "Default source membership",
+      "ti_sql": "SELECT count(*) AS n FROM telemetry WHERE \"robot.motor_current$source\"='default'",
+      "oracle_sql": "SELECT count(*) AS n FROM telemetry WHERE list_contains(\"robot.motor_current$source\",'default')",
+      "tolerance": {
+        "sort": [
+          "n"
+        ],
+        "exact": [
+          "n"
+        ],
+        "bsi": {}
+      },
+      "expected_path": "expected/robots-07.json"
+    },
+    {
+      "id": "robots-08",
+      "class": "W9",
+      "description": "Battery interval count and matching bucket count",
+      "ti_sql": "SELECT count(*) AS n,sum(buckets) AS buckets FROM intervals('\"robot.battery_voltage@min\" < 24.6', min_len => '600s')",
+      "oracle_sql": "WITH matched AS (SELECT vessel,bucket,bucket-row_number() OVER(PARTITION BY vessel ORDER BY bucket) AS island FROM telemetry WHERE \"robot.battery_voltage@min\"<24.6), ranges AS (SELECT vessel,island,count(*) AS n FROM matched GROUP BY vessel,island HAVING (max(bucket)-min(bucket)+1)*10>=600) SELECT count(*) AS n,sum(n) AS buckets FROM ranges",
+      "tolerance": {
+        "sort": [
+          "n",
+          "buckets"
+        ],
+        "exact": [
+          "n",
+          "buckets"
+        ],
+        "bsi": {}
+      },
+      "expected_path": "expected/robots-08.json"
+    },
+    {
+      "id": "robots-09",
+      "class": "W9",
+      "description": "Pose numeric maxima",
+      "ti_sql": "SELECT entity,max(\"robot.pose_x@max\") AS x FROM telemetry WHERE entity LIKE 'robots.urn:%' GROUP BY entity ORDER BY entity",
+      "oracle_sql": "SELECT entity,max(\"robot.pose_x@max\") AS x FROM telemetry WHERE entity LIKE 'robots.urn:%' GROUP BY entity ORDER BY entity",
+      "tolerance": {
+        "sort": [
+          "entity",
+          "x"
+        ],
+        "exact": [
+          "entity"
+        ],
+        "bsi": {
+          "x": 3
+        }
+      },
+      "expected_path": "expected/robots-09.json"
+    },
+    {
+      "id": "robots-10",
+      "class": "W9",
+      "description": "OR/NOT states preserve ordinary single values",
+      "ti_sql": "SELECT vessel,count(*) AS n FROM telemetry WHERE NOT (\"robot.mode\"='charging' OR \"robot.fault\"='battery') GROUP BY vessel ORDER BY vessel",
+      "oracle_sql": "SELECT vessel,count(*) AS n FROM telemetry WHERE NOT (\"robot.mode\"='charging' OR \"robot.fault\"='battery') GROUP BY vessel ORDER BY vessel",
+      "tolerance": {
+        "sort": [
+          "vessel",
+          "n"
+        ],
+        "exact": [
+          "vessel",
+          "n"
+        ],
+        "bsi": {}
+      },
+      "expected_path": "expected/robots-10.json"
+    },
+    {
+      "id": "robots-11",
+      "class": "W9",
+      "description": "Mapped documents are searchable",
+      "ti_sql": "SELECT count(*) AS n FROM docs WHERE match(body,'battery')",
+      "oracle_sql": "SELECT count(*) AS n FROM docs WHERE body ILIKE '%battery%'",
+      "tolerance": {
+        "sort": [
+          "n"
+        ],
+        "exact": [
+          "n"
+        ],
+        "bsi": {}
+      },
+      "expected_path": "expected/robots-11.json"
+    },
+    {
+      "id": "robots-12",
+      "class": "W9",
+      "description": "Document ranges cover telemetry buckets",
+      "ti_sql": "SELECT count(*) AS n FROM telemetry WHERE match(notes,'battery')",
+      "oracle_sql": "SELECT count(*) AS n FROM telemetry t WHERE EXISTS (SELECT 1 FROM docs d WHERE d.vessel=t.vessel AND d.kind='notes' AND d.body ILIKE '%battery%' AND t.ts>=d.ts_start AND t.ts<d.ts_end)",
+      "tolerance": {
+        "sort": [
+          "n"
+        ],
+        "exact": [
+          "n"
+        ],
+        "bsi": {}
+      },
+      "expected_path": "expected/robots-12.json"
+    },
+    {
+      "id": "robots-13",
+      "class": "W9",
+      "description": "Documents join telemetry in half-open ranges",
+      "ti_sql": "SELECT d.id,count(*) AS n FROM docs d JOIN telemetry t ON d.entity=t.entity AND t.ts>=d.ts_start AND t.ts<d.ts_end GROUP BY d.id ORDER BY d.id",
+      "oracle_sql": "SELECT d.id,count(*) AS n FROM docs d JOIN telemetry t ON d.entity=t.entity AND t.ts>=d.ts_start AND t.ts<d.ts_end GROUP BY d.id ORDER BY d.id",
+      "tolerance": {
+        "sort": [
+          "id",
+          "n"
+        ],
+        "exact": [
+          "id",
+          "n"
+        ],
+        "bsi": {}
+      },
+      "expected_path": "expected/robots-13.json"
+    },
+    {
+      "id": "robots-14",
+      "class": "W9",
+      "description": "Mixed Signal K boat and robot fleet",
+      "ti_sql": "SELECT vessel,count(*) AS n FROM telemetry GROUP BY vessel ORDER BY vessel",
+      "oracle_sql": "SELECT vessel,count(*) AS n FROM telemetry GROUP BY vessel ORDER BY vessel",
+      "tolerance": {
+        "sort": [
+          "vessel",
+          "n"
+        ],
+        "exact": [
+          "vessel",
+          "n"
+        ],
+        "bsi": {}
+      },
+      "expected_path": "expected/robots-14.json"
+    }
+  ]
+}

@@ -1,3 +1,13 @@
+[workspace]
+resolver = "2"
+members = ["crates/ti-contracts", "crates/ti-core", "crates/ti-store", "crates/ti-sql", "crates/ti-ingest", "crates/ti-bench", "crates/ti-geo", "crates/ti-sync", "crates/ti-query-bench"]
+default-members = ["."]
+
+[features]
+default = []
+pdf = ["dep:lopdf", "dep:zip", "dep:quick-xml"]
+ti = ["pdf", "dep:ti-contracts", "dep:ti-core", "dep:ti-store", "dep:ti-sql", "dep:ti-ingest", "dep:ti-geo", "dep:ti-sync", "dep:pgwire", "dep:tokio", "dep:futures", "dep:async-trait", "dep:chrono", "dep:sha2", "dep:hmac", "dep:base64", "dep:rand", "dep:tokio-rustls", "dep:rustls-pemfile", "dep:rcgen", "dep:tokio-util"]
+
 [package]
 name = "lume"
 version = "0.12.0"
@@ -8,9 +18,43 @@ license = "BSD-3-Clause"
 [dependencies]
 tantivy-fst = "0.5"
 ureq = { version = "2.9", features = ["json"] }
+# D51: RS256 using the existing ring backend; no PEM/ASN1 or new crypto backend.
+jsonwebtoken = { version = "=9.3.1", default-features = false }
+ring = "0.17"
+url = "2.5"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+lopdf = { version = "=0.44.0", default-features = false, optional = true }
+zip = { version = "=8.6.0", default-features = false, features = ["deflate-flate2"], optional = true }
+quick-xml = { version = "=0.42.0", default-features = false, optional = true }
+ti-contracts = { path = "crates/ti-contracts", optional = true }
+ti-core = { path = "crates/ti-core", optional = true }
+ti-sql = { path = "crates/ti-sql", optional = true }
+ti-store = { path = "crates/ti-store", optional = true }
+ti-ingest = { path = "crates/ti-ingest", optional = true }
+ti-geo = { path = "crates/ti-geo", optional = true }
+ti-sync = { path = "crates/ti-sync", optional = true }
 
+pgwire = { version = "=0.41.0", default-features = false, features = ["server-api", "pg-type-chrono"], optional = true }
+tokio = { version = "1", features = ["net", "rt-multi-thread", "sync", "time", "macros"], optional = true }
+futures = { version = "0.3", optional = true }
+async-trait = { version = "0.1", optional = true }
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"], optional = true }
+sha2 = { version = "0.11", optional = true }
+hmac = { version = "0.13", optional = true }
+base64 = { version = "0.23", optional = true }
+rand = { version = "0.10", optional = true }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"], optional = true }
+rustls-pemfile = { version = "2.2", optional = true }
+rcgen = { version = "0.14", default-features = false, features = ["pem", "ring"], optional = true }
+tokio-util = { version = "0.7", features = ["codec"], optional = true }
+
+[dev-dependencies]
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
+tokio-postgres-rustls = { version = "0.14", default-features = false, features = ["ring"] }
+tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+ti-bench = { path = "crates/ti-bench" }
 
 [[bin]]
 name = "lume"
@@ -18,4 +62,15 @@ path = "src/main.rs"
 
 [profile.release]
 lto = true
+opt-level = 3
+panic = "unwind"
+strip = "symbols"
 codegen-units = 1
+
+# Debug builds keep only line tables for our code and no debug info for dependencies:
+# full DataFusion debug info made each target/ tens of GB (2026-10-06).
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

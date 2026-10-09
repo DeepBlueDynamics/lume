@@ -34,8 +34,8 @@ pub fn levenshtein_distance(a: &str, b: &str) -> usize {
     if len_b == 0 { return len_a; }
     
     let mut dp = vec![0; len_b + 1];
-    for j in 0..=len_b {
-        dp[j] = j;
+    for (j, cell) in dp.iter_mut().enumerate() {
+        *cell = j;
     }
     
     for (i, ca) in a.chars().enumerate() {

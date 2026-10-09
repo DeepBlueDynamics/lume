@@ -1,0 +1,1241 @@
+{
+ "version": 1,
+ "bucket_width_seconds": 10,
+ "epoch": "2020-01-01T00:00:00Z",
+ "vessels": [
+  "vessels.urn:mrn:imo:mmsi:367000000",
+  "vessels.urn:mrn:imo:mmsi:367000001"
+ ],
+ "entries": [
+  {
+   "id": "q1-001",
+   "class": "Q1",
+   "description": "Point lookup: true wind speed @max at a single 10s bucket",
+   "ti_sql": "SELECT vessel, ts, \"environment.wind.speedTrue@max\" AS wind_max\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts = TIMESTAMP '2026-05-01 12:00:00'\nORDER BY ts",
+   "oracle_sql": "SELECT context AS vessel,\n       time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS ts,\n       round(round(max(value), 3), 3) AS wind_max\nFROM raw\nWHERE path = 'environment.wind.speedTrue' AND context = 'vessels.urn:mrn:imo:mmsi:367000000'\nGROUP BY 1, 2\nHAVING ts = TIMESTAMP '2026-05-01 12:00:00'\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "ts"
+    ],
+    "exact": [
+     "vessel",
+     "ts"
+    ],
+    "bsi": {
+     "wind_max": 3
+    }
+   },
+   "expected_path": "expected/q1-001.json"
+  },
+  {
+   "id": "q1-002",
+   "class": "Q1",
+   "description": "Point lookup: speed over ground @last at a bucket",
+   "ti_sql": "SELECT vessel, ts, \"navigation.speedOverGround@last\" AS sog_last\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts = TIMESTAMP '2026-05-01 06:30:00'\nORDER BY ts",
+   "oracle_sql": "SELECT context AS vessel,\n       time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS ts,\n       round(round(arg_max(value, ts), 3), 3) AS sog_last\nFROM raw\nWHERE path = 'navigation.speedOverGround' AND context = 'vessels.urn:mrn:imo:mmsi:367000000'\nGROUP BY 1, 2\nHAVING ts = TIMESTAMP '2026-05-01 06:30:00'\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "ts"
+    ],
+    "exact": [
+     "vessel",
+     "ts"
+    ],
+    "bsi": {
+     "sog_last": 3
+    }
+   },
+   "expected_path": "expected/q1-002.json"
+  },
+  {
+   "id": "q1-003",
+   "class": "Q1",
+   "description": "Point lookup: house battery voltage @mean at a bucket",
+   "ti_sql": "SELECT vessel, ts, \"electrical.batteries.house.voltage\" AS batt_v\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts = TIMESTAMP '2026-05-01 18:00:00'\nORDER BY ts",
+   "oracle_sql": "SELECT context AS vessel,\n       time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS ts,\n       round(round(avg(value), 3), 3) AS batt_v\nFROM raw\nWHERE path = 'electrical.batteries.house.voltage' AND context = 'vessels.urn:mrn:imo:mmsi:367000000'\nGROUP BY 1, 2\nHAVING ts = TIMESTAMP '2026-05-01 18:00:00'\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "ts"
+    ],
+    "exact": [
+     "vessel",
+     "ts"
+    ],
+    "bsi": {
+     "batt_v": 3
+    }
+   },
+   "expected_path": "expected/q1-003.json"
+  },
+  {
+   "id": "q1-004",
+   "class": "Q1",
+   "description": "Point lookup: lat/lon (geo) at a bucket",
+   "ti_sql": "SELECT vessel, ts, \"navigation.position.latitude@last\" AS lat, \"navigation.position.longitude@last\" AS lon\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts = TIMESTAMP '2026-05-01 12:00:00'\nORDER BY ts",
+   "oracle_sql": "SELECT context AS vessel,\n       time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS ts,\n       round(arg_max(value, ts) FILTER (WHERE path = 'navigation.position.latitude'), 7) AS lat,\n       round(arg_max(value, ts) FILTER (WHERE path = 'navigation.position.longitude'), 7) AS lon\nFROM raw\nWHERE path IN ('navigation.position.latitude','navigation.position.longitude') AND context = 'vessels.urn:mrn:imo:mmsi:367000000'\nGROUP BY 1, 2\nHAVING ts = TIMESTAMP '2026-05-01 12:00:00'\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "ts"
+    ],
+    "exact": [
+     "vessel",
+     "ts"
+    ],
+    "bsi": {
+     "lat": 7,
+     "lon": 7
+    }
+   },
+   "expected_path": "expected/q1-004.json"
+  },
+  {
+   "id": "q1-005",
+   "class": "Q1",
+   "description": "Point lookup: depth below transducer @min at a bucket",
+   "ti_sql": "SELECT vessel, ts, \"environment.depth.belowTransducer@min\" AS depth_min\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts = TIMESTAMP '2026-05-01 14:00:00'\nORDER BY ts",
+   "oracle_sql": "SELECT context AS vessel,\n       time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS ts,\n       round(round(min(value), 2), 2) AS depth_min\nFROM raw\nWHERE path = 'environment.depth.belowTransducer' AND context = 'vessels.urn:mrn:imo:mmsi:367000000'\nGROUP BY 1, 2\nHAVING ts = TIMESTAMP '2026-05-01 14:00:00'\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "ts"
+    ],
+    "exact": [
+     "vessel",
+     "ts"
+    ],
+    "bsi": {
+     "depth_min": 2
+    }
+   },
+   "expected_path": "expected/q1-005.json"
+  },
+  {
+   "id": "q2-001",
+   "class": "Q2",
+   "description": "Motivating query (spec 01), primary vessel: wind>4m/s, bilge>=3, port started, match notes, 90d",
+   "ti_sql": "SELECT vessel, date_bin(INTERVAL '10 minutes', ts) AS win,\n       max(\"environment.wind.speedTrue@max\") AS wind_max\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND \"propulsion.port.state\" = 'started'\n  AND \"electrical.bilge.pumpCycles\" >= 3\n  AND \"environment.wind.speedTrue@max\" > 4.0\n   AND match(notes, 'leak OR water')\n   AND ts > TIMESTAMP '2026-03-01'\nGROUP BY vessel, win",
+   "oracle_sql": "WITH w AS (\n  SELECT context AS vessel,\n         time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt,\n         round(max(value), 3) AS wmax\n  FROM raw WHERE path = 'environment.wind.speedTrue'\n  GROUP BY 1, 2),\nb AS (\n  SELECT context AS vessel,\n         time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt,\n         count(*) AS cyc\n  FROM raw WHERE path = 'electrical.bilge.pumpCycles'\n  GROUP BY 1, 2),\ns AS (\n  SELECT context AS vessel,\n         time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt\n  FROM raw WHERE path = 'propulsion.port.state'\n  GROUP BY 1, 2 HAVING arg_max(value_str, ts) = 'started'),\nn AS (\n  SELECT DISTINCT context AS vessel,\n         unnest(generate_series(time_bucket(INTERVAL '10 seconds', ts_start, TIMESTAMP '2020-01-01'), COALESCE(ts_end - INTERVAL '1 second', ts_start), INTERVAL '10 seconds')) AS bkt\n  FROM docs\n  WHERE kind = 'notes' AND (lower(body) LIKE '%leak%' OR lower(body) LIKE '%water%')\n    AND context = 'vessels.urn:mrn:imo:mmsi:367000000')\nSELECT w.vessel, time_bucket(INTERVAL '10 minutes', w.bkt, TIMESTAMP '2020-01-01') AS win,\n       round(max(w.wmax), 3) AS wind_max\nFROM w JOIN b ON w.vessel=b.vessel AND w.bkt=b.bkt\n       JOIN s ON w.vessel=s.vessel AND w.bkt=s.bkt\n       JOIN n ON w.vessel=n.vessel AND w.bkt=n.bkt\nWHERE w.wmax > 4.0 AND b.cyc >= 3 AND w.bkt > TIMESTAMP '2026-03-01'\nGROUP BY w.vessel, win",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "win"
+    ],
+    "exact": [
+     "vessel",
+     "win"
+    ],
+    "bsi": {
+     "wind_max": 3
+    }
+   },
+   "expected_path": "expected/q2-001.json"
+  },
+  {
+   "id": "q2-002",
+   "class": "Q2",
+   "description": "4 conjuncts: port started, SOG in range, wind speed >, depth < (set=, bsi BETWEEN, bsi >, bsi <)",
+   "ti_sql": "SELECT vessel, ts, \"navigation.speedOverGround@max\" AS sog\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND \"propulsion.port.state\" = 'started'\n  AND \"navigation.speedOverGround@max\" BETWEEN 2.5 AND 5.0\n  AND \"environment.wind.speedTrue@max\" > 8.0\n  AND \"environment.depth.belowTransducer@min\" < 10.0\n  AND ts >= TIMESTAMP '2026-05-07' AND ts < TIMESTAMP '2026-05-08'\nORDER BY ts",
+   "oracle_sql": "WITH sog AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='navigation.speedOverGround' GROUP BY 1,2),\nw AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='environment.wind.speedTrue' GROUP BY 1,2),\nd AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(min(value), 2) AS v\n  FROM raw WHERE path='environment.depth.belowTransducer' GROUP BY 1,2),\ns AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt\n  FROM raw WHERE path='propulsion.port.state' GROUP BY 1,2 HAVING arg_max(value_str, ts) = 'started')\nSELECT sog.vessel, sog.bkt AS ts, round(sog.v, 3) AS sog\nFROM sog JOIN w ON sog.vessel=w.vessel AND sog.bkt=w.bkt\n         JOIN d ON sog.vessel=d.vessel AND sog.bkt=d.bkt\n         JOIN s ON sog.vessel=s.vessel AND sog.bkt=s.bkt\nWHERE sog.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND sog.v BETWEEN 2.5 AND 5.0 AND w.v > 8.0 AND d.v < 10.0\n  AND sog.bkt >= TIMESTAMP '2026-05-07' AND sog.bkt < TIMESTAMP '2026-05-08'\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "ts"
+    ],
+    "exact": [
+     "vessel",
+     "ts"
+    ],
+    "bsi": {
+     "sog": 3
+    }
+   },
+   "expected_path": "expected/q2-002.json"
+  },
+  {
+   "id": "q2-003",
+   "class": "Q2",
+   "description": "set IN + bsi > + bsi < + IS NOT NULL (presence) + NOT",
+   "ti_sql": "SELECT vessel, ts\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND \"propulsion.main.state\" IN ('started','idle')\n  AND \"electrical.batteries.house.stateOfCharge@min\" < 0.40\n  AND \"electrical.solar.house.panelPower@max\" > 100.0\n  AND \"environment.outside.temperature@mean\" IS NOT NULL\n  AND NOT (\"propulsion.port.state\" = 'reverse')\n  AND ts >= TIMESTAMP '2026-05-01'\nORDER BY ts",
+   "oracle_sql": "WITH soc AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(min(value), 4) AS v\n  FROM raw WHERE path='electrical.batteries.house.stateOfCharge' GROUP BY 1,2),\nsol AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 1) AS v\n  FROM raw WHERE path='electrical.solar.house.panelPower' GROUP BY 1,2),\ntmp AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(avg(value), 2) AS v\n  FROM raw WHERE path='environment.outside.temperature' GROUP BY 1,2),\nmain AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt\n  FROM raw WHERE path='propulsion.main.state' GROUP BY 1,2 HAVING arg_max(value_str, ts) IN ('started','idle')),\nrev AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, arg_max(value_str, ts) AS st\n  FROM raw WHERE path='propulsion.port.state' GROUP BY 1,2)\nSELECT soc.vessel, soc.bkt AS ts\nFROM soc JOIN sol ON soc.vessel=sol.vessel AND soc.bkt=sol.bkt\n         JOIN tmp ON soc.vessel=tmp.vessel AND soc.bkt=tmp.bkt\n         JOIN main ON soc.vessel=main.vessel AND soc.bkt=main.bkt\n         JOIN rev ON soc.vessel=rev.vessel AND soc.bkt=rev.bkt\nWHERE soc.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND soc.v < 0.40 AND sol.v > 100.0 AND tmp.v IS NOT NULL\n  AND rev.st IS DISTINCT FROM 'reverse' AND soc.bkt >= TIMESTAMP '2026-05-01'\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "ts"
+    ],
+    "exact": [
+     "vessel",
+     "ts"
+    ],
+    "bsi": {}
+   },
+   "expected_path": "expected/q2-003.json"
+  },
+  {
+   "id": "q2-004",
+   "class": "Q2",
+   "description": "set IS DISTINCT FROM + bsi < + bsi > + vessel IN (diesel-not-running needs presence)",
+   "ti_sql": "SELECT vessel, ts, \"electrical.batteries.house.voltage@min\" AS vmin\nFROM telemetry\nWHERE vessel IN ('vessels.urn:mrn:imo:mmsi:367000000','vessels.urn:mrn:imo:mmsi:367000001')\n  AND \"propulsion.main.state\" IS DISTINCT FROM 'started'\n  AND \"electrical.batteries.house.voltage@min\" < 24.5\n  AND \"electrical.batteries.house.current@max\" > 5.0\n  AND ts >= TIMESTAMP '2026-05-01'\nORDER BY vessel, ts",
+   "oracle_sql": "WITH vv AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(min(value), 3) AS v\n  FROM raw WHERE path='electrical.batteries.house.voltage' GROUP BY 1,2),\ncc AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 2) AS v\n  FROM raw WHERE path='electrical.batteries.house.current' GROUP BY 1,2),\nmain AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, arg_max(value_str, ts) AS st\n  FROM raw WHERE path='propulsion.main.state' GROUP BY 1,2)\nSELECT vv.vessel, vv.bkt AS ts, round(vv.v, 3) AS vmin\nFROM vv JOIN cc ON vv.vessel=cc.vessel AND vv.bkt=cc.bkt\n        JOIN main ON vv.vessel=main.vessel AND vv.bkt=main.bkt\nWHERE vv.vessel IN ('vessels.urn:mrn:imo:mmsi:367000000','vessels.urn:mrn:imo:mmsi:367000001') AND main.st IS DISTINCT FROM 'started'\n  AND vv.v < 24.5 AND cc.v > 5.0 AND vv.bkt >= TIMESTAMP '2026-05-01'\nORDER BY vessel, ts",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "ts"
+    ],
+    "exact": [
+     "vessel",
+     "ts"
+    ],
+    "bsi": {
+     "vmin": 3
+    }
+   },
+   "expected_path": "expected/q2-004.json"
+  },
+  {
+   "id": "q2-005",
+   "class": "Q2",
+   "description": "col-vs-col comparison (unsupported pushdown): apparent vs true wind ratio [narrowed to 05-07 00:00–06:00 UTC to keep the golden output small]",
+   "ti_sql": "SELECT vessel, ts,\n       \"environment.wind.speedApparent@max\" AS app,\n       \"environment.wind.speedTrue@max\" AS true_w\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND \"environment.wind.speedApparent@max\" > \"environment.wind.speedTrue@max\"\n  AND ts >= TIMESTAMP '2026-05-07 00:00:00' AND ts < TIMESTAMP '2026-05-07 06:00:00'\nORDER BY ts",
+   "oracle_sql": "WITH app AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='environment.wind.speedApparent' GROUP BY 1,2),\ntw AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='environment.wind.speedTrue' GROUP BY 1,2)\nSELECT app.vessel, app.bkt AS ts,\n       round(app.v, 3) AS app,\n       round(tw.v, 3) AS true_w\nFROM app JOIN tw ON app.vessel=tw.vessel AND app.bkt=tw.bkt\nWHERE app.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND app.v > tw.v AND app.bkt >= TIMESTAMP '2026-05-07 00:00:00' AND app.bkt < TIMESTAMP '2026-05-07 06:00:00'\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "ts"
+    ],
+    "exact": [
+     "vessel",
+     "ts"
+    ],
+    "bsi": {
+     "app": 3,
+     "true_w": 3
+    }
+   },
+   "expected_path": "expected/q2-005.json"
+  },
+  {
+   "id": "q3-001",
+   "class": "Q3",
+   "description": "Count buckets where SOG > 6 kn and engine (main) not running (spec example)",
+   "ti_sql": "SELECT vessel, count(*) AS n\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND \"navigation.speedOverGround@max\" > 3.086\n  AND \"propulsion.main.state\" IS DISTINCT FROM 'started'\n  AND ts >= TIMESTAMP '2026-05-01' AND ts < TIMESTAMP '2026-06-01'\nGROUP BY vessel",
+   "oracle_sql": "WITH sog AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='navigation.speedOverGround' GROUP BY 1,2),\nmain AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, arg_max(value_str, ts) AS st\n  FROM raw WHERE path='propulsion.main.state' GROUP BY 1,2)\nSELECT sog.vessel, count(*) AS n\nFROM sog JOIN main ON sog.vessel=main.vessel AND sog.bkt=main.bkt\nWHERE sog.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND sog.v > 3.086 AND main.st IS DISTINCT FROM 'started'\n  AND sog.bkt >= TIMESTAMP '2026-05-01' AND sog.bkt < TIMESTAMP '2026-06-01'\nGROUP BY sog.vessel",
+   "tolerance": {
+    "sort": [
+     "vessel"
+    ],
+    "exact": [
+     "vessel",
+     "n"
+    ],
+    "bsi": {}
+   },
+   "expected_path": "expected/q3-001.json"
+  },
+  {
+   "id": "q3-002",
+   "class": "Q3",
+   "description": "Count buckets where battery voltage < 25 and solar > 100",
+   "ti_sql": "SELECT vessel, count(*) AS n\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND \"electrical.batteries.house.voltage@min\" < 25.0\n  AND \"electrical.solar.house.panelPower@max\" > 100.0\n  AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY vessel",
+   "oracle_sql": "WITH vv AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(min(value), 3) AS v\n  FROM raw WHERE path='electrical.batteries.house.voltage' GROUP BY 1,2),\nsol AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 1) AS v\n  FROM raw WHERE path='electrical.solar.house.panelPower' GROUP BY 1,2)\nSELECT vv.vessel, count(*) AS n\nFROM vv JOIN sol ON vv.vessel=sol.vessel AND vv.bkt=sol.bkt\nWHERE vv.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND vv.v < 25.0 AND sol.v > 100.0 AND vv.bkt >= TIMESTAMP '2026-05-01'\nGROUP BY vv.vessel",
+   "tolerance": {
+    "sort": [
+     "vessel"
+    ],
+    "exact": [
+     "vessel",
+     "n"
+    ],
+    "bsi": {}
+   },
+   "expected_path": "expected/q3-002.json"
+  },
+  {
+   "id": "q3-003",
+   "class": "Q3",
+   "description": "Count buckets where depth < 3 and navigation state = anchored",
+   "ti_sql": "SELECT vessel, count(*) AS n\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND \"environment.depth.belowTransducer@min\" < 3.0\n  AND \"navigation.state\" = 'anchored'\n  AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY vessel",
+   "oracle_sql": "WITH d AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(min(value), 2) AS v\n  FROM raw WHERE path='environment.depth.belowTransducer' GROUP BY 1,2),\nst AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt\n  FROM raw WHERE path='navigation.state' GROUP BY 1,2 HAVING arg_max(value_str, ts) = 'anchored')\nSELECT d.vessel, count(*) AS n\nFROM d JOIN st ON d.vessel=st.vessel AND d.bkt=st.bkt\nWHERE d.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND d.v < 3.0 AND d.bkt >= TIMESTAMP '2026-05-01'\nGROUP BY d.vessel",
+   "tolerance": {
+    "sort": [
+     "vessel"
+    ],
+    "exact": [
+     "vessel",
+     "n"
+    ],
+    "bsi": {}
+   },
+   "expected_path": "expected/q3-003.json"
+  },
+  {
+   "id": "q3-004",
+   "class": "Q3",
+   "description": "Count buckets where wind speed > 25 kn (12.86 m/s)",
+   "ti_sql": "SELECT vessel, count(*) AS n\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND \"environment.wind.speedTrue@max\" > 12.86\n  AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY vessel",
+   "oracle_sql": "WITH w AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='environment.wind.speedTrue' GROUP BY 1,2)\nSELECT w.vessel, count(*) AS n\nFROM w WHERE w.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND w.v > 12.86 AND w.bkt >= TIMESTAMP '2026-05-01'\nGROUP BY w.vessel",
+   "tolerance": {
+    "sort": [
+     "vessel"
+    ],
+    "exact": [
+     "vessel",
+     "n"
+    ],
+    "bsi": {}
+   },
+   "expected_path": "expected/q3-004.json"
+  },
+  {
+   "id": "q3-005",
+   "class": "Q3",
+   "description": "Count(col) presence over a ts range (vessel + ts BETWEEN pushdown)",
+   "ti_sql": "SELECT vessel, count(\"navigation.speedOverGround\") AS n\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND ts BETWEEN TIMESTAMP '2026-05-01' AND TIMESTAMP '2026-05-02'\nGROUP BY vessel",
+   "oracle_sql": "WITH sog AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt\n  FROM raw WHERE path='navigation.speedOverGround' GROUP BY 1,2)\nSELECT sog.vessel, count(*) AS n\nFROM sog WHERE sog.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND sog.bkt BETWEEN TIMESTAMP '2026-05-01' AND TIMESTAMP '2026-05-02'\nGROUP BY sog.vessel",
+   "tolerance": {
+    "sort": [
+     "vessel"
+    ],
+    "exact": [
+     "vessel",
+     "n"
+    ],
+    "bsi": {}
+   },
+   "expected_path": "expected/q3-005.json"
+  },
+  {
+   "id": "q4-001",
+   "class": "Q4",
+   "description": "Max wind per day over the 90-day correctness window (date_bin GROUP BY)",
+   "ti_sql": "SELECT vessel, date_bin(INTERVAL '1 day', ts) AS day,\n       max(\"environment.wind.speedTrue@max\") AS wind_max\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-03-01' AND ts < TIMESTAMP '2026-06-01'\nGROUP BY vessel, day ORDER BY day",
+   "oracle_sql": "WITH w AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='environment.wind.speedTrue' GROUP BY 1,2)\nSELECT vessel, time_bucket(INTERVAL '1 day', bkt, TIMESTAMP '2020-01-01') AS day,\n       round(max(v), 3) AS wind_max\nFROM w WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-03-01' AND bkt < TIMESTAMP '2026-06-01'\nGROUP BY vessel, day ORDER BY day",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "day"
+    ],
+    "exact": [
+     "vessel",
+     "day"
+    ],
+    "bsi": {
+     "wind_max": 3
+    }
+   },
+   "expected_path": "expected/q4-001.json"
+  },
+  {
+   "id": "q4-002",
+   "class": "Q4",
+   "description": "Mean battery voltage per hour (Q8-adjacent window aggregate; date_trunc)",
+   "ti_sql": "SELECT vessel, date_trunc('hour', ts) AS hr,\n       avg(\"electrical.batteries.house.voltage\") AS batt_v\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-01' AND ts < TIMESTAMP '2026-05-02'\nGROUP BY vessel, hr ORDER BY hr",
+   "oracle_sql": "WITH vv AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(avg(value), 3) AS v\n  FROM raw WHERE path='electrical.batteries.house.voltage' GROUP BY 1,2)\nSELECT vessel, date_trunc('hour', bkt) AS hr, round(avg(v), 3) AS batt_v\nFROM vv WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-05-01' AND bkt < TIMESTAMP '2026-05-02'\nGROUP BY vessel, hr ORDER BY hr",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "hr"
+    ],
+    "exact": [
+     "vessel",
+     "hr"
+    ],
+    "bsi": {
+     "batt_v": 3
+    }
+   },
+   "expected_path": "expected/q4-002.json"
+  },
+  {
+   "id": "q4-003",
+   "class": "Q4",
+   "description": "Min SOC per day with window (lag) of previous day's min",
+   "ti_sql": "WITH d AS (\n  SELECT date_bin(INTERVAL '1 day', ts) AS day,\n         min(\"electrical.batteries.house.stateOfCharge@min\") AS min_soc\n  FROM telemetry\n  WHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-01'\n  GROUP BY day)\nSELECT day, min_soc, lag(min_soc) OVER (ORDER BY day) AS prev_min_soc\nFROM d ORDER BY day",
+   "oracle_sql": "WITH soc AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(min(value), 4) AS v\n  FROM raw WHERE path='electrical.batteries.house.stateOfCharge' GROUP BY 1,2),\nd AS (\n  SELECT time_bucket(INTERVAL '1 day', bkt, TIMESTAMP '2020-01-01') AS day, round(min(v), 4) AS min_soc\n  FROM soc WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-05-01' GROUP BY day)\nSELECT day, min_soc, lag(min_soc) OVER (ORDER BY day) AS prev_min_soc\nFROM d ORDER BY day",
+   "tolerance": {
+    "sort": [
+     "day"
+    ],
+    "exact": [
+     "day"
+    ],
+    "bsi": {
+     "min_soc": 4,
+     "prev_min_soc": 4
+    }
+   },
+   "expected_path": "expected/q4-003.json"
+  },
+  {
+   "id": "q4-004",
+   "class": "Q4",
+   "description": "SOC fall faster than 5%/h (CTE + window, spec 07 example)",
+   "ti_sql": "WITH h AS (\n  SELECT date_bin(INTERVAL '1 hour', ts) AS hr,\n         avg(\"electrical.batteries.house.stateOfCharge\") AS soc\n  FROM telemetry WHERE ts >= TIMESTAMP '2026-05-01' GROUP BY hr),\nd AS (SELECT hr, soc, soc - lag(soc) OVER (ORDER BY hr) AS delta FROM h)\nSELECT * FROM d WHERE delta < -0.05 ORDER BY hr",
+   "oracle_sql": "WITH soc AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(avg(value), 4) AS v\n  FROM raw WHERE path='electrical.batteries.house.stateOfCharge' GROUP BY 1,2),\nh AS (\n  SELECT time_bucket(INTERVAL '1 hour', bkt, TIMESTAMP '2020-01-01') AS hr, round(avg(v), 4) AS soc\n  FROM soc WHERE bkt >= TIMESTAMP '2026-05-01' GROUP BY hr),\nd AS (SELECT hr, soc, soc - lag(soc) OVER (ORDER BY hr) AS delta FROM h)\nSELECT * FROM d WHERE delta < -0.05 ORDER BY hr",
+   "tolerance": {
+    "sort": [
+     "hr"
+    ],
+    "exact": [
+     "hr"
+    ],
+    "bsi": {
+     "soc": 4,
+     "delta": 4
+    }
+   },
+   "expected_path": "expected/q4-004.json"
+  },
+  {
+   "id": "q4-005",
+   "class": "Q4",
+   "description": "Daily solar sum (sum aggregate over a day window)",
+   "ti_sql": "SELECT vessel, date_bin(INTERVAL '1 day', ts) AS day,\n       sum(\"electrical.solar.house.panelPower\") AS solar_sum\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY vessel, day ORDER BY day",
+   "oracle_sql": "WITH sol AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(avg(value), 1) AS v\n  FROM raw WHERE path='electrical.solar.house.panelPower' GROUP BY 1,2)\nSELECT vessel, time_bucket(INTERVAL '1 day', bkt, TIMESTAMP '2020-01-01') AS day, round(sum(v), 1) AS solar_sum\nFROM sol WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-05-01'\nGROUP BY vessel, day ORDER BY day",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "day"
+    ],
+    "exact": [
+     "vessel",
+     "day"
+    ],
+    "bsi": {
+     "solar_sum": 1
+    }
+   },
+   "expected_path": "expected/q4-005.json"
+  },
+  {
+   "id": "q5-001",
+   "class": "Q5",
+   "description": "Motoring in >25kn wind, runs >=5 min, max_gap 1m (spec 07 intervals example)",
+   "ti_sql": "SELECT * FROM intervals(\n  '\"propulsion.port.state\" = ''started'' AND \"environment.wind.speedTrue@max\" > 12.9',\n  min_len => '5m', max_gap => '1m')\nWHERE start > '2026-05-01' ",
+   "oracle_sql": "WITH cond AS (\n  SELECT w.vessel, w.bkt AS ts\n  FROM (SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n        FROM raw WHERE path='environment.wind.speedTrue' GROUP BY 1,2) w\n  JOIN (SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt\n        FROM raw WHERE path='propulsion.port.state' GROUP BY 1,2 HAVING arg_max(value_str, ts) = 'started') s\n    ON w.vessel=s.vessel AND w.bkt=s.bkt\n  WHERE w.v > 12.9),\nislands AS (\n  SELECT vessel, ts,\n         ts - (row_number() OVER (PARTITION BY vessel ORDER BY ts)) * INTERVAL '10 seconds' AS grp\n  FROM cond),\nruns AS (\n  SELECT vessel, min(ts) AS start, max(ts) + INTERVAL '10 seconds' AS \"end\", count(*) AS buckets\n  FROM islands GROUP BY vessel, grp),\nmerged AS (\n  SELECT vessel, start, \"end\", buckets,\n         lag(\"end\") OVER (PARTITION BY vessel ORDER BY start) AS prev_end\n  FROM runs),\nislands2 AS (\n  SELECT vessel, start, \"end\", buckets,\n         sum(CASE WHEN prev_end IS NULL OR start - prev_end > INTERVAL '1 minute' THEN 1 ELSE 0 END)\n           OVER (PARTITION BY vessel ORDER BY start) AS grp2\n  FROM merged)\nSELECT vessel, min(start) AS start, max(\"end\") AS \"end\", sum(buckets) AS buckets\nFROM islands2\nGROUP BY vessel, grp2\nHAVING min(start) > TIMESTAMP '2026-05-01'\n   AND (max(\"end\") - min(start)) >= INTERVAL '5 minutes' ",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "start"
+    ],
+    "exact": [
+     "vessel",
+     "start",
+     "end",
+     "buckets"
+    ],
+    "bsi": {}
+   },
+   "expected_path": "expected/q5-001.json"
+  },
+  {
+   "id": "q5-002",
+   "class": "Q5",
+   "description": "PV-1 energy query: electric-only motoring (motors pulling, diesel not running via IS DISTINCT FROM) >=40s",
+   "ti_sql": "SELECT * FROM intervals(\n  '\"propulsion.port.motorPower\" > 500 AND \"propulsion.main.state\" IS DISTINCT FROM ''started''',\n  min_len => '40s')",
+   "oracle_sql": "WITH pw AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 1) AS v\n  FROM raw WHERE path='propulsion.port.motorPower' GROUP BY 1,2),\nmain AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, arg_max(value_str, ts) AS st\n  FROM raw WHERE path='propulsion.main.state' GROUP BY 1,2),\ncond AS (\n  SELECT pw.vessel, pw.bkt AS ts\n  FROM pw JOIN main ON pw.vessel=main.vessel AND pw.bkt=main.bkt\n  WHERE pw.v > 500 AND main.st IS DISTINCT FROM 'started'),\nislands AS (\n  SELECT vessel, ts,\n         ts - (row_number() OVER (PARTITION BY vessel ORDER BY ts)) * INTERVAL '10 seconds' AS grp\n  FROM cond)\nSELECT vessel, min(ts) AS start, max(ts) + INTERVAL '10 seconds' AS \"end\", count(*) AS buckets\nFROM islands GROUP BY vessel, grp\nHAVING (max(ts) + INTERVAL '10 seconds' - min(ts)) >= INTERVAL '40 seconds' ",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "start"
+    ],
+    "exact": [
+     "vessel",
+     "start",
+     "end",
+     "buckets"
+    ],
+    "bsi": {}
+   },
+   "expected_path": "expected/q5-002.json"
+  },
+  {
+   "id": "q5-003",
+   "class": "Q5",
+   "description": "Bilge pump running intervals (rising edges), min 40s",
+   "ti_sql": "SELECT * FROM intervals(\n  '\"electrical.bilge.pumpCycles\" > 0',\n  min_len => '40s', vessel => 'vessels.urn:mrn:imo:mmsi:367000000')",
+   "oracle_sql": "WITH b AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, count(*) AS c\n  FROM raw WHERE path='electrical.bilge.pumpCycles' GROUP BY 1,2),\ncond AS (SELECT vessel, bkt AS ts FROM b WHERE c > 0 AND vessel='vessels.urn:mrn:imo:mmsi:367000000'),\nislands AS (\n  SELECT vessel, ts,\n         ts - (row_number() OVER (PARTITION BY vessel ORDER BY ts)) * INTERVAL '10 seconds' AS grp\n  FROM cond)\nSELECT vessel, min(ts) AS start, max(ts) + INTERVAL '10 seconds' AS \"end\", count(*) AS buckets\nFROM islands GROUP BY vessel, grp\nHAVING (max(ts) + INTERVAL '10 seconds' - min(ts)) >= INTERVAL '40 seconds' ",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "start"
+    ],
+    "exact": [
+     "vessel",
+     "start",
+     "end",
+     "buckets"
+    ],
+    "bsi": {}
+   },
+   "expected_path": "expected/q5-003.json"
+  },
+  {
+   "id": "q5-004",
+   "class": "Q5",
+   "description": "Anchored intervals >= 30 min",
+   "ti_sql": "SELECT * FROM intervals(\n  '\"navigation.state\" = ''anchored''',\n  min_len => '30m')",
+   "oracle_sql": "WITH st AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt\n  FROM raw WHERE path='navigation.state' GROUP BY 1,2 HAVING arg_max(value_str, ts) = 'anchored'),\nislands AS (\n  SELECT vessel, bkt AS ts,\n         bkt - (row_number() OVER (PARTITION BY vessel ORDER BY bkt)) * INTERVAL '10 seconds' AS grp\n  FROM st)\nSELECT vessel, min(ts) AS start, max(ts) + INTERVAL '10 seconds' AS \"end\", count(*) AS buckets\nFROM islands GROUP BY vessel, grp\nHAVING (max(ts) + INTERVAL '10 seconds' - min(ts)) >= INTERVAL '30 minutes' ",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "start"
+    ],
+    "exact": [
+     "vessel",
+     "start",
+     "end",
+     "buckets"
+    ],
+    "bsi": {}
+   },
+   "expected_path": "expected/q5-004.json"
+  },
+  {
+   "id": "q5-005",
+   "class": "Q5",
+   "description": "Engine (main) started intervals with max_gap merge <= 5 min",
+   "ti_sql": "SELECT * FROM intervals(\n  '\"propulsion.main.state\" = ''started''',\n  min_len => '10m', max_gap => '5m')",
+   "oracle_sql": "WITH st AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt\n  FROM raw WHERE path='propulsion.main.state' GROUP BY 1,2 HAVING arg_max(value_str, ts) = 'started'),\nislands AS (\n  SELECT vessel, bkt AS ts,\n         bkt - (row_number() OVER (PARTITION BY vessel ORDER BY bkt)) * INTERVAL '10 seconds' AS grp\n  FROM st),\nruns AS (\n  SELECT vessel, min(ts) AS start, max(ts) + INTERVAL '10 seconds' AS \"end\", count(*) AS buckets\n  FROM islands GROUP BY vessel, grp),\nmerged AS (\n  SELECT vessel, start, \"end\", buckets,\n         lag(\"end\") OVER (PARTITION BY vessel ORDER BY start) AS prev_end\n  FROM runs),\nislands2 AS (\n  SELECT vessel, start, \"end\", buckets,\n         sum(CASE WHEN prev_end IS NULL OR start - prev_end > INTERVAL '5 minutes' THEN 1 ELSE 0 END)\n           OVER (PARTITION BY vessel ORDER BY start) AS grp2\n  FROM merged)\nSELECT vessel, min(start) AS start, max(\"end\") AS \"end\", sum(buckets) AS buckets\nFROM islands2 GROUP BY vessel, grp2\nHAVING (max(\"end\") - min(start)) >= INTERVAL '10 minutes' ",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "start"
+    ],
+    "exact": [
+     "vessel",
+     "start",
+     "end",
+     "buckets"
+    ],
+    "bsi": {}
+   },
+   "expected_path": "expected/q5-005.json"
+  },
+  {
+   "id": "q6-001",
+   "class": "Q6",
+   "description": "match(notes,'leak') AND heel/roll > 0.05 rad",
+   "ti_sql": "SELECT vessel, ts, \"navigation.attitude.roll@max\" AS roll_max\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND match(notes, 'leak')\n  AND \"navigation.attitude.roll@max\" > 0.05\n  AND ts >= TIMESTAMP '2026-05-01'\nORDER BY ts",
+   "oracle_sql": "WITH roll AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 4) AS v\n  FROM raw WHERE path='navigation.attitude.roll' GROUP BY 1,2),\nn AS (\n  SELECT DISTINCT context AS vessel, unnest(generate_series(time_bucket(INTERVAL '10 seconds', ts_start, TIMESTAMP '2020-01-01'), COALESCE(ts_end - INTERVAL '1 second', ts_start), INTERVAL '10 seconds')) AS bkt\n  FROM docs WHERE kind='notes' AND lower(body) LIKE '%leak%' AND context='vessels.urn:mrn:imo:mmsi:367000000')\nSELECT roll.vessel, roll.bkt AS ts, round(roll.v, 4) AS roll_max\nFROM roll JOIN n ON roll.vessel=n.vessel AND roll.bkt=n.bkt\nWHERE roll.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND roll.v > 0.05 AND roll.bkt >= TIMESTAMP '2026-05-01'\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "ts"
+    ],
+    "exact": [
+     "vessel",
+     "ts"
+    ],
+    "bsi": {
+     "roll_max": 4
+    }
+   },
+   "expected_path": "expected/q6-001.json"
+  },
+  {
+   "id": "q6-002",
+   "class": "Q6",
+   "description": "match(notes,'leak OR water') AND depth < 3",
+   "ti_sql": "SELECT vessel, ts, \"environment.depth.belowTransducer@min\" AS depth_min\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND match(notes, 'leak OR water')\n  AND \"environment.depth.belowTransducer@min\" < 3.0\n  AND ts >= TIMESTAMP '2026-05-01'\nORDER BY ts",
+   "oracle_sql": "WITH d AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(min(value), 2) AS v\n  FROM raw WHERE path='environment.depth.belowTransducer' GROUP BY 1,2),\nn AS (\n  SELECT DISTINCT context AS vessel, unnest(generate_series(time_bucket(INTERVAL '10 seconds', ts_start, TIMESTAMP '2020-01-01'), COALESCE(ts_end - INTERVAL '1 second', ts_start), INTERVAL '10 seconds')) AS bkt\n  FROM docs WHERE kind='notes' AND (lower(body) LIKE '%leak%' OR lower(body) LIKE '%water%') AND context='vessels.urn:mrn:imo:mmsi:367000000')\nSELECT d.vessel, d.bkt AS ts, round(d.v, 2) AS depth_min\nFROM d JOIN n ON d.vessel=n.vessel AND d.bkt=n.bkt\nWHERE d.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND d.v < 3.0 AND d.bkt >= TIMESTAMP '2026-05-01'\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "ts"
+    ],
+    "exact": [
+     "vessel",
+     "ts"
+    ],
+    "bsi": {
+     "depth_min": 2
+    }
+   },
+   "expected_path": "expected/q6-002.json"
+  },
+  {
+   "id": "q6-003",
+   "class": "Q6",
+   "description": "match(logbook,'anchorage') AND wind > 15 kn",
+   "ti_sql": "SELECT vessel, ts, \"environment.wind.speedTrue@max\" AS wind_max\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND match(logbook, 'anchorage')\n  AND \"environment.wind.speedTrue@max\" > 8.0\n  AND ts >= TIMESTAMP '2026-05-01'\nORDER BY ts",
+   "oracle_sql": "WITH w AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='environment.wind.speedTrue' GROUP BY 1,2),\nn AS (\n  SELECT DISTINCT context AS vessel, unnest(generate_series(time_bucket(INTERVAL '10 seconds', ts_start, TIMESTAMP '2020-01-01'), COALESCE(ts_end - INTERVAL '1 second', ts_start), INTERVAL '10 seconds')) AS bkt\n  FROM docs WHERE kind='logbook' AND lower(body) LIKE '%anchorage%' AND context='vessels.urn:mrn:imo:mmsi:367000000')\nSELECT w.vessel, w.bkt AS ts, round(w.v, 3) AS wind_max\nFROM w JOIN n ON w.vessel=n.vessel AND w.bkt=n.bkt\nWHERE w.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND w.v > 8.0 AND w.bkt >= TIMESTAMP '2026-05-01'\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "ts"
+    ],
+    "exact": [
+     "vessel",
+     "ts"
+    ],
+    "bsi": {
+     "wind_max": 3
+    }
+   },
+   "expected_path": "expected/q6-003.json"
+  },
+  {
+   "id": "q6-004",
+   "class": "Q6",
+   "description": "match(alerts,'alarm') AND SOG > 0 (docs joined to telemetry, doc score)",
+   "ti_sql": "SELECT d.vessel, d.title, d.score, t.\"navigation.speedOverGround@max\" AS sog\nFROM docs d JOIN telemetry t ON d.vessel = t.vessel AND t.ts >= d.ts_start AND t.ts <= d.ts_end\nWHERE d.vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND d.kind = 'alerts' AND match(d.body, 'alarm')\n  AND t.\"navigation.speedOverGround@max\" > 0.5\nORDER BY d.score DESC",
+   "oracle_sql": "WITH sog AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='navigation.speedOverGround' GROUP BY 1,2)\nSELECT d.context AS vessel, d.title, NULL::DOUBLE AS score, round(sog.v, 3) AS sog\nFROM docs d JOIN sog ON d.context=sog.vessel AND sog.bkt >= d.ts_start AND sog.bkt <= d.ts_end\nWHERE d.context='vessels.urn:mrn:imo:mmsi:367000000' AND d.kind='alerts' AND lower(d.body) LIKE '%alarm%' AND sog.v > 0.5\nORDER BY d.title",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "title",
+     "sog"
+    ],
+    "exact": [
+     "vessel",
+     "title"
+    ],
+    "bsi": {
+     "sog": 3
+    }
+   },
+   "expected_path": "expected/q6-004.json"
+  },
+  {
+   "id": "q6-005",
+   "class": "Q6",
+   "description": "match(notes,'weather') AND pressure < 101000 Pa",
+   "ti_sql": "SELECT vessel, ts, \"environment.outside.pressure@min\" AS p_min\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND match(notes, 'weather')\n  AND \"environment.outside.pressure@min\" < 101000.0\n  AND ts >= TIMESTAMP '2026-05-01'\nORDER BY ts",
+   "oracle_sql": "WITH p AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(min(value), 0) AS v\n  FROM raw WHERE path='environment.outside.pressure' GROUP BY 1,2),\nn AS (\n  SELECT DISTINCT context AS vessel, unnest(generate_series(time_bucket(INTERVAL '10 seconds', ts_start, TIMESTAMP '2020-01-01'), COALESCE(ts_end - INTERVAL '1 second', ts_start), INTERVAL '10 seconds')) AS bkt\n  FROM docs WHERE kind='notes' AND lower(body) LIKE '%weather%' AND context='vessels.urn:mrn:imo:mmsi:367000000')\nSELECT p.vessel, p.bkt AS ts, round(p.v, 0) AS p_min\nFROM p JOIN n ON p.vessel=n.vessel AND p.bkt=n.bkt\nWHERE p.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND p.v < 101000.0 AND p.bkt >= TIMESTAMP '2026-05-01'\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "ts"
+    ],
+    "exact": [
+     "vessel",
+     "ts"
+    ],
+    "bsi": {
+     "p_min": 0
+    }
+   },
+   "expected_path": "expected/q6-005.json"
+  },
+  {
+   "id": "q7-001",
+   "class": "Q7",
+   "description": "within 5 nm of a point AND depth < 3 m (spec example) [narrowed to 05-07 00:00–06:00 UTC to keep the golden output small]",
+   "ti_sql": "SELECT vessel, ts, \"environment.depth.belowTransducer@min\" AS depth_min\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND within_nm(36.619, -122.389, 5.0)\n  AND \"environment.depth.belowTransducer@min\" < 3.0\n  AND ts >= TIMESTAMP '2026-05-07 00:00:00' AND ts < TIMESTAMP '2026-05-07 06:00:00'\nORDER BY ts",
+   "oracle_sql": "WITH pos AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt,\n         round(arg_max(value, ts) FILTER (WHERE path='navigation.position.latitude'), 7) AS lat,\n         round(arg_max(value, ts) FILTER (WHERE path='navigation.position.longitude'), 7) AS lon\n  FROM raw WHERE path IN ('navigation.position.latitude','navigation.position.longitude') GROUP BY 1,2),\nd AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(min(value), 2) AS v\n  FROM raw WHERE path='environment.depth.belowTransducer' GROUP BY 1,2)\nSELECT pos.vessel, pos.bkt AS ts, round(d.v, 2) AS depth_min\nFROM pos JOIN d ON pos.vessel=d.vessel AND pos.bkt=d.bkt\nWHERE pos.vessel='vessels.urn:mrn:imo:mmsi:367000000'\n  AND 2.0 * 3440.065 * asin(sqrt(pow(sin(radians(pos.lat - 36.619) / 2.0), 2.0) + cos(radians(36.619)) * cos(radians(pos.lat)) * pow(sin(radians(pos.lon - (-122.389)) / 2.0), 2.0))) < 5.0\n  AND d.v < 3.0 AND pos.bkt >= TIMESTAMP '2026-05-07 00:00:00' AND pos.bkt < TIMESTAMP '2026-05-07 06:00:00'\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "ts"
+    ],
+    "exact": [
+     "vessel",
+     "ts"
+    ],
+    "bsi": {
+     "depth_min": 2
+    }
+   },
+   "expected_path": "expected/q7-001.json"
+  },
+  {
+   "id": "q7-002",
+   "class": "Q7",
+   "description": "in_bbox region AND SOG > 6 kn [narrowed to 05-07 00:00–06:00 UTC to keep the golden output small]",
+   "ti_sql": "SELECT vessel, ts, \"navigation.speedOverGround@max\" AS sog\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND in_bbox(36.5, -123.0, 37.0, -121.0)\n  AND \"navigation.speedOverGround@max\" > 3.086\n  AND ts >= TIMESTAMP '2026-05-07 00:00:00' AND ts < TIMESTAMP '2026-05-07 06:00:00'\nORDER BY ts",
+   "oracle_sql": "WITH pos AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt,\n         round(arg_max(value, ts) FILTER (WHERE path='navigation.position.latitude'), 7) AS lat,\n         round(arg_max(value, ts) FILTER (WHERE path='navigation.position.longitude'), 7) AS lon\n  FROM raw WHERE path IN ('navigation.position.latitude','navigation.position.longitude') GROUP BY 1,2),\nsog AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='navigation.speedOverGround' GROUP BY 1,2)\nSELECT pos.vessel, pos.bkt AS ts, round(sog.v, 3) AS sog\nFROM pos JOIN sog ON pos.vessel=sog.vessel AND pos.bkt=sog.bkt\nWHERE pos.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND pos.lat BETWEEN 36.5 AND 37.0 AND pos.lon BETWEEN -123.0 AND -121.0\n  AND sog.v > 3.086 AND pos.bkt >= TIMESTAMP '2026-05-07 00:00:00' AND pos.bkt < TIMESTAMP '2026-05-07 06:00:00'\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "ts"
+    ],
+    "exact": [
+     "vessel",
+     "ts"
+    ],
+    "bsi": {
+     "sog": 3
+    }
+   },
+   "expected_path": "expected/q7-002.json"
+  },
+  {
+   "id": "q7-003",
+   "class": "Q7",
+   "description": "within_nm radius AND battery SOC < 60 [narrowed to 05-07 00:00–06:00 UTC to keep the golden output small]",
+   "ti_sql": "SELECT vessel, ts, \"electrical.batteries.house.stateOfCharge@min\" AS soc_min\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND within_nm(36.619, -122.389, 2.0)\n  AND \"electrical.batteries.house.stateOfCharge@min\" < 0.60\n  AND ts >= TIMESTAMP '2026-05-07 00:00:00' AND ts < TIMESTAMP '2026-05-07 06:00:00'\nORDER BY ts",
+   "oracle_sql": "WITH pos AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt,\n         round(arg_max(value, ts) FILTER (WHERE path='navigation.position.latitude'), 7) AS lat,\n         round(arg_max(value, ts) FILTER (WHERE path='navigation.position.longitude'), 7) AS lon\n  FROM raw WHERE path IN ('navigation.position.latitude','navigation.position.longitude') GROUP BY 1,2),\nsoc AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(min(value), 4) AS v\n  FROM raw WHERE path='electrical.batteries.house.stateOfCharge' GROUP BY 1,2)\nSELECT pos.vessel, pos.bkt AS ts, round(soc.v, 4) AS soc_min\nFROM pos JOIN soc ON pos.vessel=soc.vessel AND pos.bkt=soc.bkt\nWHERE pos.vessel='vessels.urn:mrn:imo:mmsi:367000000'\n  AND 2.0 * 3440.065 * asin(sqrt(pow(sin(radians(pos.lat - 36.619) / 2.0), 2.0) + cos(radians(36.619)) * cos(radians(pos.lat)) * pow(sin(radians(pos.lon - (-122.389)) / 2.0), 2.0))) < 2.0\n  AND soc.v < 0.60 AND pos.bkt >= TIMESTAMP '2026-05-07 00:00:00' AND pos.bkt < TIMESTAMP '2026-05-07 06:00:00'\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "ts"
+    ],
+    "exact": [
+     "vessel",
+     "ts"
+    ],
+    "bsi": {
+     "soc_min": 4
+    }
+   },
+   "expected_path": "expected/q7-003.json"
+  },
+  {
+   "id": "q7-004",
+   "class": "Q7",
+   "description": "in_bbox AND wind > 25 kn",
+   "ti_sql": "SELECT vessel, ts, \"environment.wind.speedTrue@max\" AS wind_max\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND in_bbox(36.5, -123.0, 37.0, -121.0)\n  AND \"environment.wind.speedTrue@max\" > 12.86\n  AND ts >= TIMESTAMP '2026-05-01'\nORDER BY ts",
+   "oracle_sql": "WITH pos AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt,\n         round(arg_max(value, ts) FILTER (WHERE path='navigation.position.latitude'), 7) AS lat,\n         round(arg_max(value, ts) FILTER (WHERE path='navigation.position.longitude'), 7) AS lon\n  FROM raw WHERE path IN ('navigation.position.latitude','navigation.position.longitude') GROUP BY 1,2),\nw AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='environment.wind.speedTrue' GROUP BY 1,2)\nSELECT pos.vessel, pos.bkt AS ts, round(w.v, 3) AS wind_max\nFROM pos JOIN w ON pos.vessel=w.vessel AND pos.bkt=w.bkt\nWHERE pos.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND pos.lat BETWEEN 36.5 AND 37.0 AND pos.lon BETWEEN -123.0 AND -121.0\n  AND w.v > 12.86 AND pos.bkt >= TIMESTAMP '2026-05-01'\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "ts"
+    ],
+    "exact": [
+     "vessel",
+     "ts"
+    ],
+    "bsi": {
+     "wind_max": 3
+    }
+   },
+   "expected_path": "expected/q7-004.json"
+  },
+  {
+   "id": "q7-005",
+   "class": "Q7",
+   "description": "within_nm AND match(notes) (geo + text + telemetry)",
+   "ti_sql": "SELECT vessel, ts, \"environment.depth.belowTransducer@min\" AS depth_min\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\n  AND within_nm(36.619, -122.389, 3.0)\n  AND match(notes, 'mooring')\n  AND \"environment.depth.belowTransducer@min\" < 10.0\n  AND ts >= TIMESTAMP '2026-05-01'\nORDER BY ts",
+   "oracle_sql": "WITH pos AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt,\n         round(arg_max(value, ts) FILTER (WHERE path='navigation.position.latitude'), 7) AS lat,\n         round(arg_max(value, ts) FILTER (WHERE path='navigation.position.longitude'), 7) AS lon\n  FROM raw WHERE path IN ('navigation.position.latitude','navigation.position.longitude') GROUP BY 1,2),\nd AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(min(value), 2) AS v\n  FROM raw WHERE path='environment.depth.belowTransducer' GROUP BY 1,2),\nn AS (\n  SELECT DISTINCT context AS vessel, unnest(generate_series(time_bucket(INTERVAL '10 seconds', ts_start, TIMESTAMP '2020-01-01'), COALESCE(ts_end - INTERVAL '1 second', ts_start), INTERVAL '10 seconds')) AS bkt\n  FROM docs WHERE kind='notes' AND lower(body) LIKE '%mooring%' AND context='vessels.urn:mrn:imo:mmsi:367000000')\nSELECT pos.vessel, pos.bkt AS ts, round(d.v, 2) AS depth_min\nFROM pos JOIN d ON pos.vessel=d.vessel AND pos.bkt=d.bkt\n         JOIN n ON pos.vessel=n.vessel AND pos.bkt=n.bkt\nWHERE pos.vessel='vessels.urn:mrn:imo:mmsi:367000000'\n  AND 2.0 * 3440.065 * asin(sqrt(pow(sin(radians(pos.lat - 36.619) / 2.0), 2.0) + cos(radians(36.619)) * cos(radians(pos.lat)) * pow(sin(radians(pos.lon - (-122.389)) / 2.0), 2.0))) < 3.0\n  AND d.v < 10.0 AND pos.bkt >= TIMESTAMP '2026-05-01'\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "ts"
+    ],
+    "exact": [
+     "vessel",
+     "ts"
+    ],
+    "bsi": {
+     "depth_min": 2
+    }
+   },
+   "expected_path": "expected/q7-005.json"
+  },
+  {
+   "id": "q8-001",
+   "class": "Q8",
+   "description": "Mean battery voltage per hour (spec Q8 example, broad)",
+   "ti_sql": "SELECT date_bin(INTERVAL '1 hour', ts) AS hr,\n       avg(\"electrical.batteries.house.voltage\") AS batt_v\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-01' AND ts < TIMESTAMP '2026-06-01'\nGROUP BY hr ORDER BY hr",
+   "oracle_sql": "WITH vv AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(avg(value), 3) AS v\n  FROM raw WHERE path='electrical.batteries.house.voltage' GROUP BY 1,2)\nSELECT time_bucket(INTERVAL '1 hour', bkt, TIMESTAMP '2020-01-01') AS hr, round(avg(v), 3) AS batt_v\nFROM vv WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-05-01' AND bkt < TIMESTAMP '2026-06-01'\nGROUP BY hr ORDER BY hr",
+   "tolerance": {
+    "sort": [
+     "hr"
+    ],
+    "exact": [
+     "hr"
+    ],
+    "bsi": {
+     "batt_v": 3
+    }
+   },
+   "expected_path": "expected/q8-001.json"
+  },
+  {
+   "id": "q8-002",
+   "class": "Q8",
+   "description": "Mean SOG per day (broad)",
+   "ti_sql": "SELECT date_bin(INTERVAL '1 day', ts) AS day,\n       avg(\"navigation.speedOverGround\") AS sog\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY day ORDER BY day",
+   "oracle_sql": "WITH sog AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(avg(value), 3) AS v\n  FROM raw WHERE path='navigation.speedOverGround' GROUP BY 1,2)\nSELECT time_bucket(INTERVAL '1 day', bkt, TIMESTAMP '2020-01-01') AS day, round(avg(v), 3) AS sog\nFROM sog WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-05-01'\nGROUP BY day ORDER BY day",
+   "tolerance": {
+    "sort": [
+     "day"
+    ],
+    "exact": [
+     "day"
+    ],
+    "bsi": {
+     "sog": 3
+    }
+   },
+   "expected_path": "expected/q8-002.json"
+  },
+  {
+   "id": "q8-003",
+   "class": "Q8",
+   "description": "Mean outside temperature per day (broad)",
+   "ti_sql": "SELECT date_bin(INTERVAL '1 day', ts) AS day,\n       avg(\"environment.outside.temperature\") AS temp\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY day ORDER BY day",
+   "oracle_sql": "WITH t AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(avg(value), 2) AS v\n  FROM raw WHERE path='environment.outside.temperature' GROUP BY 1,2)\nSELECT time_bucket(INTERVAL '1 day', bkt, TIMESTAMP '2020-01-01') AS day, round(avg(v), 2) AS temp\nFROM t WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-05-01'\nGROUP BY day ORDER BY day",
+   "tolerance": {
+    "sort": [
+     "day"
+    ],
+    "exact": [
+     "day"
+    ],
+    "bsi": {
+     "temp": 2
+    }
+   },
+   "expected_path": "expected/q8-003.json"
+  },
+  {
+   "id": "q8-004",
+   "class": "Q8",
+   "description": "Mean true wind per hour (broad)",
+   "ti_sql": "SELECT date_bin(INTERVAL '1 hour', ts) AS hr,\n       avg(\"environment.wind.speedTrue\") AS wind\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY hr ORDER BY hr",
+   "oracle_sql": "WITH w AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(avg(value), 3) AS v\n  FROM raw WHERE path='environment.wind.speedTrue' GROUP BY 1,2)\nSELECT time_bucket(INTERVAL '1 hour', bkt, TIMESTAMP '2020-01-01') AS hr, round(avg(v), 3) AS wind\nFROM w WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-05-01'\nGROUP BY hr ORDER BY hr",
+   "tolerance": {
+    "sort": [
+     "hr"
+    ],
+    "exact": [
+     "hr"
+    ],
+    "bsi": {
+     "wind": 3
+    }
+   },
+   "expected_path": "expected/q8-004.json"
+  },
+  {
+   "id": "q8-005",
+   "class": "Q8",
+   "description": "Count all buckets with any data in a month (broad, count(*) presence)",
+   "ti_sql": "SELECT vessel, count(*) AS n\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-01' AND ts < TIMESTAMP '2026-06-01'\nGROUP BY vessel",
+   "oracle_sql": "WITH b AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt\n  FROM raw GROUP BY 1,2)\nSELECT vessel, count(*) AS n\nFROM b WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-05-01' AND bkt < TIMESTAMP '2026-06-01'\nGROUP BY vessel",
+   "tolerance": {
+    "sort": [
+     "vessel"
+    ],
+    "exact": [
+     "vessel",
+     "n"
+    ],
+    "bsi": {}
+   },
+   "expected_path": "expected/q8-005.json"
+  },
+  {
+   "id": "qx-001",
+   "class": "Q4",
+   "description": "Join telemetry to vessels catalog (catalog join) [narrowed to 05-07 00:00–06:00 UTC to keep the golden output small]",
+   "ti_sql": "SELECT v.name, t.ts, t.\"navigation.speedOverGround@max\" AS sog\nFROM telemetry t JOIN vessels v ON t.vessel = v.urn\nWHERE t.vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND t.ts >= TIMESTAMP '2026-05-07 00:00:00' AND t.ts < TIMESTAMP '2026-05-07 06:00:00'\nORDER BY t.ts",
+   "oracle_sql": "WITH sog AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='navigation.speedOverGround' GROUP BY 1,2)\nSELECT v.name, sog.bkt AS ts, round(sog.v, 3) AS sog\nFROM sog JOIN vessels v ON sog.vessel = v.urn\nWHERE sog.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND sog.bkt >= TIMESTAMP '2026-05-07 00:00:00' AND sog.bkt < TIMESTAMP '2026-05-07 06:00:00'\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "name",
+     "ts"
+    ],
+    "exact": [
+     "name",
+     "ts"
+    ],
+    "bsi": {
+     "sog": 3
+    }
+   },
+   "expected_path": "expected/qx-001.json"
+  },
+  {
+   "id": "qx-002",
+   "class": "Q4",
+   "description": "UNION of two set states (port started OR starboard started buckets) [narrowed to 05-07 00:00–06:00 UTC to keep the golden output small]",
+   "ti_sql": "SELECT vessel, ts FROM telemetry\nWHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND \"propulsion.port.state\"='started' AND ts >= TIMESTAMP '2026-05-07 00:00:00' AND ts < TIMESTAMP '2026-05-07 06:00:00'\nUNION\nSELECT vessel, ts FROM telemetry\nWHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND \"propulsion.starboard.state\"='started' AND ts >= TIMESTAMP '2026-05-07 00:00:00' AND ts < TIMESTAMP '2026-05-07 06:00:00'\nORDER BY ts",
+   "oracle_sql": "WITH p AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt\n  FROM raw WHERE path='propulsion.port.state' GROUP BY 1,2 HAVING arg_max(value_str, ts) = 'started'),\ns AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt\n  FROM raw WHERE path='propulsion.starboard.state' GROUP BY 1,2 HAVING arg_max(value_str, ts) = 'started')\nSELECT vessel, bkt AS ts FROM p WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-05-07 00:00:00' AND bkt < TIMESTAMP '2026-05-07 06:00:00'\nUNION\nSELECT vessel, bkt AS ts FROM s WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-05-07 00:00:00' AND bkt < TIMESTAMP '2026-05-07 06:00:00'\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "ts"
+    ],
+    "exact": [
+     "vessel",
+     "ts"
+    ],
+    "bsi": {}
+   },
+   "expected_path": "expected/qx-002.json"
+  },
+  {
+   "id": "qx-003",
+   "class": "Q4",
+   "description": "Correlated scalar subquery: buckets where wind exceeds the day's mean wind [narrowed to 05-07 00:00–06:00 UTC to keep the golden output small]",
+   "ti_sql": "SELECT ts, \"environment.wind.speedTrue@max\" AS wmax\nFROM telemetry t\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-07 00:00:00' AND ts < TIMESTAMP '2026-05-07 06:00:00'\n  AND \"environment.wind.speedTrue@max\" > (\n    SELECT avg(\"environment.wind.speedTrue\")\n    FROM telemetry t2\n    WHERE t2.vessel = t.vessel\n      AND date_bin(INTERVAL '1 day', t2.ts) = date_bin(INTERVAL '1 day', t.ts))\nORDER BY ts",
+   "oracle_sql": "WITH w AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v, round(avg(value), 3) AS a\n  FROM raw WHERE path='environment.wind.speedTrue' GROUP BY 1,2)\nSELECT w.bkt AS ts, round(w.v, 3) AS wmax\nFROM w\nWHERE w.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND w.bkt >= TIMESTAMP '2026-05-07 00:00:00' AND w.bkt < TIMESTAMP '2026-05-07 06:00:00'\n  AND w.v > (SELECT avg(w2.a) FROM w w2\n             WHERE w2.vessel = w.vessel\n               AND time_bucket(INTERVAL '1 day', w2.bkt, TIMESTAMP '2020-01-01') = time_bucket(INTERVAL '1 day', w.bkt, TIMESTAMP '2020-01-01'))\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "ts"
+    ],
+    "exact": [
+     "ts"
+    ],
+    "bsi": {
+     "wmax": 3
+    }
+   },
+   "expected_path": "expected/qx-003.json",
+   "exclude": "DataFusion 55 cannot decorrelate a scalar subquery keyed on an expression (date_bin(t2.ts) = date_bin(t.ts)); the same result is verified as qx-013 (join form)"
+  },
+  {
+   "id": "qx-004",
+   "class": "Q4",
+   "description": "Recursive CTE: hours back from a fixed anchor (time dimension)",
+   "ti_sql": "WITH RECURSIVE hrs(hr) AS (\n  SELECT TIMESTAMP '2026-05-31 00:00:00' AS hr\n  UNION ALL\n  SELECT hr - INTERVAL '1 hour' FROM hrs WHERE hr > TIMESTAMP '2026-05-31 00:00:00' - INTERVAL '7 days')\nSELECT h.hr, avg(t.\"electrical.batteries.house.voltage\") AS batt_v\nFROM hrs h LEFT JOIN telemetry t\n  ON t.ts >= h.hr AND t.ts < h.hr + INTERVAL '1 hour' AND t.vessel = 'vessels.urn:mrn:imo:mmsi:367000000'\nGROUP BY h.hr ORDER BY h.hr",
+   "oracle_sql": "WITH RECURSIVE hrs(hr) AS (\n  SELECT TIMESTAMP '2026-05-31 00:00:00' AS hr\n  UNION ALL\n  SELECT hr - INTERVAL '1 hour' FROM hrs WHERE hr > TIMESTAMP '2026-05-31 00:00:00' - INTERVAL '7 days'),\nvv AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(avg(value), 3) AS v\n  FROM raw WHERE path='electrical.batteries.house.voltage' GROUP BY 1,2)\nSELECT h.hr, round(avg(vv.v), 3) AS batt_v\nFROM hrs h LEFT JOIN vv ON vv.bkt >= h.hr AND vv.bkt < h.hr + INTERVAL '1 hour' AND vv.vessel='vessels.urn:mrn:imo:mmsi:367000000'\nGROUP BY h.hr ORDER BY h.hr",
+   "tolerance": {
+    "sort": [
+     "hr"
+    ],
+    "exact": [
+     "hr"
+    ],
+    "bsi": {
+     "batt_v": 3
+    }
+   },
+   "expected_path": "expected/qx-004.json"
+  },
+  {
+   "id": "qx-005",
+   "class": "Q4",
+   "description": "CASE + HAVING: classify wind buckets and keep only gale days",
+   "ti_sql": "SELECT date_bin(INTERVAL '1 day', ts) AS day,\n       max(CASE WHEN \"environment.wind.speedTrue@max\" > 12.86 THEN 1 ELSE 0 END) AS had_gale\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY day\nHAVING max(CASE WHEN \"environment.wind.speedTrue@max\" > 12.86 THEN 1 ELSE 0 END) = 1\nORDER BY day",
+   "oracle_sql": "WITH w AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='environment.wind.speedTrue' GROUP BY 1,2)\nSELECT time_bucket(INTERVAL '1 day', bkt, TIMESTAMP '2020-01-01') AS day,\n       max(CASE WHEN v > 12.86 THEN 1 ELSE 0 END) AS had_gale\nFROM w WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-05-01'\nGROUP BY day\nHAVING max(CASE WHEN v > 12.86 THEN 1 ELSE 0 END) = 1\nORDER BY day",
+   "tolerance": {
+    "sort": [
+     "day"
+    ],
+    "exact": [
+     "day",
+     "had_gale"
+    ],
+    "bsi": {}
+   },
+   "expected_path": "expected/qx-005.json"
+  },
+  {
+   "id": "qx-006",
+   "class": "Q4",
+   "description": "EXCEPT: buckets with wind but no position fix",
+   "ti_sql": "SELECT ts FROM telemetry\nWHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND \"environment.wind.speedTrue\" IS NOT NULL AND ts >= TIMESTAMP '2026-05-01'\nEXCEPT\nSELECT ts FROM telemetry\nWHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND \"navigation.position.latitude\" IS NOT NULL AND ts >= TIMESTAMP '2026-05-01'\nORDER BY ts",
+   "oracle_sql": "WITH w AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt\n  FROM raw WHERE path='environment.wind.speedTrue' GROUP BY 1,2),\np AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt\n  FROM raw WHERE path='navigation.position.latitude' GROUP BY 1,2)\nSELECT bkt AS ts FROM w WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-05-01'\nEXCEPT\nSELECT bkt AS ts FROM p WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-05-01'\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "ts"
+    ],
+    "exact": [
+     "ts"
+    ],
+    "bsi": {}
+   },
+   "expected_path": "expected/qx-006.json",
+   "expect_empty": true,
+   "expect_empty_reason": "In synthetic telemetry, position and wind are emitted concurrently for all buckets; set difference is empty."
+  },
+  {
+   "id": "qx-007",
+   "class": "Q4",
+   "description": "INTERSECT: buckets where both motors are running [narrowed to 05-07 00:00–06:00 UTC to keep the golden output small]",
+   "ti_sql": "SELECT ts FROM telemetry\nWHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND \"propulsion.port.motorPower@max\" > 100 AND ts >= TIMESTAMP '2026-05-07 00:00:00' AND ts < TIMESTAMP '2026-05-07 06:00:00'\nINTERSECT\nSELECT ts FROM telemetry\nWHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND \"propulsion.starboard.motorPower@max\" > 100 AND ts >= TIMESTAMP '2026-05-07 00:00:00' AND ts < TIMESTAMP '2026-05-07 06:00:00'\nORDER BY ts",
+   "oracle_sql": "WITH p AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 1) AS v\n  FROM raw WHERE path='propulsion.port.motorPower' GROUP BY 1,2),\ns AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 1) AS v\n  FROM raw WHERE path='propulsion.starboard.motorPower' GROUP BY 1,2)\nSELECT p.bkt AS ts FROM p WHERE p.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND p.v > 100 AND p.bkt >= TIMESTAMP '2026-05-07 00:00:00' AND p.bkt < TIMESTAMP '2026-05-07 06:00:00'\nINTERSECT\nSELECT s.bkt AS ts FROM s WHERE s.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND s.v > 100 AND s.bkt >= TIMESTAMP '2026-05-07 00:00:00' AND s.bkt < TIMESTAMP '2026-05-07 06:00:00'\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "ts"
+    ],
+    "exact": [
+     "ts"
+    ],
+    "bsi": {}
+   },
+   "expected_path": "expected/qx-007.json"
+  },
+  {
+   "id": "q1-006",
+   "class": "Q1",
+   "description": "Point lookup: set field value at a bucket (port state)",
+   "ti_sql": "SELECT vessel, ts, \"propulsion.port.state\" AS port_state\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts = TIMESTAMP '2026-05-01 08:00:00'\nORDER BY ts",
+   "oracle_sql": "SELECT context AS vessel,\n       time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS ts,\n       arg_max(value_str, ts) AS port_state\nFROM raw WHERE path='propulsion.port.state' AND context='vessels.urn:mrn:imo:mmsi:367000000'\nGROUP BY 1,2 HAVING ts = TIMESTAMP '2026-05-01 08:00:00'\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "ts"
+    ],
+    "exact": [
+     "vessel",
+     "ts",
+     "port_state"
+    ],
+    "bsi": {}
+   },
+   "expected_path": "expected/q1-006.json"
+  },
+  {
+   "id": "q3-006",
+   "class": "Q3",
+   "description": "count(*) with OR of two set predicates",
+   "ti_sql": "SELECT vessel, count(*) AS n\nFROM telemetry\nWHERE vessel='vessels.urn:mrn:imo:mmsi:367000000'\n  AND (\"propulsion.port.state\"='started' OR \"propulsion.starboard.state\"='started')\n  AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY vessel",
+   "oracle_sql": "WITH p AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt\n  FROM raw WHERE path='propulsion.port.state' GROUP BY 1,2 HAVING arg_max(value_str, ts) = 'started'),\ns AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt\n  FROM raw WHERE path='propulsion.starboard.state' GROUP BY 1,2 HAVING arg_max(value_str, ts) = 'started')\nSELECT COALESCE(p.vessel, s.vessel) AS vessel, count(*) AS n\nFROM p FULL JOIN s ON p.vessel=s.vessel AND p.bkt=s.bkt\nWHERE COALESCE(p.vessel, s.vessel)='vessels.urn:mrn:imo:mmsi:367000000' AND (p.vessel IS NOT NULL OR s.vessel IS NOT NULL)\n  AND COALESCE(p.bkt, s.bkt) >= TIMESTAMP '2026-05-01'\nGROUP BY 1",
+   "tolerance": {
+    "sort": [
+     "vessel"
+    ],
+    "exact": [
+     "vessel",
+     "n"
+    ],
+    "bsi": {}
+   },
+   "expected_path": "expected/q3-006.json"
+  },
+  {
+   "id": "q3-007",
+   "class": "Q3",
+   "description": "count(*) where bsi BETWEEN range",
+   "ti_sql": "SELECT vessel, count(*) AS n\nFROM telemetry\nWHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND \"electrical.batteries.house.voltage@min\" BETWEEN 22.0 AND 26.0\n  AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY vessel",
+   "oracle_sql": "WITH vv AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(min(value), 3) AS v\n  FROM raw WHERE path='electrical.batteries.house.voltage' GROUP BY 1,2)\nSELECT vessel, count(*) AS n\nFROM vv WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND v BETWEEN 22.0 AND 26.0 AND bkt >= TIMESTAMP '2026-05-01'\nGROUP BY vessel",
+   "tolerance": {
+    "sort": [
+     "vessel"
+    ],
+    "exact": [
+     "vessel",
+     "n"
+    ],
+    "bsi": {}
+   },
+   "expected_path": "expected/q3-007.json"
+  },
+  {
+   "id": "q2-006",
+   "class": "Q2",
+   "description": "set IS DISTINCT FROM (negated set, presence-aware) + bsi > + bsi < + vessel =",
+   "ti_sql": "SELECT vessel, ts\nFROM telemetry\nWHERE vessel='vessels.urn:mrn:imo:mmsi:367000000'\n  AND \"propulsion.main.state\" IS DISTINCT FROM 'started'\n  AND \"navigation.speedOverGround@max\" > 1.0\n  AND \"environment.depth.belowTransducer@min\" < 20.0\n  AND ts >= TIMESTAMP '2026-05-01'\nORDER BY ts",
+   "oracle_sql": "WITH main AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, arg_max(value_str, ts) AS st\n  FROM raw WHERE path='propulsion.main.state' GROUP BY 1,2),\nsog AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='navigation.speedOverGround' GROUP BY 1,2),\nd AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(min(value), 2) AS v\n  FROM raw WHERE path='environment.depth.belowTransducer' GROUP BY 1,2)\nSELECT sog.vessel, sog.bkt AS ts\nFROM sog JOIN d ON sog.vessel=d.vessel AND sog.bkt=d.bkt\n         JOIN main ON sog.vessel=main.vessel AND sog.bkt=main.bkt\nWHERE sog.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND main.st IS DISTINCT FROM 'started' AND sog.v > 1.0 AND d.v < 20.0\n  AND sog.bkt >= TIMESTAMP '2026-05-01'\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "ts"
+    ],
+    "exact": [
+     "vessel",
+     "ts"
+    ],
+    "bsi": {}
+   },
+   "expected_path": "expected/q2-006.json"
+  },
+  {
+   "id": "q8-006",
+   "class": "Q8",
+   "description": "Broad: mean house current per day",
+   "ti_sql": "SELECT date_bin(INTERVAL '1 day', ts) AS day,\n       avg(\"electrical.batteries.house.current\") AS current_avg\nFROM telemetry\nWHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY day ORDER BY day",
+   "oracle_sql": "WITH c AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(avg(value), 2) AS v\n  FROM raw WHERE path='electrical.batteries.house.current' GROUP BY 1,2)\nSELECT time_bucket(INTERVAL '1 day', bkt, TIMESTAMP '2020-01-01') AS day, round(avg(v), 2) AS current_avg\nFROM c WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-05-01'\nGROUP BY day ORDER BY day",
+   "tolerance": {
+    "sort": [
+     "day"
+    ],
+    "exact": [
+     "day"
+    ],
+    "bsi": {
+     "current_avg": 2
+    }
+   },
+   "expected_path": "expected/q8-006.json"
+  },
+  {
+   "id": "q4-006",
+   "class": "Q4",
+   "description": "Sum of motor power per hour (sum over window, both motors via COALESCE)",
+   "ti_sql": "SELECT date_bin(INTERVAL '1 hour', ts) AS hr,\n       sum(coalesce(\"propulsion.port.motorPower\",0) + coalesce(\"propulsion.starboard.motorPower\",0)) AS motor_w\nFROM telemetry\nWHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY hr ORDER BY hr",
+   "oracle_sql": "WITH p AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(avg(value), 1) AS v\n  FROM raw WHERE path='propulsion.port.motorPower' GROUP BY 1,2),\ns AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(avg(value), 1) AS v\n  FROM raw WHERE path='propulsion.starboard.motorPower' GROUP BY 1,2)\nSELECT time_bucket(INTERVAL '1 hour', p.bkt, TIMESTAMP '2020-01-01') AS hr,\n       round(sum(coalesce(p.v,0)+coalesce(s.v,0)), 1) AS motor_w\nFROM p FULL JOIN s ON p.vessel=s.vessel AND p.bkt=s.bkt\nWHERE COALESCE(p.vessel,s.vessel)='vessels.urn:mrn:imo:mmsi:367000000' AND COALESCE(p.bkt,s.bkt) >= TIMESTAMP '2026-05-01'\nGROUP BY hr ORDER BY hr",
+   "tolerance": {
+    "sort": [
+     "hr"
+    ],
+    "exact": [
+     "hr"
+    ],
+    "bsi": {
+     "motor_w": 1
+    }
+   },
+   "expected_path": "expected/q4-006.json"
+  },
+  {
+   "id": "q7-006",
+   "class": "Q7",
+   "description": "in_bbox with count (geo + count aggregate)",
+   "ti_sql": "SELECT vessel, count(*) AS n\nFROM telemetry\nWHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND in_bbox(36.5, -123.0, 37.0, -121.0)\n  AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY vessel",
+   "oracle_sql": "WITH pos AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt,\n         round(arg_max(value, ts) FILTER (WHERE path='navigation.position.latitude'), 7) AS lat,\n         round(arg_max(value, ts) FILTER (WHERE path='navigation.position.longitude'), 7) AS lon\n  FROM raw WHERE path IN ('navigation.position.latitude','navigation.position.longitude') GROUP BY 1,2)\nSELECT vessel, count(*) AS n\nFROM pos WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND lat BETWEEN 36.5 AND 37.0 AND lon BETWEEN -123.0 AND -121.0\n  AND bkt >= TIMESTAMP '2026-05-01'\nGROUP BY vessel",
+   "tolerance": {
+    "sort": [
+     "vessel"
+    ],
+    "exact": [
+     "vessel",
+     "n"
+    ],
+    "bsi": {}
+   },
+   "expected_path": "expected/q7-006.json"
+  },
+  {
+   "id": "q6-006",
+   "class": "Q6",
+   "description": "match(notes,'bilge') AND bilge pump cycles > 0 (text + count)",
+   "ti_sql": "SELECT vessel, ts, \"electrical.bilge.pumpCycles\" AS cycles\nFROM telemetry\nWHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND match(notes,'bilge')\n  AND \"electrical.bilge.pumpCycles\" > 0\n  AND ts >= TIMESTAMP '2026-05-01'\nORDER BY ts",
+   "oracle_sql": "WITH b AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, count(*) AS v\n  FROM raw WHERE path='electrical.bilge.pumpCycles' GROUP BY 1,2),\nn AS (\n  SELECT DISTINCT context AS vessel, unnest(generate_series(time_bucket(INTERVAL '10 seconds', ts_start, TIMESTAMP '2020-01-01'), COALESCE(ts_end - INTERVAL '1 second', ts_start), INTERVAL '10 seconds')) AS bkt\n  FROM docs WHERE kind='notes' AND lower(body) LIKE '%bilge%' AND context='vessels.urn:mrn:imo:mmsi:367000000')\nSELECT b.vessel, b.bkt AS ts, b.v AS cycles\nFROM b JOIN n ON b.vessel=n.vessel AND b.bkt=n.bkt\nWHERE b.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND b.v > 0 AND b.bkt >= TIMESTAMP '2026-05-01'\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "ts"
+    ],
+    "exact": [
+     "vessel",
+     "ts",
+     "cycles"
+    ],
+    "bsi": {}
+   },
+   "expected_path": "expected/q6-006.json"
+  },
+  {
+   "id": "qx-008",
+   "class": "Q4",
+   "description": "Window: rolling 3-bucket mean of SOG (window over ordered buckets) [narrowed to 05-07 00:00–06:00 UTC to keep the golden output small]",
+   "ti_sql": "SELECT ts, \"navigation.speedOverGround@mean\" AS sog,\n       avg(\"navigation.speedOverGround@mean\") OVER (ORDER BY ts ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) AS sog_roll3\nFROM telemetry\nWHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-07 00:00:00' AND ts < TIMESTAMP '2026-05-07 06:00:00'\nORDER BY ts",
+   "oracle_sql": "WITH sog AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(avg(value), 3) AS v\n  FROM raw WHERE path='navigation.speedOverGround' GROUP BY 1,2)\nSELECT bkt AS ts, round(v, 3) AS sog,\n       round(avg(v) OVER (ORDER BY bkt ROWS BETWEEN 2 PRECEDING AND CURRENT ROW), 3) AS sog_roll3\nFROM sog WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-05-07 00:00:00' AND bkt < TIMESTAMP '2026-05-07 06:00:00'\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "ts"
+    ],
+    "exact": [
+     "ts"
+    ],
+    "bsi": {
+     "sog": 3,
+     "sog_roll3": 3
+    }
+   },
+   "expected_path": "expected/qx-008.json"
+  },
+  {
+   "id": "qx-009",
+   "class": "Q4",
+   "description": "GROUP BY HAVING with count filter (days with > N wind events)",
+   "ti_sql": "SELECT date_bin(INTERVAL '1 day', ts) AS day, count(*) AS n\nFROM telemetry\nWHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND \"environment.wind.speedTrue@max\" > 12.86 AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY day HAVING count(*) > 5 ORDER BY day",
+   "oracle_sql": "WITH w AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='environment.wind.speedTrue' GROUP BY 1,2)\nSELECT time_bucket(INTERVAL '1 day', bkt, TIMESTAMP '2020-01-01') AS day, count(*) AS n\nFROM w WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND v > 12.86 AND bkt >= TIMESTAMP '2026-05-01'\nGROUP BY day HAVING count(*) > 5 ORDER BY day",
+   "tolerance": {
+    "sort": [
+     "day"
+    ],
+    "exact": [
+     "day",
+     "n"
+    ],
+    "bsi": {}
+   },
+   "expected_path": "expected/qx-009.json"
+  },
+  {
+   "id": "qx-010",
+   "class": "Q4",
+   "description": "Self-join: buckets where port and starboard motor power both > 200 [narrowed to 05-07 00:00–06:00 UTC to keep the golden output small]",
+   "ti_sql": "SELECT p.ts AS ts\nFROM telemetry p JOIN telemetry s\n  ON p.vessel = s.vessel AND p.ts = s.ts\nWHERE p.vessel='vessels.urn:mrn:imo:mmsi:367000000'\n  AND p.\"propulsion.port.motorPower@max\" > 200\n  AND s.\"propulsion.starboard.motorPower@max\" > 200\n  AND p.ts >= TIMESTAMP '2026-05-07 00:00:00' AND p.ts < TIMESTAMP '2026-05-07 06:00:00'\nORDER BY ts",
+   "oracle_sql": "WITH pp AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 1) AS v\n  FROM raw WHERE path='propulsion.port.motorPower' GROUP BY 1,2),\nss AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 1) AS v\n  FROM raw WHERE path='propulsion.starboard.motorPower' GROUP BY 1,2)\nSELECT pp.bkt AS ts\nFROM pp JOIN ss ON pp.vessel=ss.vessel AND pp.bkt=ss.bkt\nWHERE pp.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND pp.v > 200 AND ss.v > 200 AND pp.bkt >= TIMESTAMP '2026-05-07 00:00:00' AND pp.bkt < TIMESTAMP '2026-05-07 06:00:00'\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "ts"
+    ],
+    "exact": [
+     "ts"
+    ],
+    "bsi": {}
+   },
+   "expected_path": "expected/qx-010.json"
+  },
+  {
+   "id": "qx-011",
+   "class": "Q4",
+   "description": "ORDER BY LIMIT: top 10 highest wind buckets",
+   "ti_sql": "SELECT ts, \"environment.wind.speedTrue@max\" AS wind_max\nFROM telemetry\nWHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-01'\nORDER BY wind_max DESC LIMIT 10",
+   "oracle_sql": "WITH w AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v\n  FROM raw WHERE path='environment.wind.speedTrue' GROUP BY 1,2)\nSELECT bkt AS ts, round(v, 3) AS wind_max\nFROM w WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND bkt >= TIMESTAMP '2026-05-01'\nORDER BY wind_max DESC LIMIT 10",
+   "tolerance": {
+    "sort": [
+     "ts"
+    ],
+    "exact": [
+     "ts"
+    ],
+    "bsi": {
+     "wind_max": 3
+    }
+   },
+   "expected_path": "expected/qx-011.json"
+  },
+  {
+   "id": "qx-012",
+   "class": "Q4",
+   "description": "GROUPING by vessel across two vessels (fleet aggregation)",
+   "ti_sql": "SELECT vessel, count(*) AS n, avg(\"electrical.batteries.house.voltage\") AS batt_v\nFROM telemetry\nWHERE vessel IN ('vessels.urn:mrn:imo:mmsi:367000000','vessels.urn:mrn:imo:mmsi:367000001') AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY vessel ORDER BY vessel",
+   "oracle_sql": "WITH vv AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(avg(value), 3) AS v\n  FROM raw WHERE path='electrical.batteries.house.voltage' GROUP BY 1,2)\nSELECT vessel, count(*) AS n, round(avg(v), 3) AS batt_v\nFROM vv WHERE vessel IN ('vessels.urn:mrn:imo:mmsi:367000000','vessels.urn:mrn:imo:mmsi:367000001') AND bkt >= TIMESTAMP '2026-05-01'\nGROUP BY vessel ORDER BY vessel",
+   "tolerance": {
+    "sort": [
+     "vessel"
+    ],
+    "exact": [
+     "vessel",
+     "n"
+    ],
+    "bsi": {
+     "batt_v": 3
+    }
+   },
+   "expected_path": "expected/qx-012.json"
+  },
+  {
+   "id": "q1-007",
+   "class": "Q1",
+   "description": "Point lookup: count field (bilge pump cycles) at a bucket",
+   "ti_sql": "SELECT vessel, ts, \"electrical.bilge.pumpCycles\" AS cycles\nFROM telemetry\nWHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND ts = TIMESTAMP '2026-05-01 00:02:30'\nORDER BY ts",
+   "oracle_sql": "SELECT context AS vessel,\n       time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS ts,\n       count(*) AS cycles\nFROM raw WHERE path='electrical.bilge.pumpCycles' AND context='vessels.urn:mrn:imo:mmsi:367000000'\nGROUP BY 1,2 HAVING ts = TIMESTAMP '2026-05-01 00:02:30'\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "vessel",
+     "ts"
+    ],
+    "exact": [
+     "vessel",
+     "ts",
+     "cycles"
+    ],
+    "bsi": {}
+   },
+   "expected_path": "expected/q1-007.json"
+  },
+  {
+   "id": "qx-013",
+   "class": "Q4",
+   "description": "Per-day mean as a join (the decorrelated form of qx-003): buckets where wind exceeds the day's mean wind [narrowed to 05-07 00:00–06:00 UTC]",
+   "ti_sql": "WITH d AS (\n  SELECT vessel, date_bin(INTERVAL '1 day', ts) AS day, avg(\"environment.wind.speedTrue\") AS a\n  FROM telemetry GROUP BY 1, 2)\nSELECT t.ts, t.\"environment.wind.speedTrue@max\" AS wmax\nFROM telemetry t JOIN d ON d.vessel = t.vessel AND d.day = date_bin(INTERVAL '1 day', t.ts)\nWHERE t.vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND t.ts >= TIMESTAMP '2026-05-07 00:00:00' AND t.ts < TIMESTAMP '2026-05-07 06:00:00'\n  AND t.\"environment.wind.speedTrue@max\" > d.a\nORDER BY t.ts",
+   "oracle_sql": "WITH w AS (\n  SELECT context AS vessel, time_bucket(INTERVAL '10 seconds', ts, TIMESTAMP '2020-01-01') AS bkt, round(max(value), 3) AS v, round(avg(value), 3) AS a\n  FROM raw WHERE path='environment.wind.speedTrue' GROUP BY 1,2)\nSELECT w.bkt AS ts, round(w.v, 3) AS wmax\nFROM w\nWHERE w.vessel='vessels.urn:mrn:imo:mmsi:367000000' AND w.bkt >= TIMESTAMP '2026-05-07 00:00:00' AND w.bkt < TIMESTAMP '2026-05-07 06:00:00'\n  AND w.v > (SELECT avg(w2.a) FROM w w2\n             WHERE w2.vessel = w.vessel\n               AND time_bucket(INTERVAL '1 day', w2.bkt, TIMESTAMP '2020-01-01') = time_bucket(INTERVAL '1 day', w.bkt, TIMESTAMP '2020-01-01'))\nORDER BY ts",
+   "tolerance": {
+    "sort": [
+     "ts"
+    ],
+    "exact": [
+     "ts"
+    ],
+    "bsi": {
+     "wmax": 3
+    }
+   },
+   "expected_path": "expected/qx-013.json"
+  }
+ ]
+}

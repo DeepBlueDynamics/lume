@@ -1,0 +1,94 @@
+#!/bin/sh
+set -e
+
+# postrm script for marine-lume
+SK_DATA="/var/lib/container-apps/marine-signalk-server-container/data/data"
+PLUGIN_DEST="$SK_DATA/lume-plugin/signalk-lume-ti"
+CONFIG_FILE="$SK_DATA/plugin-config-data/signalk-lume-ti.json"
+STORE_DIR="$SK_DATA/lume-ti"
+
+restart_signalk() {
+    if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+        echo "Restarting marine-signalk-server-container..."
+        systemctl restart marine-signalk-server-container || true
+    elif command -v docker >/dev/null 2>&1; then
+        echo "Restarting marine-signalk-server-container via docker..."
+        docker restart marine-signalk-server-container 2>/dev/null || true
+    fi
+}
+
+unregister_plugin() {
+    # 1. Remove dependency from Signal K package.json
+    if [ -f "$SK_DATA/package.json" ]; then
+        python3 -c "
+import json, os, sys
+p = os.path.join(sys.argv[1], 'package.json')
+try:
+    with open(p, 'r', encoding='utf-8') as f:
+        doc = json.load(f)
+    if 'dependencies' in doc and 'signalk-lume-ti' in doc['dependencies']:
+        del doc['dependencies']['signalk-lume-ti']
+        tmp = p + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(doc, f, indent=2)
+            f.write('\n')
+        os.replace(tmp, p)
+        try:
+            os.chown(p, 1000, 1000)
+        except Exception:
+            pass
+except Exception:
+    pass
+" "$SK_DATA" 2>/dev/null || true
+    fi
+
+    # 2. Remove node_modules symlink
+    rm -f "$SK_DATA/node_modules/signalk-lume-ti" 2>/dev/null || true
+}
+
+case "$1" in
+    remove)
+        # On remove: disable plugin in config, clean up plugin directory and registration, leave store intact
+        if [ -f "$CONFIG_FILE" ]; then
+            python3 -c "
+import json, os, sys
+p = sys.argv[1]
+try:
+    with open(p, 'r', encoding='utf-8') as f:
+        d = json.load(f)
+    d['enabled'] = False
+    tmp = p + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(d, f, indent=2)
+        f.write('\n')
+    os.replace(tmp, p)
+    try:
+        os.chown(p, 1000, 1000)
+    except Exception:
+        pass
+except Exception:
+    pass
+" "$CONFIG_FILE" 2>/dev/null || true
+        fi
+        rm -rf "$PLUGIN_DEST" 2>/dev/null || true
+        unregister_plugin
+        restart_signalk
+        ;;
+    purge)
+        # On purge: remove configuration, registration, and user's timeseries store
+        rm -rf "$STORE_DIR" 2>/dev/null || true
+        rm -f "$CONFIG_FILE" 2>/dev/null || true
+        rm -rf "$SK_DATA/plugin-config-data/signalk-lume-ti" 2>/dev/null || true
+        rm -rf "$PLUGIN_DEST" 2>/dev/null || true
+        unregister_plugin
+        restart_signalk
+        ;;
+    upgrade|failed-upgrade|abort-install|abort-upgrade)
+        ;;
+    *)
+        echo "postrm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

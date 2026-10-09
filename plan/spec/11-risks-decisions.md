@@ -1,0 +1,130 @@
+# 11. Risks, open questions, decisions
+
+Spec pp. 28–31.
+
+The biggest risk is that bitmaps don't beat DuckDB by enough on single-boat data
+to justify a second engine. The M6 benchmark gate exists to find that out early
+and cheaply.
+
+## Risks
+
+| Risk | Signal | Mitigation |
+|---|---|---|
+| Bitmap speedup < 5× vs DuckDB on Q2, Q3, Q5, Q6 | M6 bench report | Keep `ti-sql` and route broad queries to `raw`. Ship only text, geo and `intervals()`, where bitmaps are unique |
+| Pi memory pressure on year-long queries | RSS > 1 GB in Q4 | Shard-at-a-time streaming, mmap read path, evaluate `croaring` frozen views in M4 |
+| Path explosion (AIS, per-device sources, plugin noise) | > 2,000 fields per vessel | Allow/deny lists in `ti.toml`, `slow` profile auto-detection, field cap with a `ti_status` warning |
+| Fixed-point surprises (wrong units, missing meta) | Registry misses logged at ingest | Unit-to-scale table plus per-path override; `ti_status` lists paths without units |
+| Clock skew and backfilled history | Updates far from receive time | 5-min skew rule, repair queue, versioned shards |
+| DataFusion API churn | Breaking change on upgrade | Pin major version, upgrade quarterly behind the golden corpus |
+| Bucket semantics mislead users ("max" of a 10 s mean) | Agent answers disagree with raw | `@agg` naming mandatory in output, `ti_sql` echoes it, `raw` available for exact checks |
+
+## Open questions
+
+- [x] Default bucket width: 10 s, or 1 s with 1-min rollups? (1 s is 10× the index size). **Resolved by D30:** keep 10 s for everything, plus a separate 1 s store for navigation, wind and depth with 90-day configurable retention.
+- [ ] Per-source values as first-class columns in v1, or only `$source` sets?
+- [ ] AIS contacts as a second table (`contacts`, columns = observer × bucket, rows = MMSI), or out of scope?
+- [ ] Shore storage: local NVMe only, or sealed shards in object storage with a read cache?
+- [ ] Should `ti_resolve` also index Signal K spec descriptions for paths a vessel has never reported?
+- [ ] *(added in review)* Does anything besides sealed shards move to shore? p. 7 says only sealed shards; p. 20 ships open-shard WAL tails every 5 min. Reword p. 7 or drop WAL-tail sync.
+- [ ] *(added in review)* PV-1 Done criterion: should the HALPI install be "from the Signal K App Store" (p. 2) or from the HaLOS Marine container store (p. 19)?
+- [ ] Licensing check: borrow algorithm ideas only from FeatureBase (Apache-2.0), copy no code, keep Lume BSD-3-clean.
+
+## Decisions log
+
+| # | Decision | Why |
+|---|---|---|
+| D1 | Index is derived and rebuildable; Parquet and deltas stay source of truth | No migration risk; the oracle comes for free |
+| D2 | Build in Lume (Rust, roaring) rather than revive FeatureBase (Go, archived Feb 2024) | One binary, BM25 postings already roaring-native, Pi-friendly |
+| D3 | DataFusion for SQL | Mature planner, Arrow-native, `TableProvider` pushdown API, can also query Parquet (`raw`) |
+| D4 | Shard = vessel × 2^16 buckets | One roaring container per row per shard; vessel-local seal and sync |
+| D5 | Sealed, content-hashed shard is the unit of replication | Idempotent sync over flaky links; shore needs no merge logic |
+| D6 | DuckDB oracle defines correctness | Deterministic acceptance for agent lanes |
+| D7 | `Predicate` IR is the only interface between SQL and bitmaps | Lets W1 and W4 build in parallel from day one |
+| D8 | DataFusion =55.1.0 (future ti-sql); arrow 59 major via lockfile, arrow-array/arrow-schema requirements 59.2 | Source: Zygomorphic Prawn dependency survey and Industrial Pike correction; local W0 lockfile resolves 59.3.0. No DataFusion dependency in contracts; future use disables default features and selects features explicitly |
+| D9 | roaring 0.11.5 for TI | Source: Zygomorphic Prawn survey reports portable format, run containers and RoaringTreemap; existing MiniRoaring remains unchanged |
+| D10 | Root ti-contracts dependency optional behind ti; root stays default workspace member | Source: W0 review and Industrial Pike assignment; normal root build retains its four direct dependencies |
+| D11 | Future Parquet uses pure-Rust codecs only, no zstd | Source: Zygomorphic Prawn survey relayed by Industrial Pike; honor the C-binding restriction |
+| D12 | Future blake3 enables pure | Source: Zygomorphic Prawn survey relayed by Industrial Pike; avoid cc for musl builds |
+| D13 | Smoke-test pgwire SCRAM on aarch64-musl early | Source: Zygomorphic Prawn survey relayed by Industrial Pike reports ring dependency; validate portability before shipping |
+| D14 | DuckDB as an out-of-process oracle (CLI or the `duckdb` Python package, 1.5.6), never a bundled Rust crate | Source: Zygomorphic Prawn survey relayed by Industrial Pike; avoid embedding the C++ engine. Amended 2026-10-06: the oracle and `tests/golden/gen_expected.py` use the Python package (installed on the host with `pip --user`, user-approved); still dev/test only, not a product dependency |
+| D15 | cargo-zigbuild for musl release builds | Source: Zygomorphic Prawn survey relayed by Industrial Pike; tooling choice, not a contracts runtime dependency |
+| D16 | `ShardSink::apply` acknowledges after a buffered WAL append; WAL is fsynced at least every 1 s (group commit), and always before `flush` advances or truncates it and on shutdown | Lead decision on spec/14's stricter per-apply fsync proposal. Bounds power-loss to ≈1 s, well inside spec/03's 60 s allowance, without paying an fsync per apply on the Pi. W2 may benchmark per-apply fsync and propose a change |
+| D17 | Contract types derive `Debug, Clone, PartialEq` (plus `Eq` where all fields allow); `Predicate`/`FieldValue` also need them for proptest | Lead decision: spec/10 showed derives only on `ShardKey`, but W1's proptests and every lane's fixtures need to construct, print and compare these values. Applied in W0 part 2 |
+| D18 | serde 1.0 with derive in ti-contracts | W0 part 2: ti.toml schema and frozen WAL value serialization; root default build still gates TI dependencies behind ti |
+| D19 | toml 0.9 in ti-contracts | W0 part 2: parse the typed ti.toml schema, reject unknown keys and report key-qualified validation errors; pure Rust |
+| D20 | `raw` (for both the DuckDB oracle and TI) is a normalizing view over the real signalk-parquet layout: `context, ts TIMESTAMP, path, value DOUBLE, value_str VARCHAR, source`, with object keys flattened to `path.key` | Lead decision after [design/signalk-formats.md](../design/signalk-formats.md) found string timestamps, no `$source` column and per-file value types. Oracles stay layout-independent, and the generator writes the real layout so the view is tested against it ([repo-fit §10](../repo-fit.md)) |
+| D21 | Ordinary set fields are single-valued per bucket: exactly one row bit per column, the last preferred-source value. Rows are pairwise disjoint and union to presence; the Arrow type is Utf8. `$source` stays multi-valued `List<Utf8>`, and W4 rewrites `=` to `array_has` | Lead ruling at the contracts freeze: with Exact pushdown, a filter must agree with the projected value, because DataFusion doesn't re-check it. Mid-bucket changes are covered by `@starts` / edge counts. Enforced by `validate_ordinary_set_rows` |
+| D22 | `ti-bench` workspace member: arrow 59.2 + parquet 59.2 (default-features off; flate2-zlib-rs, lz4_flex, snap, arrow) + chrono 0.4 (default-features off, clock) | Synthetic signalk-parquet generator for the correctness and performance sets (Zygomorphic Prawn, merged by lead in c65e515). Pure-Rust codecs only (D11/D27); not a dependency of the `lume` binary |
+| D23 | proptest 1.x as a ti-core dev-dependency | W1: 10,000-case independent scalar/bitmap checks for signed BSI, predicate trees and D21 rewrites; coordinated with Prawn (D22 reserved for ti-bench), no new root runtime dependency |
+| D24 | bincode 1.3 in ti-store | W2: length-prefixed little-endian fixed-integer serialization for WAL record payloads (spec 14 §79); pinned 1.3.3 in Cargo.lock. WAL payload encoding is an on-disk format versioned by the frozen WAL header (v1); any change of encoder or major version requires a header version bump plus a migration note |
+| D25 | crc32fast 1.4+ in ti-store | W2: IEEE CRC32 frame checksum for WAL records over sequence LE and payload (spec 14 §78); pure-Rust fast table-based CRC32, already in shared lockfile |
+| D26 | DataFusion =55.1.0, defaults disabled; sql/parquet/nested/datetime/math/string features; zstd-sys allowed by D27; async-trait 0.1, tokio 1 runtime/macros, futures 0.3, existing serde/serde_json for ti-sql | W4 read-only SQL, custom TableProvider/streaming executor, array_has rewrite, golden verification; root remains optional behind ti. DataFusion's additive transitive features enable zstd-sys; the lead approved this exception in D27. No vendoring or patches; bzip2/lzma C bindings remain excluded |
+
+Reserved, and written by the owning lane at merge (agreed among the lanes on 2026-10-06):
+
+
+| # | Decision | Why |
+|---|---|---|
+| D27 | **Amends D11.** Accept `zstd-sys` (C, built via `cc`), which DataFusion 55.1.0 forces in through `arrow-ipc`'s zstd feature even with `default-features = false` and only `sql` enabled. No other C codec crates are allowed: bzip2, lzma and liblzma must stay absent, checked with `cargo tree --features ti -i <crate>`. TI must not *enable* any further C codec itself. Musl builds compile it through cargo-zigbuild (D15). Add an early aarch64-musl `cargo zigbuild -p ti-sql` smoke test, like D13 | Lead ruling on W4's finding, verified independently by the lead in a scratch project. The alternative, vendoring 4 patched DataFusion crates, would mean re-patching on every quarterly DataFusion upgrade (spec/11 risk "DataFusion API churn"). **Spec deviation:** spec/10's PR rule says C bindings are allowed only for `croaring`. This decision makes a recorded exception for `zstd-sys` and asks the spec owner to confirm |
+| D28 | `tungstenite` 0.24 in `ti-ingest` (blocking, plain `ws://` without TLS) | W3: Signal K WebSocket client and subscription management; keeps ingest off tokio and preserves low-priority thread budget. `wss://` requires rustls/ring and is out of scope for v1 (W7/W8 follow-up if remote Signal K needed) |
+| D29 | `parquet` 59.2 in `ti-ingest` (`default-features = false`, `arrow`, `snap`, `flate2`, `zstd`) | W3: signalk-parquet raw tier backfill reader; pure-Rust codecs (`snap`, `flate2`), with `zstd` enabled reusing `zstd-sys` already accepted under D27 (no new C crates). C crates `bzip2-sys` and `lzma-sys` stay strictly forbidden |
+
+| # | Decision | Why |
+|---|---|---|
+| D30 | A second **1 s high-resolution store** (`telemetry_hr`) beside the 10 s store, holding an allow-list of navigation (position, SOG, COG, heading: `@last`), wind (`@mean`, `@max`) and depth (`@min`). Retention is per store and configurable, defaulting to **90 days** on the Pi and on shore (`shore_retention`)<br><br>**Amendment (2026-10-06, commit `fe5ea3a`):** Contract implemented in `crates/ti-contracts/src/config.rs` (`StoreConfig`, `stores: BTreeMap<String, StoreConfig>`). Enforces: `default` store required when stores non-empty; width divides 3600; distinct per-store roots; typed duration parsing (`s/m/h/d`, `forever`); and full backward compatibility when `[stores]` is omitted | User decision, 2026-10-06. 10 s loses track shape (about 36 m between fixes at 7 kn), while gusts and shallowest depth are already kept by `@max`/`@min`. A 1 s bucket holds about one sample at Signal K's ~1 Hz, so it's full fidelity for those paths at about 0.15–0.5 GB per vessel over 90 days. No frozen-type change; needs a `ti.toml` contracts PR. Design: [design/hi-res-store.md](../design/hi-res-store.md). Scheduled after M3 |
+
+| # | Decision | Why |
+|---|---|---|
+| D31 | `ti-geo` uses exact `h3o` 0.11.0 (BSD-3-Clause, explicit `std`/`geo` features) and `geo` 0.33.1 (MIT OR Apache-2.0, default features disabled), one shared geo/geo-types version | W6: pure-Rust H3 indexing at resolutions 5/7/9 and conservative `ContainmentMode::Covers` tiling. The h3o geometry API accepts geo polygons; the lead approved the direct matching geo dependency. No optional PROJ, triangulation, threading or native geometry bindings are enabled. Reuses D23 proptest for cover completeness checks |
+
+| # | Decision | Why |
+|---|---|---|
+| D32 | Golden expected outputs must stay small, aiming for ≤ 256 KB per entry and a few MB in total. A query whose result set is large is narrowed, identically in `ti_sql` and `oracle_sql`, to a window that still exercises its logic (joins, windows, set operations, geo), not committed as megabytes of raw rows | Lead decision, 2026-10-06: the first full run produced 89 MB of JSON, because 10 queries returned a month of 10 s buckets. Narrowing those ten to 2026-05-07 00:00–06:00 UTC cut the total to 2.1 MB (largest 243 KB) with no loss of coverage |
+
+| D33 | Until per-path, sticky median-interval detection exists, every numeric path uses the **default** aggregate profile (`@mean/@min/@max`) for every bucket; the `slow` profile is not auto-applied | Lead decision 2026-10-06: ingest decided "slow" per bucket (any single-sample bucket), so 0.1 Hz paths at W = 10 s got only `@last` and `@mean/@min/@max` vanished (first M3 corpus run: 38/61 failed on missing columns). Cost: index 614 MB for 5 vessels × 90 d (0.32× raw, ≈ 500 MB/vessel-year), inside the spec/05 budget |
+
+| D34 | **Amends spec/13's oracle tolerance.** BSI columns compare within **±1 × 10^−scale** (one unit in the last place), not ±0.5 | Lead decision 2026-10-06: TI stores fixed-point values at `scale` and the DuckDB oracle rounds its output to `scale`. Each sits up to half a unit from the true value, so a correct pair can differ by a full unit (e.g. an hourly mean of bucket means 25.47649 vs the oracle's round(avg raw, 3) = 25.477). Sums over many buckets can still exceed this; those entries narrow their scale or window |
+| D35 | **Oracles model quantized buckets.** Every golden oracle CTE rounds its per-bucket aggregate (`min`/`max`/`avg`/`arg_max` over `value`) to the path's catalog `scale` before any filter, join or roll-up. TI predicates compare the stored fixed-point values (spec/05), so a raw 12.8604 m/s is `@max` = 12.860 and fails `> 12.86` | Lead decision 2026-10-06: the M3 count mismatches (q3-002/003/004/007, qx-009) and the sum drift (q4-005/006) all came from the oracle comparing raw floats. After rounding, the five counts equal TI's exactly. The q7 geo oracles (`arg_max … FILTER`) are unchanged until M4 |
+| D36 | **`match()` is lexical Lume BM25.** `match(notes|logbook|alerts, q)` and `match(body, q)` on `docs` use Lume's `Bm25Index` (no Shivvr, no network, so it works on the boat). Terms are OR'ed (BM25 candidate semantics); uppercase `OR` is a separator and uppercase `AND` intersects groups. A document covers every bucket in `[ts_start, ts_end)` (spec/14), and the golden text oracles now expand that range instead of using only the start bucket. `match(body, q)` on `docs` is an Exact pushdown that attaches the BM25 `score` | Lead decision 2026-10-06, answering the W5 open question. The semantic/hybrid path stays an opt-in for shore. Implementation: `src/ti_text.rs` (root crate, `--features ti`; ti crates cannot depend on the `lume` lib without a package cycle), `ti_store::DocStore`, `ti_sql::DocsProvider`. `Bm25Index::search_quiet` drops the CLI's stderr diagnostics; `search` output is unchanged |
+
+| D37 | Optional root `pgwire =0.41.0`, default features disabled, `server-api` only, behind `ti`; optional direct tokio 1, futures 0.3 and async-trait 0.1 reuse existing versions. tokio-postgres 0.7 is a smoke-test dev-dependency | Lead approved 2026-10-06. Spec-named Postgres wire adapter for read-only simple queries. MIT/Apache-2.0; MSRV 1.89. Defaults are disabled to avoid aws-lc and SCRAM/TLS dependencies in this slice. D13 SCRAM-on-aarch64-musl smoke test remains required before shore authentication ships |
+
+| D38 | Generic Parquet uses explicit opaque `<kind>.urn:<nonempty>` entity IDs (kind starts with an ASCII letter, followed by letters, digits, `_` or `-`), shared validation across catalog/docs/envelopes/sync. Existing `vessels.urn:` strings, ordinals, serialization and seal hashes remain unchanged; SQL retains `vessel` and adds `entity` as an alias. Default-empty `[[sources.parquet]]` and `[units]` mappings specify entity column or constant, time/unit/timezone, long or wide metrics and exclusions. UTC/fixed-offset timezone only; naive local text requires explicit timezone. Sorted file globs and stable row order retain source priorities and D21 single-valued sets | Lead approved 2026-10-06, user-requested generic time series and robot fleets. Cost: wider identity acceptance and additive configuration, requiring boat seal-hash/corpus regression and mixed-store tests; no persisted format change or inferred entity kind |
+
+| # | Decision | Why |
+|---|---|---|
+| D39 | Benchmark-only standalone `croaring =2.8.0` and `roaring =0.11.5` in `bench/croaring-eval`; lockfile pins the C `croaring-sys` build. No dependency of Lume or any ti crate | Lead approved 2026-10-06 for the requested same-process M4 evaluation. Isolated workspace, sequential build and 8 GB target cap; production graph unchanged |
+| D40 | **Reject CRoaring adoption for M4; retain roaring 0.11.5 and existing Portable seals.** Native Frozen persistence is rejected; a validated Portable-view prototype remains a follow-up requiring its own production C-dependency approval | [Evaluation](../design/croaring-eval.md): same-process sparse BSI ~2.32×, run-optimized range/chain ~10–12×, but existing Portable interval enumeration 0.66×. Native format/lifetime/unsafe validation and Pi/RSS/end-to-end integration are untested. No runtime or seal-format change; fulfils M4 item 3's adopt-or-reject evaluation |
+
+| D41 | `ti-ingest` reuses root `ureq` 2.12 (same lockfile version, no new package or C crate) for read-only Signal K Resources and optional logbook polling | Lead approved 2026-10-06 for spec/06 §4. Background worker, 5 s HTTP timeout, 8 MiB / 20,000 entry caps; HTTP failures never stop telemetry. Only the ingest thread reconciles complete snapshots into DocStore |
+
+| D42 | TI-optional sha2 0.11, hmac 0.13, base64 0.23 and rand 0.10 (existing lockfile versions), plus chrono 0.4 and pgwire's `pg-type-chrono`; retain `server-api` without ring/aws-lc features | Lead approved 2026-10-06. Verifier-only SCRAM-SHA-256 uses pure Rust, constant-time StoredKey comparison, bounded messages/iterations and randomized unknown-user challenges. No plaintext password storage or TLS/channel-binding advertisement. Default runtime graph unchanged; D13 actual aarch64 smoke is run by the lead on the Pi using tests/pg_smoke.sh |
+
+| D43 | Root optional `lopdf =0.44.0` (defaults off), `zip =8.6.0` (defaults off, `deflate-flate2` only), `quick-xml =0.42.0` (defaults off), MIT; `pdf` feature included by `ti`, default features unchanged | Lead approved 2026-10-07 for offline cruiser-library extraction. Existing UV remains preferred when available; bounded isolated Rust fallback and EPUB chapter extraction never require Grub. 128 MiB input, 120 s deadline, 512 MiB Linux RSS, 8 MiB page/chapter, 64 MiB text. [Decision and evaluation](../decisions/D43-library-extraction.md) |
+
+| # | Decision | Why |
+|---|---|---|
+| D47 | **Open-shard flush writes only changed fields, behind one sync.** Each flush stages every changed field file of every dirty shard, then makes them durable with one Linux `syncfs` (per-file `sync_all` elsewhere), renames them, and syncs each directory once. Seal uses the same path. The ingest loop keeps the 5 s freshness flush but caps flushing at ~10 % of wall time, and flushes regardless past 2M unflushed records. Root ti-store gains a Linux-only direct `libc = "0.2"` (existing lockfile version 0.2.186, MIT/Apache-2.0) | Lead decision 2026-10-07. The Pi 20k values/s load run (21 vessels × 224 fields) stalled: every flush rewrote all 4,704 field files with two fsyncs each, about 34 files/s on the SD card, so a flush took ~140 s and the reader stopped. Open files layer over the sealed base on load, so partial flushes reload completely (`tests/partial_flush.rs`). Seal bytes and hashes are unchanged |
+| D48 | **Go for the single-boat pilot; no-go, for now, on shore-scale and contention claims.** Pilot = one vessel, Signal K plugin on a Pi 5 or HALPI2, Lume as History API provider. Lifting the no-go needs: (1) the 50-vessel × 365-day fleet with DuckDB timing for the "≥ 5×" rule; (2) the OpenCPN contention test; (3) cold-start misses fixed or accepted (`ti/cache-warm` in progress); (4) per-class edge p95 on the Pi; (5) a CI p95-regression gate with committed `bench/results/` | User approved 2026-10-08 (M6 item 3). Evidence in [plan/bench/benchmark-report.md](../bench/benchmark-report.md): correctness gates pass (corpus 61/0/1, crash safety, byte-identical reseals); Pi ingest 20k values/s for 1 h at 14.2 % of one core and 65.6 MB; warm p95 beats every measured edge class (Q6 78.4 ms vs 200 ms); M6 items 1 and 2 pass |
+| D49 | **D48 follow-ups (user, 2026-10-08).** Gap 3 accepted: the first query on history older than the warmed window may exceed the edge p95 target; startup warm-up (`12ec0b1`) keeps recent shards warm. Gap 1 (50-vessel × 365-day shore fleet with DuckDB timing) deferred. Gap 2 (OpenCPN contention) will be run by the user by hand, with the lead driving Lume load and measuring Signal K latency and drops. Gap 4 (per-class p95 on the Pi) to be run by the lead. Gap 5 done (`5fea408`) | Warm-up measured: Q1/Q3/Q5/Q6 first queries on May data still miss at 256 and 64 MiB because newest-first warming fills the budget with newer shards (`bench/results/2026-10-08-0fb40e8.*`) |
+| D50 | **Agent OTLP HTTP/JSON (A1).** Opt-in /v1/metrics and /v1/logs, standalone port 4318; agent.urn identity, 10 s telemetry_agents store and searchable logbook docs; optional bearer, 8 MiB cap, protobuf rejected with 415. Hand-written serde, no OTLP/protobuf dependencies | Monotonic sums become running totals with @last (delta additions, cumulative reset segments); gauges/non-monotonic sums use @mean; dimensional paths; histogram .sum/.count; bounded same-bucket repair; independent 90-day retention. [Decision details](../decisions/D50-otlp-json.md) |
+| D51 | **APPROVED / A17:** nuts.services RS256 JWT/AHP auth with mandatory allowlist and read/write scopes; auth required off loopback; A11 static and route tokens retained; plain default-loopback question remains open | [Policy and design](../decisions/D51-http-auth.md) |
+| D52 | **DocStore append-only CRC-framed transactions**, fsync before publication, incremental refresh, tombstones and atomic compaction; legacy JSON migrated with `.bak` retained; no new dependencies or public API/SQL-schema change | Lead approved 2026-10-08 under the user's standing autonomy. Removes whole-document-set rewrites for OTLP and vessel documents. **User-facing format change:** downgrade requires explicitly restoring the backup; older binaries cannot write the new versioned log. [Decision](../decisions/D52-docstore-append.md) |
+
+| D53 | **Per-field WAL checkpoints in open snapshots**, WAL sync before publication, monotonic sequence floors before truncation, legacy scalar reset/final-group fallback | Lead approved 2026-10-08. Fixes flushed-snapshot/WAL overlap without weakening replacement validation or changing sealed bytes/hashes. Downgrade requires sealing or re-deriving open shards; retain sequence sidecars. [Decision and reader audit](../decisions/D53-wal-checkpoint.md) |
+
+D44 approves bundled Linux arm64 and x64 plugin binaries, with no install-time scripts; see [the packaging decision](../decisions/D44-plugin-package.md).
+
+D45 (release binary size) and D46 (pgwire TLS) have their own records in `plan/decisions/`. The next free number is **D54**. Ask the lead before taking one. Every new runtime dependency needs a line here
+(PR rule, [10-contracts](10-contracts.md)).
+
+## Sources (from spec)
+
+- Lume README — hybrid search, roaring-bitmap SKG, MCP server
+- FeatureBase repository — archived Feb 21 2024, Apache-2.0
+- signalk-parquet README — Parquet archive, DuckDB querying, History API provider
+- Signal K History API — `/signalk/v2/api/history`, from / to / duration
+- Signal K Resources API, provider methods — filtering left to provider plugins
+- HALPI2 documentation — CM5, NVMe, CAN-FD NMEA 2000, RS-485 NMEA 0183
+- HALPI2 operating system images — HaLOS, Marine image with Signal K, Grafana, InfluxDB, AvNav
+- halos-marine-containers — HaLOS Marine container store definitions

@@ -1,0 +1,23 @@
+[package]
+name = "ti-store"
+version = "0.1.0"
+edition = "2021"
+license = "BSD-3-Clause"
+description = "Storage engine for the Lume Telemetry Index (WAL, shards, catalog, manifest)"
+
+[dependencies]
+ti-contracts = { path = "../ti-contracts" }
+arrow-array = "59.2"
+arrow-schema = "59.2"
+roaring = "0.11.5"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bincode = "1.3"
+crc32fast = "1.4"
+blake3 = { version = "1.5", features = ["pure"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"

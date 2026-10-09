@@ -1,0 +1,67 @@
+name: Bump version and release
+
+# One click from the Actions tab: bump the version in Cargo.toml, Cargo.lock and
+# the plugin's package.json, commit it to the selected branch, tag vX.Y.Z, then
+# run the release workflow for that tag.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "patch, minor, major, or an explicit version (e.g. 1.0.0)"
+        required: true
+        default: patch
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bump-version
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    name: Bump, commit and tag
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.bump.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Bump version
+        id: bump
+        run: |
+          version="$(node scripts/bump-version.cjs "${{ inputs.bump }}")"
+          tag="v$version"
+          if git rev-parse -q --verify "refs/tags/$tag" > /dev/null; then
+            echo "::error::tag $tag already exists"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          git diff --stat
+
+      - name: Check the lockfile still resolves
+        run: cargo metadata --locked --format-version 1 > /dev/null
+
+      - name: Commit and tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "release: ${{ steps.bump.outputs.tag }}"
+          git tag -a "${{ steps.bump.outputs.tag }}" -m "Lume ${{ steps.bump.outputs.tag }}"
+          git push origin "HEAD:${{ github.ref_name }}" "${{ steps.bump.outputs.tag }}"
+
+  release:
+    needs: bump
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.bump.outputs.tag }}
+    permissions:
+      contents: write

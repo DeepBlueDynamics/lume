@@ -1,0 +1,2327 @@
+{
+  "version": 1,
+  "started_at": "2026-10-08T21:38:40.248692385+00:00",
+  "baseline_seconds": 120,
+  "load_seconds": 600,
+  "elapsed_seconds": 720.012244386,
+  "concurrency": 1,
+  "resolved": {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "window": {
+      "requested": "last:7d",
+      "start": "2026-05-23T00:00:00+00:00",
+      "end": "2026-05-30T00:00:00+00:00",
+      "bucket_width_seconds": 10
+    },
+    "preflight": {
+      "q4-001": {
+        "rows": 7,
+        "truncated": false
+      },
+      "q4-002": {
+        "rows": 168,
+        "truncated": false
+      },
+      "q4-005": {
+        "rows": 7,
+        "truncated": false
+      },
+      "q8-001": {
+        "rows": 168,
+        "truncated": false
+      },
+      "q8-002": {
+        "rows": 7,
+        "truncated": false
+      },
+      "q8-006": {
+        "rows": 7,
+        "truncated": false
+      }
+    },
+    "allow_empty": false
+  },
+  "query_set": "committed 26-query PI_QUERY_IDS",
+  "queries": [
+    {
+      "id": "q4-001",
+      "class": "Q4",
+      "original_sql": "SELECT vessel, date_bin(INTERVAL '1 day', ts) AS day,\n       max(\"environment.wind.speedTrue@max\") AS wind_max\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-03-01' AND ts < TIMESTAMP '2026-06-01'\nGROUP BY vessel, day ORDER BY day",
+      "sql": "SELECT vessel, date_bin(INTERVAL '1 day', ts) AS day,\n       max(\"environment.wind.speedTrue@max\") AS wind_max\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-23 00:00:00' AND ts < TIMESTAMP '2026-05-30 00:00:00' AND ts >= TIMESTAMP '2026-05-23 00:00:00' AND ts < TIMESTAMP '2026-05-30 00:00:00'\n\nGROUP BY vessel, day ORDER BY day",
+      "rows_total": 25270,
+      "empty_results": 0,
+      "latency_ms": {
+        "n": 3610,
+        "p50": 4.64263,
+        "p95": 6.110747,
+        "p99": 8.705091,
+        "max": 96.044201
+      },
+      "attempts": 3610,
+      "errors": 0,
+      "error_counts": {}
+    },
+    {
+      "id": "q4-002",
+      "class": "Q4",
+      "original_sql": "SELECT vessel, date_trunc('hour', ts) AS hr,\n       avg(\"electrical.batteries.house.voltage\") AS batt_v\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-01' AND ts < TIMESTAMP '2026-05-02'\nGROUP BY vessel, hr ORDER BY hr",
+      "sql": "SELECT vessel, date_trunc('hour', ts) AS hr,\n       avg(\"electrical.batteries.house.voltage\") AS batt_v\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-23 00:00:00' AND ts < TIMESTAMP '2026-05-30 00:00:00' AND ts >= TIMESTAMP '2026-05-23 00:00:00' AND ts < TIMESTAMP '2026-05-30 00:00:00'\n\nGROUP BY vessel, hr ORDER BY hr",
+      "rows_total": 606480,
+      "empty_results": 0,
+      "latency_ms": {
+        "n": 3610,
+        "p50": 59.206091,
+        "p95": 73.469001,
+        "p99": 80.188309,
+        "max": 160.07016099999998
+      },
+      "attempts": 3610,
+      "errors": 0,
+      "error_counts": {}
+    },
+    {
+      "id": "q4-005",
+      "class": "Q4",
+      "original_sql": "SELECT vessel, date_bin(INTERVAL '1 day', ts) AS day,\n       sum(\"electrical.solar.house.panelPower\") AS solar_sum\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY vessel, day ORDER BY day",
+      "sql": "SELECT vessel, date_bin(INTERVAL '1 day', ts) AS day,\n       sum(\"electrical.solar.house.panelPower\") AS solar_sum\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-23 00:00:00' AND ts >= TIMESTAMP '2026-05-23 00:00:00' AND ts < TIMESTAMP '2026-05-30 00:00:00'\n\nGROUP BY vessel, day ORDER BY day",
+      "rows_total": 25270,
+      "empty_results": 0,
+      "latency_ms": {
+        "n": 3610,
+        "p50": 5.420221000000001,
+        "p95": 7.034213,
+        "p99": 9.224573999999999,
+        "max": 62.260974
+      },
+      "attempts": 3610,
+      "errors": 0,
+      "error_counts": {}
+    },
+    {
+      "id": "q8-001",
+      "class": "Q8",
+      "original_sql": "SELECT date_bin(INTERVAL '1 hour', ts) AS hr,\n       avg(\"electrical.batteries.house.voltage\") AS batt_v\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-01' AND ts < TIMESTAMP '2026-06-01'\nGROUP BY hr ORDER BY hr",
+      "sql": "SELECT date_bin(INTERVAL '1 hour', ts) AS hr,\n       avg(\"electrical.batteries.house.voltage\") AS batt_v\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-23 00:00:00' AND ts < TIMESTAMP '2026-05-30 00:00:00' AND ts >= TIMESTAMP '2026-05-23 00:00:00' AND ts < TIMESTAMP '2026-05-30 00:00:00'\n\nGROUP BY hr ORDER BY hr",
+      "rows_total": 606480,
+      "empty_results": 0,
+      "latency_ms": {
+        "n": 3610,
+        "p50": 42.699116000000004,
+        "p95": 54.163645,
+        "p99": 60.986948,
+        "max": 117.76201
+      },
+      "attempts": 3610,
+      "errors": 0,
+      "error_counts": {}
+    },
+    {
+      "id": "q8-002",
+      "class": "Q8",
+      "original_sql": "SELECT date_bin(INTERVAL '1 day', ts) AS day,\n       avg(\"navigation.speedOverGround\") AS sog\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY day ORDER BY day",
+      "sql": "SELECT date_bin(INTERVAL '1 day', ts) AS day,\n       avg(\"navigation.speedOverGround\") AS sog\nFROM telemetry\nWHERE vessel = 'vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-23 00:00:00' AND ts >= TIMESTAMP '2026-05-23 00:00:00' AND ts < TIMESTAMP '2026-05-30 00:00:00'\n\nGROUP BY day ORDER BY day",
+      "rows_total": 25263,
+      "empty_results": 0,
+      "latency_ms": {
+        "n": 3610,
+        "p50": 22.883999,
+        "p95": 30.890384,
+        "p99": 36.588536,
+        "max": 54.93024
+      },
+      "attempts": 3610,
+      "errors": 1,
+      "error_counts": {
+        "HTTP read failed or timed out": 1
+      }
+    },
+    {
+      "id": "q8-006",
+      "class": "Q8",
+      "original_sql": "SELECT date_bin(INTERVAL '1 day', ts) AS day,\n       avg(\"electrical.batteries.house.current\") AS current_avg\nFROM telemetry\nWHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-01'\nGROUP BY day ORDER BY day",
+      "sql": "SELECT date_bin(INTERVAL '1 day', ts) AS day,\n       avg(\"electrical.batteries.house.current\") AS current_avg\nFROM telemetry\nWHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-23 00:00:00' AND ts >= TIMESTAMP '2026-05-23 00:00:00' AND ts < TIMESTAMP '2026-05-30 00:00:00'\n\nGROUP BY day ORDER BY day",
+      "rows_total": 25263,
+      "empty_results": 0,
+      "latency_ms": {
+        "n": 3609,
+        "p50": 23.534076000000002,
+        "p95": 32.290759,
+        "p99": 38.917304,
+        "max": 106.233914
+      },
+      "attempts": 3609,
+      "errors": 0,
+      "error_counts": {}
+    }
+  ],
+  "baseline": {
+    "values": 4927,
+    "malformed_messages": 0,
+    "paths": {
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|defaults|": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "defaults",
+        "path": "",
+        "samples": 1,
+        "gaps_ms": {
+          "n": 0,
+          "p50": null,
+          "p95": null,
+          "p99": null,
+          "max": null
+        },
+        "drops": null,
+        "drop_threshold_ms": null,
+        "timestamp_latency_ms": {
+          "n": 1,
+          "p50": 6182341.964111328,
+          "p95": 6182341.964111328,
+          "p99": 6182341.964111328,
+          "max": 6182341.964111328
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 119998.489808
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|environment.depth.belowKeel": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.115",
+        "path": "environment.depth.belowKeel",
+        "samples": 121,
+        "gaps_ms": {
+          "n": 120,
+          "p50": 999.4330229999946,
+          "p95": 1016.2370070000009,
+          "p99": 1027.675475999999,
+          "max": 1043.482015000002
+        },
+        "drops": 0,
+        "drop_threshold_ms": 1998.8660459999892,
+        "timestamp_latency_ms": {
+          "n": 121,
+          "p50": 383366138901.20996,
+          "p95": 383366138901.897,
+          "p99": 383366138903.13696,
+          "max": 383366139751.3711
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 927.4218000000047
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|environment.depth.belowTransducer": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.115",
+        "path": "environment.depth.belowTransducer",
+        "samples": 121,
+        "gaps_ms": {
+          "n": 120,
+          "p50": 999.4330229999946,
+          "p95": 1016.2370070000009,
+          "p99": 1027.675475999999,
+          "max": 1043.482015000002
+        },
+        "drops": 0,
+        "drop_threshold_ms": 1998.8660459999892,
+        "timestamp_latency_ms": {
+          "n": 121,
+          "p50": 383366138901.20996,
+          "p95": 383366138901.897,
+          "p99": 383366138903.13696,
+          "max": 383366139751.31104
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 927.4218000000047
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|environment.depth.transducerToKeel": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.115",
+        "path": "environment.depth.transducerToKeel",
+        "samples": 121,
+        "gaps_ms": {
+          "n": 120,
+          "p50": 999.4330229999946,
+          "p95": 1016.2370070000009,
+          "p99": 1027.675475999999,
+          "max": 1043.482015000002
+        },
+        "drops": 0,
+        "drop_threshold_ms": 1998.8660459999892,
+        "timestamp_latency_ms": {
+          "n": 121,
+          "p50": 383366138901.20996,
+          "p95": 383366138901.897,
+          "p99": 383366138903.13696,
+          "max": 383366139751.3379
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 927.4218000000047
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|environment.water.temperature": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.115",
+        "path": "environment.water.temperature",
+        "samples": 241,
+        "gaps_ms": {
+          "n": 240,
+          "p50": 118.84739399999944,
+          "p95": 1040.0533010000004,
+          "p99": 1090.4520630000006,
+          "max": 1105.649126000003
+        },
+        "drops": 120,
+        "drop_threshold_ms": 237.69478799999888,
+        "timestamp_latency_ms": {
+          "n": 241,
+          "p50": 383366138901.11304,
+          "p95": 383366138902.33496,
+          "p99": 383366138906.26,
+          "max": 383366139091.90796
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 230.61966100000575
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|environment.wind.angleApparent": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.115",
+        "path": "environment.wind.angleApparent",
+        "samples": 125,
+        "gaps_ms": {
+          "n": 124,
+          "p50": 969.4921199999982,
+          "p95": 1030.3667410000016,
+          "p99": 1074.247559,
+          "max": 1312.1574560000086
+        },
+        "drops": 0,
+        "drop_threshold_ms": 1938.9842399999964,
+        "timestamp_latency_ms": {
+          "n": 125,
+          "p50": 383366138901.2051,
+          "p95": 383366138902.0801,
+          "p99": 383366138917.74194,
+          "max": 383366139731.426
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 842.9097519999971
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|environment.wind.speedApparent": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.115",
+        "path": "environment.wind.speedApparent",
+        "samples": 125,
+        "gaps_ms": {
+          "n": 124,
+          "p50": 969.4921199999982,
+          "p95": 1030.3667410000016,
+          "p99": 1074.247559,
+          "max": 1312.1574560000086
+        },
+        "drops": 0,
+        "drop_threshold_ms": 1938.9842399999964,
+        "timestamp_latency_ms": {
+          "n": 125,
+          "p50": 383366138901.2051,
+          "p95": 383366138902.0801,
+          "p99": 383366138917.74194,
+          "max": 383366139731.3989
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 842.9097519999971
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|navigation.log": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.115",
+        "path": "navigation.log",
+        "samples": 121,
+        "gaps_ms": {
+          "n": 120,
+          "p50": 997.5405190000047,
+          "p95": 999.4332000000004,
+          "p99": 1003.8900580000103,
+          "max": 1007.6226670000068
+        },
+        "drops": 0,
+        "drop_threshold_ms": 1995.0810380000094,
+        "timestamp_latency_ms": {
+          "n": 121,
+          "p50": 383366138901.188,
+          "p95": 383366138902.114,
+          "p99": 383366138902.66406,
+          "max": 383366139510.51904
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 911.554031999998
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|navigation.speedThroughWater": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.115",
+        "path": "navigation.speedThroughWater",
+        "samples": 241,
+        "gaps_ms": {
+          "n": 240,
+          "p50": 111.69269900000245,
+          "p95": 977.5263679999995,
+          "p99": 1027.8463639999984,
+          "max": 1107.7452600000015
+        },
+        "drops": 120,
+        "drop_threshold_ms": 223.3853980000049,
+        "timestamp_latency_ms": {
+          "n": 241,
+          "p50": 383366138901.19507,
+          "p95": 383366138902.583,
+          "p99": 383366138906.8999,
+          "max": 383366139171.8259
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 288.8232319999986
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|navigation.speedThroughWaterReferenceType": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.115",
+        "path": "navigation.speedThroughWaterReferenceType",
+        "samples": 241,
+        "gaps_ms": {
+          "n": 240,
+          "p50": 111.69269900000245,
+          "p95": 977.5263679999995,
+          "p99": 1027.8463639999984,
+          "max": 1107.7452600000015
+        },
+        "drops": 120,
+        "drop_threshold_ms": 223.3853980000049,
+        "timestamp_latency_ms": {
+          "n": 241,
+          "p50": 383366138901.19507,
+          "p95": 383366138902.583,
+          "p99": 383366138906.8999,
+          "max": 383366139171.853
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 288.8232319999986
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|navigation.trip.log": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.115",
+        "path": "navigation.trip.log",
+        "samples": 121,
+        "gaps_ms": {
+          "n": 120,
+          "p50": 997.5405190000047,
+          "p95": 999.4332000000004,
+          "p99": 1003.8900580000103,
+          "max": 1007.6226670000068
+        },
+        "drops": 0,
+        "drop_threshold_ms": 1995.0810380000094,
+        "timestamp_latency_ms": {
+          "n": 121,
+          "p50": 383366138901.188,
+          "p95": 383366138902.114,
+          "p99": 383366138902.66406,
+          "max": 383366139510.5029
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 911.554031999998
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.batteryType": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.129",
+        "path": "electrical.batteries.1.batteryType",
+        "samples": 42,
+        "gaps_ms": {
+          "n": 41,
+          "p50": 2910.845127000002,
+          "p95": 3869.860259999996,
+          "p99": 4279.848907000001,
+          "max": 4279.848907000001
+        },
+        "drops": 0,
+        "drop_threshold_ms": 5821.690254000004,
+        "timestamp_latency_ms": {
+          "n": 42,
+          "p50": 383366138901.46704,
+          "p95": 383366138902.4951,
+          "p99": 383366140313.1411,
+          "max": 383366140313.1411
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 293.2908800000007
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.capacity.nominal": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.129",
+        "path": "electrical.batteries.1.capacity.nominal",
+        "samples": 42,
+        "gaps_ms": {
+          "n": 41,
+          "p50": 2910.845127000002,
+          "p95": 3869.860259999996,
+          "p99": 4279.848907000001,
+          "max": 4279.848907000001
+        },
+        "drops": 0,
+        "drop_threshold_ms": 5821.690254000004,
+        "timestamp_latency_ms": {
+          "n": 42,
+          "p50": 383366138901.46704,
+          "p95": 383366138902.4951,
+          "p99": 383366140313.114,
+          "max": 383366140313.114
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 293.2908800000007
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.capacity.timeRemaining": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.129",
+        "path": "electrical.batteries.1.capacity.timeRemaining",
+        "samples": 42,
+        "gaps_ms": {
+          "n": 41,
+          "p50": 2956.59052900001,
+          "p95": 3762.9810039999966,
+          "p99": 4239.952560000006,
+          "max": 4239.952560000006
+        },
+        "drops": 0,
+        "drop_threshold_ms": 5913.18105800002,
+        "timestamp_latency_ms": {
+          "n": 42,
+          "p50": 383366138900.9541,
+          "p95": 383366138902.136,
+          "p99": 383366141036.084,
+          "max": 383366141036.084
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 1191.8197309999955
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.chargeEfficiencyFactor": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.129",
+        "path": "electrical.batteries.1.chargeEfficiencyFactor",
+        "samples": 42,
+        "gaps_ms": {
+          "n": 41,
+          "p50": 2910.845127000002,
+          "p95": 3869.860259999996,
+          "p99": 4279.848907000001,
+          "max": 4279.848907000001
+        },
+        "drops": 0,
+        "drop_threshold_ms": 5821.690254000004,
+        "timestamp_latency_ms": {
+          "n": 42,
+          "p50": 383366138901.46704,
+          "p95": 383366138902.4951,
+          "p99": 383366140313.28,
+          "max": 383366140313.28
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 293.2908800000007
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.chemistry": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.129",
+        "path": "electrical.batteries.1.chemistry",
+        "samples": 42,
+        "gaps_ms": {
+          "n": 41,
+          "p50": 2910.845127000002,
+          "p95": 3869.860259999996,
+          "p99": 4279.848907000001,
+          "max": 4279.848907000001
+        },
+        "drops": 0,
+        "drop_threshold_ms": 5821.690254000004,
+        "timestamp_latency_ms": {
+          "n": 42,
+          "p50": 383366138901.46704,
+          "p95": 383366138902.4951,
+          "p99": 383366140313.2261,
+          "max": 383366140313.2261
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 293.2908800000007
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.current": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.129",
+        "path": "electrical.batteries.1.current",
+        "samples": 203,
+        "gaps_ms": {
+          "n": 202,
+          "p50": 554.649058999999,
+          "p95": 1277.1523839999973,
+          "p99": 1696.2229650000004,
+          "max": 1770.557008000001
+        },
+        "drops": 27,
+        "drop_threshold_ms": 1109.298117999998,
+        "timestamp_latency_ms": {
+          "n": 203,
+          "p50": 383366138901.1621,
+          "p95": 383366138902.0559,
+          "p99": 383366138903.697,
+          "max": 383366138970.0769
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 856.4703440000017
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.nominalVoltage": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.129",
+        "path": "electrical.batteries.1.nominalVoltage",
+        "samples": 42,
+        "gaps_ms": {
+          "n": 41,
+          "p50": 2910.845127000002,
+          "p95": 3869.860259999996,
+          "p99": 4279.848907000001,
+          "max": 4279.848907000001
+        },
+        "drops": 0,
+        "drop_threshold_ms": 5821.690254000004,
+        "timestamp_latency_ms": {
+          "n": 42,
+          "p50": 383366138901.46704,
+          "p95": 383366138902.4951,
+          "p99": 383366140313.197,
+          "max": 383366140313.197
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 293.2908800000007
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.supportsEqualization": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.129",
+        "path": "electrical.batteries.1.supportsEqualization",
+        "samples": 42,
+        "gaps_ms": {
+          "n": 41,
+          "p50": 2910.845127000002,
+          "p95": 3869.860259999996,
+          "p99": 4279.848907000001,
+          "max": 4279.848907000001
+        },
+        "drops": 0,
+        "drop_threshold_ms": 5821.690254000004,
+        "timestamp_latency_ms": {
+          "n": 42,
+          "p50": 383366138901.46704,
+          "p95": 383366138902.4951,
+          "p99": 383366140313.1731,
+          "max": 383366140313.1731
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 293.2908800000007
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.temperature": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.129",
+        "path": "electrical.batteries.1.temperature",
+        "samples": 203,
+        "gaps_ms": {
+          "n": 202,
+          "p50": 554.649058999999,
+          "p95": 1277.1523839999973,
+          "p99": 1696.2229650000004,
+          "max": 1770.557008000001
+        },
+        "drops": 27,
+        "drop_threshold_ms": 1109.298117999998,
+        "timestamp_latency_ms": {
+          "n": 203,
+          "p50": 383366138901.1621,
+          "p95": 383366138902.0559,
+          "p99": 383366138903.697,
+          "max": 383366138970.1011
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 856.4703440000017
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.temperatureCoefficient": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.129",
+        "path": "electrical.batteries.1.temperatureCoefficient",
+        "samples": 42,
+        "gaps_ms": {
+          "n": 41,
+          "p50": 2910.845127000002,
+          "p95": 3869.860259999996,
+          "p99": 4279.848907000001,
+          "max": 4279.848907000001
+        },
+        "drops": 0,
+        "drop_threshold_ms": 5821.690254000004,
+        "timestamp_latency_ms": {
+          "n": 42,
+          "p50": 383366138901.46704,
+          "p95": 383366138902.4951,
+          "p99": 383366140313.2529,
+          "max": 383366140313.2529
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 293.2908800000007
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.voltage": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.129",
+        "path": "electrical.batteries.1.voltage",
+        "samples": 203,
+        "gaps_ms": {
+          "n": 202,
+          "p50": 554.649058999999,
+          "p95": 1277.1523839999973,
+          "p99": 1696.2229650000004,
+          "max": 1770.557008000001
+        },
+        "drops": 27,
+        "drop_threshold_ms": 1109.298117999998,
+        "timestamp_latency_ms": {
+          "n": 203,
+          "p50": 383366138901.1621,
+          "p95": 383366138902.0559,
+          "p99": 383366138903.697,
+          "max": 383366138970.05005
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 856.4703440000017
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|environment.current": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "environment.current",
+        "samples": 240,
+        "gaps_ms": {
+          "n": 239,
+          "p50": 223.1124720000004,
+          "p95": 811.2887769999872,
+          "p99": 819.5299499999962,
+          "max": 831.7299600000041
+        },
+        "drops": 119,
+        "drop_threshold_ms": 446.2249440000008,
+        "timestamp_latency_ms": {
+          "n": 240,
+          "p50": 383366138901.156,
+          "p95": 383366138902.522,
+          "p99": 383366138917.176,
+          "max": 383366138960.1289
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 195.93096399999865
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.courseOverGroundTrue": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "navigation.courseOverGroundTrue",
+        "samples": 241,
+        "gaps_ms": {
+          "n": 240,
+          "p50": 216.3397730000014,
+          "p95": 813.3210400000053,
+          "p99": 817.4334479999992,
+          "max": 834.5854530000025
+        },
+        "drops": 119,
+        "drop_threshold_ms": 432.6795460000028,
+        "timestamp_latency_ms": {
+          "n": 241,
+          "p50": 383366138901.25195,
+          "p95": 383366138902.522,
+          "p99": 383366138905.53906,
+          "max": 383366139562.4541
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 6.232800999995902
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.datetime": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "navigation.datetime",
+        "samples": 239,
+        "gaps_ms": {
+          "n": 238,
+          "p50": 130.62575899999996,
+          "p95": 921.0695330000008,
+          "p99": 929.6545739999971,
+          "max": 944.0712349999956
+        },
+        "drops": 119,
+        "drop_threshold_ms": 261.2515179999999,
+        "timestamp_latency_ms": {
+          "n": 239,
+          "p50": 383366138901.4231,
+          "p95": 383366138902.6509,
+          "p99": 383366138903.23096,
+          "max": 383366139150.8821
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 603.9477949999963
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.gnss.antennaAltitude": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "navigation.gnss.antennaAltitude",
+        "samples": 120,
+        "gaps_ms": {
+          "n": 119,
+          "p50": 1005.2885340000017,
+          "p95": 1018.6107669999984,
+          "p99": 1032.9855560000035,
+          "max": 1038.519733000001
+        },
+        "drops": 0,
+        "drop_threshold_ms": 2010.5770680000035,
+        "timestamp_latency_ms": {
+          "n": 120,
+          "p50": 383366138901.6101,
+          "p95": 383366138902.73,
+          "p99": 383366138903.23096,
+          "max": 383366139242.6741
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 701.64312
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.gnss.horizontalDilution": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "navigation.gnss.horizontalDilution",
+        "samples": 120,
+        "gaps_ms": {
+          "n": 119,
+          "p50": 1005.2885340000017,
+          "p95": 1018.6107669999984,
+          "p99": 1032.9855560000035,
+          "max": 1038.519733000001
+        },
+        "drops": 0,
+        "drop_threshold_ms": 2010.5770680000035,
+        "timestamp_latency_ms": {
+          "n": 120,
+          "p50": 383366138901.6101,
+          "p95": 383366138902.73,
+          "p99": 383366138903.23096,
+          "max": 383366139242.7251
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 701.64312
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.gnss.integrity": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "navigation.gnss.integrity",
+        "samples": 120,
+        "gaps_ms": {
+          "n": 119,
+          "p50": 1005.2885340000017,
+          "p95": 1018.6107669999984,
+          "p99": 1032.9855560000035,
+          "max": 1038.519733000001
+        },
+        "drops": 0,
+        "drop_threshold_ms": 2010.5770680000035,
+        "timestamp_latency_ms": {
+          "n": 120,
+          "p50": 383366138901.6101,
+          "p95": 383366138902.73,
+          "p99": 383366138903.23096,
+          "max": 383366139242.7991
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 701.64312
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.gnss.methodQuality": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "navigation.gnss.methodQuality",
+        "samples": 120,
+        "gaps_ms": {
+          "n": 119,
+          "p50": 1005.2885340000017,
+          "p95": 1018.6107669999984,
+          "p99": 1032.9855560000035,
+          "max": 1038.519733000001
+        },
+        "drops": 0,
+        "drop_threshold_ms": 2010.5770680000035,
+        "timestamp_latency_ms": {
+          "n": 120,
+          "p50": 383366138901.6101,
+          "p95": 383366138902.73,
+          "p99": 383366138903.23096,
+          "max": 383366139242.7739
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 701.64312
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.gnss.satellites": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "navigation.gnss.satellites",
+        "samples": 120,
+        "gaps_ms": {
+          "n": 119,
+          "p50": 1005.2885340000017,
+          "p95": 1018.6107669999984,
+          "p99": 1032.9855560000035,
+          "max": 1038.519733000001
+        },
+        "drops": 0,
+        "drop_threshold_ms": 2010.5770680000035,
+        "timestamp_latency_ms": {
+          "n": 120,
+          "p50": 383366138901.6101,
+          "p95": 383366138902.73,
+          "p99": 383366138903.23096,
+          "max": 383366139242.699
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 701.64312
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.gnss.satellitesInView": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "navigation.gnss.satellitesInView",
+        "samples": 120,
+        "gaps_ms": {
+          "n": 119,
+          "p50": 1003.8982279999971,
+          "p95": 1023.480910999993,
+          "p99": 1036.5233389999999,
+          "max": 1046.6034509999959
+        },
+        "drops": 0,
+        "drop_threshold_ms": 2007.7964559999941,
+        "timestamp_latency_ms": {
+          "n": 120,
+          "p50": 383366138901.30396,
+          "p95": 383366138902.875,
+          "p99": 383366138923.03906,
+          "max": 383366139434.5879
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 878.7895829999997
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.gnss.type": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "navigation.gnss.type",
+        "samples": 120,
+        "gaps_ms": {
+          "n": 119,
+          "p50": 1005.2885340000017,
+          "p95": 1018.6107669999984,
+          "p99": 1032.9855560000035,
+          "max": 1038.519733000001
+        },
+        "drops": 0,
+        "drop_threshold_ms": 2010.5770680000035,
+        "timestamp_latency_ms": {
+          "n": 120,
+          "p50": 383366138901.6101,
+          "p95": 383366138902.73,
+          "p99": 383366138903.23096,
+          "max": 383366139242.75
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 701.64312
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.headingTrue": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "navigation.headingTrue",
+        "samples": 120,
+        "gaps_ms": {
+          "n": 119,
+          "p50": 1004.1905229999912,
+          "p95": 1024.002463000002,
+          "p99": 1034.4596069999998,
+          "max": 1046.0167630000115
+        },
+        "drops": 0,
+        "drop_threshold_ms": 2008.3810459999825,
+        "timestamp_latency_ms": {
+          "n": 120,
+          "p50": 383366138901.1509,
+          "p95": 383366138901.989,
+          "p99": 383366138919.708,
+          "max": 383366139432.604
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 877.1487620000045
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.magneticVariation": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "navigation.magneticVariation",
+        "samples": 120,
+        "gaps_ms": {
+          "n": 119,
+          "p50": 1004.1905229999912,
+          "p95": 1024.002463000002,
+          "p99": 1034.4596069999998,
+          "max": 1046.0167630000115
+        },
+        "drops": 0,
+        "drop_threshold_ms": 2008.3810459999825,
+        "timestamp_latency_ms": {
+          "n": 120,
+          "p50": 383366138901.1509,
+          "p95": 383366138901.989,
+          "p99": 383366138919.708,
+          "max": 383366139432.6221
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 877.1487620000045
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.position": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "navigation.position",
+        "samples": 240,
+        "gaps_ms": {
+          "n": 239,
+          "p50": 502.17096100000447,
+          "p95": 515.4036670000011,
+          "p99": 529.0219310000026,
+          "max": 541.3166969999992
+        },
+        "drops": 0,
+        "drop_threshold_ms": 1004.3419220000089,
+        "timestamp_latency_ms": {
+          "n": 240,
+          "p50": 383366138901.2749,
+          "p95": 383366138902.499,
+          "p99": 383366138903.2019,
+          "max": 383366139242.6489
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 195.44044399999905
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.speedOverGround": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "navigation.speedOverGround",
+        "samples": 360,
+        "gaps_ms": {
+          "n": 359,
+          "p50": 303.08003399998995,
+          "p95": 506.07632599999874,
+          "p99": 512.2782629999989,
+          "max": 533.2898310000047
+        },
+        "drops": 0,
+        "drop_threshold_ms": 606.1600679999799,
+        "timestamp_latency_ms": {
+          "n": 360,
+          "p50": 383366138901.2019,
+          "p95": 383366138902.29297,
+          "p99": 383366138904.792,
+          "max": 383366139063.93604
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 6.232800999995902
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|signalk-autostate.XX|navigation.state": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "signalk-autostate.XX",
+        "path": "navigation.state",
+        "samples": 1,
+        "gaps_ms": {
+          "n": 0,
+          "p50": null,
+          "p95": null,
+          "p99": null,
+          "max": null
+        },
+        "drops": null,
+        "drop_threshold_ms": null,
+        "timestamp_latency_ms": {
+          "n": 1,
+          "p50": 383366312998.03,
+          "p95": 383366312998.03,
+          "p99": 383366312998.03,
+          "max": 383366312998.03
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 119998.432919
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|signalk-server|notifications.server.newVersion": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "signalk-server",
+        "path": "notifications.server.newVersion",
+        "samples": 1,
+        "gaps_ms": {
+          "n": 0,
+          "p50": null,
+          "p95": null,
+          "p99": null,
+          "max": null
+        },
+        "drops": null,
+        "drop_threshold_ms": null,
+        "timestamp_latency_ms": {
+          "n": 1,
+          "p50": 6180174.159912109,
+          "p95": 6180174.159912109,
+          "p99": 6180174.159912109,
+          "max": 6180174.159912109
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 119998.295622
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|sk-simple-token-security-config|notifications.security.accessRequest.readonly.ba005ab0-b956-4c6b-9555-205abaa3eeef": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "sk-simple-token-security-config",
+        "path": "notifications.security.accessRequest.readonly.ba005ab0-b956-4c6b-9555-205abaa3eeef",
+        "samples": 1,
+        "gaps_ms": {
+          "n": 0,
+          "p50": null,
+          "p95": null,
+          "p99": null,
+          "max": null
+        },
+        "drops": null,
+        "drop_threshold_ms": null,
+        "timestamp_latency_ms": {
+          "n": 1,
+          "p50": 6080971.194091797,
+          "p95": 6080971.194091797,
+          "p99": 6080971.194091797,
+          "max": 6080971.194091797
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 119998.262641
+      }
+    }
+  },
+  "with_load": {
+    "values": 24412,
+    "malformed_messages": 0,
+    "paths": {
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|environment.depth.belowKeel": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.115",
+        "path": "environment.depth.belowKeel",
+        "samples": 599,
+        "gaps_ms": {
+          "n": 598,
+          "p50": 999.2303129999982,
+          "p95": 1043.356638000006,
+          "p99": 1131.106095000007,
+          "max": 1995.0588909999851
+        },
+        "drops": 0,
+        "drop_threshold_ms": 1998.4606259999964,
+        "timestamp_latency_ms": {
+          "n": 599,
+          "p50": 383366738829.624,
+          "p95": 383366738832.00903,
+          "p99": 383366738834.334,
+          "max": 383366738845.16895
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 996.5171699999473
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|environment.depth.belowTransducer": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.115",
+        "path": "environment.depth.belowTransducer",
+        "samples": 599,
+        "gaps_ms": {
+          "n": 598,
+          "p50": 999.2303129999982,
+          "p95": 1043.356638000006,
+          "p99": 1131.106095000007,
+          "max": 1995.0588909999851
+        },
+        "drops": 0,
+        "drop_threshold_ms": 1998.4606259999964,
+        "timestamp_latency_ms": {
+          "n": 599,
+          "p50": 383366738829.624,
+          "p95": 383366738832.00903,
+          "p99": 383366738834.334,
+          "max": 383366738845.16895
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 996.5171699999473
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|environment.depth.transducerToKeel": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.115",
+        "path": "environment.depth.transducerToKeel",
+        "samples": 599,
+        "gaps_ms": {
+          "n": 598,
+          "p50": 999.2303129999982,
+          "p95": 1043.356638000006,
+          "p99": 1131.106095000007,
+          "max": 1995.0588909999851
+        },
+        "drops": 0,
+        "drop_threshold_ms": 1998.4606259999964,
+        "timestamp_latency_ms": {
+          "n": 599,
+          "p50": 383366738829.624,
+          "p95": 383366738832.00903,
+          "p99": 383366738834.334,
+          "max": 383366738845.16895
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 996.5171699999473
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|environment.water.temperature": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.115",
+        "path": "environment.water.temperature",
+        "samples": 1200,
+        "gaps_ms": {
+          "n": 1199,
+          "p50": 371.6847330000519,
+          "p95": 1042.7113950000262,
+          "p99": 1265.2788490000262,
+          "max": 1547.6917729999968
+        },
+        "drops": 555,
+        "drop_threshold_ms": 743.3694660001038,
+        "timestamp_latency_ms": {
+          "n": 1200,
+          "p50": 383366738829.5049,
+          "p95": 383366738832.05005,
+          "p99": 383366738835.3679,
+          "max": 383366738857.803
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 301.4207669999678
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|environment.wind.angleApparent": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.115",
+        "path": "environment.wind.angleApparent",
+        "samples": 617,
+        "gaps_ms": {
+          "n": 616,
+          "p50": 970.4688679999549,
+          "p95": 1032.0290150000346,
+          "p99": 1169.5663080000145,
+          "max": 2063.226152999988
+        },
+        "drops": 1,
+        "drop_threshold_ms": 1940.9377359999098,
+        "timestamp_latency_ms": {
+          "n": 617,
+          "p50": 383366738829.572,
+          "p95": 383366738832.80493,
+          "p99": 383366738837.60205,
+          "max": 383366738847.66504
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 913.6235729999953
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|environment.wind.speedApparent": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.115",
+        "path": "environment.wind.speedApparent",
+        "samples": 617,
+        "gaps_ms": {
+          "n": 616,
+          "p50": 970.4688679999549,
+          "p95": 1032.0290150000346,
+          "p99": 1169.5663080000145,
+          "max": 2063.226152999988
+        },
+        "drops": 1,
+        "drop_threshold_ms": 1940.9377359999098,
+        "timestamp_latency_ms": {
+          "n": 617,
+          "p50": 383366738829.572,
+          "p95": 383366738832.80493,
+          "p99": 383366738837.60205,
+          "max": 383366738847.66504
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 913.6235729999953
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|navigation.log": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.115",
+        "path": "navigation.log",
+        "samples": 602,
+        "gaps_ms": {
+          "n": 601,
+          "p50": 997.3773849999361,
+          "p95": 1002.1796370000402,
+          "p99": 1010.1911300000097,
+          "max": 1036.56610500002
+        },
+        "drops": 0,
+        "drop_threshold_ms": 1994.7547699998722,
+        "timestamp_latency_ms": {
+          "n": 602,
+          "p50": 383366738829.4419,
+          "p95": 383366738832.208,
+          "p99": 383366738836.9221,
+          "max": 383366738862.9231
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 981.7359510000188
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|navigation.speedThroughWater": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.115",
+        "path": "navigation.speedThroughWater",
+        "samples": 1201,
+        "gaps_ms": {
+          "n": 1200,
+          "p50": 421.44749499999534,
+          "p95": 974.1419540000607,
+          "p99": 1017.8775439999868,
+          "max": 1147.083321000025
+        },
+        "drops": 560,
+        "drop_threshold_ms": 842.8949899999907,
+        "timestamp_latency_ms": {
+          "n": 1201,
+          "p50": 383366738829.5271,
+          "p95": 383366738832.7361,
+          "p99": 383366738847.29395,
+          "max": 383366738862.4031
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 359.2016650000005
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|navigation.speedThroughWaterReferenceType": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.115",
+        "path": "navigation.speedThroughWaterReferenceType",
+        "samples": 1201,
+        "gaps_ms": {
+          "n": 1200,
+          "p50": 421.44749499999534,
+          "p95": 974.1419540000607,
+          "p99": 1017.8775439999868,
+          "max": 1147.083321000025
+        },
+        "drops": 560,
+        "drop_threshold_ms": 842.8949899999907,
+        "timestamp_latency_ms": {
+          "n": 1201,
+          "p50": 383366738829.5271,
+          "p95": 383366738832.7361,
+          "p99": 383366738847.29395,
+          "max": 383366738862.4031
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 359.2016650000005
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|navigation.trip.log": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.115",
+        "path": "navigation.trip.log",
+        "samples": 602,
+        "gaps_ms": {
+          "n": 601,
+          "p50": 997.3773849999361,
+          "p95": 1002.1796370000402,
+          "p99": 1010.1911300000097,
+          "max": 1036.56610500002
+        },
+        "drops": 0,
+        "drop_threshold_ms": 1994.7547699998722,
+        "timestamp_latency_ms": {
+          "n": 602,
+          "p50": 383366738829.4419,
+          "p95": 383366738832.208,
+          "p99": 383366738836.9221,
+          "max": 383366738862.9231
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 981.7359510000188
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.batteryType": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.129",
+        "path": "electrical.batteries.1.batteryType",
+        "samples": 203,
+        "gaps_ms": {
+          "n": 202,
+          "p50": 2859.7282859999777,
+          "p95": 3837.5520660000575,
+          "p99": 4185.258185999999,
+          "max": 33937.654664999965
+        },
+        "drops": 1,
+        "drop_threshold_ms": 5719.4565719999555,
+        "timestamp_latency_ms": {
+          "n": 203,
+          "p50": 383366138904.9121,
+          "p95": 383366738831.81396,
+          "p99": 383366738834.06396,
+          "max": 383366738853.761
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 363.81596100000024
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.capacity.nominal": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.129",
+        "path": "electrical.batteries.1.capacity.nominal",
+        "samples": 203,
+        "gaps_ms": {
+          "n": 202,
+          "p50": 2859.7282859999777,
+          "p95": 3837.5520660000575,
+          "p99": 4185.258185999999,
+          "max": 33937.654664999965
+        },
+        "drops": 1,
+        "drop_threshold_ms": 5719.4565719999555,
+        "timestamp_latency_ms": {
+          "n": 203,
+          "p50": 383366138904.9121,
+          "p95": 383366738831.81396,
+          "p99": 383366738834.06396,
+          "max": 383366738853.761
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 363.81596100000024
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.capacity.timeRemaining": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.129",
+        "path": "electrical.batteries.1.capacity.timeRemaining",
+        "samples": 203,
+        "gaps_ms": {
+          "n": 202,
+          "p50": 2858.4546700000146,
+          "p95": 3694.093763000069,
+          "p99": 3932.265177999966,
+          "max": 34129.97546000002
+        },
+        "drops": 1,
+        "drop_threshold_ms": 5716.909340000029,
+        "timestamp_latency_ms": {
+          "n": 203,
+          "p50": 383366138904.8269,
+          "p95": 383366738831.2949,
+          "p99": 383366738832.9829,
+          "max": 383366738834.645
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 1263.0869040000334
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.chargeEfficiencyFactor": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.129",
+        "path": "electrical.batteries.1.chargeEfficiencyFactor",
+        "samples": 203,
+        "gaps_ms": {
+          "n": 202,
+          "p50": 2859.7282859999777,
+          "p95": 3837.5520660000575,
+          "p99": 4185.258185999999,
+          "max": 33937.654664999965
+        },
+        "drops": 1,
+        "drop_threshold_ms": 5719.4565719999555,
+        "timestamp_latency_ms": {
+          "n": 203,
+          "p50": 383366138904.9121,
+          "p95": 383366738831.81396,
+          "p99": 383366738834.06396,
+          "max": 383366738853.761
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 363.81596100000024
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.chemistry": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.129",
+        "path": "electrical.batteries.1.chemistry",
+        "samples": 203,
+        "gaps_ms": {
+          "n": 202,
+          "p50": 2859.7282859999777,
+          "p95": 3837.5520660000575,
+          "p99": 4185.258185999999,
+          "max": 33937.654664999965
+        },
+        "drops": 1,
+        "drop_threshold_ms": 5719.4565719999555,
+        "timestamp_latency_ms": {
+          "n": 203,
+          "p50": 383366138904.9121,
+          "p95": 383366738831.81396,
+          "p99": 383366738834.06396,
+          "max": 383366738853.761
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 363.81596100000024
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.current": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.129",
+        "path": "electrical.batteries.1.current",
+        "samples": 1005,
+        "gaps_ms": {
+          "n": 1004,
+          "p50": 514.8441970000022,
+          "p95": 1301.4906409999867,
+          "p99": 1727.828307999971,
+          "max": 35522.742565000044
+        },
+        "drops": 131,
+        "drop_threshold_ms": 1029.6883940000043,
+        "timestamp_latency_ms": {
+          "n": 1005,
+          "p50": 383366138903.9419,
+          "p95": 383366738831.8279,
+          "p99": 383366738833.9131,
+          "max": 383366738858.6399
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 926.5294040000072
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.nominalVoltage": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.129",
+        "path": "electrical.batteries.1.nominalVoltage",
+        "samples": 203,
+        "gaps_ms": {
+          "n": 202,
+          "p50": 2859.7282859999777,
+          "p95": 3837.5520660000575,
+          "p99": 4185.258185999999,
+          "max": 33937.654664999965
+        },
+        "drops": 1,
+        "drop_threshold_ms": 5719.4565719999555,
+        "timestamp_latency_ms": {
+          "n": 203,
+          "p50": 383366138904.9121,
+          "p95": 383366738831.81396,
+          "p99": 383366738834.06396,
+          "max": 383366738853.761
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 363.81596100000024
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.supportsEqualization": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.129",
+        "path": "electrical.batteries.1.supportsEqualization",
+        "samples": 203,
+        "gaps_ms": {
+          "n": 202,
+          "p50": 2859.7282859999777,
+          "p95": 3837.5520660000575,
+          "p99": 4185.258185999999,
+          "max": 33937.654664999965
+        },
+        "drops": 1,
+        "drop_threshold_ms": 5719.4565719999555,
+        "timestamp_latency_ms": {
+          "n": 203,
+          "p50": 383366138904.9121,
+          "p95": 383366738831.81396,
+          "p99": 383366738834.06396,
+          "max": 383366738853.761
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 363.81596100000024
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.temperature": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.129",
+        "path": "electrical.batteries.1.temperature",
+        "samples": 1005,
+        "gaps_ms": {
+          "n": 1004,
+          "p50": 514.8441970000022,
+          "p95": 1301.4906409999867,
+          "p99": 1727.828307999971,
+          "max": 35522.742565000044
+        },
+        "drops": 131,
+        "drop_threshold_ms": 1029.6883940000043,
+        "timestamp_latency_ms": {
+          "n": 1005,
+          "p50": 383366138903.9419,
+          "p95": 383366738831.8279,
+          "p99": 383366738833.9131,
+          "max": 383366738858.6399
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 926.5294040000072
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.temperatureCoefficient": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.129",
+        "path": "electrical.batteries.1.temperatureCoefficient",
+        "samples": 203,
+        "gaps_ms": {
+          "n": 202,
+          "p50": 2859.7282859999777,
+          "p95": 3837.5520660000575,
+          "p99": 4185.258185999999,
+          "max": 33937.654664999965
+        },
+        "drops": 1,
+        "drop_threshold_ms": 5719.4565719999555,
+        "timestamp_latency_ms": {
+          "n": 203,
+          "p50": 383366138904.9121,
+          "p95": 383366738831.81396,
+          "p99": 383366738834.06396,
+          "max": 383366738853.761
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 363.81596100000024
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.voltage": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.129",
+        "path": "electrical.batteries.1.voltage",
+        "samples": 1005,
+        "gaps_ms": {
+          "n": 1004,
+          "p50": 514.8441970000022,
+          "p95": 1301.4906409999867,
+          "p99": 1727.828307999971,
+          "max": 35522.742565000044
+        },
+        "drops": 131,
+        "drop_threshold_ms": 1029.6883940000043,
+        "timestamp_latency_ms": {
+          "n": 1005,
+          "p50": 383366138903.9419,
+          "p95": 383366738831.8279,
+          "p99": 383366738833.9131,
+          "max": 383366738858.6399
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 926.5294040000072
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|environment.current": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "environment.current",
+        "samples": 1194,
+        "gaps_ms": {
+          "n": 1193,
+          "p50": 258.2789260000027,
+          "p95": 810.1851399999873,
+          "p99": 825.3430819999892,
+          "max": 836.7470430000026
+        },
+        "drops": 595,
+        "drop_threshold_ms": 516.5578520000054,
+        "timestamp_latency_ms": {
+          "n": 1194,
+          "p50": 383366738829.5259,
+          "p95": 383366738831.9199,
+          "p99": 383366738835.40894,
+          "max": 383366738867.4971
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 267.8695690000268
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.courseOverGroundTrue": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "navigation.courseOverGroundTrue",
+        "samples": 1193,
+        "gaps_ms": {
+          "n": 1192,
+          "p50": 235.6834690000369,
+          "p95": 814.5034600000258,
+          "p99": 831.4341840000168,
+          "max": 851.007829000082
+        },
+        "drops": 596,
+        "drop_threshold_ms": 471.3669380000738,
+        "timestamp_latency_ms": {
+          "n": 1193,
+          "p50": 383366738829.63794,
+          "p95": 383366738832.02905,
+          "p99": 383366738835.9231,
+          "max": 383366738867.4971
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 77.0817850000185
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.datetime": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "navigation.datetime",
+        "samples": 1194,
+        "gaps_ms": {
+          "n": 1193,
+          "p50": 127.08498099999588,
+          "p95": 921.6462639999463,
+          "p99": 936.6397049999478,
+          "max": 987.50677299995
+        },
+        "drops": 596,
+        "drop_threshold_ms": 254.16996199999176,
+        "timestamp_latency_ms": {
+          "n": 1194,
+          "p50": 383366738829.396,
+          "p95": 383366738832.3779,
+          "p99": 383366738836.4021,
+          "max": 383366738863.03296
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 675.1681680000274
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.gnss.antennaAltitude": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "navigation.gnss.antennaAltitude",
+        "samples": 597,
+        "gaps_ms": {
+          "n": 596,
+          "p50": 1005.2799080000341,
+          "p95": 1022.117757000018,
+          "p99": 1034.981289000001,
+          "max": 1071.4508699999783
+        },
+        "drops": 0,
+        "drop_threshold_ms": 2010.5598160000682,
+        "timestamp_latency_ms": {
+          "n": 597,
+          "p50": 383366738830.0471,
+          "p95": 383366738832.98706,
+          "p99": 383366738838.135,
+          "max": 383366738858.9619
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 772.074726000028
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.gnss.horizontalDilution": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "navigation.gnss.horizontalDilution",
+        "samples": 597,
+        "gaps_ms": {
+          "n": 596,
+          "p50": 1005.2799080000341,
+          "p95": 1022.117757000018,
+          "p99": 1034.981289000001,
+          "max": 1071.4508699999783
+        },
+        "drops": 0,
+        "drop_threshold_ms": 2010.5598160000682,
+        "timestamp_latency_ms": {
+          "n": 597,
+          "p50": 383366738830.0471,
+          "p95": 383366738832.98706,
+          "p99": 383366738838.135,
+          "max": 383366738858.9619
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 772.074726000028
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.gnss.integrity": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "navigation.gnss.integrity",
+        "samples": 597,
+        "gaps_ms": {
+          "n": 596,
+          "p50": 1005.2799080000341,
+          "p95": 1022.117757000018,
+          "p99": 1034.981289000001,
+          "max": 1071.4508699999783
+        },
+        "drops": 0,
+        "drop_threshold_ms": 2010.5598160000682,
+        "timestamp_latency_ms": {
+          "n": 597,
+          "p50": 383366738830.0471,
+          "p95": 383366738832.98706,
+          "p99": 383366738838.135,
+          "max": 383366738858.9619
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 772.074726000028
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.gnss.methodQuality": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "navigation.gnss.methodQuality",
+        "samples": 597,
+        "gaps_ms": {
+          "n": 596,
+          "p50": 1005.2799080000341,
+          "p95": 1022.117757000018,
+          "p99": 1034.981289000001,
+          "max": 1071.4508699999783
+        },
+        "drops": 0,
+        "drop_threshold_ms": 2010.5598160000682,
+        "timestamp_latency_ms": {
+          "n": 597,
+          "p50": 383366738830.0471,
+          "p95": 383366738832.98706,
+          "p99": 383366738838.135,
+          "max": 383366738858.9619
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 772.074726000028
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.gnss.satellites": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "navigation.gnss.satellites",
+        "samples": 597,
+        "gaps_ms": {
+          "n": 596,
+          "p50": 1005.2799080000341,
+          "p95": 1022.117757000018,
+          "p99": 1034.981289000001,
+          "max": 1071.4508699999783
+        },
+        "drops": 0,
+        "drop_threshold_ms": 2010.5598160000682,
+        "timestamp_latency_ms": {
+          "n": 597,
+          "p50": 383366738830.0471,
+          "p95": 383366738832.98706,
+          "p99": 383366738838.135,
+          "max": 383366738858.9619
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 772.074726000028
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.gnss.satellitesInView": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "navigation.gnss.satellitesInView",
+        "samples": 596,
+        "gaps_ms": {
+          "n": 595,
+          "p50": 1004.9454349999678,
+          "p95": 1024.726481000016,
+          "p99": 1040.154771999994,
+          "max": 1541.4297899999951
+        },
+        "drops": 0,
+        "drop_threshold_ms": 2009.8908699999356,
+        "timestamp_latency_ms": {
+          "n": 596,
+          "p50": 383366738829.56494,
+          "p95": 383366738832.4099,
+          "p99": 383366738836.3921,
+          "max": 383366738869.06396
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 950.4054740000356
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.gnss.type": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "navigation.gnss.type",
+        "samples": 597,
+        "gaps_ms": {
+          "n": 596,
+          "p50": 1005.2799080000341,
+          "p95": 1022.117757000018,
+          "p99": 1034.981289000001,
+          "max": 1071.4508699999783
+        },
+        "drops": 0,
+        "drop_threshold_ms": 2010.5598160000682,
+        "timestamp_latency_ms": {
+          "n": 597,
+          "p50": 383366738830.0471,
+          "p95": 383366738832.98706,
+          "p99": 383366738838.135,
+          "max": 383366738858.9619
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 772.074726000028
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.headingTrue": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "navigation.headingTrue",
+        "samples": 596,
+        "gaps_ms": {
+          "n": 595,
+          "p50": 1005.2935890000185,
+          "p95": 1026.613758999929,
+          "p99": 1039.438735999994,
+          "max": 1553.22320800002
+        },
+        "drops": 0,
+        "drop_threshold_ms": 2010.587178000037,
+        "timestamp_latency_ms": {
+          "n": 596,
+          "p50": 383366738829.3889,
+          "p95": 383366738832.239,
+          "p99": 383366738836.32495,
+          "max": 383366738868.58105
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 947.7814010000429
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.magneticVariation": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "navigation.magneticVariation",
+        "samples": 596,
+        "gaps_ms": {
+          "n": 595,
+          "p50": 1005.2935890000185,
+          "p95": 1026.613758999929,
+          "p99": 1039.438735999994,
+          "max": 1553.22320800002
+        },
+        "drops": 0,
+        "drop_threshold_ms": 2010.587178000037,
+        "timestamp_latency_ms": {
+          "n": 596,
+          "p50": 383366738829.3889,
+          "p95": 383366738832.239,
+          "p99": 383366738836.32495,
+          "max": 383366738868.58105
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 947.7814010000429
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.position": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "navigation.position",
+        "samples": 1194,
+        "gaps_ms": {
+          "n": 1193,
+          "p50": 502.6751949999948,
+          "p95": 516.2570450000885,
+          "p99": 533.4720679999236,
+          "max": 574.735999999973
+        },
+        "drops": 0,
+        "drop_threshold_ms": 1005.3503899999896,
+        "timestamp_latency_ms": {
+          "n": 1194,
+          "p50": 383366738829.343,
+          "p95": 383366738832.5491,
+          "p99": 383366738836.12305,
+          "max": 383366738866.04395
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 266.4693100000477
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.speedOverGround": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "n2k-sample-data.160",
+        "path": "navigation.speedOverGround",
+        "samples": 1790,
+        "gaps_ms": {
+          "n": 1789,
+          "p50": 303.3426190000057,
+          "p95": 507.94384400001036,
+          "p99": 519.145017000028,
+          "max": 555.1505050000287
+        },
+        "drops": 0,
+        "drop_threshold_ms": 606.6852380000114,
+        "timestamp_latency_ms": {
+          "n": 1790,
+          "p50": 383366738829.62305,
+          "p95": 383366738831.9939,
+          "p99": 383366738834.96704,
+          "max": 383366738874.5581
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 77.0817850000185
+      },
+      "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|signalk-autostate.XX|navigation.state": {
+        "context": "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee",
+        "source": "signalk-autostate.XX",
+        "path": "navigation.state",
+        "samples": 1,
+        "gaps_ms": {
+          "n": 0,
+          "p50": null,
+          "p95": null,
+          "p99": null,
+          "max": null
+        },
+        "drops": null,
+        "drop_threshold_ms": null,
+        "timestamp_latency_ms": {
+          "n": 1,
+          "p50": 383366739111.302,
+          "p95": 383366739111.302,
+          "p99": 383366739111.302,
+          "max": 383366739111.302
+        },
+        "invalid_timestamps": 0,
+        "negative_timestamp_latencies": 0,
+        "silence_at_end_ms": 293885.163614
+      }
+    }
+  },
+  "comparison": {
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|defaults|": {
+      "missing_under_load": true,
+      "gap_p95_change_percent": null,
+      "timestamp_latency_p95_change_percent": null,
+      "baseline_drops": null,
+      "load_drops": null
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|environment.depth.belowKeel": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": 2.668632495490786,
+      "timestamp_latency_p95_change_percent": 0.00015649011511076338,
+      "baseline_drops": 0,
+      "load_drops": 0
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|environment.depth.belowTransducer": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": 2.668632495490786,
+      "timestamp_latency_p95_change_percent": 0.00015649011511076338,
+      "baseline_drops": 0,
+      "load_drops": 0
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|environment.depth.transducerToKeel": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": 2.668632495490786,
+      "timestamp_latency_p95_change_percent": 0.00015649011511076338,
+      "baseline_drops": 0,
+      "load_drops": 0
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|environment.water.temperature": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": 0.25557286318595995,
+      "timestamp_latency_p95_change_percent": 0.0001564900115713641,
+      "baseline_drops": 120,
+      "load_drops": 555
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|environment.wind.angleApparent": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": 0.16132838278724027,
+      "timestamp_latency_p95_change_percent": 0.00015649027496067447,
+      "baseline_drops": 0,
+      "load_drops": 1
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|environment.wind.speedApparent": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": 0.16132838278724027,
+      "timestamp_latency_p95_change_percent": 0.00015649027496067447,
+      "baseline_drops": 0,
+      "load_drops": 1
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|navigation.log": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": 0.27479945633583913,
+      "timestamp_latency_p95_change_percent": 0.00015649011040341776,
+      "baseline_drops": 0,
+      "load_drops": 0
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|navigation.speedThroughWater": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": -0.346222271923291,
+      "timestamp_latency_p95_change_percent": 0.00015649012581331334,
+      "baseline_drops": 120,
+      "load_drops": 560
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|navigation.speedThroughWaterReferenceType": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": -0.346222271923291,
+      "timestamp_latency_p95_change_percent": 0.00015649012581331334,
+      "baseline_drops": 120,
+      "load_drops": 560
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.115|navigation.trip.log": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": 0.27479945633583913,
+      "timestamp_latency_p95_change_percent": 0.00015649011040341776,
+      "baseline_drops": 0,
+      "load_drops": 0
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.batteryType": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": -0.8348672000869195,
+      "timestamp_latency_p95_change_percent": 0.00015648990820960051,
+      "baseline_drops": 0,
+      "load_drops": 1
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.capacity.nominal": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": -0.8348672000869195,
+      "timestamp_latency_p95_change_percent": 0.00015648990820960051,
+      "baseline_drops": 0,
+      "load_drops": 1
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.capacity.timeRemaining": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": -1.8306560922497717,
+      "timestamp_latency_p95_change_percent": 0.00015648986648741925,
+      "baseline_drops": 0,
+      "load_drops": 1
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.chargeEfficiencyFactor": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": -0.8348672000869195,
+      "timestamp_latency_p95_change_percent": 0.00015648990820960051,
+      "baseline_drops": 0,
+      "load_drops": 1
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.chemistry": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": -0.8348672000869195,
+      "timestamp_latency_p95_change_percent": 0.00015648990820960051,
+      "baseline_drops": 0,
+      "load_drops": 1
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.current": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": 1.905665862969519,
+      "timestamp_latency_p95_change_percent": 0.00015649002640394372,
+      "baseline_drops": 27,
+      "load_drops": 131
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.nominalVoltage": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": -0.8348672000869195,
+      "timestamp_latency_p95_change_percent": 0.00015648990820960051,
+      "baseline_drops": 0,
+      "load_drops": 1
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.supportsEqualization": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": -0.8348672000869195,
+      "timestamp_latency_p95_change_percent": 0.00015648990820960051,
+      "baseline_drops": 0,
+      "load_drops": 1
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.temperature": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": 1.905665862969519,
+      "timestamp_latency_p95_change_percent": 0.00015649002640394372,
+      "baseline_drops": 27,
+      "load_drops": 131
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.temperatureCoefficient": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": -0.8348672000869195,
+      "timestamp_latency_p95_change_percent": 0.00015648990820960051,
+      "baseline_drops": 0,
+      "load_drops": 1
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.129|electrical.batteries.1.voltage": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": 1.905665862969519,
+      "timestamp_latency_p95_change_percent": 0.00015649002640394372,
+      "baseline_drops": 27,
+      "load_drops": 131
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|environment.current": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": -0.13603503848297338,
+      "timestamp_latency_p95_change_percent": 0.0001564899288375443,
+      "baseline_drops": 119,
+      "load_drops": 595
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.courseOverGroundTrue": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": 0.14538170560798314,
+      "timestamp_latency_p95_change_percent": 0.00015648995730366266,
+      "baseline_drops": 119,
+      "load_drops": 596
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.datetime": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": 0.0626153595665091,
+      "timestamp_latency_p95_change_percent": 0.00015649001467998858,
+      "baseline_drops": 119,
+      "load_drops": 596
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.gnss.antennaAltitude": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": 0.3442914716431211,
+      "timestamp_latency_p95_change_percent": 0.00015649015294716406,
+      "baseline_drops": 0,
+      "load_drops": 0
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.gnss.horizontalDilution": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": 0.3442914716431211,
+      "timestamp_latency_p95_change_percent": 0.00015649015294716406,
+      "baseline_drops": 0,
+      "load_drops": 0
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.gnss.integrity": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": 0.3442914716431211,
+      "timestamp_latency_p95_change_percent": 0.00015649015294716406,
+      "baseline_drops": 0,
+      "load_drops": 0
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.gnss.methodQuality": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": 0.3442914716431211,
+      "timestamp_latency_p95_change_percent": 0.00015649015294716406,
+      "baseline_drops": 0,
+      "load_drops": 0
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.gnss.satellites": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": 0.3442914716431211,
+      "timestamp_latency_p95_change_percent": 0.00015649015294716406,
+      "baseline_drops": 0,
+      "load_drops": 0
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.gnss.satellitesInView": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": 0.12169938751531717,
+      "timestamp_latency_p95_change_percent": 0.00015648996456452124,
+      "baseline_drops": 0,
+      "load_drops": 0
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.gnss.type": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": 0.3442914716431211,
+      "timestamp_latency_p95_change_percent": 0.00015649015294716406,
+      "baseline_drops": 0,
+      "load_drops": 0
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.headingTrue": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": 0.25500876162705133,
+      "timestamp_latency_p95_change_percent": 0.00015649015108198938,
+      "baseline_drops": 0,
+      "load_drops": 0
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.magneticVariation": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": 0.25500876162705133,
+      "timestamp_latency_p95_change_percent": 0.00015649015108198938,
+      "baseline_drops": 0,
+      "load_drops": 0
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.position": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": 0.16557468538294096,
+      "timestamp_latency_p95_change_percent": 0.00015649009892371168,
+      "baseline_drops": 0,
+      "load_drops": 0
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|n2k-sample-data.160|navigation.speedOverGround": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": 0.3690190400274851,
+      "timestamp_latency_p95_change_percent": 0.0001564900078632192,
+      "baseline_drops": 0,
+      "load_drops": 0
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|signalk-autostate.XX|navigation.state": {
+      "missing_under_load": false,
+      "gap_p95_change_percent": null,
+      "timestamp_latency_p95_change_percent": 0.00011115042128917452,
+      "baseline_drops": null,
+      "load_drops": null
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|signalk-server|notifications.server.newVersion": {
+      "missing_under_load": true,
+      "gap_p95_change_percent": null,
+      "timestamp_latency_p95_change_percent": null,
+      "baseline_drops": null,
+      "load_drops": null
+    },
+    "vessels.urn:mrn:signalk:uuid:0eb191d0-1f5a-42da-979e-ead792d676ee|sk-simple-token-security-config|notifications.security.accessRequest.readonly.ba005ab0-b956-4c6b-9555-205abaa3eeef": {
+      "missing_under_load": true,
+      "gap_p95_change_percent": null,
+      "timestamp_latency_p95_change_percent": null,
+      "baseline_drops": null,
+      "load_drops": null
+    }
+  },
+  "notes": [
+    "Gaps use a monotonic receipt clock per context/source/path; phase-boundary gaps are excluded.",
+    "drops counts observed inter-arrival gaps strictly greater than twice that phase's median period; it is not proof of lost packets.",
+    "Timestamp latency is signed receipt wall time minus exporter timestamp; clock skew can bias it or make it negative. Synchronize clocks; compare only the same source.",
+    "Query percentiles include errors and HTTP connection/response transfer; the served query row cap applies. Preflight and vessel/window probes run before the unloaded baseline.",
+    "No OpenCPN stutter conclusion is automatic: record the user's pan/zoom observation separately.",
+    "Null percentiles/drops mean insufficient observations, not a passing measurement."
+  ]
+}

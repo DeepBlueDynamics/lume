@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lume TI — Signal K Timeseries</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-layout">
+    <header class="app-header">
+      <div class="brand">
+        <span class="logo-icon">⚓</span>
+        <h1>Lume TI</h1>
+        <span class="badge" id="supervisor-badge">Checking...</span>
+        <!-- Lume TI uses the Signal K session; sign in through Signal K Admin (HaLOS SSO on HaLOS). -->
+        <a class="secondary-btn login-link" href="/admin/#/login" title="Sign in through Signal K Admin, then come back to this page">Log in</a>
+      </div>
+      <div class="header-metrics" id="header-metrics">
+        <div class="metric"><span class="label">Ingest Lag:</span> <span class="val" id="metric-lag">--</span></div>
+        <div class="metric"><span class="label">Disk Size:</span> <span class="val" id="metric-disk">--</span></div>
+        <div class="metric"><span class="label">WAL Size:</span> <span class="val" id="metric-wal">--</span></div>
+        <div class="metric"><span class="label">Records:</span> <span class="val" id="metric-records">--</span></div>
+      </div>
+    </header>
+
+    <div id="login-banner" class="login-banner" hidden>
+      You are not logged in to Signal K, so Lume TI can't show data yet.
+      <a href="/admin/#/login">Log in through Signal K Admin</a> (on HaLOS choose <strong>HaLOS SSO</strong>), then come back to this page.
+    </div>
+
+    <nav class="nav-tabs">
+      <button class="tab-btn active" data-tab="tab-console">SQL Console</button>
+      <button class="tab-btn" data-tab="tab-schema">Schema Browser</button>
+      <button class="tab-btn" data-tab="tab-status">Status & Diagnostics</button>
+      <button class="tab-btn" data-tab="tab-library">Library</button>
+      <button class="tab-btn" data-tab="tab-ask">Ask</button>
+      <button class="tab-btn" data-tab="tab-pg">PostgreSQL / Grafana</button>
+    </nav>
+
+    <main class="app-content">
+      <section id="tab-library" class="tab-panel">
+        <div class="schema-header">
+          <h3>Alert references</h3>
+          <button id="lib-refresh-refs" class="secondary-btn">↻ Refresh</button>
+        </div>
+        <p class="lib-meta">Each active alert runs a library search and shows the most relevant pages.</p>
+        <div id="lib-references"></div>
+
+        <h3>Search the library</h3>
+        <form id="lib-search" class="lib-searchbar">
+          <input id="lib-q" type="search" placeholder="e.g. engine overheating raw water impeller" maxlength="200">
+          <button type="submit" class="primary-btn">Search</button>
+        </form>
+        <div id="lib-results"></div>
+
+        <div class="schema-header">
+          <h3>Cruiser library</h3>
+          <span id="lib-counts" class="lib-meta"></span>
+        </div>
+        <p class="lib-meta">A few references are selected by default. Indexing downloads the selected items to this server and makes them searchable offline. Administrator login required.</p>
+        <div class="lib-toolbar">
+          <input id="lib-filter" type="search" placeholder="Filter by title, category or publisher">
+          <button id="lib-index-btn" class="primary-btn" hidden>Index selected</button>
+        </div>
+        <pre id="lib-job" class="alert-box" hidden></pre>
+        <div id="lib-list"><div class="loading-state">Loading library…</div></div>
+      </section>
+      <!-- Ask Tab -->
+      <section id="tab-ask" class="tab-panel">
+        <div class="schema-header">
+          <h3>Ask Lume Assistant</h3>
+        </div>
+        <p class="lib-meta">Ask questions in plain English. The assistant inspects schema and telemetry data using SQL to answer your questions.</p>
+        <form id="chat-form" class="lib-searchbar">
+          <input id="chat-question" type="search" placeholder="e.g. What was our maximum speed over ground yesterday?" maxlength="500" required>
+          <button id="chat-submit-btn" type="submit" class="primary-btn">Ask</button>
+        </form>
+        <div id="chat-loading" class="loading-state hidden">Thinking, inspecting schema and executing queries…</div>
+        <div id="chat-error" class="alert-box error hidden"></div>
+        <div id="chat-response-container" class="hidden">
+          <h3>Answer</h3>
+          <div id="chat-answer" class="chat-answer-box"></div>
+          <div id="chat-sql-section" class="hidden">
+            <h3 style="margin-top: 1rem;">Executed SQL Queries</h3>
+            <div id="chat-sql-list"></div>
+          </div>
+        </div>
+      </section>
+      <section id="tab-pg" class="tab-panel">
+        <h2>PostgreSQL / Grafana</h2>
+        <p>Administrator login required. Save restarts Lume. Blank password keeps the existing credential.</p>
+        <form id="pg-config">
+          <p><label><input type="checkbox" name="enablePg"> Enable PostgreSQL</label></p>
+          <p><label>Port <input type="number" name="pgPort" min="1" max="65535" value="5864" required></label></p>
+          <p><label>User <input name="pgUser" value="grafana" required></label></p>
+          <p><label>Bind IP <input name="pgBind" value="127.0.0.1" required></label></p>
+          <p>For HaLOS Grafana use 172.17.0.1 (docker0). HTTP stays on 127.0.0.1.</p>
+          <p><label>Password <input type="password" name="pgPassword" autocomplete="new-password" maxlength="1024"></label></p>
+          <p>Use printable ASCII characters. Only a SCRAM verifier is saved.</p>
+          <p id="pg-tls-status"></p>
+          <button type="submit">Save PostgreSQL settings</button>
+          <p id="pg-message" role="status"></p>
+        </form>
+      </section>
+      <!-- 1. SQL Console Tab -->
+      <section id="tab-console" class="tab-panel active">
+        <div class="query-toolbar">
+          <span class="toolbar-label">Quick Queries:</span>
+          <button class="preset-btn" data-query="SELECT ts, &quot;navigation.speedOverGround&quot;, &quot;environment.wind.speedApparent&quot; FROM telemetry ORDER BY ts DESC LIMIT 50;">Recent SOG & Wind</button>
+          <button class="preset-btn" data-query="SELECT ts, &quot;environment.depth.belowTransducer@min&quot; AS depth_min, &quot;environment.depth.belowKeel@min&quot; AS below_keel FROM telemetry ORDER BY ts DESC LIMIT 50;">Recent Depth</button>
+          <button class="preset-btn" data-query="SELECT ts, &quot;navigation.position.latitude&quot;, &quot;navigation.position.longitude&quot; FROM telemetry WHERE &quot;navigation.position.latitude&quot; IS NOT NULL ORDER BY ts DESC LIMIT 50;">Recent Positions</button>
+          <button class="preset-btn" data-query="SELECT date_bin(INTERVAL '1 hour', ts) AS hour, max(&quot;navigation.speedOverGround@max&quot;) AS max_sog, max(&quot;environment.wind.speedApparent@max&quot;) AS max_wind FROM telemetry GROUP BY 1 ORDER BY 1 DESC LIMIT 24;">Hourly Max SOG & Wind</button>
+          <button class="preset-btn" data-query="SELECT count(*) as total_buckets FROM telemetry;">Bucket Count</button>
+        </div>
+
+        <div class="editor-container">
+          <textarea id="sql-input" placeholder="SELECT ts, &quot;navigation.speedOverGround&quot; FROM telemetry ORDER BY ts DESC LIMIT 20;" spellcheck="false"></textarea>
+          <div class="editor-actions">
+            <button id="run-btn" class="primary-btn">▶ Run Query (Ctrl+Enter)</button>
+            <button id="export-csv-btn" class="secondary-btn" disabled>⬇ Export CSV</button>
+            <button id="pin-chart-btn" class="secondary-btn" disabled>Pin to chart</button>
+            <button id="unpin-chart-btn" class="secondary-btn">Unpin all lume-ti</button>
+            <label>Note latitude <input id="pin-lat" type="number" min="-90" max="90" step="any" placeholder="optional"></label>
+            <label>longitude <input id="pin-lon" type="number" min="-180" max="180" step="any" placeholder="optional"></label>
+            <span id="pin-status" role="status"></span>
+            <span id="query-meta" class="query-meta"></span>
+          </div>
+        </div>
+
+        <div id="query-error" class="alert-box error hidden"></div>
+
+        <div class="results-container">
+          <div class="results-header">
+            <h3>Query Results</h3>
+            <span id="results-count" class="results-count">0 rows</span>
+          </div>
+          <div class="table-scroll" id="table-scroll">
+            <table id="results-table">
+              <thead id="results-thead"></thead>
+              <tbody id="results-tbody">
+                <tr><td class="empty-state">Run a query to view telemetry records.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. Schema Browser Tab -->
+      <section id="tab-schema" class="tab-panel">
+        <div class="schema-header">
+          <h3>Registered Tables and Columns</h3>
+          <button id="refresh-schema-btn" class="secondary-btn">↻ Refresh Schema</button>
+        </div>
+        <div id="schema-error" class="alert-box error hidden"></div>
+        <div id="schema-tree" class="schema-tree">
+          <div class="loading-state">Loading schema...</div>
+        </div>
+      </section>
+
+      <!-- 3. Status & Diagnostics Tab -->
+      <section id="tab-status" class="tab-panel">
+        <div class="status-grid">
+          <div class="card">
+            <h3>Supervisor Status</h3>
+            <table class="diag-table">
+              <tr><td>State:</td><td><strong id="diag-state">--</strong></td></tr>
+              <tr><td>Process ID:</td><td id="diag-pid">--</td></tr>
+              <tr><td>Uptime:</td><td id="diag-uptime">--</td></tr>
+              <tr><td>Crash Restarts:</td><td id="diag-restarts">--</td></tr>
+              <tr><td>Binary Path:</td><td id="diag-binary" class="monospace">--</td></tr>
+              <tr><td>Binary Source:</td><td id="diag-source">--</td></tr>
+              <tr><td>Query Port:</td><td id="diag-port">--</td></tr>
+            </table>
+          </div>
+
+          <div class="card">
+            <h3>Storage & WAL</h3>
+            <table class="diag-table">
+              <tr><td>Store Root:</td><td id="diag-store-dir" class="monospace">--</td></tr>
+              <tr><td>Total Disk Size:</td><td id="diag-disk-bytes">--</td></tr>
+              <tr><td>WAL Size:</td><td id="diag-wal-bytes">--</td></tr>
+              <tr><td>Shards Size:</td><td id="diag-shards-bytes">--</td></tr>
+              <tr><td>Sealed Shards:</td><td id="diag-shard-count">--</td></tr>
+            </table>
+          </div>
+
+          <div class="card">
+            <h3>Live Ingest Stream</h3>
+            <table class="diag-table">
+              <tr><td>Stream Lag:</td><td><strong id="diag-lag">--</strong></td></tr>
+              <tr><td>Last Delta:</td><td id="diag-last-delta">--</td></tr>
+              <tr><td>Records Ingested:</td><td id="diag-records">--</td></tr>
+              <tr><td>Reconnects:</td><td id="diag-reconnects">--</td></tr>
+              <tr><td>Service Running:</td><td id="diag-ingest-running">--</td></tr>
+              <tr><td>Pre-2020 document rejections:</td><td id="diag-document-rejections">--</td></tr>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="pin.js"></script>
+  <script src="app.js"></script>
+  <script src="pg.js"></script>
+  <script src="library.js"></script>
+  <script src="chat.js"></script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+[workspace]
+[package]
+name = "lume-pdf-eval"
+version = "0.1.0"
+edition = "2021"
+publish = false
+[features]
+direct = ["dep:lopdf"]
+extract = ["dep:pdf-extract"]
+[dependencies]
+lopdf = { version = "=0.44.0", default-features = false, optional = true }
+pdf-extract = { version = "=0.12.1", optional = true }
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1

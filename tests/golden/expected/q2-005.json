@@ -1,0 +1,6398 @@
+[
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:00:10",
+    "app": 10.164,
+    "true_w": 6.541
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:00:30",
+    "app": 11.95,
+    "true_w": 9.466
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:01:00",
+    "app": 11.542,
+    "true_w": 3.392
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:01:50",
+    "app": 7.329,
+    "true_w": 1.095
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:02:00",
+    "app": 6.446,
+    "true_w": 2.296
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:02:10",
+    "app": 10.948,
+    "true_w": 6.928
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:02:20",
+    "app": 14.969,
+    "true_w": 8.211
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:02:30",
+    "app": 10.474,
+    "true_w": 2.362
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:02:40",
+    "app": 9.74,
+    "true_w": 9.334
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:03:00",
+    "app": 10.946,
+    "true_w": 4.459
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:03:10",
+    "app": 12.245,
+    "true_w": 6.645
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:03:50",
+    "app": 14.907,
+    "true_w": 7.161
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:04:00",
+    "app": 14.236,
+    "true_w": 11.913
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:04:30",
+    "app": 15.294,
+    "true_w": 10.918
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:05:00",
+    "app": 11.572,
+    "true_w": 7.707
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:05:20",
+    "app": 6.336,
+    "true_w": 4.543
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:06:00",
+    "app": 8.586,
+    "true_w": 8.554
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:06:10",
+    "app": 8.097,
+    "true_w": 4.084
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:06:20",
+    "app": 8.543,
+    "true_w": 6.849
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:06:30",
+    "app": 11.371,
+    "true_w": 8.697
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:07:10",
+    "app": 11.933,
+    "true_w": 10.112
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:07:20",
+    "app": 9.678,
+    "true_w": 5.791
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:08:00",
+    "app": 11.634,
+    "true_w": 5.889
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:08:10",
+    "app": 7.812,
+    "true_w": 6.83
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:08:20",
+    "app": 14.17,
+    "true_w": 9.031
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:08:30",
+    "app": 7.293,
+    "true_w": 4.018
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:08:40",
+    "app": 9.741,
+    "true_w": 2.627
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:09:00",
+    "app": 12.626,
+    "true_w": 6.941
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:09:20",
+    "app": 13.146,
+    "true_w": 8.716
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:09:30",
+    "app": 10.277,
+    "true_w": 5.262
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:09:50",
+    "app": 10.17,
+    "true_w": 4.234
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:10:50",
+    "app": 9.87,
+    "true_w": 5.511
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:11:10",
+    "app": 7.115,
+    "true_w": 6.021
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:11:20",
+    "app": 4.044,
+    "true_w": 1.675
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:11:40",
+    "app": 10.847,
+    "true_w": 7.586
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:12:00",
+    "app": 11.755,
+    "true_w": 7.188
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:12:10",
+    "app": 17.39,
+    "true_w": 9.025
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:12:50",
+    "app": 7.131,
+    "true_w": 5.312
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:13:00",
+    "app": 9.764,
+    "true_w": 9.248
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:13:10",
+    "app": 13.177,
+    "true_w": 9.502
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:13:30",
+    "app": 11.582,
+    "true_w": 0.256
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:13:50",
+    "app": 10.314,
+    "true_w": 9.742
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:14:10",
+    "app": 9.964,
+    "true_w": 4.256
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:14:40",
+    "app": 9.908,
+    "true_w": 7.677
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:14:50",
+    "app": 10.496,
+    "true_w": 4.39
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:15:20",
+    "app": 9.944,
+    "true_w": 9.288
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:15:30",
+    "app": 11.097,
+    "true_w": 7.634
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:15:40",
+    "app": 10.995,
+    "true_w": 1.288
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:16:00",
+    "app": 10.879,
+    "true_w": 6.012
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:16:10",
+    "app": 6.986,
+    "true_w": 6.052
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:16:20",
+    "app": 11.244,
+    "true_w": 7.999
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:16:30",
+    "app": 13.424,
+    "true_w": 9.201
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:16:40",
+    "app": 10.991,
+    "true_w": 7.72
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:16:50",
+    "app": 8.272,
+    "true_w": 6.38
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:17:00",
+    "app": 10.829,
+    "true_w": 9.292
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:17:20",
+    "app": 10.29,
+    "true_w": 6.383
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:18:00",
+    "app": 12.728,
+    "true_w": 8.046
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:18:40",
+    "app": 13.071,
+    "true_w": 4.168
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:19:00",
+    "app": 12.273,
+    "true_w": 9.088
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:19:10",
+    "app": 10.065,
+    "true_w": 7.477
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:19:20",
+    "app": 6.552,
+    "true_w": 2.653
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:19:50",
+    "app": 9.625,
+    "true_w": 9.176
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:20:00",
+    "app": 5.776,
+    "true_w": 3.292
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:20:10",
+    "app": 9.146,
+    "true_w": 5.646
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:20:20",
+    "app": 10.863,
+    "true_w": 10.672
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:20:50",
+    "app": 5.501,
+    "true_w": 5.08
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:21:00",
+    "app": 5.795,
+    "true_w": 4.021
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:21:10",
+    "app": 13.71,
+    "true_w": 10.811
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:21:20",
+    "app": 10.568,
+    "true_w": 8.683
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:21:40",
+    "app": 11.443,
+    "true_w": 8.714
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:22:10",
+    "app": 11.823,
+    "true_w": 6.858
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:22:20",
+    "app": 10.195,
+    "true_w": 5.384
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:23:00",
+    "app": 9.448,
+    "true_w": 7.554
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:24:00",
+    "app": 8.095,
+    "true_w": 7.251
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:24:30",
+    "app": 11.897,
+    "true_w": 5.425
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:24:40",
+    "app": 14.044,
+    "true_w": 5.815
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:25:00",
+    "app": 7.314,
+    "true_w": 7.109
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:25:10",
+    "app": 10.599,
+    "true_w": 9.713
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:25:30",
+    "app": 9.01,
+    "true_w": 7.984
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:26:00",
+    "app": 11.18,
+    "true_w": 7.274
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:26:20",
+    "app": 11.288,
+    "true_w": 4.541
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:26:30",
+    "app": 14.21,
+    "true_w": 4.047
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:26:40",
+    "app": 11.538,
+    "true_w": 10.158
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:26:50",
+    "app": 9.74,
+    "true_w": 4.369
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:27:10",
+    "app": 6.764,
+    "true_w": 6.094
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:27:20",
+    "app": 12.301,
+    "true_w": 10.22
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:27:40",
+    "app": 12.683,
+    "true_w": 7.662
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:28:10",
+    "app": 10.175,
+    "true_w": 5.046
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:28:50",
+    "app": 10.965,
+    "true_w": 6.356
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:29:00",
+    "app": 9.176,
+    "true_w": 7.896
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:29:20",
+    "app": 11.738,
+    "true_w": 9.205
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:30:10",
+    "app": 7.729,
+    "true_w": 7.313
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:30:20",
+    "app": 16.851,
+    "true_w": 10.067
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:30:30",
+    "app": 9.708,
+    "true_w": 5.936
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:30:40",
+    "app": 14.288,
+    "true_w": 8.988
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:31:10",
+    "app": 8.492,
+    "true_w": 3.818
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:31:40",
+    "app": 10.889,
+    "true_w": 9.943
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:32:00",
+    "app": 11.908,
+    "true_w": 10.513
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:32:50",
+    "app": 12.488,
+    "true_w": 9.077
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:33:20",
+    "app": 6.387,
+    "true_w": 5.904
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:33:40",
+    "app": 9.686,
+    "true_w": 8.086
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:33:50",
+    "app": 13.125,
+    "true_w": 5.381
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:34:00",
+    "app": 12.444,
+    "true_w": 10.023
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:34:20",
+    "app": 13.392,
+    "true_w": 6.911
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:34:40",
+    "app": 8.088,
+    "true_w": 6.491
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:34:50",
+    "app": 8.262,
+    "true_w": 5.946
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:35:00",
+    "app": 5.284,
+    "true_w": 3.714
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:35:10",
+    "app": 5.407,
+    "true_w": 1.103
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:35:20",
+    "app": 9.38,
+    "true_w": 9.063
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:35:30",
+    "app": 9.637,
+    "true_w": 7.043
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:36:00",
+    "app": 9.489,
+    "true_w": 6.285
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:36:10",
+    "app": 6.127,
+    "true_w": 2.104
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:36:30",
+    "app": 14.691,
+    "true_w": 12.128
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:36:40",
+    "app": 3.722,
+    "true_w": 3.125
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:36:50",
+    "app": 11.398,
+    "true_w": 8.626
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:37:00",
+    "app": 7.119,
+    "true_w": 6.312
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:37:20",
+    "app": 11.236,
+    "true_w": 4.764
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:37:30",
+    "app": 9.54,
+    "true_w": 4.153
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:37:40",
+    "app": 13.266,
+    "true_w": 8.444
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:38:00",
+    "app": 11.872,
+    "true_w": 4.837
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:39:00",
+    "app": 13.143,
+    "true_w": 8.466
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:39:10",
+    "app": 12.834,
+    "true_w": 7.663
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:39:50",
+    "app": 5.414,
+    "true_w": 1.804
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:40:10",
+    "app": 6.41,
+    "true_w": 4.313
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:40:40",
+    "app": 10.835,
+    "true_w": 7.754
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:40:50",
+    "app": 9.475,
+    "true_w": 9.466
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:41:00",
+    "app": 8.523,
+    "true_w": 6.894
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:41:20",
+    "app": 7.929,
+    "true_w": 6.909
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:41:30",
+    "app": 12.373,
+    "true_w": 9.391
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:41:40",
+    "app": 13.246,
+    "true_w": 12.566
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:42:20",
+    "app": 4.465,
+    "true_w": 3.619
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:43:00",
+    "app": 11.964,
+    "true_w": 9.82
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:43:10",
+    "app": 10.614,
+    "true_w": 3.665
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:43:20",
+    "app": 12.432,
+    "true_w": 1.171
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:43:30",
+    "app": 14.794,
+    "true_w": 11.186
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:44:10",
+    "app": 9.73,
+    "true_w": 4.569
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:44:20",
+    "app": 7.673,
+    "true_w": 7.083
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:44:30",
+    "app": 8.277,
+    "true_w": 4.112
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:44:40",
+    "app": 7.082,
+    "true_w": 1.985
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:44:50",
+    "app": 8.551,
+    "true_w": 5.314
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:45:00",
+    "app": 4.674,
+    "true_w": 1.549
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:45:30",
+    "app": 13.471,
+    "true_w": 9.714
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:46:00",
+    "app": 10.248,
+    "true_w": 9.195
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:46:30",
+    "app": 11.018,
+    "true_w": 5.876
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:46:40",
+    "app": 17.532,
+    "true_w": 10.052
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:46:50",
+    "app": 4.563,
+    "true_w": 3.972
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:47:50",
+    "app": 10.502,
+    "true_w": 4.729
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:48:00",
+    "app": 12.198,
+    "true_w": 11.261
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:48:20",
+    "app": 13.497,
+    "true_w": 7.548
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:49:10",
+    "app": 6.883,
+    "true_w": 3.824
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:49:20",
+    "app": 9.262,
+    "true_w": 0.751
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:49:40",
+    "app": 6.481,
+    "true_w": 4.638
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:49:50",
+    "app": 7.745,
+    "true_w": 5.023
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:50:10",
+    "app": 8.989,
+    "true_w": 4.469
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:50:40",
+    "app": 13.982,
+    "true_w": 7.489
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:51:00",
+    "app": 5.883,
+    "true_w": 3.724
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:51:10",
+    "app": 7.485,
+    "true_w": 5.898
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:51:20",
+    "app": 5.833,
+    "true_w": 4.472
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:51:30",
+    "app": 9.758,
+    "true_w": 6.251
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:51:40",
+    "app": 10.043,
+    "true_w": 5.671
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:52:00",
+    "app": 12.845,
+    "true_w": 11.002
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:52:10",
+    "app": 10.408,
+    "true_w": 6.311
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:52:30",
+    "app": 12.217,
+    "true_w": 9.673
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:52:40",
+    "app": 12.159,
+    "true_w": 5.539
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:53:00",
+    "app": 9.638,
+    "true_w": 7.86
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:53:40",
+    "app": 11.999,
+    "true_w": 11.575
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:53:50",
+    "app": 9.867,
+    "true_w": 2.857
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:54:00",
+    "app": 14.845,
+    "true_w": 6.168
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:54:20",
+    "app": 11.421,
+    "true_w": 7.048
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:54:50",
+    "app": 14.569,
+    "true_w": 10.141
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:55:00",
+    "app": 7.098,
+    "true_w": 3.974
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:55:30",
+    "app": 14.004,
+    "true_w": 10.487
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:55:40",
+    "app": 10.196,
+    "true_w": 9.665
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:55:50",
+    "app": 12.801,
+    "true_w": 2.1
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:56:00",
+    "app": 9.919,
+    "true_w": 5.234
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:56:10",
+    "app": 10.075,
+    "true_w": 9.71
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:56:50",
+    "app": 10.756,
+    "true_w": 0.0
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:57:00",
+    "app": 9.852,
+    "true_w": 8.819
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:57:20",
+    "app": 9.422,
+    "true_w": 7.215
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:57:30",
+    "app": 7.601,
+    "true_w": 6.559
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:57:50",
+    "app": 9.774,
+    "true_w": 3.92
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:58:10",
+    "app": 9.786,
+    "true_w": 6.426
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:58:20",
+    "app": 7.024,
+    "true_w": 6.901
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:58:30",
+    "app": 11.964,
+    "true_w": 7.667
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:58:40",
+    "app": 7.259,
+    "true_w": 5.746
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:59:00",
+    "app": 5.429,
+    "true_w": 4.775
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 00:59:40",
+    "app": 8.037,
+    "true_w": 6.516
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:00:10",
+    "app": 6.438,
+    "true_w": 1.993
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:00:30",
+    "app": 11.037,
+    "true_w": 10.689
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:00:50",
+    "app": 7.907,
+    "true_w": 6.797
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:01:20",
+    "app": 10.184,
+    "true_w": 7.673
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:01:50",
+    "app": 9.761,
+    "true_w": 2.474
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:02:00",
+    "app": 16.706,
+    "true_w": 8.241
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:02:20",
+    "app": 12.398,
+    "true_w": 4.116
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:02:40",
+    "app": 16.83,
+    "true_w": 0.172
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:03:00",
+    "app": 9.373,
+    "true_w": 6.523
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:03:10",
+    "app": 3.538,
+    "true_w": 2.893
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:03:20",
+    "app": 3.616,
+    "true_w": 1.927
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:03:40",
+    "app": 14.248,
+    "true_w": 12.206
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:04:00",
+    "app": 7.564,
+    "true_w": 7.08
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:04:20",
+    "app": 6.972,
+    "true_w": 5.861
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:05:10",
+    "app": 14.389,
+    "true_w": 12.638
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:05:20",
+    "app": 11.995,
+    "true_w": 8.75
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:05:30",
+    "app": 10.26,
+    "true_w": 5.677
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:05:40",
+    "app": 12.416,
+    "true_w": 5.612
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:06:00",
+    "app": 13.885,
+    "true_w": 6.751
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:06:10",
+    "app": 14.598,
+    "true_w": 11.925
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:06:40",
+    "app": 11.26,
+    "true_w": 8.919
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:07:00",
+    "app": 12.641,
+    "true_w": 3.234
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:07:10",
+    "app": 11.117,
+    "true_w": 8.398
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:07:40",
+    "app": 10.92,
+    "true_w": 3.418
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:08:20",
+    "app": 12.986,
+    "true_w": 6.367
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:08:40",
+    "app": 12.792,
+    "true_w": 2.891
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:08:50",
+    "app": 11.966,
+    "true_w": 9.432
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:09:00",
+    "app": 12.146,
+    "true_w": 5.344
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:10:20",
+    "app": 7.017,
+    "true_w": 6.569
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:10:40",
+    "app": 10.923,
+    "true_w": 8.213
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:11:00",
+    "app": 8.415,
+    "true_w": 2.582
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:11:30",
+    "app": 13.022,
+    "true_w": 8.794
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:12:00",
+    "app": 10.727,
+    "true_w": 5.636
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:12:10",
+    "app": 13.675,
+    "true_w": 5.592
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:12:30",
+    "app": 7.01,
+    "true_w": 4.214
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:12:50",
+    "app": 12.342,
+    "true_w": 9.7
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:13:10",
+    "app": 9.081,
+    "true_w": 7.46
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:13:50",
+    "app": 9.31,
+    "true_w": 5.462
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:14:10",
+    "app": 16.666,
+    "true_w": 10.804
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:14:20",
+    "app": 5.93,
+    "true_w": 3.491
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:15:00",
+    "app": 7.517,
+    "true_w": 2.699
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:15:10",
+    "app": 6.209,
+    "true_w": 5.723
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:15:40",
+    "app": 10.517,
+    "true_w": 7.307
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:16:50",
+    "app": 15.784,
+    "true_w": 10.182
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:17:00",
+    "app": 9.465,
+    "true_w": 9.447
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:17:10",
+    "app": 9.63,
+    "true_w": 8.311
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:17:20",
+    "app": 11.426,
+    "true_w": 10.138
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:17:40",
+    "app": 13.972,
+    "true_w": 9.39
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:17:50",
+    "app": 6.789,
+    "true_w": 4.877
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:18:30",
+    "app": 11.777,
+    "true_w": 2.4
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:19:10",
+    "app": 10.097,
+    "true_w": 8.456
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:19:20",
+    "app": 4.521,
+    "true_w": 3.661
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:19:30",
+    "app": 10.65,
+    "true_w": 2.494
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:19:40",
+    "app": 9.147,
+    "true_w": 7.717
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:19:50",
+    "app": 4.877,
+    "true_w": 1.463
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:20:00",
+    "app": 5.649,
+    "true_w": 3.566
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:20:10",
+    "app": 12.963,
+    "true_w": 6.167
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:20:30",
+    "app": 4.674,
+    "true_w": 2.902
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:20:40",
+    "app": 12.861,
+    "true_w": 5.64
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:21:00",
+    "app": 10.11,
+    "true_w": 7.766
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:21:10",
+    "app": 9.958,
+    "true_w": 4.492
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:21:20",
+    "app": 9.417,
+    "true_w": 3.812
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:21:30",
+    "app": 8.607,
+    "true_w": 2.869
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:21:40",
+    "app": 8.578,
+    "true_w": 6.289
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:21:50",
+    "app": 14.862,
+    "true_w": 11.731
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:22:00",
+    "app": 10.25,
+    "true_w": 8.495
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:22:10",
+    "app": 13.773,
+    "true_w": 9.159
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:22:20",
+    "app": 10.303,
+    "true_w": 10.188
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:22:30",
+    "app": 14.951,
+    "true_w": 7.679
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:23:20",
+    "app": 8.233,
+    "true_w": 2.784
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:23:40",
+    "app": 10.23,
+    "true_w": 6.821
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:23:50",
+    "app": 9.699,
+    "true_w": 4.438
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:24:00",
+    "app": 4.462,
+    "true_w": 4.178
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:24:30",
+    "app": 12.669,
+    "true_w": 10.226
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:24:40",
+    "app": 5.165,
+    "true_w": 2.383
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:24:50",
+    "app": 8.207,
+    "true_w": 4.997
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:25:00",
+    "app": 7.523,
+    "true_w": 7.249
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:25:10",
+    "app": 7.946,
+    "true_w": 2.149
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:25:20",
+    "app": 3.413,
+    "true_w": 1.802
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:25:30",
+    "app": 11.057,
+    "true_w": 5.829
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:26:00",
+    "app": 9.312,
+    "true_w": 8.922
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:26:40",
+    "app": 14.675,
+    "true_w": 7.906
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:26:50",
+    "app": 15.539,
+    "true_w": 14.566
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:27:40",
+    "app": 8.34,
+    "true_w": 7.055
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:27:50",
+    "app": 11.389,
+    "true_w": 4.287
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:29:50",
+    "app": 11.904,
+    "true_w": 8.081
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:30:10",
+    "app": 9.284,
+    "true_w": 8.865
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:30:20",
+    "app": 10.488,
+    "true_w": 8.365
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:30:30",
+    "app": 11.017,
+    "true_w": 4.903
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:30:40",
+    "app": 13.989,
+    "true_w": 9.269
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:31:00",
+    "app": 13.8,
+    "true_w": 7.813
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:31:30",
+    "app": 7.644,
+    "true_w": 3.623
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:31:40",
+    "app": 12.468,
+    "true_w": 7.902
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:32:00",
+    "app": 14.369,
+    "true_w": 10.49
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:32:10",
+    "app": 14.854,
+    "true_w": 6.908
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:32:20",
+    "app": 8.674,
+    "true_w": 4.645
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:32:30",
+    "app": 8.036,
+    "true_w": 7.104
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:34:10",
+    "app": 8.587,
+    "true_w": 7.551
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:35:00",
+    "app": 10.742,
+    "true_w": 8.926
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:36:10",
+    "app": 8.411,
+    "true_w": 4.578
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:36:30",
+    "app": 10.783,
+    "true_w": 8.273
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:36:40",
+    "app": 10.18,
+    "true_w": 6.927
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:37:00",
+    "app": 7.685,
+    "true_w": 6.218
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:37:10",
+    "app": 12.922,
+    "true_w": 8.966
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:37:20",
+    "app": 15.35,
+    "true_w": 8.675
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:38:10",
+    "app": 10.279,
+    "true_w": 8.025
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:38:40",
+    "app": 12.361,
+    "true_w": 8.687
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:38:50",
+    "app": 13.157,
+    "true_w": 10.953
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:39:00",
+    "app": 5.271,
+    "true_w": 5.105
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:39:30",
+    "app": 3.068,
+    "true_w": 3.033
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:40:00",
+    "app": 11.095,
+    "true_w": 10.888
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:40:20",
+    "app": 15.825,
+    "true_w": 5.289
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:40:30",
+    "app": 12.833,
+    "true_w": 11.159
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:40:40",
+    "app": 12.606,
+    "true_w": 12.346
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:40:50",
+    "app": 9.537,
+    "true_w": 4.206
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:41:10",
+    "app": 6.92,
+    "true_w": 6.137
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:41:20",
+    "app": 10.768,
+    "true_w": 4.271
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:41:50",
+    "app": 12.788,
+    "true_w": 9.968
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:42:10",
+    "app": 5.052,
+    "true_w": 3.633
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:42:20",
+    "app": 7.859,
+    "true_w": 4.531
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:42:50",
+    "app": 12.592,
+    "true_w": 7.36
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:43:10",
+    "app": 12.107,
+    "true_w": 3.252
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:43:20",
+    "app": 16.126,
+    "true_w": 3.432
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:43:40",
+    "app": 11.674,
+    "true_w": 9.283
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:43:50",
+    "app": 14.084,
+    "true_w": 6.737
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:44:40",
+    "app": 10.254,
+    "true_w": 2.997
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:45:10",
+    "app": 5.786,
+    "true_w": 5.029
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:45:40",
+    "app": 12.985,
+    "true_w": 7.773
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:46:00",
+    "app": 10.265,
+    "true_w": 8.81
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:47:00",
+    "app": 10.673,
+    "true_w": 7.467
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:47:30",
+    "app": 7.042,
+    "true_w": 4.812
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:47:50",
+    "app": 12.218,
+    "true_w": 6.603
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:48:00",
+    "app": 9.661,
+    "true_w": 4.999
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:48:50",
+    "app": 12.116,
+    "true_w": 10.577
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:49:00",
+    "app": 12.224,
+    "true_w": 10.005
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:49:30",
+    "app": 7.46,
+    "true_w": 3.291
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:49:40",
+    "app": 9.387,
+    "true_w": 8.151
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:50:00",
+    "app": 5.405,
+    "true_w": 1.491
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:50:50",
+    "app": 4.768,
+    "true_w": 4.452
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:51:00",
+    "app": 9.703,
+    "true_w": 5.213
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:51:10",
+    "app": 8.669,
+    "true_w": 2.199
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:51:20",
+    "app": 11.598,
+    "true_w": 5.638
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:51:30",
+    "app": 13.149,
+    "true_w": 11.13
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:51:40",
+    "app": 6.165,
+    "true_w": 5.807
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:51:50",
+    "app": 11.321,
+    "true_w": 7.004
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:52:20",
+    "app": 6.572,
+    "true_w": 2.415
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:53:00",
+    "app": 13.577,
+    "true_w": 10.192
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:53:10",
+    "app": 11.924,
+    "true_w": 8.416
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:53:20",
+    "app": 10.336,
+    "true_w": 8.805
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:53:40",
+    "app": 8.727,
+    "true_w": 2.419
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:53:50",
+    "app": 12.52,
+    "true_w": 9.493
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:54:50",
+    "app": 8.164,
+    "true_w": 5.139
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:55:00",
+    "app": 10.269,
+    "true_w": 9.581
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:55:10",
+    "app": 10.791,
+    "true_w": 6.217
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:55:50",
+    "app": 9.099,
+    "true_w": 5.498
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:56:40",
+    "app": 10.485,
+    "true_w": 9.778
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:56:50",
+    "app": 14.017,
+    "true_w": 4.783
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:57:00",
+    "app": 10.069,
+    "true_w": 9.634
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:57:30",
+    "app": 15.74,
+    "true_w": 4.45
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:58:30",
+    "app": 14.05,
+    "true_w": 9.197
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:58:40",
+    "app": 11.376,
+    "true_w": 8.322
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:59:00",
+    "app": 12.721,
+    "true_w": 6.087
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:59:10",
+    "app": 8.365,
+    "true_w": 7.341
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:59:20",
+    "app": 6.385,
+    "true_w": 3.599
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 01:59:50",
+    "app": 9.304,
+    "true_w": 5.015
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:00:00",
+    "app": 13.746,
+    "true_w": 5.098
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:00:10",
+    "app": 13.799,
+    "true_w": 8.316
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:00:20",
+    "app": 12.416,
+    "true_w": 7.146
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:00:50",
+    "app": 4.918,
+    "true_w": 2.566
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:01:20",
+    "app": 2.856,
+    "true_w": 1.678
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:01:30",
+    "app": 11.278,
+    "true_w": 8.802
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:01:40",
+    "app": 9.033,
+    "true_w": 9.02
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:02:10",
+    "app": 6.102,
+    "true_w": 1.129
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:02:40",
+    "app": 8.348,
+    "true_w": 5.094
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:03:00",
+    "app": 14.431,
+    "true_w": 8.38
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:03:10",
+    "app": 6.409,
+    "true_w": 5.928
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:03:40",
+    "app": 14.463,
+    "true_w": 7.611
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:03:50",
+    "app": 12.219,
+    "true_w": 5.036
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:04:00",
+    "app": 6.751,
+    "true_w": 6.509
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:04:20",
+    "app": 5.111,
+    "true_w": 0.541
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:04:30",
+    "app": 4.785,
+    "true_w": 4.645
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:05:20",
+    "app": 12.022,
+    "true_w": 9.086
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:05:40",
+    "app": 11.428,
+    "true_w": 1.495
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:06:00",
+    "app": 7.161,
+    "true_w": 2.462
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:06:10",
+    "app": 6.352,
+    "true_w": 4.638
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:06:40",
+    "app": 8.357,
+    "true_w": 5.333
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:07:00",
+    "app": 8.975,
+    "true_w": 8.462
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:07:40",
+    "app": 8.569,
+    "true_w": 4.774
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:08:00",
+    "app": 10.236,
+    "true_w": 5.638
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:08:10",
+    "app": 6.132,
+    "true_w": 3.694
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:08:50",
+    "app": 11.695,
+    "true_w": 7.93
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:09:00",
+    "app": 8.917,
+    "true_w": 6.165
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:09:10",
+    "app": 12.092,
+    "true_w": 4.033
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:09:20",
+    "app": 12.618,
+    "true_w": 8.27
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:09:40",
+    "app": 9.338,
+    "true_w": 2.208
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:10:00",
+    "app": 11.847,
+    "true_w": 6.342
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:10:30",
+    "app": 9.206,
+    "true_w": 6.505
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:10:40",
+    "app": 12.845,
+    "true_w": 7.008
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:11:10",
+    "app": 6.856,
+    "true_w": 3.724
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:11:40",
+    "app": 8.945,
+    "true_w": 6.678
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:12:00",
+    "app": 10.528,
+    "true_w": 8.433
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:12:40",
+    "app": 8.781,
+    "true_w": 6.575
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:13:00",
+    "app": 8.606,
+    "true_w": 7.321
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:13:30",
+    "app": 10.449,
+    "true_w": 6.585
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:14:00",
+    "app": 15.6,
+    "true_w": 13.816
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:14:40",
+    "app": 6.532,
+    "true_w": 2.913
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:14:50",
+    "app": 8.394,
+    "true_w": 4.515
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:15:00",
+    "app": 10.459,
+    "true_w": 9.417
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:15:30",
+    "app": 5.113,
+    "true_w": 3.93
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:16:00",
+    "app": 6.189,
+    "true_w": 4.197
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:16:20",
+    "app": 7.419,
+    "true_w": 1.986
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:16:30",
+    "app": 8.239,
+    "true_w": 5.381
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:17:00",
+    "app": 12.595,
+    "true_w": 6.786
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:17:30",
+    "app": 5.336,
+    "true_w": 4.838
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:17:40",
+    "app": 11.425,
+    "true_w": 5.951
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:18:10",
+    "app": 14.804,
+    "true_w": 11.241
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:18:20",
+    "app": 7.547,
+    "true_w": 7.401
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:18:50",
+    "app": 9.574,
+    "true_w": 1.768
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:19:00",
+    "app": 12.672,
+    "true_w": 2.811
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:19:20",
+    "app": 10.283,
+    "true_w": 4.887
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:19:50",
+    "app": 11.452,
+    "true_w": 10.441
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:20:00",
+    "app": 6.264,
+    "true_w": 5.424
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:20:20",
+    "app": 13.349,
+    "true_w": 7.909
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:20:30",
+    "app": 13.359,
+    "true_w": 6.522
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:20:50",
+    "app": 10.793,
+    "true_w": 7.478
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:21:50",
+    "app": 7.301,
+    "true_w": 4.688
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:22:00",
+    "app": 11.039,
+    "true_w": 3.797
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:22:20",
+    "app": 11.678,
+    "true_w": 5.181
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:23:00",
+    "app": 12.674,
+    "true_w": 0.8
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:23:10",
+    "app": 8.612,
+    "true_w": 6.897
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:23:50",
+    "app": 12.347,
+    "true_w": 9.818
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:24:20",
+    "app": 10.106,
+    "true_w": 6.103
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:24:30",
+    "app": 8.901,
+    "true_w": 5.905
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:24:50",
+    "app": 6.621,
+    "true_w": 6.505
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:25:00",
+    "app": 10.236,
+    "true_w": 9.233
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:25:10",
+    "app": 5.344,
+    "true_w": 4.538
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:25:20",
+    "app": 9.184,
+    "true_w": 6.269
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:25:30",
+    "app": 9.052,
+    "true_w": 4.901
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:26:00",
+    "app": 12.157,
+    "true_w": 11.735
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:26:10",
+    "app": 11.205,
+    "true_w": 6.399
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:26:20",
+    "app": 10.595,
+    "true_w": 2.284
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:26:30",
+    "app": 12.091,
+    "true_w": 6.058
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:26:50",
+    "app": 10.384,
+    "true_w": 8.315
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:27:00",
+    "app": 11.604,
+    "true_w": 7.999
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:27:20",
+    "app": 13.476,
+    "true_w": 7.755
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:27:40",
+    "app": 8.003,
+    "true_w": 6.932
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:27:50",
+    "app": 8.105,
+    "true_w": 5.293
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:28:10",
+    "app": 10.773,
+    "true_w": 10.483
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:28:30",
+    "app": 8.239,
+    "true_w": 4.348
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:29:00",
+    "app": 10.296,
+    "true_w": 9.58
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:29:40",
+    "app": 11.337,
+    "true_w": 8.597
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:30:40",
+    "app": 10.644,
+    "true_w": 5.902
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:30:50",
+    "app": 12.88,
+    "true_w": 5.773
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:31:20",
+    "app": 12.645,
+    "true_w": 5.724
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:31:50",
+    "app": 10.812,
+    "true_w": 6.687
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:32:10",
+    "app": 8.019,
+    "true_w": 7.787
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:32:20",
+    "app": 10.034,
+    "true_w": 8.892
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:32:50",
+    "app": 8.222,
+    "true_w": 4.582
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:33:10",
+    "app": 9.251,
+    "true_w": 6.988
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:33:20",
+    "app": 8.796,
+    "true_w": 6.535
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:33:30",
+    "app": 8.857,
+    "true_w": 6.228
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:33:40",
+    "app": 8.778,
+    "true_w": 2.814
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:33:50",
+    "app": 8.253,
+    "true_w": 5.619
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:34:10",
+    "app": 15.135,
+    "true_w": 11.548
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:34:20",
+    "app": 7.563,
+    "true_w": 6.194
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:34:50",
+    "app": 11.949,
+    "true_w": 9.062
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:35:10",
+    "app": 9.764,
+    "true_w": 5.74
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:35:20",
+    "app": 11.317,
+    "true_w": 3.363
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:35:30",
+    "app": 10.78,
+    "true_w": 7.551
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:35:40",
+    "app": 2.67,
+    "true_w": 1.965
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:36:10",
+    "app": 7.161,
+    "true_w": 6.543
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:36:30",
+    "app": 9.753,
+    "true_w": 6.373
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:36:40",
+    "app": 6.778,
+    "true_w": 4.802
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:37:20",
+    "app": 5.73,
+    "true_w": 5.507
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:37:30",
+    "app": 12.88,
+    "true_w": 7.21
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:37:40",
+    "app": 12.964,
+    "true_w": 6.541
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:37:50",
+    "app": 9.17,
+    "true_w": 7.755
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:38:00",
+    "app": 18.711,
+    "true_w": 5.971
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:38:30",
+    "app": 9.347,
+    "true_w": 4.504
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:38:50",
+    "app": 6.17,
+    "true_w": 0.546
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:39:00",
+    "app": 10.652,
+    "true_w": 6.997
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:39:20",
+    "app": 9.663,
+    "true_w": 6.783
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:39:30",
+    "app": 11.651,
+    "true_w": 5.198
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:40:00",
+    "app": 13.052,
+    "true_w": 3.66
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:40:30",
+    "app": 10.27,
+    "true_w": 0.592
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:40:40",
+    "app": 11.27,
+    "true_w": 9.142
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:40:50",
+    "app": 8.099,
+    "true_w": 7.002
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:41:20",
+    "app": 7.652,
+    "true_w": 2.558
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:41:30",
+    "app": 8.054,
+    "true_w": 4.66
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:41:40",
+    "app": 16.606,
+    "true_w": 4.903
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:42:30",
+    "app": 9.167,
+    "true_w": 1.009
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:42:40",
+    "app": 11.19,
+    "true_w": 10.008
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:43:30",
+    "app": 15.817,
+    "true_w": 8.852
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:43:40",
+    "app": 13.524,
+    "true_w": 4.209
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:43:50",
+    "app": 5.709,
+    "true_w": 3.017
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:44:00",
+    "app": 10.156,
+    "true_w": 8.994
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:44:40",
+    "app": 8.513,
+    "true_w": 6.802
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:44:50",
+    "app": 8.48,
+    "true_w": 6.871
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:45:00",
+    "app": 10.477,
+    "true_w": 8.752
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:45:20",
+    "app": 15.264,
+    "true_w": 2.284
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:45:30",
+    "app": 2.513,
+    "true_w": 1.842
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:45:40",
+    "app": 8.631,
+    "true_w": 4.666
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:45:50",
+    "app": 9.417,
+    "true_w": 3.244
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:46:00",
+    "app": 7.521,
+    "true_w": 5.85
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:46:40",
+    "app": 9.298,
+    "true_w": 3.473
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:46:50",
+    "app": 11.634,
+    "true_w": 6.198
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:47:10",
+    "app": 13.89,
+    "true_w": 6.127
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:47:20",
+    "app": 8.311,
+    "true_w": 2.104
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:47:40",
+    "app": 11.085,
+    "true_w": 5.566
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:47:50",
+    "app": 11.364,
+    "true_w": 9.678
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:48:10",
+    "app": 12.969,
+    "true_w": 8.877
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:48:20",
+    "app": 7.964,
+    "true_w": 7.963
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:48:50",
+    "app": 9.157,
+    "true_w": 3.93
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:49:30",
+    "app": 13.38,
+    "true_w": 5.828
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:49:40",
+    "app": 8.818,
+    "true_w": 8.663
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:50:00",
+    "app": 7.843,
+    "true_w": 5.822
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:50:10",
+    "app": 9.788,
+    "true_w": 6.959
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:50:30",
+    "app": 14.129,
+    "true_w": 10.146
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:50:40",
+    "app": 9.375,
+    "true_w": 8.951
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:51:00",
+    "app": 9.94,
+    "true_w": 8.419
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:51:10",
+    "app": 7.54,
+    "true_w": 6.923
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:51:20",
+    "app": 9.162,
+    "true_w": 7.014
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:51:40",
+    "app": 10.884,
+    "true_w": 4.245
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:51:50",
+    "app": 12.693,
+    "true_w": 9.783
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:52:10",
+    "app": 8.251,
+    "true_w": 5.296
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:52:20",
+    "app": 10.635,
+    "true_w": 10.061
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:52:30",
+    "app": 3.535,
+    "true_w": 3.094
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:52:50",
+    "app": 12.625,
+    "true_w": 6.554
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:53:00",
+    "app": 7.917,
+    "true_w": 5.073
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:53:10",
+    "app": 16.206,
+    "true_w": 4.644
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:53:40",
+    "app": 4.712,
+    "true_w": 1.892
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:54:30",
+    "app": 7.677,
+    "true_w": 6.333
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:55:10",
+    "app": 9.997,
+    "true_w": 9.327
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:55:30",
+    "app": 7.6,
+    "true_w": 4.077
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:56:00",
+    "app": 14.499,
+    "true_w": 10.892
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:56:10",
+    "app": 7.534,
+    "true_w": 3.853
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:56:20",
+    "app": 6.465,
+    "true_w": 1.829
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:56:40",
+    "app": 8.372,
+    "true_w": 5.808
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:57:20",
+    "app": 10.969,
+    "true_w": 6.788
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:58:30",
+    "app": 9.199,
+    "true_w": 8.306
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:58:50",
+    "app": 3.848,
+    "true_w": 2.488
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:59:10",
+    "app": 10.762,
+    "true_w": 1.441
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:59:20",
+    "app": 13.323,
+    "true_w": 12.416
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:59:30",
+    "app": 4.553,
+    "true_w": 1.388
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 02:59:50",
+    "app": 11.0,
+    "true_w": 8.434
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:00:00",
+    "app": 7.259,
+    "true_w": 5.336
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:00:20",
+    "app": 9.468,
+    "true_w": 5.176
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:00:40",
+    "app": 10.635,
+    "true_w": 7.025
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:00:50",
+    "app": 11.554,
+    "true_w": 11.033
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:01:20",
+    "app": 10.577,
+    "true_w": 5.825
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:01:50",
+    "app": 6.308,
+    "true_w": 2.014
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:02:30",
+    "app": 10.452,
+    "true_w": 3.702
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:02:50",
+    "app": 10.527,
+    "true_w": 4.586
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:03:10",
+    "app": 11.491,
+    "true_w": 2.543
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:04:20",
+    "app": 10.622,
+    "true_w": 3.157
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:04:30",
+    "app": 10.857,
+    "true_w": 7.506
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:04:50",
+    "app": 10.486,
+    "true_w": 4.937
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:05:00",
+    "app": 11.249,
+    "true_w": 6.347
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:05:20",
+    "app": 11.063,
+    "true_w": 9.515
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:05:30",
+    "app": 11.928,
+    "true_w": 5.642
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:06:00",
+    "app": 9.726,
+    "true_w": 7.624
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:06:10",
+    "app": 10.217,
+    "true_w": 4.666
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:06:20",
+    "app": 6.824,
+    "true_w": 6.013
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:06:30",
+    "app": 12.701,
+    "true_w": 0.174
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:06:40",
+    "app": 6.821,
+    "true_w": 4.278
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:06:50",
+    "app": 10.845,
+    "true_w": 8.045
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:07:00",
+    "app": 7.323,
+    "true_w": 5.334
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:07:20",
+    "app": 8.459,
+    "true_w": 5.591
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:08:00",
+    "app": 9.081,
+    "true_w": 4.468
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:08:10",
+    "app": 13.994,
+    "true_w": 9.189
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:08:30",
+    "app": 8.385,
+    "true_w": 1.201
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:08:50",
+    "app": 11.306,
+    "true_w": 10.191
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:09:00",
+    "app": 8.574,
+    "true_w": 3.966
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:09:10",
+    "app": 9.859,
+    "true_w": 5.012
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:09:40",
+    "app": 11.948,
+    "true_w": 4.787
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:11:30",
+    "app": 9.059,
+    "true_w": 8.527
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:11:40",
+    "app": 10.658,
+    "true_w": 5.294
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:11:50",
+    "app": 11.509,
+    "true_w": 3.412
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:12:00",
+    "app": 10.564,
+    "true_w": 1.625
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:12:20",
+    "app": 11.513,
+    "true_w": 4.772
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:12:50",
+    "app": 8.084,
+    "true_w": 6.513
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:13:20",
+    "app": 6.908,
+    "true_w": 5.224
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:13:40",
+    "app": 14.178,
+    "true_w": 8.002
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:13:50",
+    "app": 8.994,
+    "true_w": 3.281
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:14:00",
+    "app": 12.35,
+    "true_w": 7.659
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:14:20",
+    "app": 8.356,
+    "true_w": 6.525
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:14:40",
+    "app": 12.429,
+    "true_w": 3.626
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:14:50",
+    "app": 9.964,
+    "true_w": 6.376
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:15:20",
+    "app": 10.097,
+    "true_w": 4.407
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:16:30",
+    "app": 11.791,
+    "true_w": 5.454
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:17:20",
+    "app": 10.856,
+    "true_w": 7.18
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:18:00",
+    "app": 8.294,
+    "true_w": 6.119
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:18:30",
+    "app": 11.923,
+    "true_w": 7.45
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:19:00",
+    "app": 8.525,
+    "true_w": 6.798
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:19:20",
+    "app": 5.652,
+    "true_w": 4.749
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:19:30",
+    "app": 8.93,
+    "true_w": 7.387
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:19:50",
+    "app": 9.417,
+    "true_w": 6.838
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:20:00",
+    "app": 5.674,
+    "true_w": 4.22
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:20:50",
+    "app": 9.634,
+    "true_w": 6.183
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:21:20",
+    "app": 9.023,
+    "true_w": 3.69
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:21:30",
+    "app": 9.393,
+    "true_w": 8.284
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:21:50",
+    "app": 6.065,
+    "true_w": 3.043
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:22:30",
+    "app": 8.262,
+    "true_w": 7.149
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:22:40",
+    "app": 12.706,
+    "true_w": 5.59
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:22:50",
+    "app": 13.083,
+    "true_w": 8.301
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:23:20",
+    "app": 10.16,
+    "true_w": 7.599
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:23:40",
+    "app": 7.059,
+    "true_w": 6.725
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:24:00",
+    "app": 9.047,
+    "true_w": 7.66
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:24:10",
+    "app": 16.179,
+    "true_w": 0.915
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:24:20",
+    "app": 12.932,
+    "true_w": 7.381
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:24:30",
+    "app": 7.646,
+    "true_w": 2.564
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:24:40",
+    "app": 12.727,
+    "true_w": 8.028
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:24:50",
+    "app": 8.768,
+    "true_w": 8.194
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:25:00",
+    "app": 12.762,
+    "true_w": 9.873
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:25:40",
+    "app": 8.048,
+    "true_w": 5.724
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:25:50",
+    "app": 11.004,
+    "true_w": 8.72
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:26:10",
+    "app": 5.019,
+    "true_w": 2.683
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:26:20",
+    "app": 4.806,
+    "true_w": 3.686
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:26:40",
+    "app": 7.164,
+    "true_w": 5.448
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:26:50",
+    "app": 6.853,
+    "true_w": 5.504
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:27:00",
+    "app": 11.843,
+    "true_w": 6.376
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:27:40",
+    "app": 10.068,
+    "true_w": 7.822
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:27:50",
+    "app": 6.89,
+    "true_w": 4.818
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:28:10",
+    "app": 11.561,
+    "true_w": 7.811
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:28:40",
+    "app": 13.025,
+    "true_w": 6.167
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:29:00",
+    "app": 11.593,
+    "true_w": 8.96
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:29:10",
+    "app": 13.09,
+    "true_w": 7.833
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:29:20",
+    "app": 7.92,
+    "true_w": 2.723
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:29:30",
+    "app": 9.044,
+    "true_w": 8.563
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:29:40",
+    "app": 14.836,
+    "true_w": 10.439
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:29:50",
+    "app": 8.255,
+    "true_w": 4.501
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:30:20",
+    "app": 11.684,
+    "true_w": 7.567
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:30:30",
+    "app": 8.116,
+    "true_w": 5.053
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:30:50",
+    "app": 10.705,
+    "true_w": 8.735
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:31:20",
+    "app": 11.517,
+    "true_w": 8.886
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:31:30",
+    "app": 10.439,
+    "true_w": 8.84
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:31:40",
+    "app": 9.032,
+    "true_w": 8.778
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:32:00",
+    "app": 10.641,
+    "true_w": 1.959
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:32:10",
+    "app": 9.046,
+    "true_w": 5.377
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:32:20",
+    "app": 11.026,
+    "true_w": 5.409
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:32:30",
+    "app": 9.209,
+    "true_w": 3.065
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:32:40",
+    "app": 4.376,
+    "true_w": 1.423
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:33:10",
+    "app": 6.454,
+    "true_w": 6.13
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:33:20",
+    "app": 9.683,
+    "true_w": 8.355
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:33:50",
+    "app": 10.856,
+    "true_w": 8.593
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:34:40",
+    "app": 11.612,
+    "true_w": 2.617
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:35:00",
+    "app": 12.38,
+    "true_w": 6.923
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:35:30",
+    "app": 9.516,
+    "true_w": 6.441
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:35:40",
+    "app": 18.001,
+    "true_w": 12.58
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:36:40",
+    "app": 10.147,
+    "true_w": 8.971
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:36:50",
+    "app": 15.379,
+    "true_w": 10.929
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:37:20",
+    "app": 8.491,
+    "true_w": 7.508
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:37:40",
+    "app": 8.497,
+    "true_w": 3.622
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:37:50",
+    "app": 2.754,
+    "true_w": 1.036
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:38:30",
+    "app": 13.129,
+    "true_w": 4.574
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:39:00",
+    "app": 12.28,
+    "true_w": 8.793
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:39:10",
+    "app": 7.412,
+    "true_w": 4.319
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:39:30",
+    "app": 11.225,
+    "true_w": 6.51
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:40:20",
+    "app": 11.504,
+    "true_w": 6.906
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:40:40",
+    "app": 3.35,
+    "true_w": 2.882
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:40:50",
+    "app": 11.355,
+    "true_w": 9.825
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:41:30",
+    "app": 12.972,
+    "true_w": 9.631
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:41:40",
+    "app": 9.816,
+    "true_w": 4.793
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:41:50",
+    "app": 17.463,
+    "true_w": 4.923
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:42:30",
+    "app": 14.225,
+    "true_w": 6.347
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:42:40",
+    "app": 8.88,
+    "true_w": 7.673
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:43:00",
+    "app": 13.739,
+    "true_w": 1.885
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:43:10",
+    "app": 14.516,
+    "true_w": 6.18
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:43:30",
+    "app": 5.07,
+    "true_w": 4.23
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:43:40",
+    "app": 12.93,
+    "true_w": 10.168
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:43:50",
+    "app": 10.701,
+    "true_w": 7.657
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:44:00",
+    "app": 5.086,
+    "true_w": 1.566
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:44:20",
+    "app": 8.56,
+    "true_w": 5.341
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:44:50",
+    "app": 12.898,
+    "true_w": 7.317
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:45:00",
+    "app": 7.979,
+    "true_w": 2.751
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:45:10",
+    "app": 9.161,
+    "true_w": 6.881
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:45:30",
+    "app": 6.833,
+    "true_w": 1.485
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:45:50",
+    "app": 8.009,
+    "true_w": 7.849
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:46:30",
+    "app": 9.52,
+    "true_w": 4.66
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:46:50",
+    "app": 9.905,
+    "true_w": 7.075
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:47:20",
+    "app": 11.382,
+    "true_w": 5.19
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:47:40",
+    "app": 13.087,
+    "true_w": 11.144
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:48:30",
+    "app": 15.226,
+    "true_w": 11.574
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:49:10",
+    "app": 7.906,
+    "true_w": 7.602
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:50:20",
+    "app": 8.673,
+    "true_w": 4.742
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:50:50",
+    "app": 15.567,
+    "true_w": 12.062
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:51:20",
+    "app": 12.155,
+    "true_w": 8.893
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:51:40",
+    "app": 9.444,
+    "true_w": 3.318
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:51:50",
+    "app": 13.234,
+    "true_w": 7.703
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:52:00",
+    "app": 10.567,
+    "true_w": 8.042
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:52:10",
+    "app": 9.244,
+    "true_w": 8.352
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:52:20",
+    "app": 6.287,
+    "true_w": 4.196
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:52:40",
+    "app": 13.453,
+    "true_w": 4.508
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:52:50",
+    "app": 12.699,
+    "true_w": 7.779
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:53:10",
+    "app": 9.045,
+    "true_w": 5.1
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:53:20",
+    "app": 10.028,
+    "true_w": 6.208
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:53:40",
+    "app": 8.505,
+    "true_w": 6.329
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:53:50",
+    "app": 9.907,
+    "true_w": 6.065
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:54:00",
+    "app": 10.324,
+    "true_w": 6.43
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:54:20",
+    "app": 11.731,
+    "true_w": 7.316
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:54:50",
+    "app": 10.835,
+    "true_w": 8.05
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:55:00",
+    "app": 8.629,
+    "true_w": 8.618
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:55:20",
+    "app": 13.007,
+    "true_w": 6.303
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:55:30",
+    "app": 10.079,
+    "true_w": 9.455
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:55:40",
+    "app": 10.836,
+    "true_w": 6.374
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:55:50",
+    "app": 16.074,
+    "true_w": 8.293
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:56:00",
+    "app": 12.611,
+    "true_w": 10.107
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:56:20",
+    "app": 11.18,
+    "true_w": 6.498
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:56:50",
+    "app": 8.211,
+    "true_w": 6.256
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:57:00",
+    "app": 9.674,
+    "true_w": 8.884
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:57:20",
+    "app": 14.461,
+    "true_w": 7.571
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:57:30",
+    "app": 12.792,
+    "true_w": 11.623
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:57:40",
+    "app": 13.129,
+    "true_w": 11.059
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:57:50",
+    "app": 3.588,
+    "true_w": 3.077
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:58:00",
+    "app": 10.381,
+    "true_w": 8.304
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:58:40",
+    "app": 8.956,
+    "true_w": 7.44
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:59:10",
+    "app": 8.768,
+    "true_w": 6.335
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:59:20",
+    "app": 10.099,
+    "true_w": 6.006
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 03:59:30",
+    "app": 15.684,
+    "true_w": 8.308
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:00:00",
+    "app": 7.259,
+    "true_w": 5.544
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:00:10",
+    "app": 11.525,
+    "true_w": 5.826
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:00:20",
+    "app": 11.41,
+    "true_w": 5.947
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:01:10",
+    "app": 7.886,
+    "true_w": 7.493
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:02:00",
+    "app": 4.261,
+    "true_w": 3.887
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:02:10",
+    "app": 7.014,
+    "true_w": 6.107
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:02:20",
+    "app": 14.149,
+    "true_w": 11.008
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:03:00",
+    "app": 8.6,
+    "true_w": 8.002
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:03:10",
+    "app": 10.423,
+    "true_w": 6.844
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:03:20",
+    "app": 14.941,
+    "true_w": 8.577
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:04:30",
+    "app": 11.409,
+    "true_w": 4.858
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:05:00",
+    "app": 15.89,
+    "true_w": 8.618
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:05:20",
+    "app": 6.878,
+    "true_w": 6.37
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:05:40",
+    "app": 5.897,
+    "true_w": 4.906
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:05:50",
+    "app": 13.869,
+    "true_w": 8.017
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:06:00",
+    "app": 7.423,
+    "true_w": 6.526
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:06:10",
+    "app": 11.67,
+    "true_w": 5.726
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:06:20",
+    "app": 8.878,
+    "true_w": 1.889
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:06:50",
+    "app": 10.317,
+    "true_w": 5.127
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:07:10",
+    "app": 9.817,
+    "true_w": 8.434
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:07:20",
+    "app": 10.769,
+    "true_w": 5.322
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:07:30",
+    "app": 11.143,
+    "true_w": 5.83
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:07:50",
+    "app": 9.911,
+    "true_w": 6.935
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:08:10",
+    "app": 12.683,
+    "true_w": 7.277
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:08:20",
+    "app": 11.054,
+    "true_w": 6.809
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:08:50",
+    "app": 9.695,
+    "true_w": 9.273
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:09:00",
+    "app": 12.102,
+    "true_w": 11.94
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:09:30",
+    "app": 9.182,
+    "true_w": 5.901
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:10:10",
+    "app": 13.79,
+    "true_w": 7.152
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:10:30",
+    "app": 8.175,
+    "true_w": 2.808
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:10:50",
+    "app": 9.64,
+    "true_w": 2.201
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:11:10",
+    "app": 10.546,
+    "true_w": 9.294
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:11:20",
+    "app": 4.744,
+    "true_w": 4.075
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:11:40",
+    "app": 2.724,
+    "true_w": 2.695
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:12:00",
+    "app": 8.064,
+    "true_w": 7.355
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:12:10",
+    "app": 11.203,
+    "true_w": 3.452
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:12:30",
+    "app": 13.29,
+    "true_w": 8.042
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:12:40",
+    "app": 13.428,
+    "true_w": 10.27
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:12:50",
+    "app": 13.978,
+    "true_w": 7.901
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:13:10",
+    "app": 10.587,
+    "true_w": 10.528
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:13:20",
+    "app": 7.46,
+    "true_w": 2.63
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:13:30",
+    "app": 13.103,
+    "true_w": 9.156
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:13:40",
+    "app": 10.74,
+    "true_w": 3.061
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:14:00",
+    "app": 8.156,
+    "true_w": 6.249
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:14:20",
+    "app": 6.663,
+    "true_w": 4.21
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:14:30",
+    "app": 8.582,
+    "true_w": 3.893
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:14:40",
+    "app": 7.849,
+    "true_w": 7.518
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:14:50",
+    "app": 8.423,
+    "true_w": 7.352
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:15:00",
+    "app": 16.223,
+    "true_w": 9.849
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:15:40",
+    "app": 12.794,
+    "true_w": 8.127
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:15:50",
+    "app": 12.466,
+    "true_w": 9.527
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:16:00",
+    "app": 15.173,
+    "true_w": 5.192
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:16:20",
+    "app": 6.172,
+    "true_w": 3.598
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:16:40",
+    "app": 9.568,
+    "true_w": 4.148
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:17:00",
+    "app": 13.599,
+    "true_w": 2.585
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:17:20",
+    "app": 13.763,
+    "true_w": 5.433
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:17:30",
+    "app": 9.127,
+    "true_w": 6.237
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:17:40",
+    "app": 8.404,
+    "true_w": 7.937
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:18:00",
+    "app": 3.466,
+    "true_w": 2.269
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:18:10",
+    "app": 11.205,
+    "true_w": 8.747
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:18:30",
+    "app": 5.145,
+    "true_w": 4.565
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:18:40",
+    "app": 11.128,
+    "true_w": 8.607
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:19:00",
+    "app": 12.146,
+    "true_w": 11.218
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:19:10",
+    "app": 15.146,
+    "true_w": 10.213
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:19:20",
+    "app": 10.16,
+    "true_w": 6.137
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:19:30",
+    "app": 7.562,
+    "true_w": 5.726
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:19:40",
+    "app": 15.483,
+    "true_w": 7.14
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:20:40",
+    "app": 9.808,
+    "true_w": 7.589
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:21:00",
+    "app": 6.973,
+    "true_w": 3.566
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:21:10",
+    "app": 11.326,
+    "true_w": 4.491
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:21:20",
+    "app": 13.609,
+    "true_w": 5.911
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:21:30",
+    "app": 14.006,
+    "true_w": 11.632
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:22:00",
+    "app": 12.393,
+    "true_w": 12.193
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:22:10",
+    "app": 11.483,
+    "true_w": 6.984
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:22:20",
+    "app": 9.47,
+    "true_w": 9.073
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:22:30",
+    "app": 8.209,
+    "true_w": 4.382
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:22:40",
+    "app": 14.102,
+    "true_w": 7.84
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:23:10",
+    "app": 8.325,
+    "true_w": 5.637
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:23:20",
+    "app": 9.962,
+    "true_w": 3.194
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:23:30",
+    "app": 8.829,
+    "true_w": 5.752
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:23:40",
+    "app": 14.565,
+    "true_w": 7.995
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:23:50",
+    "app": 8.489,
+    "true_w": 4.734
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:24:10",
+    "app": 5.271,
+    "true_w": 3.933
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:24:20",
+    "app": 7.745,
+    "true_w": 5.522
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:24:40",
+    "app": 13.969,
+    "true_w": 7.499
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:25:50",
+    "app": 9.944,
+    "true_w": 9.181
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:26:10",
+    "app": 11.606,
+    "true_w": 8.743
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:27:00",
+    "app": 13.773,
+    "true_w": 7.53
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:27:20",
+    "app": 16.815,
+    "true_w": 2.969
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:27:50",
+    "app": 9.861,
+    "true_w": 6.349
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:28:00",
+    "app": 11.685,
+    "true_w": 8.887
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:28:10",
+    "app": 14.894,
+    "true_w": 10.073
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:28:40",
+    "app": 10.506,
+    "true_w": 5.936
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:28:50",
+    "app": 9.312,
+    "true_w": 2.457
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:29:00",
+    "app": 14.011,
+    "true_w": 5.044
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:29:30",
+    "app": 10.214,
+    "true_w": 4.823
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:29:40",
+    "app": 9.59,
+    "true_w": 6.029
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:30:10",
+    "app": 12.153,
+    "true_w": 4.602
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:30:30",
+    "app": 10.829,
+    "true_w": 7.049
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:30:40",
+    "app": 12.892,
+    "true_w": 10.879
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:30:50",
+    "app": 16.855,
+    "true_w": 9.163
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:31:00",
+    "app": 14.239,
+    "true_w": 3.966
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:32:10",
+    "app": 12.607,
+    "true_w": 9.741
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:32:50",
+    "app": 14.177,
+    "true_w": 7.932
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:33:00",
+    "app": 3.643,
+    "true_w": 3.069
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:33:10",
+    "app": 14.396,
+    "true_w": 8.138
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:33:30",
+    "app": 11.393,
+    "true_w": 3.515
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:33:40",
+    "app": 8.392,
+    "true_w": 4.525
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:34:00",
+    "app": 14.097,
+    "true_w": 5.837
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:34:20",
+    "app": 14.708,
+    "true_w": 10.474
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:35:00",
+    "app": 7.504,
+    "true_w": 5.108
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:35:20",
+    "app": 13.044,
+    "true_w": 7.321
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:35:50",
+    "app": 3.348,
+    "true_w": 2.673
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:36:10",
+    "app": 16.079,
+    "true_w": 11.694
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:36:20",
+    "app": 10.508,
+    "true_w": 5.212
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:36:30",
+    "app": 10.968,
+    "true_w": 7.432
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:36:40",
+    "app": 9.188,
+    "true_w": 1.362
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:37:20",
+    "app": 7.423,
+    "true_w": 7.341
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:37:40",
+    "app": 15.622,
+    "true_w": 8.997
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:38:00",
+    "app": 7.709,
+    "true_w": 5.054
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:38:50",
+    "app": 11.186,
+    "true_w": 9.674
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:39:10",
+    "app": 17.843,
+    "true_w": 6.682
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:39:30",
+    "app": 7.597,
+    "true_w": 6.128
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:39:50",
+    "app": 4.611,
+    "true_w": 3.997
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:40:20",
+    "app": 11.073,
+    "true_w": 7.708
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:40:30",
+    "app": 12.058,
+    "true_w": 3.289
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:40:50",
+    "app": 12.174,
+    "true_w": 8.145
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:41:30",
+    "app": 11.25,
+    "true_w": 10.271
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:42:00",
+    "app": 8.02,
+    "true_w": 6.37
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:42:20",
+    "app": 12.215,
+    "true_w": 6.477
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:42:30",
+    "app": 10.601,
+    "true_w": 9.259
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:42:40",
+    "app": 9.726,
+    "true_w": 4.825
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:42:50",
+    "app": 14.212,
+    "true_w": 11.623
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:43:00",
+    "app": 5.596,
+    "true_w": 2.459
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:43:10",
+    "app": 8.318,
+    "true_w": 4.305
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:43:30",
+    "app": 9.855,
+    "true_w": 8.395
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:43:50",
+    "app": 10.912,
+    "true_w": 7.21
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:44:10",
+    "app": 6.242,
+    "true_w": 4.561
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:44:30",
+    "app": 11.047,
+    "true_w": 5.113
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:44:50",
+    "app": 12.01,
+    "true_w": 7.529
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:45:10",
+    "app": 8.675,
+    "true_w": 8.36
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:45:40",
+    "app": 9.938,
+    "true_w": 8.968
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:45:50",
+    "app": 9.937,
+    "true_w": 3.411
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:46:10",
+    "app": 12.209,
+    "true_w": 6.661
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:46:20",
+    "app": 6.78,
+    "true_w": 4.604
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:47:30",
+    "app": 9.408,
+    "true_w": 8.017
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:47:40",
+    "app": 10.922,
+    "true_w": 10.747
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:47:50",
+    "app": 6.712,
+    "true_w": 3.42
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:48:10",
+    "app": 14.283,
+    "true_w": 6.233
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:48:20",
+    "app": 11.133,
+    "true_w": 7.97
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:48:40",
+    "app": 10.298,
+    "true_w": 7.384
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:48:50",
+    "app": 14.999,
+    "true_w": 8.044
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:49:10",
+    "app": 10.066,
+    "true_w": 4.813
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:49:40",
+    "app": 13.681,
+    "true_w": 12.979
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:49:50",
+    "app": 11.78,
+    "true_w": 4.051
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:50:00",
+    "app": 6.531,
+    "true_w": 4.594
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:50:10",
+    "app": 12.618,
+    "true_w": 8.268
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:50:20",
+    "app": 6.916,
+    "true_w": 1.489
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:51:50",
+    "app": 9.323,
+    "true_w": 6.485
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:52:00",
+    "app": 7.005,
+    "true_w": 2.308
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:52:10",
+    "app": 11.25,
+    "true_w": 6.072
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:52:20",
+    "app": 7.735,
+    "true_w": 5.335
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:52:30",
+    "app": 6.01,
+    "true_w": 3.239
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:52:50",
+    "app": 9.555,
+    "true_w": 9.405
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:53:10",
+    "app": 10.064,
+    "true_w": 3.681
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:53:20",
+    "app": 11.311,
+    "true_w": 2.524
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:53:40",
+    "app": 12.985,
+    "true_w": 6.067
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:53:50",
+    "app": 12.04,
+    "true_w": 5.819
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:54:10",
+    "app": 6.779,
+    "true_w": 6.689
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:54:20",
+    "app": 10.915,
+    "true_w": 5.681
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:55:20",
+    "app": 11.687,
+    "true_w": 5.238
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:55:30",
+    "app": 5.983,
+    "true_w": 5.437
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:55:40",
+    "app": 9.814,
+    "true_w": 8.052
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:55:50",
+    "app": 13.787,
+    "true_w": 8.457
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:56:00",
+    "app": 11.857,
+    "true_w": 9.806
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:56:10",
+    "app": 7.158,
+    "true_w": 3.793
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:56:20",
+    "app": 6.598,
+    "true_w": 6.111
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:56:40",
+    "app": 13.0,
+    "true_w": 4.648
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:56:50",
+    "app": 5.862,
+    "true_w": 3.417
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:57:00",
+    "app": 10.816,
+    "true_w": 5.364
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:57:20",
+    "app": 11.625,
+    "true_w": 2.301
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:57:50",
+    "app": 14.97,
+    "true_w": 5.909
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:58:00",
+    "app": 13.505,
+    "true_w": 7.474
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:58:20",
+    "app": 13.518,
+    "true_w": 7.989
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:58:30",
+    "app": 14.541,
+    "true_w": 13.294
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:58:50",
+    "app": 5.358,
+    "true_w": 0.875
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:59:40",
+    "app": 10.372,
+    "true_w": 7.858
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 04:59:50",
+    "app": 5.05,
+    "true_w": 4.099
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:00:00",
+    "app": 9.258,
+    "true_w": 8.156
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:00:10",
+    "app": 10.655,
+    "true_w": 6.696
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:00:30",
+    "app": 7.46,
+    "true_w": 1.876
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:00:50",
+    "app": 16.338,
+    "true_w": 9.027
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:01:00",
+    "app": 6.546,
+    "true_w": 4.842
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:01:20",
+    "app": 6.554,
+    "true_w": 6.233
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:01:30",
+    "app": 9.789,
+    "true_w": 1.959
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:01:50",
+    "app": 10.875,
+    "true_w": 5.5
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:02:30",
+    "app": 13.145,
+    "true_w": 6.634
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:02:50",
+    "app": 14.129,
+    "true_w": 4.328
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:03:00",
+    "app": 15.065,
+    "true_w": 8.379
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:03:10",
+    "app": 15.335,
+    "true_w": 4.715
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:04:00",
+    "app": 11.852,
+    "true_w": 9.554
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:04:50",
+    "app": 14.02,
+    "true_w": 11.687
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:05:10",
+    "app": 8.68,
+    "true_w": 8.288
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:05:20",
+    "app": 7.984,
+    "true_w": 4.353
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:05:30",
+    "app": 10.987,
+    "true_w": 9.672
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:05:40",
+    "app": 11.465,
+    "true_w": 8.058
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:05:50",
+    "app": 17.379,
+    "true_w": 5.999
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:06:10",
+    "app": 11.351,
+    "true_w": 7.574
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:06:40",
+    "app": 8.473,
+    "true_w": 4.63
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:07:40",
+    "app": 7.813,
+    "true_w": 6.925
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:08:10",
+    "app": 4.815,
+    "true_w": 3.707
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:08:30",
+    "app": 10.304,
+    "true_w": 9.568
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:08:50",
+    "app": 10.995,
+    "true_w": 7.41
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:09:00",
+    "app": 4.052,
+    "true_w": 2.783
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:09:20",
+    "app": 10.879,
+    "true_w": 9.307
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:10:40",
+    "app": 16.296,
+    "true_w": 10.679
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:10:50",
+    "app": 8.998,
+    "true_w": 4.486
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:11:10",
+    "app": 7.939,
+    "true_w": 6.629
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:11:30",
+    "app": 15.523,
+    "true_w": 8.14
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:11:50",
+    "app": 8.738,
+    "true_w": 4.78
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:12:00",
+    "app": 14.009,
+    "true_w": 8.896
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:12:50",
+    "app": 14.418,
+    "true_w": 3.865
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:13:10",
+    "app": 7.928,
+    "true_w": 7.77
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:13:20",
+    "app": 8.077,
+    "true_w": 7.715
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:14:00",
+    "app": 11.472,
+    "true_w": 6.291
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:14:10",
+    "app": 7.261,
+    "true_w": 5.748
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:14:40",
+    "app": 13.659,
+    "true_w": 5.072
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:14:50",
+    "app": 8.427,
+    "true_w": 8.295
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:15:00",
+    "app": 11.186,
+    "true_w": 8.433
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:15:10",
+    "app": 15.645,
+    "true_w": 7.416
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:15:30",
+    "app": 8.111,
+    "true_w": 6.042
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:15:40",
+    "app": 10.394,
+    "true_w": 6.398
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:16:50",
+    "app": 6.979,
+    "true_w": 6.211
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:17:00",
+    "app": 8.688,
+    "true_w": 5.632
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:17:10",
+    "app": 16.207,
+    "true_w": 6.016
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:17:20",
+    "app": 10.809,
+    "true_w": 4.854
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:17:30",
+    "app": 11.314,
+    "true_w": 11.009
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:17:50",
+    "app": 12.048,
+    "true_w": 7.77
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:18:10",
+    "app": 10.06,
+    "true_w": 9.821
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:18:30",
+    "app": 13.777,
+    "true_w": 5.474
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:18:50",
+    "app": 6.073,
+    "true_w": 2.415
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:19:10",
+    "app": 15.553,
+    "true_w": 12.815
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:19:20",
+    "app": 9.575,
+    "true_w": 7.674
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:20:00",
+    "app": 7.122,
+    "true_w": 6.231
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:20:10",
+    "app": 13.361,
+    "true_w": 10.307
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:20:30",
+    "app": 11.51,
+    "true_w": 9.614
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:20:50",
+    "app": 11.394,
+    "true_w": 4.554
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:21:10",
+    "app": 11.865,
+    "true_w": 2.138
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:21:40",
+    "app": 14.211,
+    "true_w": 7.649
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:22:00",
+    "app": 8.807,
+    "true_w": 5.274
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:22:20",
+    "app": 11.726,
+    "true_w": 8.164
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:23:00",
+    "app": 7.927,
+    "true_w": 3.244
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:23:20",
+    "app": 13.419,
+    "true_w": 8.39
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:23:40",
+    "app": 12.734,
+    "true_w": 8.127
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:24:30",
+    "app": 8.566,
+    "true_w": 8.411
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:24:40",
+    "app": 9.117,
+    "true_w": 8.541
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:25:10",
+    "app": 8.339,
+    "true_w": 2.755
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:25:30",
+    "app": 10.792,
+    "true_w": 9.405
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:26:00",
+    "app": 13.777,
+    "true_w": 5.887
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:26:10",
+    "app": 8.157,
+    "true_w": 4.612
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:26:20",
+    "app": 8.736,
+    "true_w": 1.982
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:26:50",
+    "app": 7.257,
+    "true_w": 7.241
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:27:30",
+    "app": 10.86,
+    "true_w": 7.404
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:27:50",
+    "app": 7.906,
+    "true_w": 3.725
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:28:00",
+    "app": 9.36,
+    "true_w": 6.268
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:28:10",
+    "app": 3.123,
+    "true_w": 2.442
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:28:40",
+    "app": 7.591,
+    "true_w": 7.482
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:28:50",
+    "app": 13.314,
+    "true_w": 9.391
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:29:00",
+    "app": 7.804,
+    "true_w": 2.561
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:29:30",
+    "app": 11.973,
+    "true_w": 4.651
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:29:40",
+    "app": 15.23,
+    "true_w": 6.008
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:29:50",
+    "app": 14.728,
+    "true_w": 8.802
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:30:10",
+    "app": 9.595,
+    "true_w": 5.848
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:30:30",
+    "app": 10.487,
+    "true_w": 8.815
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:31:00",
+    "app": 13.216,
+    "true_w": 6.141
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:31:10",
+    "app": 8.077,
+    "true_w": 5.682
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:31:20",
+    "app": 10.901,
+    "true_w": 5.995
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:31:40",
+    "app": 9.893,
+    "true_w": 4.454
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:32:20",
+    "app": 10.868,
+    "true_w": 7.457
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:32:30",
+    "app": 15.051,
+    "true_w": 3.145
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:32:40",
+    "app": 12.809,
+    "true_w": 8.745
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:33:20",
+    "app": 8.674,
+    "true_w": 4.468
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:33:30",
+    "app": 10.775,
+    "true_w": 5.785
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:34:00",
+    "app": 11.905,
+    "true_w": 8.22
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:34:10",
+    "app": 10.709,
+    "true_w": 5.401
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:35:20",
+    "app": 12.599,
+    "true_w": 7.181
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:35:40",
+    "app": 6.294,
+    "true_w": 5.001
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:36:20",
+    "app": 8.804,
+    "true_w": 7.749
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:36:30",
+    "app": 9.687,
+    "true_w": 2.411
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:36:40",
+    "app": 10.603,
+    "true_w": 8.027
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:37:20",
+    "app": 11.604,
+    "true_w": 11.417
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:37:40",
+    "app": 12.491,
+    "true_w": 4.69
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:37:50",
+    "app": 7.171,
+    "true_w": 4.087
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:38:20",
+    "app": 10.277,
+    "true_w": 9.787
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:38:50",
+    "app": 11.924,
+    "true_w": 5.601
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:39:10",
+    "app": 6.462,
+    "true_w": 3.939
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:39:50",
+    "app": 11.455,
+    "true_w": 11.31
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:40:10",
+    "app": 16.107,
+    "true_w": 15.343
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:40:20",
+    "app": 15.55,
+    "true_w": 5.431
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:40:50",
+    "app": 10.159,
+    "true_w": 0.262
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:41:10",
+    "app": 10.204,
+    "true_w": 10.103
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:41:20",
+    "app": 10.625,
+    "true_w": 5.177
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:41:30",
+    "app": 8.643,
+    "true_w": 3.566
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:41:40",
+    "app": 12.642,
+    "true_w": 11.864
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:41:50",
+    "app": 10.302,
+    "true_w": 8.363
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:42:30",
+    "app": 11.281,
+    "true_w": 9.819
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:42:50",
+    "app": 8.011,
+    "true_w": 7.355
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:43:10",
+    "app": 9.855,
+    "true_w": 4.122
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:44:10",
+    "app": 9.986,
+    "true_w": 5.581
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:44:30",
+    "app": 5.788,
+    "true_w": 2.209
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:44:40",
+    "app": 9.375,
+    "true_w": 4.695
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:45:00",
+    "app": 11.305,
+    "true_w": 4.671
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:45:20",
+    "app": 13.688,
+    "true_w": 10.135
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:45:40",
+    "app": 17.292,
+    "true_w": 8.187
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:46:00",
+    "app": 13.928,
+    "true_w": 13.111
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:46:20",
+    "app": 7.697,
+    "true_w": 5.238
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:46:50",
+    "app": 11.297,
+    "true_w": 6.071
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:47:00",
+    "app": 14.384,
+    "true_w": 6.986
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:47:30",
+    "app": 5.926,
+    "true_w": 5.598
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:48:00",
+    "app": 9.515,
+    "true_w": 4.919
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:48:30",
+    "app": 12.073,
+    "true_w": 8.4
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:48:40",
+    "app": 8.306,
+    "true_w": 5.502
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:48:50",
+    "app": 14.868,
+    "true_w": 6.073
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:49:00",
+    "app": 7.491,
+    "true_w": 7.215
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:50:10",
+    "app": 10.384,
+    "true_w": 9.97
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:50:20",
+    "app": 14.203,
+    "true_w": 8.55
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:50:30",
+    "app": 8.127,
+    "true_w": 7.997
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:51:40",
+    "app": 11.23,
+    "true_w": 7.847
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:51:50",
+    "app": 9.337,
+    "true_w": 6.423
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:52:00",
+    "app": 8.829,
+    "true_w": 0.97
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:52:10",
+    "app": 12.88,
+    "true_w": 7.958
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:52:30",
+    "app": 6.692,
+    "true_w": 6.256
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:53:00",
+    "app": 9.406,
+    "true_w": 8.248
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:53:30",
+    "app": 14.483,
+    "true_w": 9.444
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:53:40",
+    "app": 13.858,
+    "true_w": 10.342
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:53:50",
+    "app": 5.901,
+    "true_w": 5.24
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:54:10",
+    "app": 3.993,
+    "true_w": 3.871
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:54:20",
+    "app": 9.24,
+    "true_w": 8.891
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:54:30",
+    "app": 10.985,
+    "true_w": 4.31
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:54:50",
+    "app": 9.962,
+    "true_w": 8.05
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:55:00",
+    "app": 15.2,
+    "true_w": 13.327
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:55:30",
+    "app": 10.251,
+    "true_w": 7.789
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:55:40",
+    "app": 10.415,
+    "true_w": 9.445
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:55:50",
+    "app": 9.379,
+    "true_w": 5.19
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:56:00",
+    "app": 7.68,
+    "true_w": 7.555
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:56:10",
+    "app": 9.943,
+    "true_w": 9.475
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:56:20",
+    "app": 9.068,
+    "true_w": 6.953
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:56:30",
+    "app": 14.766,
+    "true_w": 8.232
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:56:50",
+    "app": 10.034,
+    "true_w": 3.185
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:57:10",
+    "app": 10.884,
+    "true_w": 3.296
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:57:20",
+    "app": 12.653,
+    "true_w": 7.308
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:57:30",
+    "app": 10.855,
+    "true_w": 9.231
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:58:00",
+    "app": 6.234,
+    "true_w": 2.898
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:58:40",
+    "app": 10.66,
+    "true_w": 4.188
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:58:50",
+    "app": 12.077,
+    "true_w": 9.593
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:59:00",
+    "app": 9.691,
+    "true_w": 5.34
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:59:10",
+    "app": 12.875,
+    "true_w": 5.716
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:59:20",
+    "app": 8.734,
+    "true_w": 8.103
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:59:30",
+    "app": 8.405,
+    "true_w": 4.383
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "ts": "2026-05-07 05:59:40",
+    "app": 4.216,
+    "true_w": 2.789
+  }
+]

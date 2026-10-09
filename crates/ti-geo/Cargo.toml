@@ -1,0 +1,14 @@
+[package]
+name = "ti-geo"
+version = "0.1.0"
+edition = "2021"
+license = "BSD-3-Clause"
+description = "Conservative H3 covers and exact geographic refinement for Lume TI"
+
+[dependencies]
+ti-contracts = { path = "../ti-contracts" }
+h3o = { version = "=0.11.0", default-features = false, features = ["std", "geo"] }
+geo = { version = "=0.33.1", default-features = false }
+
+[dev-dependencies]
+proptest = "1"

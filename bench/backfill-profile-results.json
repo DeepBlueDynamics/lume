@@ -1,0 +1,284 @@
+{
+  "baseline": [
+    {
+      "bucketer_exclusive_s": 2.889413488,
+      "elapsed_s": 11.380174714,
+      "files": 175,
+      "hashes": {
+        "0:296": "b4dbe01fdcda9739dd105a0ff87dd276cbacc935add2a6a1a9653b316fb15b90",
+        "0:297": "ea21267dde285dd989f6e7199e2eb296828349287cca1295ab0cd75716f22ff2"
+      },
+      "rows": 1459559,
+      "rows_per_s": 128254.53357973814,
+      "seal_s": 3.838786164,
+      "stages_s": {
+        "apply": 3.317736733,
+        "bucketer": 6.480427049,
+        "classify": 0.089664602,
+        "decode": 1.113233716,
+        "extract": 0.130745771,
+        "flush": 2.035327308,
+        "hash": 0.879532889,
+        "normalize": 0.183612226
+      }
+    },
+    {
+      "bucketer_exclusive_s": 4.003572520999999,
+      "elapsed_s": 15.78464477,
+      "files": 175,
+      "hashes": {
+        "0:296": "b4dbe01fdcda9739dd105a0ff87dd276cbacc935add2a6a1a9653b316fb15b90",
+        "0:297": "ea21267dde285dd989f6e7199e2eb296828349287cca1295ab0cd75716f22ff2"
+      },
+      "rows": 1459559,
+      "rows_per_s": 92467.01596820288,
+      "seal_s": 4.110976802,
+      "stages_s": {
+        "apply": 3.922490761,
+        "bucketer": 8.236124572,
+        "classify": 0.09899283,
+        "decode": 2.104788804,
+        "extract": 0.165263253,
+        "flush": 2.636480142,
+        "hash": 1.394151866,
+        "normalize": 0.21106846
+      }
+    },
+    {
+      "bucketer_exclusive_s": 2.792695083000001,
+      "elapsed_s": 10.710222284,
+      "files": 175,
+      "hashes": {
+        "0:296": "b4dbe01fdcda9739dd105a0ff87dd276cbacc935add2a6a1a9653b316fb15b90",
+        "0:297": "ea21267dde285dd989f6e7199e2eb296828349287cca1295ab0cd75716f22ff2"
+      },
+      "rows": 1459559,
+      "rows_per_s": 136277.19026713714,
+      "seal_s": 3.679805774,
+      "stages_s": {
+        "apply": 3.149209697,
+        "bucketer": 6.214636632,
+        "classify": 0.0901337,
+        "decode": 1.003248456,
+        "extract": 0.138053437,
+        "flush": 1.871988786,
+        "hash": 0.810314115,
+        "normalize": 0.182598152
+      }
+    }
+  ],
+  "current": [
+    {
+      "bucketer_exclusive_s": 2.8772633710000006,
+      "elapsed_s": 10.885048778,
+      "files": 175,
+      "hashes": {
+        "0:296": "b4dbe01fdcda9739dd105a0ff87dd276cbacc935add2a6a1a9653b316fb15b90",
+        "0:297": "ea21267dde285dd989f6e7199e2eb296828349287cca1295ab0cd75716f22ff2"
+      },
+      "rows": 1459559,
+      "rows_per_s": 134088.42071061226,
+      "seal_s": 3.499667411,
+      "stages_s": {
+        "apply": 3.271704312,
+        "bucketer": 6.515424198,
+        "classify": 0.135672055,
+        "decode": 0.952076891,
+        "extract": 0.142115965,
+        "flush": 1.773986132,
+        "hash": 0.755856572,
+        "normalize": 0.23078446
+      }
+    },
+    {
+      "bucketer_exclusive_s": 2.8597774840000003,
+      "elapsed_s": 11.184707657,
+      "files": 175,
+      "hashes": {
+        "0:296": "b4dbe01fdcda9739dd105a0ff87dd276cbacc935add2a6a1a9653b316fb15b90",
+        "0:297": "ea21267dde285dd989f6e7199e2eb296828349287cca1295ab0cd75716f22ff2"
+      },
+      "rows": 1459559,
+      "rows_per_s": 130495.9454247808,
+      "seal_s": 3.794643258,
+      "stages_s": {
+        "apply": 3.385879513,
+        "bucketer": 6.613700285,
+        "classify": 0.13509298,
+        "decode": 0.998124034,
+        "extract": 0.138484857,
+        "flush": 1.876625658,
+        "hash": 0.770631684,
+        "normalize": 0.232950308
+      }
+    },
+    {
+      "bucketer_exclusive_s": 2.7549910470000003,
+      "elapsed_s": 11.100397447,
+      "files": 175,
+      "hashes": {
+        "0:296": "b4dbe01fdcda9739dd105a0ff87dd276cbacc935add2a6a1a9653b316fb15b90",
+        "0:297": "ea21267dde285dd989f6e7199e2eb296828349287cca1295ab0cd75716f22ff2"
+      },
+      "rows": 1459559,
+      "rows_per_s": 131487.09377018397,
+      "seal_s": 3.9328750059999997,
+      "stages_s": {
+        "apply": 3.187112523,
+        "bucketer": 6.307918302,
+        "classify": 0.135675643,
+        "decode": 1.035291729,
+        "extract": 0.13926397,
+        "flush": 2.028735299,
+        "hash": 0.798264851,
+        "normalize": 0.230139089
+      }
+    }
+  ],
+  "balanced": {
+    "order": [
+      "before",
+      "current",
+      "before",
+      "current"
+    ],
+    "baseline": [
+      {
+        "bucketer_exclusive_s": 2.9970064439999993,
+        "elapsed_s": 11.857206496,
+        "files": 175,
+        "hashes": {
+          "0:296": "b4dbe01fdcda9739dd105a0ff87dd276cbacc935add2a6a1a9653b316fb15b90",
+          "0:297": "ea21267dde285dd989f6e7199e2eb296828349287cca1295ab0cd75716f22ff2"
+        },
+        "rows": 1459559,
+        "rows_per_s": 123094.67668395408,
+        "seal_s": 4.193149609,
+        "stages_s": {
+          "apply": 3.356174738,
+          "bucketer": 6.623884615,
+          "classify": 0.089771561,
+          "decode": 1.200848076,
+          "extract": 0.144240747,
+          "flush": 2.285554815,
+          "hash": 0.870853152,
+          "normalize": 0.180931872
+        }
+      },
+      {
+        "bucketer_exclusive_s": 2.9634698910000004,
+        "elapsed_s": 11.770454395,
+        "files": 175,
+        "hashes": {
+          "0:296": "b4dbe01fdcda9739dd105a0ff87dd276cbacc935add2a6a1a9653b316fb15b90",
+          "0:297": "ea21267dde285dd989f6e7199e2eb296828349287cca1295ab0cd75716f22ff2"
+        },
+        "rows": 1459559,
+        "rows_per_s": 124001.92473622851,
+        "seal_s": 4.395381416,
+        "stages_s": {
+          "apply": 3.342216234,
+          "bucketer": 6.599163926,
+          "classify": 0.097188622,
+          "decode": 1.050378776,
+          "extract": 0.141961778,
+          "flush": 2.503326959,
+          "hash": 0.789496282,
+          "normalize": 0.196289179
+        }
+      }
+    ],
+    "current": [
+      {
+        "bucketer_exclusive_s": 2.935897936,
+        "elapsed_s": 11.687978181,
+        "files": 175,
+        "hashes": {
+          "0:296": "b4dbe01fdcda9739dd105a0ff87dd276cbacc935add2a6a1a9653b316fb15b90",
+          "0:297": "ea21267dde285dd989f6e7199e2eb296828349287cca1295ab0cd75716f22ff2"
+        },
+        "rows": 1459559,
+        "rows_per_s": 124876.94427532915,
+        "seal_s": 4.002661977,
+        "stages_s": {
+          "apply": 3.305487488,
+          "bucketer": 6.613194233,
+          "classify": 0.137583145,
+          "decode": 1.059445322,
+          "extract": 0.140234013,
+          "flush": 2.179806,
+          "hash": 0.853525343,
+          "normalize": 0.234225664
+        }
+      },
+      {
+        "bucketer_exclusive_s": 2.9841366270000003,
+        "elapsed_s": 11.699563724,
+        "files": 175,
+        "hashes": {
+          "0:296": "b4dbe01fdcda9739dd105a0ff87dd276cbacc935add2a6a1a9653b316fb15b90",
+          "0:297": "ea21267dde285dd989f6e7199e2eb296828349287cca1295ab0cd75716f22ff2"
+        },
+        "rows": 1459559,
+        "rows_per_s": 124753.28434734033,
+        "seal_s": 4.201391614,
+        "stages_s": {
+          "apply": 3.319598961,
+          "bucketer": 6.685978135,
+          "classify": 0.139692916,
+          "decode": 1.189283396,
+          "extract": 0.151742564,
+          "flush": 1.997186712,
+          "hash": 0.811503403,
+          "normalize": 0.242549631
+        }
+      }
+    ]
+  },
+  "fixed": [
+    {
+      "bucketer_exclusive_s": 3.672782893000001,
+      "elapsed_s": 14.786051916,
+      "files": 175,
+      "hashes": {
+        "0:296": "b4dbe01fdcda9739dd105a0ff87dd276cbacc935add2a6a1a9653b316fb15b90",
+        "0:297": "ea21267dde285dd989f6e7199e2eb296828349287cca1295ab0cd75716f22ff2"
+      },
+      "rows": 1459559,
+      "rows_per_s": 98711.88118990776,
+      "seal_s": 4.38666985,
+      "stages_s": {
+        "apply": 3.605381916,
+        "bucketer": 7.596107961,
+        "classify": 0.140707185,
+        "decode": 2.008644011,
+        "extract": 0.158281217,
+        "flush": 2.494525276,
+        "hash": 1.266071768,
+        "normalize": 0.177235967
+      }
+    },
+    {
+      "bucketer_exclusive_s": 3.011561499999999,
+      "elapsed_s": 11.647942544,
+      "files": 175,
+      "hashes": {
+        "0:296": "b4dbe01fdcda9739dd105a0ff87dd276cbacc935add2a6a1a9653b316fb15b90",
+        "0:297": "ea21267dde285dd989f6e7199e2eb296828349287cca1295ab0cd75716f22ff2"
+      },
+      "rows": 1459559,
+      "rows_per_s": 125306.16411323535,
+      "seal_s": 3.643757011,
+      "stages_s": {
+        "apply": 3.400437257,
+        "bucketer": 6.721749694,
+        "classify": 0.138495852,
+        "decode": 1.032247384,
+        "extract": 0.14369933,
+        "flush": 2.134982667,
+        "hash": 0.811522125,
+        "normalize": 0.171255085
+      }
+    }
+  ]
+}

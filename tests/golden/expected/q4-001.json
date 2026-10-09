@@ -1,0 +1,462 @@
+[
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-01 00:00:00",
+    "wind_max": 8.665
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-02 00:00:00",
+    "wind_max": 8.736
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-03 00:00:00",
+    "wind_max": 8.673
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-04 00:00:00",
+    "wind_max": 16.421
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-05 00:00:00",
+    "wind_max": 16.366
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-06 00:00:00",
+    "wind_max": 16.614
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-07 00:00:00",
+    "wind_max": 8.798
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-08 00:00:00",
+    "wind_max": 8.688
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-09 00:00:00",
+    "wind_max": 8.539
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-10 00:00:00",
+    "wind_max": 8.668
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-11 00:00:00",
+    "wind_max": 8.598
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-12 00:00:00",
+    "wind_max": 8.572
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-13 00:00:00",
+    "wind_max": 8.693
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-14 00:00:00",
+    "wind_max": 8.691
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-15 00:00:00",
+    "wind_max": 8.818
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-16 00:00:00",
+    "wind_max": 8.545
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-17 00:00:00",
+    "wind_max": 16.58
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-18 00:00:00",
+    "wind_max": 16.516
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-19 00:00:00",
+    "wind_max": 16.624
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-20 00:00:00",
+    "wind_max": 16.664
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-21 00:00:00",
+    "wind_max": 16.485
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-22 00:00:00",
+    "wind_max": 8.469
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-23 00:00:00",
+    "wind_max": 8.786
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-24 00:00:00",
+    "wind_max": 8.579
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-25 00:00:00",
+    "wind_max": 16.201
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-26 00:00:00",
+    "wind_max": 16.691
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-27 00:00:00",
+    "wind_max": 16.383
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-28 00:00:00",
+    "wind_max": 16.166
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-29 00:00:00",
+    "wind_max": 16.767
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-30 00:00:00",
+    "wind_max": 16.644
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-03-31 00:00:00",
+    "wind_max": 16.368
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-01 00:00:00",
+    "wind_max": 16.763
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-02 00:00:00",
+    "wind_max": 16.332
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-03 00:00:00",
+    "wind_max": 16.692
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-04 00:00:00",
+    "wind_max": 16.613
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-05 00:00:00",
+    "wind_max": 16.542
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-06 00:00:00",
+    "wind_max": 8.702
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-07 00:00:00",
+    "wind_max": 8.653
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-08 00:00:00",
+    "wind_max": 8.844
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-09 00:00:00",
+    "wind_max": 8.842
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-10 00:00:00",
+    "wind_max": 16.531
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-11 00:00:00",
+    "wind_max": 16.469
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-12 00:00:00",
+    "wind_max": 16.442
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-13 00:00:00",
+    "wind_max": 16.561
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-14 00:00:00",
+    "wind_max": 16.559
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-15 00:00:00",
+    "wind_max": 16.492
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-16 00:00:00",
+    "wind_max": 16.5
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-17 00:00:00",
+    "wind_max": 16.617
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-18 00:00:00",
+    "wind_max": 16.028
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-19 00:00:00",
+    "wind_max": 16.383
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-20 00:00:00",
+    "wind_max": 16.38
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-21 00:00:00",
+    "wind_max": 16.537
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-22 00:00:00",
+    "wind_max": 16.404
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-23 00:00:00",
+    "wind_max": 16.687
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-24 00:00:00",
+    "wind_max": 8.666
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-25 00:00:00",
+    "wind_max": 16.47
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-26 00:00:00",
+    "wind_max": 16.682
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-27 00:00:00",
+    "wind_max": 8.8
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-28 00:00:00",
+    "wind_max": 8.719
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-29 00:00:00",
+    "wind_max": 16.48
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-04-30 00:00:00",
+    "wind_max": 16.607
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-01 00:00:00",
+    "wind_max": 8.537
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-02 00:00:00",
+    "wind_max": 8.541
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-03 00:00:00",
+    "wind_max": 8.598
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-04 00:00:00",
+    "wind_max": 8.787
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-05 00:00:00",
+    "wind_max": 8.661
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-06 00:00:00",
+    "wind_max": 8.839
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-07 00:00:00",
+    "wind_max": 16.527
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-08 00:00:00",
+    "wind_max": 16.304
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-09 00:00:00",
+    "wind_max": 16.517
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-10 00:00:00",
+    "wind_max": 8.601
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-11 00:00:00",
+    "wind_max": 8.476
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-12 00:00:00",
+    "wind_max": 8.561
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-13 00:00:00",
+    "wind_max": 8.757
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-14 00:00:00",
+    "wind_max": 8.735
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-15 00:00:00",
+    "wind_max": 8.843
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-16 00:00:00",
+    "wind_max": 8.8
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-17 00:00:00",
+    "wind_max": 8.748
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-18 00:00:00",
+    "wind_max": 8.932
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-19 00:00:00",
+    "wind_max": 8.726
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-20 00:00:00",
+    "wind_max": 16.73
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-21 00:00:00",
+    "wind_max": 8.863
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-22 00:00:00",
+    "wind_max": 8.576
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-23 00:00:00",
+    "wind_max": 8.73
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-24 00:00:00",
+    "wind_max": 8.505
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-25 00:00:00",
+    "wind_max": 8.58
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-26 00:00:00",
+    "wind_max": 8.65
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-27 00:00:00",
+    "wind_max": 8.528
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-28 00:00:00",
+    "wind_max": 8.608
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-29 00:00:00",
+    "wind_max": 8.733
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-30 00:00:00",
+    "wind_max": 8.771
+  },
+  {
+    "vessel": "vessels.urn:mrn:imo:mmsi:367000000",
+    "day": "2026-05-31 00:00:00",
+    "wind_max": 16.42
+  }
+]

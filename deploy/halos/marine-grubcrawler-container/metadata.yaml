@@ -1,0 +1,32 @@
+name: Grub Crawler
+app_id: grubcrawler
+version: 0.16.1-1
+upstream_version: 0.16.1
+description: Web and PDF fetcher for Lume's offline cruiser library
+long_description: |
+  Grub Crawler fetches web pages (rendered in a headless browser) and documents
+  for Lume. The Signal K Lume TI plugin uses it to download and index the
+  cruiser library, so manuals, guides and pilot books are searchable on the
+  boat without an internet connection afterwards.
+
+  It listens on 127.0.0.1:6792 only, with authentication off, and runs without
+  an LLM agent or vision OCR.
+homepage: https://github.com/DeepBlueDynamics/lume
+maintainer: DeepBlue Dynamics <kord@deepbluedynamics.com>
+license: Proprietary
+tags:
+  - role::container-app
+  - field::marine
+  - interface::daemon
+debian_section: net
+architecture: arm64
+depends:
+  - docker.io (>= 20.10) | docker-ce (>= 20.10)
+web_ui:
+  enabled: false
+default_config:
+  GRUB_IMAGE: deepbluedynamics/grubcrawler:latest-lite
+  GRUB_MEMORY_LIMIT: auto
+  GRUB_MAX_CONCURRENT_CRAWLS: "1"
+  GRUB_CRAWL_TIMEOUT: "60"
+  GRUB_BROWSER_ENGINE: chromium

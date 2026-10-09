@@ -1,0 +1,160 @@
+# Sealed-shard query cache
+
+Read-only queries previously decoded every field of a sealed shard for eval,
+materialization and aggregation separately. A same-root shared LRU now retains
+immutable decoded fields behind Arc, keyed by vessel, shard, version, seal hash
+and field ID. A derived universe entry preserves buckets belonging only to an
+unprojected field. New manifest versions invalidate that shard's old entries;
+unchanged versions survive TiEngine reloads. Mutable shards bypass the cache.
+
+The first universe miss uses the existing complete loader, preserving NULL and
+bucket-presence semantics. Further misses read only requested fields. Shard
+encoding, WAL and seal hashes are unchanged. A zero-byte budget runs the previous
+complete-loader path.
+
+Configure each physical store's ti.toml:
+
+```toml
+[query]
+sealed_cache_bytes = 67108864 # 64 MiB, recommended for the Pi
+```
+
+The default is 268435456 (256 MiB). Zero disables caching. Retained allocations
+use a conservative charge including decoded bitmap expansion, dictionaries, Arc
+and LRU-index overhead. Entries larger than the budget are not retained; eviction
+precedes insertion. Active query batches and transient cold decoding allocations
+are outside this retained-cache budget. Concurrent misses may decode the same
+immutable field independently.
+
+## Reproducible timing
+
+Build ti-bench once, then run the same binary for both sides:
+
+```sh
+CARGO_INCREMENTAL=0 cargo build --release -p ti-bench
+python3 bench/shard_cache.py --binary target/release/ti-bench \
+  --store .lanes/data/store-full --out .lanes/data/query-cache/native \
+  --toolchain 'rustc 1.96 release' --iterations 7 --cache-bytes 268435456
+```
+
+Use absolute paths when running from the lane; Windows can use ti-bench.exe and
+Python. Output goes outside git, and the store is never modified. Twenty unchanged
+golden point, predicate, aggregate and interval/geo/broad-scan queries are selected.
+The benchmark engine does not register document search; the full corpus gate
+separately checks text queries.
+
+Cold means the decoded application cache was cleared immediately before each
+query, not that the OS disk cache was flushed. Warm runs follow that query's cold
+run. The report includes cold and warm p50 times, cache charge/counters, row counts
+and an order-independent same-binary result fingerprint; it fails on different
+answers. Fingerprinting is outside the measured query duration. Native host
+timings are needed when the Windows bind mount dominates local reads.
+
+## Verification
+
+Cache tests cover NULL/universe semantics, cache-off and tiny-budget equality,
+repair-version isolation, same-root reopen reuse, concurrent reads, LRU eviction,
+config validation and measurement controls. The existing full-loader/serializer
+tests check the refactor's compatibility. On rustc 1.99, contracts/store tests passed
+60/60 with the 1,000-process crash gate explicitly skipped; strict clippy on
+contracts/store/sql/bench passed, and Python bench tests passed 34/34. The benchmark
+fingerprint unit test compiled under all-target clippy but has not run locally.
+Native performance and the host corpus gate are recorded below; full TI tests remain pending.
+
+## Native host measurements (2026-10-07)
+
+Lead-run Rust 1.96 release build at f17885d, store-full, seven warm iterations,
+same binary with caching disabled/enabled. Class-level timings, milliseconds:
+
+| Class | Warm p50 off | Warm p50 256 MiB | Cold off / on |
+|---|---:|---:|---:|
+| Q1 | 99.4 | 0.5 | 100 / 29 |
+| Q2 | 210 | 1.5 | — |
+| Q3 | 553 | 1.3 | — |
+| Q4 | 1003 | 3.1 | — |
+| Q5 | 4275 | 296 | 4301 / 1567 |
+| Q7 | 159 | 3.3 | — |
+| Q8 | 555 | 13.5 | — |
+
+The 64 MiB run is nearly identical: Q5 warm p50 288 ms and Q8 14.0 ms.
+All measured classes meet their p95 targets except Q5: 308 ms against 150 ms.
+Cold clears only the decoded application cache; the OS cache is uncontrolled.
+
+The saved native-256 report contains 20 per-query records; comparison.json
+records matching row counts and answer fingerprints for all 20. Its comparison.md
+is populated. The helper also accepts older class-only reports, explicitly marks
+their values as unchecked, and rejects empty reports rather than printing an empty
+table. Artifacts are under .lanes/data/query-cache/native-{256,64}, outside git.
+
+Q5's slow warm case is q5-002 (electric-only motoring intervals using motor power
+and IS DISTINCT FROM on diesel state): 299.98 ms, versus 6.76 ms for q5-001.
+The 256 MiB run records no evictions for either query. A subsequent paired lane
+profile confirms that IS DISTINCT FROM stays residual and materializes 1,545,371
+rows. Its NULL-preserving bitmap equivalent returns the same 134 intervals with
+zero materialization and a 14.25× warm p50 improvement (debug, same environment).
+See plan/design/q5-profile.md; no classifier fix or native post-fix claim is included. The lead verified the cache-enabled release
+build against the count_paths store: 61 passed / 0 failed / 1 excluded, with all
+20 A/B fingerprints matching.
+
+
+
+## Optional startup warm-up
+
+TI HTTP/pgwire/MCP servers start a detached worker after opening the engine.
+There is no join at startup, engine/query-gate lock, or store lock in the worker.
+Requests can run immediately; requests arriving before completion may still be cold.
+It runs once at open, not on every live-bucket engine reload.
+
+```toml
+[query]
+sealed_cache_bytes = 67108864 # Pi: 64 MiB; default is 256 MiB
+warm_on_open = true          # default; false disables the worker
+# warm_budget_bytes = 67108864 # omitted: current sealed-cache budget
+# warm_fields = ["navigation.speedOverGround", "environment.depth.belowTransducer@min"]
+```
+
+An empty/omitted field list selects all fields. Bare paths select all retained
+aggregates; a path with an @suffix selects that aggregate only. Unknown fields
+produce one worker error log and leave the server running. Budgets are clamped
+to cache capacity; zero disables admissions. Configuration uses the existing
+deny_unknown_fields validation.
+
+The worker visits manifest entries newest first, with vessel/shard ordering as
+the tie-break. It derives each shard's complete bucket universe one field at a
+time, including unselected fields, then decodes selected fields one at a time.
+Admission holds only the cache mutex, after decoding and byte charging. It
+never evicts request-loaded entries or replaces a different cached version.
+It stops at the first entry that exceeds remaining warm-up allowance or free
+cache capacity. Shard serialization and seals are untouched.
+
+The budget bounds conservative charges for newly retained decoded entries,
+not RSS: catalog state and a transient field decoder add memory. The completion
+log reports shards (including a partially warmed shard), fields, bytes, elapsed
+time and budget stop. Historical queries outside the newest warmed shards may
+still miss; warm-up does not infer fields or dates from benchmark queries.
+
+`bench/native_cache_warm.py` measures all 26 query-class queries after clearing
+the decoded cache and awaiting this same preload, at both 256 MiB and 64 MiB.
+The server never awaits it. A separate fresh-process warm-only run records
+warm-up time, Windows peak working set (including engine startup), and sampled
+warm-phase RSS at 50 ms intervals. First-query measurements are observations,
+not a statistically sampled cold p95 distribution.
+
+Native Rust 1.96.1 checks for this slice passed: 36 ti-store tests (including
+1,000 crash runs), 7 ti-bench tests, 11 root ti_http tests, and 10 Python helper
+tests. Explicit rustfmt checks cover the touched Rust files; strict clippy covers
+ti-contracts/ti-store/ti-bench all targets and the standalone runner with
+--no-deps (the root package has unrelated legacy lint failures).
+
+The native release run at `0fb40e8` records all 26 query fingerprints matching
+the previous cache A/B run at both budgets. A fresh-process all-field preload
+takes 417.40 ms at 256 MiB (255.93 MiB charged, 7 shards / 814 fields,
+92.50 MiB process peak working set), or 165.46 ms at the Pi's 64 MiB
+(63.69 MiB charged, 2 shards / 197 fields, 33.03 MiB peak). This is the
+Windows warm-only benchmark process, not full server or Pi RSS.
+
+Default newest-first warming does not close arbitrary historical cold misses:
+Q1/Q3/Q5/Q6 remain MISS at both budgets. The selection is intentionally not
+tuned to the benchmark. See [the committed measurements](../../bench/results/2026-10-08-0fb40e8.md)
+and [benchmark report §2/§9](../bench/benchmark-report.md) for every class,
+PASS/MISS and the remaining D48 gap 3.

@@ -1,5 +1,89 @@
 # Changelog
 
+## Unreleased
+
+### OTLP receiver & agent telemetry (Lume TI)
+- **Built-in OTLP HTTP/JSON receiver** (`POST /v1/metrics` and `POST /v1/logs`, D50):
+  ingests agent telemetry (token usage, active time, tool executions, file edits)
+  into a dedicated store (`<root>/stores/agents`), registered as SQL table
+  `telemetry_agents` for metrics and `docs` for logs.
+  - Standalone daemon: `lume ti otlp --store <root> [--bind 127.0.0.1] [--port 4318] [--otlp-token-file <path>]`.
+  - Integrated HTTP server: `lume serve --ti-store <root> --otlp` and
+    `lume ti ingest ... --serve --otlp` serve OTLP endpoints on the shared HTTP port (default 5863).
+  - Protobuf requests are rejected with HTTP 415 ("lume accepts OTLP http/json only; set protocol json");
+    requests exceeding 8 MiB return HTTP 413.
+  - Bearer token authentication is supported via `--otlp-token-file`; loopback binds allow
+    unauthenticated requests while non-loopback binds strictly require a token.
+- **Monotonic counter persistence (A4)**: cumulative and delta monotonic counter running totals
+  are maintained in memory and persisted across receiver restarts in `<root>/stores/agents/otlp-counters.json`.
+- **Dimensional paths**: counter metrics with attributes are indexed as dimensional columns
+  (`<name>.<type>.model.<model>@last`), enabling windowed usage queries via `max(...) - min(...)`.
+- **Log records in `docs`**: OTLP logs are ingested into the shared document catalog as `kind = 'logbook'`,
+  keyed by `agent.urn:<instance_id>` with event name in `title` and attributes in `body`, searchable
+  via lexical `match(body, '...')`.
+
+### PostgreSQL & Grafana
+- **PostgreSQL wire protocol (pgwire)**: `lume serve --pg <port>` and `lume ti ingest ... --pg <port>`
+  expose read-only PostgreSQL protocol access (default port 5864) for psql and Grafana.
+  Supports SCRAM-SHA-256 verifier authentication via `--pg-auth-config <path>`, with optional TLS
+  (`--pg-tls-cert`, `--pg-tls-key`, `--pg-require-tls`).
+- **Grafana agent telemetry dashboard**: added `bench/grafana/lume-agents-dashboard.json`, providing:
+  - Tokens Over Time: `MAX - MIN` token usage over the query window using D50 dimensional paths (`claude_code.token.usage@last`).
+  - Active Time: mean active execution time from `claude_code.active_time`.
+  - Active Buckets per Agent: 10-second active bucket counts grouped by agent entity (`vessel AS entity`, `count(DISTINCT ts)`).
+  - Recent Logbook Docs: table of recent OTLP log events (`title`, `vessel AS entity`, `ts_start`) from `docs`
+    with safe SQL-string escaping via `${q:sqlstring}`.
+- **Dashboard test harness**: `bench/grafana/test_agents_dashboard.py` (structure, datasource, secret scan)
+  and `bench/grafana/test_agents_dashboard_sql.py` (live query execution against an OTLP-ingested instance with macro expansion).
+
+### Signal K plugin & Ask tab
+- **Cloud-direct Ask tab (B1)**: the Ask tab in `plugins/signalk-lume-ti` defaults to `https://ollama.com`
+  with model `glm-5.3:cloud`. Added `chatApiKeyFile` setting: the plugin reads the API key from a private
+  file (mode 0600) and passes `OLLAMA_API_KEY` in the child environment only (never on argv or in logs),
+  freeing ~4.2 GB of disk on edge devices by avoiding a local model container.
+- **Plugin OTLP receiver setting (B9)**: added `otlpEnabled` and `otlpTokenFile` settings to the plugin schema.
+  The supervisor passes `--otlp` (and `--otlp-token-file <path>` if configured) to the child process.
+  The query server remains bound to loopback `127.0.0.1` (ignoring any configured `serveBind`) to prevent
+  unauthenticated network exposure.
+
+### Deployment & provisioning
+- **Idempotent Pi provisioning script (`scripts/provision-pi.sh`, B7)**: provisions a fresh or reflashed
+  Raspberry Pi running HaLOS:
+  - Reports system version, disk usage, and memory.
+  - Verifies and configures memory cgroups (`cgroup_enable=memory cgroup_memory=1` in `/boot/firmware/cmdline.txt`) with backup.
+  - Reports pinned self vessel UUID from Signal K server settings.
+  - Installs HaLOS `.deb` packages (skipping Ollama by default).
+  - Deploys plugin and arm64 binary via `scripts/deploy-pi.sh`.
+  - Displays SETUP §13 API key setup instructions.
+- **Pi plugin deploy script (`scripts/deploy-pi.sh`, B4)**: bundles arm64 `lume` binary at mode 755 and
+  plugin files (excluding `node_modules` and `test`), transfers to `/var/lib/container-apps/.../signalk-lume-ti`,
+  restarts the service via `sudo -n systemctl`, and checks health.
+- **Ollama retirement script (`scripts/pi-retire-ollama.sh`, B4)**: stops and disables `marine-ollama-container`,
+  removes the 4.2 GB Docker image, and preserves persistent models/data.
+- **SSH isolation**: scripts support `LUME_DEPLOY_SSH_CONFIG` to isolate SSH configuration without modifying
+  the host's `~/.ssh/config`.
+
+### Self-telemetry
+- **Lume operational telemetry (`telemetry_lume`)**: Lume ingest service records internal performance counters,
+  process RSS, CPU usage, lag, and flush cost every 10 seconds under `<store>/stores/lume`.
+  Auto-registered in the SQL engine as `telemetry_lume` (entity `lume.urn:host:<hostname>`).
+  Maintains an independent bucketer and watermark to ensure vessel bucket boundaries are never affected.
+  Disabled with `LUME_TI_SELF_TELEMETRY=0` (or `off`, `false`).
+
+### HaLOS container applications
+- **Offline container packages**: `deploy/halos/` packages `marine-grubcrawler-container` (v0.16.1-1, offline
+  cruiser library fetcher) and `marine-ollama-container` (v0.1.0-1, optional cloud gateway).
+- **Auto memory limits**: `app-prestart.sh` dynamically sizes container memory limits based on available system
+  RAM (`MEMORY_LIMIT=auto`: Grub up to 20% / max 4 GiB; Ollama 12% / ~1 GiB on Pi 5).
+- **Debian package builder**: `scripts/build-halos-debs.sh` builds both arm64 `.deb` packages into `dist/halos/`
+  with Maintainer `DeepBlue Dynamics <kord@deepbluedynamics.com>`.
+
+### CI & automated testing
+- **Deploy script integration tests (B8)**: `scripts/test/deploy-pi.test.sh` tests `deploy-pi.sh`, `pi-retire-ollama.sh`,
+  and `provision-pi.sh` against a throwaway Debian sshd container with mock `systemctl`, `docker`, `apt-get`, and `dpkg` shims.
+- **CI workflow (`.github/workflows/ci.yml`)**: added automated `deploy-test` job running ShellCheck on all deploy
+  scripts and running `deploy-pi.test.sh`.
+
 ## 0.12.0 — 2026-06-19
 
 ### Search & ranking

@@ -1,0 +1,47 @@
+version: "1.0"
+
+groups:
+  - id: resources
+    label: Resource Limits
+    description: Container resources and concurrency limits
+    fields:
+      - id: GRUB_MEMORY_LIMIT
+        label: Memory Limit
+        type: string
+        default: auto
+        required: true
+        description: Hard memory cap for Grub Crawler container (e.g. 1536m, 2g)
+
+      - id: GRUB_MAX_CONCURRENT_CRAWLS
+        label: Max Concurrent Crawls
+        type: string
+        default: "1"
+        required: true
+        description: Maximum simultaneous active crawls allowed
+
+      - id: GRUB_CRAWL_TIMEOUT
+        label: Crawl Timeout
+        type: string
+        default: "60"
+        required: true
+        description: Timeout for a single web page crawl in seconds
+
+  - id: crawler
+    label: Crawler Engine
+    description: Browser engine and container image settings
+    fields:
+      - id: GRUB_IMAGE
+        label: Docker Image
+        type: string
+        default: deepbluedynamics/grubcrawler:latest-lite
+        required: true
+        description: Container image tag for Grub Crawler (lite variant recommended)
+
+      - id: GRUB_BROWSER_ENGINE
+        label: Browser Engine
+        type: enum
+        options:
+          - chromium
+        default: chromium
+        required: true
+        description: Headless browser engine for page fetching

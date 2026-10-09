@@ -1,0 +1,12 @@
+[package]
+name = "ti-core"
+version = "0.1.0"
+edition = "2021"
+license = "BSD-3-Clause"
+description = "Lume TI bitmap rows, signed bit-sliced algorithms and predicate evaluation"
+
+[dependencies]
+ti-contracts = { path = "../ti-contracts" }
+
+[dev-dependencies]
+proptest = "1"

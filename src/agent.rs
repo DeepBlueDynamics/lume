@@ -234,6 +234,12 @@ fn run_lume_cli(args: Vec<String>) -> Result<String, String> {
 }
 
 fn execute_tool_by_name(name: &str, args: serde_json::Value, default_db: &str) -> Result<String, String> {
+    #[cfg(feature = "ti")]
+    if matches!(name, "ti_query" | "ti_schema" | "ti_explain" | "ti_status" | "ti_resolve") {
+        return crate::ti_mcp::call(name, args);
+    }
+    #[cfg(feature = "ti")]
+    if name == "lume_sql" { return crate::sql::call(args, default_db); }
     match name {
         "lume_index" => {
             let db = args.get("db").and_then(|v| v.as_str()).unwrap_or(default_db);
@@ -299,36 +305,26 @@ fn execute_tool_by_name(name: &str, args: serde_json::Value, default_db: &str) -
             let query = args.get("query").and_then(|v| v.as_str()).ok_or_else(|| "Parameter 'query' is required.".to_string())?;
             let db = args.get("db").and_then(|v| v.as_str()).unwrap_or(default_db);
             let spell_check = args.get("spell_check").and_then(|v| v.as_bool()).unwrap_or(false);
-            let limit = args.get("limit").and_then(|v| v.as_i64());
-            let alpha = args.get("alpha").and_then(|v| v.as_f64());
-            let graph = args.get("graph").and_then(|v| v.as_f64());
-            let shivvr_url = args.get("shivvr_url").and_then(|v| v.as_str());
+            let limit = args.get("limit").and_then(|v| v.as_i64()).map(|v| v.max(0) as usize).unwrap_or(10);
+            let alpha = args.get("alpha").and_then(|v| v.as_f64()).map(|v| v as f32).unwrap_or(0.5);
+            let graph = args.get("graph").and_then(|v| v.as_f64()).unwrap_or(0.4);
+            let shivvr_url = args.get("shivvr_url").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-            let mut cli_args = vec!["search".to_string()];
-            if spell_check {
-                cli_args.push("-c".to_string());
+            let index = crate::search::LoadedIndex::open(db)?;
+            let mut opts = crate::search::SearchOptions {
+                limit,
+                spell_check,
+                alpha,
+                graph_beta: graph,
+                shivvr_url,
+                ..Default::default()
+            };
+            if alpha <= 0.0 {
+                opts.mode = crate::search::SearchMode::LexicalOnly;
             }
-            cli_args.push("--db".to_string());
-            cli_args.push(db.to_string());
-
-            if let Some(lim) = limit {
-                cli_args.push("-l".to_string());
-                cli_args.push(lim.to_string());
-            }
-            if let Some(alp) = alpha {
-                cli_args.push("-a".to_string());
-                cli_args.push(alp.to_string());
-            }
-            if let Some(g) = graph {
-                cli_args.push("-g".to_string());
-                cli_args.push(g.to_string());
-            }
-            if let Some(s) = shivvr_url {
-                cli_args.push("--shivvr-url".to_string());
-                cli_args.push(s.to_string());
-            }
-            cli_args.push(query.to_string());
-            run_lume_cli(cli_args)
+            let results = crate::search::search(&index, query, &opts)?;
+            let (stdout, _stderr) = crate::search::format_cli_output(&results, &index, db);
+            Ok(stdout)
         }
         "lume_generate" => {
             let seed_word = args.get("seed_word").and_then(|v| v.as_str());
@@ -391,7 +387,12 @@ fn execute_tool_by_name(name: &str, args: serde_json::Value, default_db: &str) -
     }
 }
 
-fn handle_mcp_request(req_val: serde_json::Value) -> serde_json::Value {
+#[cfg(feature = "ti")]
+type TiState = Option<std::sync::Arc<crate::ti_http::TiServer>>;
+#[cfg(not(feature = "ti"))]
+type TiState = ();
+
+fn handle_mcp_request(req_val: serde_json::Value, _ti: &TiState) -> serde_json::Value {
     let id = req_val.get("id").cloned().unwrap_or(serde_json::Value::Null);
     let method = match req_val.get("method").and_then(|m| m.as_str()) {
         Some(m) => m,
@@ -422,7 +423,7 @@ fn handle_mcp_request(req_val: serde_json::Value) -> serde_json::Value {
             })
         }
         "tools/list" => {
-            json!({
+            let response = json!({
                 "jsonrpc": "2.0",
                 "id": id,
                 "result": {
@@ -489,7 +490,17 @@ fn handle_mcp_request(req_val: serde_json::Value) -> serde_json::Value {
                         }
                     ]
                 }
-            })
+            });
+            #[cfg(feature = "ti")]
+            let response = {
+                let mut response = response;
+                if let Some(tools) = response["result"]["tools"].as_array_mut() {
+                    tools.extend(crate::ti_mcp::definitions(_ti.as_ref().and_then(|server| server.mcp_width())));
+                    tools.push(crate::sql::definition());
+                }
+                response
+            };
+            response
         }
         "tools/call" => {
             let params = match req_val.get("params") {
@@ -514,7 +525,13 @@ fn handle_mcp_request(req_val: serde_json::Value) -> serde_json::Value {
             };
             let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
             
-            match execute_tool_by_name(name, arguments, ".lume-index") {
+            #[cfg(feature = "ti")]
+            let result = if let Some(server) = _ti.as_ref().filter(|_| matches!(name,"ti_query"|"ti_schema"|"ti_explain"|"ti_status"|"ti_resolve")) {
+                server.mcp(name,&arguments)
+            } else { execute_tool_by_name(name,arguments,".lume-index") };
+            #[cfg(not(feature = "ti"))]
+            let result = execute_tool_by_name(name,arguments,".lume-index");
+            match result {
                 Ok(out) => {
                     json!({
                         "jsonrpc": "2.0",
@@ -560,55 +577,167 @@ fn handle_mcp_request(req_val: serde_json::Value) -> serde_json::Value {
     }
 }
 
-fn handle_connection(mut stream: TcpStream) -> std::io::Result<()> {
-    let mut buffer = [0; 8192];
-    let mut bytes_read = 0;
-    loop {
-        let n = stream.read(&mut buffer[bytes_read..])?;
-        if n == 0 {
-            return Ok(());
-        }
-        bytes_read += n;
-        if find_subsequence(&buffer[..bytes_read], b"\r\n\r\n").is_some() {
+const HTTP_IO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+const MAX_MCP_BODY_BYTES: usize = 8 * 1024 * 1024;
+
+fn http_error(stream: &mut TcpStream, status: &str) -> std::io::Result<()> {
+    stream.write_all(
+        format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes(),
+    )?;
+    linger_close(stream);
+    Ok(())
+}
+
+/// Early rejects leave the request body unread. Closing with unread bytes makes the OS
+/// (always on Windows) send RST, which can discard this response before the client reads
+/// it. Half-close, then discard what the client already sent, bounded in bytes and time.
+fn linger_close(stream: &mut TcpStream) {
+    use std::io::Read;
+    let _ = stream.flush();
+    let _ = stream.shutdown(std::net::Shutdown::Write);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
+    let mut buf = [0u8; 8192];
+    let mut drained = 0usize;
+    while drained < 1024 * 1024 {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() || stream.set_read_timeout(Some(left)).is_err() {
             break;
         }
-        if bytes_read >= buffer.len() {
-            break;
+        match stream.read(&mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => drained += n,
         }
     }
+}
 
-    let req_str = String::from_utf8_lossy(&buffer[..bytes_read]);
+fn handle_connection(
+    stream: TcpStream,
+    ti: &TiState,
+    auth: Option<&crate::http_auth::HttpBearer>,
+) -> std::io::Result<()> {
+    handle_connection_with_auth(stream, ti, HTTP_IO_TIMEOUT, auth)
+}
+
+#[cfg(test)]
+fn handle_connection_with_timeout(
+    stream: TcpStream,
+    ti: &TiState,
+    timeout: std::time::Duration,
+) -> std::io::Result<()> {
+    handle_connection_with_auth(stream, ti, timeout, None)
+}
+
+fn handle_connection_with_auth(
+    mut stream: TcpStream,
+    _ti: &TiState,
+    timeout: std::time::Duration,
+    auth: Option<&crate::http_auth::HttpBearer>,
+) -> std::io::Result<()> {
+    stream.set_read_timeout(Some(timeout))?;
+    stream.set_write_timeout(Some(timeout))?;
+    let mut buffer = [0; 8192];
+    let mut bytes_read = 0;
+    let header_end = loop {
+        if bytes_read == buffer.len() {
+            return http_error(&mut stream, "400 Bad Request");
+        }
+        let n = match stream.read(&mut buffer[bytes_read..]) {
+            Ok(0) => return http_error(&mut stream, "400 Bad Request"),
+            Ok(n) => n,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                ) =>
+            {
+                return http_error(&mut stream, "400 Bad Request")
+            }
+            Err(error) => return Err(error),
+        };
+        bytes_read += n;
+        if let Some(end) = find_subsequence(&buffer[..bytes_read], b"\r\n\r\n") {
+            break end;
+        }
+    };
+    let req_str = match std::str::from_utf8(&buffer[..header_end]) {
+        Ok(headers) => headers,
+        Err(_) => return http_error(&mut stream, "400 Bad Request"),
+    };
     let mut lines = req_str.lines();
     let req_line = match lines.next() {
         Some(l) => l,
         None => return Ok(()),
     };
     let parts: Vec<&str> = req_line.split_whitespace().collect();
-    if parts.len() < 2 {
-        return Ok(());
+    if parts.len() != 3 || !parts[2].starts_with("HTTP/1.") {
+        return http_error(&mut stream, "400 Bad Request");
     }
     let method = parts[0];
     let path = parts[1];
 
+    if method == "GET" && path.split('?').next() == Some("/health")
+        && auth.is_none_or(|auth| auth.public_health())
+    {
+        stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")?;
+        return Ok(());
+    }
+
+    if let Some(auth) = auth {
+        #[cfg(feature = "ti")]
+        let route_token = _ti.as_ref().and_then(|server| server.route_http_token(path));
+        #[cfg(not(feature = "ti"))]
+        let route_token = None;
+        let clean_path = path.split('?').next().unwrap_or(path);
+        let write = clean_path.starts_with("/v1/")
+            || (clean_path.starts_with("/ti/shards/") && method != "GET" && method != "HEAD");
+        if !auth.accepts_scope(req_str, route_token, if write { "write" } else { "read" }) {
+            return http_error(&mut stream, "401 Unauthorized");
+        }
+    }
+
+    #[cfg(feature = "ti")]
+    if _ti.as_ref().is_some_and(|server| server.otlp_only())
+        && !(method == "POST" && matches!(path.split('?').next(), Some("/v1/metrics" | "/v1/logs")))
+    {
+        stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")?;
+        return Ok(());
+    }
+
+    #[cfg(feature = "ti")]
+    if path.starts_with("/ti/") || path.starts_with("/v1/") {
+        return crate::ti_http::handle_authenticated(
+            &mut stream,
+            _ti.as_deref(),
+            method,
+            path,
+            req_str,
+            &buffer[header_end + 4..bytes_read],
+            auth.is_some(),
+        );
+    }
+    #[cfg(feature = "ti")]
+    let cors=if _ti.is_some(){""}else{"Access-Control-Allow-Origin: *\r\n"};
+    #[cfg(not(feature = "ti"))]
+    let cors="Access-Control-Allow-Origin: *\r\n";
     if method == "OPTIONS" {
-        let response = "HTTP/1.1 200 OK\r\n\
-                        Access-Control-Allow-Origin: *\r\n\
+        let response = format!("HTTP/1.1 200 OK\r\n\
+                        {cors}\
                         Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n\
                         Access-Control-Allow-Headers: *\r\n\
-                        Content-Length: 0\r\n\r\n";
+                        Content-Length: 0\r\n\r\n");
         stream.write_all(response.as_bytes())?;
         stream.flush()?;
         return Ok(());
     }
 
     if method == "GET" && (path == "/sse" || path.starts_with("/sse?")) {
-        let response = "HTTP/1.1 200 OK\r\n\
+        let response = format!("HTTP/1.1 200 OK\r\n\
                         Content-Type: text/event-stream\r\n\
                         Cache-Control: no-cache\r\n\
                         Connection: keep-alive\r\n\
-                        Access-Control-Allow-Origin: *\r\n\r\n\
+                        {cors}\r\n\
                         event: endpoint\r\n\
-                        data: /message\r\n\r\n";
+                        data: /message\r\n\r\n");
         stream.write_all(response.as_bytes())?;
         stream.flush()?;
 
@@ -625,36 +754,42 @@ fn handle_connection(mut stream: TcpStream) -> std::io::Result<()> {
     }
 
     if method == "POST" && (path == "/message" || path.starts_with("/message?") || path == "/mcp" || path.starts_with("/mcp?")) {
-        let mut content_length = 0;
-        let header_body_sep = req_str.find("\r\n\r\n").unwrap_or(bytes_read);
-        let headers_str = &req_str[..header_body_sep];
-
-        for line in headers_str.lines() {
-            if line.to_lowercase().starts_with("content-length:") {
-                if let Some(val_str) = line.split(':').nth(1) {
-                    if let Ok(len) = val_str.trim().parse::<usize>() {
-                        content_length = len;
-                    }
+        let mut length = None;
+        for line in req_str.lines().skip(1) {
+            let Some((name, value)) = line.split_once(':') else {
+                return http_error(&mut stream, "400 Bad Request");
+            };
+            if name.eq_ignore_ascii_case("transfer-encoding") {
+                return http_error(&mut stream, "400 Bad Request");
+            }
+            if name.eq_ignore_ascii_case("content-length") {
+                if length.is_some() {
+                    return http_error(&mut stream, "400 Bad Request");
                 }
+                length = match value.trim().parse::<usize>() {
+                    Ok(value) => Some(value),
+                    Err(_) => return http_error(&mut stream, "400 Bad Request"),
+                };
             }
         }
-
-        let header_end = header_body_sep + 4;
-        let mut body_bytes = buffer[header_end..bytes_read].to_vec();
+        let content_length = length.unwrap_or(0);
+        if content_length > MAX_MCP_BODY_BYTES {
+            return http_error(&mut stream, "413 Payload Too Large");
+        }
+        let initial = &buffer[header_end + 4..bytes_read];
+        let mut body_bytes = initial[..initial.len().min(content_length)].to_vec();
         while body_bytes.len() < content_length {
-            let mut temp = vec![0; content_length - body_bytes.len()];
-            let n = stream.read(&mut temp)?;
-            if n == 0 {
-                break;
+            let mut chunk = [0; 8192];
+            let remaining = (content_length - body_bytes.len()).min(chunk.len());
+            match stream.read(&mut chunk[..remaining]) {
+                Ok(0) => return http_error(&mut stream, "400 Bad Request"),
+                Ok(n) => body_bytes.extend_from_slice(&chunk[..n]),
+                Err(error) if matches!(error.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock) =>
+                    return http_error(&mut stream, "400 Bad Request"),
+                Err(error) => return Err(error),
             }
-            body_bytes.extend_from_slice(&temp[..n]);
         }
-
-        let body_str = if body_bytes.len() > content_length {
-            String::from_utf8_lossy(&body_bytes[..content_length]).into_owned()
-        } else {
-            String::from_utf8_lossy(&body_bytes).into_owned()
-        };
+        let body_str = String::from_utf8_lossy(&body_bytes);
 
         let rpc_req: serde_json::Value = match serde_json::from_str(&body_str) {
             Ok(val) => val,
@@ -662,7 +797,7 @@ fn handle_connection(mut stream: TcpStream) -> std::io::Result<()> {
                 let err_resp = format!(
                     "HTTP/1.1 400 Bad Request\r\n\
                      Content-Type: application/json\r\n\
-                     Access-Control-Allow-Origin: *\r\n\r\n{}",
+                     {cors}\r\n{}",
                     json!({
                         "jsonrpc": "2.0",
                         "error": { "code": -32700, "message": format!("Parse error: {}", e) },
@@ -675,17 +810,28 @@ fn handle_connection(mut stream: TcpStream) -> std::io::Result<()> {
             }
         };
 
-        let response_json = handle_mcp_request(rpc_req);
+        // Standalone TI MCP calls must not reintroduce browser access to TI data.
+        #[cfg(feature = "ti")]
+        let cors=if rpc_req["params"]["name"].as_str().is_some_and(|name|matches!(name,"ti_query"|"ti_schema"|"ti_explain"|"ti_status"|"ti_resolve")){""}else{cors};
+        // MCP transport needs read; mutation tools additionally need write.
+        // Check after bounded parsing, before any tool dispatch.
+        if rpc_req["method"].as_str() == Some("tools/call")
+            && rpc_req["params"]["name"].as_str() == Some("lume_index")
+            && auth.is_some_and(|auth| !auth.accepts_scope(req_str, None, "write"))
+        {
+            return http_error(&mut stream, "401 Unauthorized");
+        }
+        let response_json = handle_mcp_request(rpc_req, _ti);
         if response_json.is_null() {
-            let response = "HTTP/1.1 204 No Content\r\n\
-                            Access-Control-Allow-Origin: *\r\n\r\n";
+            let response = format!("HTTP/1.1 204 No Content\r\n\
+                            {cors}\r\n");
             stream.write_all(response.as_bytes())?;
         } else {
             let resp_str = serde_json::to_string(&response_json).unwrap_or_default();
             let response = format!(
                 "HTTP/1.1 200 OK\r\n\
                  Content-Type: application/json\r\n\
-                 Access-Control-Allow-Origin: *\r\n\
+                 {cors}\
                  Access-Control-Allow-Headers: *\r\n\
                  Access-Control-Allow-Methods: *\r\n\
                  Content-Length: {}\r\n\r\n{}",
@@ -699,9 +845,9 @@ fn handle_connection(mut stream: TcpStream) -> std::io::Result<()> {
     }
 
     // Default 404 response for other paths
-    let not_found = "HTTP/1.1 404 Not Found\r\n\
-                     Access-Control-Allow-Origin: *\r\n\
-                     Content-Length: 0\r\n\r\n";
+    let not_found = format!("HTTP/1.1 404 Not Found\r\n\
+                     {cors}\
+                     Content-Length: 0\r\n\r\n");
     stream.write_all(not_found.as_bytes())?;
     stream.flush()?;
     Ok(())
@@ -712,17 +858,208 @@ fn handle_connection(mut stream: TcpStream) -> std::io::Result<()> {
 const MAX_CONCURRENT_CONNECTIONS: usize = 64;
 
 pub fn serve(port: u16) -> Result<(), String> {
+    serve_on(port,"127.0.0.1")
+}
+pub fn serve_on(port: u16, bind: &str) -> Result<(), String> {
+    serve_on_with_http_auth(port, bind, None)
+}
+pub fn serve_on_with_http_auth(
+    port: u16,
+    bind: &str,
+    auth: Option<crate::http_auth::HttpBearer>,
+) -> Result<(), String> {
+    let bind = bind
+        .parse::<std::net::IpAddr>()
+        .map_err(|e| format!("Invalid bind address: {e}"))?;
+    #[cfg(feature = "ti")]
+    let ti = None;
+    #[cfg(not(feature = "ti"))]
+    let ti = ();
+    serve_configured(port, ti, bind, auth)
+}
+#[cfg(feature = "ti")]
+pub fn serve_with_ti(port:u16,root:&std::path::Path)->Result<(),String>{
+    serve_with_ti_on(port,root,"127.0.0.1")
+}
+#[cfg(feature = "ti")]
+pub fn serve_with_ti_on(port:u16,root:&std::path::Path,bind:&str)->Result<(),String>{
+    serve_with_ti_pg_on(port,root,bind,None)
+}
+#[cfg(feature = "ti")]
+pub fn serve_with_ti_pg_on(port:u16,root:&std::path::Path,bind:&str,pg:Option<u16>)->Result<(),String>{
+    serve_with_ti_pg_config(port, root, bind, pg, None, None)
+}
+#[cfg(feature = "ti")]
+pub fn serve_with_ti_pg_config(
+    port: u16, root: &std::path::Path, bind: &str, pg: Option<u16>,
+    pg_bind: Option<&str>, pg_auth_config: Option<&std::path::Path>,
+) -> Result<(), String> {
+    serve_with_ti_pg_docs_config(port, root, bind, pg, pg_bind, pg_auth_config, None)
+}
+#[cfg(feature = "ti")]
+#[allow(clippy::too_many_arguments)]
+pub fn serve_with_ti_pg_tls_config(
+    port: u16,
+    root: &std::path::Path,
+    bind: &str,
+    pg: Option<u16>,
+    pg_bind: Option<&str>,
+    pg_auth_config: Option<&std::path::Path>,
+    docs_index: Option<&std::path::Path>,
+    pg_options: &crate::ti_pg::PgOptions,
+) -> Result<(), String> {
+    serve_with_ti_pg_tls_http_config(
+        port,
+        root,
+        bind,
+        pg,
+        pg_bind,
+        pg_auth_config,
+        docs_index,
+        pg_options,
+        None,
+    )
+}
+#[cfg(feature = "ti")]
+#[allow(clippy::too_many_arguments)]
+pub fn serve_with_ti_pg_tls_http_config(
+    port: u16,
+    root: &std::path::Path,
+    bind: &str,
+    pg: Option<u16>,
+    pg_bind: Option<&str>,
+    pg_auth_config: Option<&std::path::Path>,
+    docs_index: Option<&std::path::Path>,
+    pg_options: &crate::ti_pg::PgOptions,
+    auth: Option<crate::http_auth::HttpBearer>,
+) -> Result<(), String> {
+    let mut ti = crate::ti_http::TiServer::open(root)?;
+    if let Some(path) = docs_index {
+        ti = ti.with_docs_index(path)?;
+    }
+    if let Some(path) = pg_auth_config {
+        ti = ti.with_pg_auth_config(path)?;
+    }
+    serve_with_ti_server_pg_http_options(
+        port,
+        std::sync::Arc::new(ti),
+        bind,
+        pg,
+        pg_bind,
+        pg_options,
+        auth,
+    )
+}
+#[cfg(feature = "ti")]
+pub fn serve_with_ti_pg_docs_config(
+    port: u16, root: &std::path::Path, bind: &str, pg: Option<u16>,
+    pg_bind: Option<&str>, pg_auth_config: Option<&std::path::Path>,
+    docs_index: Option<&std::path::Path>,
+) -> Result<(), String> {
+    serve_with_ti_pg_tls_config(port, root, bind, pg, pg_bind, pg_auth_config, docs_index, &crate::ti_pg::PgOptions::default())
+}
+#[cfg(feature = "ti")]
+pub fn serve_with_ti_server(
+    port: u16,
+    ti: std::sync::Arc<crate::ti_http::TiServer>,
+    bind: &str,
+    pg: Option<u16>,
+) -> Result<(), String> {
+    serve_with_ti_server_pg_bind(port, ti, bind, pg, None)
+}
+#[cfg(feature = "ti")]
+pub fn serve_with_ti_server_pg_bind(
+    port: u16,
+    ti: std::sync::Arc<crate::ti_http::TiServer>,
+    bind: &str,
+    pg: Option<u16>,
+    pg_bind: Option<&str>,
+) -> Result<(), String> {
+    serve_with_ti_server_pg_options(port, ti, bind, pg, pg_bind, &crate::ti_pg::PgOptions::default())
+}
+#[cfg(feature = "ti")]
+pub fn serve_with_ti_server_pg_options(
+    port: u16,
+    ti: std::sync::Arc<crate::ti_http::TiServer>,
+    bind: &str,
+    pg: Option<u16>,
+    pg_bind: Option<&str>,
+    pg_options: &crate::ti_pg::PgOptions,
+) -> Result<(), String> {
+    serve_with_ti_server_pg_http_options(port, ti, bind, pg, pg_bind, pg_options, None)
+}
+#[cfg(feature = "ti")]
+pub fn serve_with_ti_server_pg_http_options(
+    port: u16,
+    ti: std::sync::Arc<crate::ti_http::TiServer>,
+    bind: &str,
+    pg: Option<u16>,
+    pg_bind: Option<&str>,
+    pg_options: &crate::ti_pg::PgOptions,
+    auth: Option<crate::http_auth::HttpBearer>,
+) -> Result<(), String> {
+    let http_bind = bind
+        .parse::<std::net::IpAddr>()
+        .map_err(|e| format!("Invalid bind address: {e}"))?;
+    let pg_bind = pg_bind
+        .unwrap_or(bind)
+        .parse::<std::net::IpAddr>()
+        .map_err(|e| format!("Invalid pg bind address: {e}"))?;
+    crate::http_auth::validate_bind(bind, auth.is_some()
+        || (ti.otlp_only() && ti.route_http_token("/v1/logs").is_some()))?;
+    let _pg = pg
+        .map(|port| {
+            crate::ti_pg::start_with_options(
+                ti.clone(),
+                std::net::SocketAddr::new(pg_bind, port),
+                pg_options,
+            )
+        })
+        .transpose()?;
+    serve_configured(port, Some(ti), http_bind, auth)
+}
+struct ActiveConnection(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for ActiveConnection {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+    }
+}
+
+fn serve_configured(
+    port: u16,
+    _ti: TiState,
+    bind: std::net::IpAddr,
+    auth: Option<crate::http_auth::HttpBearer>,
+) -> Result<(), String> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
-
-    let listener = TcpListener::bind(format!("0.0.0.0:{}", port))
-        .map_err(|e| format!("Failed to bind to port {}: {}", port, e))?;
-    println!("Lume MCP HTTP server listening on http://0.0.0.0:{}", port);
+    #[cfg(feature = "ti")]
+    let otlp_only = _ti.as_ref().is_some_and(|server| server.otlp_only());
+    #[cfg(feature = "ti")]
+    let route_authenticated = otlp_only
+        && _ti.as_ref().is_some_and(|server| server.route_http_token("/v1/logs").is_some());
+    #[cfg(not(feature = "ti"))]
+    let route_authenticated = false;
+    crate::http_auth::validate_bind(&bind.to_string(), auth.is_some() || route_authenticated)?;
+    let address = std::net::SocketAddr::new(bind, port);
+    let listener =
+        TcpListener::bind(address).map_err(|e| format!("Failed to bind to {address}: {e}"))?;
+    println!(
+        "Lume MCP HTTP server listening on http://{}",
+        listener.local_addr().map_err(|e| e.to_string())?
+    );
 
     let active = Arc::new(AtomicUsize::new(0));
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
+                stream
+                    .set_read_timeout(Some(HTTP_IO_TIMEOUT))
+                    .map_err(|e| e.to_string())?;
+                stream
+                    .set_write_timeout(Some(HTTP_IO_TIMEOUT))
+                    .map_err(|e| e.to_string())?;
                 if active.load(Ordering::Acquire) >= MAX_CONCURRENT_CONNECTIONS {
                     let busy = "HTTP/1.1 503 Service Unavailable\r\n\
                                 Retry-After: 1\r\n\
@@ -731,12 +1068,17 @@ pub fn serve(port: u16) -> Result<(), String> {
                     continue;
                 }
                 active.fetch_add(1, Ordering::AcqRel);
-                let active = Arc::clone(&active);
+                let slot = ActiveConnection(Arc::clone(&active));
+                #[cfg(feature = "ti")]
+                let ti = _ti.clone();
+                #[cfg(not(feature = "ti"))]
+                let ti = ();
+                let auth = auth.clone();
                 std::thread::spawn(move || {
-                    if let Err(e) = handle_connection(stream) {
+                    let _slot = slot;
+                    if let Err(e) = handle_connection(stream, &ti, auth.as_ref()) {
                         eprintln!("Error handling connection: {}", e);
                     }
-                    active.fetch_sub(1, Ordering::AcqRel);
                 });
             }
             Err(e) => {
@@ -777,13 +1119,50 @@ struct AgentChatPayload {
     options: Options,
 }
 
-pub fn run_agent_loop(
-    question: &str,
-    ollama_url: &str,
-    ollama_model: &str,
-    db_dir: &str,
-    verbose: bool,
-) -> Result<(), String> {
+/// Inputs for [`run_agent_loop`]. One struct keeps the CLI entry under clippy's argument limit.
+pub struct AgentLoopArgs<'a> {
+    pub question: &'a str,
+    pub ollama_url: &'a str,
+    pub ollama_model: &'a str,
+    pub db_dir: &'a str,
+    pub verbose: bool,
+    pub ti_store: Option<&'a str>,
+    pub docs_index: Option<&'a str>,
+    pub json_output: bool,
+    pub events: bool,
+}
+
+pub fn run_agent_loop(args: AgentLoopArgs<'_>) -> Result<(), String> {
+    let AgentLoopArgs {
+        question,
+        ollama_url,
+        ollama_model,
+        db_dir,
+        verbose,
+        #[cfg(feature = "ti")]
+        ti_store,
+        #[cfg(feature = "ti")]
+        docs_index,
+        #[cfg(feature = "ti")]
+        json_output,
+        #[cfg(feature = "ti")]
+        events,
+        ..
+    } = args;
+    #[cfg(feature = "ti")]
+    if ti_store.is_some() || docs_index.is_some() || json_output || events {
+        return crate::chat_sql::run_chat_loop(
+            question,
+            ollama_url,
+            ollama_model,
+            db_dir,
+            verbose,
+            ti_store,
+            docs_index,
+            json_output,
+            events,
+        );
+    }
     let url = format!("{}/api/chat", resolve_ollama_url(ollama_url));
 
     let mut messages = vec![
@@ -1270,3 +1649,116 @@ fn extract_json_block(text: &str) -> String {
 }
 
 
+
+#[cfg(test)]
+mod http_limits_tests {
+    use super::*;
+    use std::net::Shutdown;
+    use std::time::{Duration, Instant};
+
+    fn request(bytes: &[u8], close_write: bool) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handler = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            #[cfg(feature = "ti")]
+            let ti: TiState = None;
+            #[cfg(not(feature = "ti"))]
+            let ti: TiState = ();
+            handle_connection_with_timeout(stream, &ti, Duration::from_millis(100)).unwrap();
+        });
+        let mut client = TcpStream::connect(addr).unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        client.write_all(bytes).unwrap();
+        if close_write {
+            client.shutdown(Shutdown::Write).unwrap();
+        }
+        let mut response = String::new();
+        client.read_to_string(&mut response).unwrap();
+        handler.join().unwrap();
+        response
+    }
+
+    #[test]
+    fn incomplete_or_invalid_headers_are_bad_requests() {
+        assert!(
+            request(b"POST /mcp HTTP/1.1\r\nContent-Length: 2\r\n", true)
+                .starts_with("HTTP/1.1 400")
+        );
+        let full = format!("POST /mcp HTTP/1.1\r\nX: {}", "x".repeat(8192 - 23));
+        assert!(request(full.as_bytes(), true).starts_with("HTTP/1.1 400"));
+        assert!(request(b"POST /mcp HTTP/1.1\r\nX: \xff\r\n\r\n", true).starts_with("HTTP/1.1 400"));
+    }
+
+    #[test]
+    fn mcp_rejects_truncated_oversize_or_ambiguous_bodies() {
+        for body in [
+            "Content-Length: 3\r\n\r\n{}",
+            "Content-Length: 8388609\r\n\r\n",
+            "Content-Length: 2\r\nContent-Length: 2\r\n\r\n{}",
+            "Content-Length: invalid\r\n\r\n",
+            "Transfer-Encoding: chunked\r\n\r\n0\r\n\r\n",
+        ] {
+            let expected = if body.contains("8388609") {
+                "HTTP/1.1 413"
+            } else {
+                "HTTP/1.1 400"
+            };
+            assert!(
+                request(format!("POST /mcp HTTP/1.1\r\n{body}").as_bytes(), true)
+                    .starts_with(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn stalled_headers_and_bodies_time_out() {
+        assert_eq!(HTTP_IO_TIMEOUT, Duration::from_secs(30));
+        let start = Instant::now();
+        assert!(request(b"POST /mcp HTTP/1.1\r\n", false).starts_with("HTTP/1.1 400"));
+        assert!(
+            request(b"POST /mcp HTTP/1.1\r\nContent-Length: 2\r\n\r\n", false)
+                .starts_with("HTTP/1.1 400")
+        );
+        assert!(start.elapsed() < Duration::from_secs(3));
+    }
+
+    #[test]
+    fn panicking_handler_releases_admission_slot() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+        let active = Arc::new(AtomicUsize::new(1));
+        let slot = ActiveConnection(Arc::clone(&active));
+        let handler = std::thread::spawn(move || {
+            let _slot = slot;
+            panic!("injected handler panic");
+        });
+        assert!(handler.join().is_err());
+        assert_eq!(active.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
+    fn non_loopback_requires_global_auth_before_binding() {
+        assert!(crate::http_auth::validate_bind("192.0.2.1", false).is_err());
+        assert!(crate::http_auth::validate_bind("192.0.2.1", true).is_ok());
+        assert!(crate::http_auth::validate_bind("127.0.0.1", false).is_ok());
+        assert!(crate::http_auth::validate_bind("::1", false).is_ok());
+    }
+
+    #[test]
+    fn valid_mcp_still_works() {
+        let body = r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#;
+        let response = request(
+            format!(
+                "POST /mcp HTTP/1.1\r\nContent-Length: {}\r\n\r\n{body}",
+                body.len()
+            )
+            .as_bytes(),
+            true,
+        );
+        assert!(response.starts_with("HTTP/1.1 200"));
+        assert!(response.contains("tools"));
+    }
+}

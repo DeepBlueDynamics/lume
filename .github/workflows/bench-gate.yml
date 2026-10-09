@@ -1,0 +1,80 @@
+name: Benchmark Regression Gate
+
+# Spec/13 p95 regression gate (D48 gap 5).
+# Compares native query latency against committed baseline bench/baseline/ci-ubuntu-22.04.json.
+# Triggers: weekly schedule and manual dispatch (not every PR; fat-LTO build is ~25 min).
+on:
+  schedule:
+    - cron: "0 3 * * 0"
+  workflow_dispatch:
+    inputs:
+      update_baseline:
+        description: "Upload benchmark run JSON as artifact for baseline update"
+        type: boolean
+        default: false
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  gate:
+    name: p95 Regression Gate (ubuntu-22.04)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: bench-gate
+
+      - name: Build benchmark binaries (release, --locked)
+        run: |
+          cargo build --release --locked -p ti-query-bench -p ti-bench -p ti-ingest --example backfill_store
+
+      - name: Generate deterministic benchmark store
+        run: |
+          rm -rf /tmp/bench-raw /tmp/bench-store
+          mkdir -p /tmp/bench-raw /tmp/bench-store
+          ./target/release/ti-bench gen --root /tmp/bench-raw --seed 42 --days 92 --vessels 1
+          TI_OPT_IN=last ./target/release/examples/backfill_store /tmp/bench-raw/tier=raw /tmp/bench-store
+
+      - name: Run benchmark (26 classes, cache-on, 7 iterations)
+        run: |
+          rm -rf bench/results
+          mkdir -p bench/results
+          python3 bench/shard_cache.py \
+            --binary target/release/ti-query-bench \
+            --store /tmp/bench-store \
+            --corpus tests/golden/corpus.json \
+            --out bench/results \
+            --iterations 7 \
+            --cache-bytes 268435456 \
+            --cache-mode on \
+            --include-q6 \
+            --toolchain "rustc $(rustc --version)"
+          run_json="$(ls -t bench/results/on/*.json 2>/dev/null | head -1 || echo "bench/results/cache-on.json")"
+          cp "$run_json" bench/results/ci-ubuntu-22.04.json
+
+      - name: Run regression gate
+        run: |
+          python3 scripts/bench-gate.py --run bench/results/ci-ubuntu-22.04.json --runner ubuntu-22.04
+
+      - name: Upload baseline artifact
+        if: always() && (inputs.update_baseline == true || github.event.inputs.update_baseline == 'true')
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-ubuntu-22.04.json
+          path: bench/results/ci-ubuntu-22.04.json
+          if-no-files-found: warn

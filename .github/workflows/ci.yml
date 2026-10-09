@@ -37,3 +37,73 @@ jobs:
 
       - name: Clippy (no warnings as errors; informational)
         run: cargo clippy --all-targets || true
+
+  ti:
+    name: TI strict checks
+    runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_TARGET_TMPDIR: ${{ github.workspace }}/.test-tmp
+      TMPDIR: ${{ github.workspace }}/.test-tmp
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create test scratch directory
+        run: mkdir -p "$CARGO_TARGET_TMPDIR"
+
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@1.96.0
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry and build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ti-strict
+
+      - name: Check TI crate formatting
+        run: cargo fmt --check -p ti-contracts -p ti-core -p ti-store -p ti-ingest -p ti-sql -p ti-sync -p ti-bench -p ti-geo
+
+      - name: Check root TI formatting
+        run: rustfmt --check --edition 2021 src/ti_*.rs src/chat_sql.rs src/sql.rs src/document_extract.rs src/crawl_list.rs src/http_auth.rs src/nuts_auth.rs tests/ti_*.rs tests/chat_sql.rs tests/support/*.rs
+
+      - name: Strict TI crate clippy
+        run: cargo clippy --locked -p ti-contracts -p ti-core -p ti-store -p ti-ingest -p ti-sql -p ti-sync -p ti-bench -p ti-geo --all-targets -- -D warnings
+
+      - name: Strict lume clippy
+        run: cargo clippy --locked -p lume --features ti --all-targets -- -D warnings
+
+      - name: Test TI feature
+        run: cargo test --locked --features ti
+
+      - name: Install Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Test Signal K plugin
+        working-directory: plugins/signalk-lume-ti
+        run: npm test
+
+      - name: Build lume binary for live dashboard tests
+        run: cargo build --locked --features ti --bin lume
+
+      - name: Test benchmark scripts
+        env:
+          LUME_BIN: target/debug/lume
+        run: |
+          export LUME_BIN=target/debug/lume
+          python3 -m unittest discover -s bench -p 'test_*.py'
+          python3 -m unittest discover -s bench/grafana -p 'test_*.py'
+
+  deploy-test:
+    name: Pi deployment script tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shellcheck deployment scripts
+        run: shellcheck scripts/deploy-pi.sh scripts/pi-retire-ollama.sh scripts/provision-pi.sh scripts/pi-bringup.sh scripts/pi-set-ollama-key.sh
+
+      - name: Run deploy integration test
+        run: bash scripts/test/deploy-pi.test.sh

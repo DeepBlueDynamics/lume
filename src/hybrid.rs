@@ -183,25 +183,36 @@ pub fn set_cache_dir(dir: &Path) {
     let _ = CACHE_DIR.set(dir.to_path_buf());
 }
 
-fn cache_path(name: &str) -> PathBuf {
-    match CACHE_DIR.get() {
-        Some(dir) => dir.join(name),
-        None => PathBuf::from(name),
+fn cache_path_with_dir(name: &str, cache_dir: Option<&Path>) -> PathBuf {
+    if let Some(dir) = cache_dir {
+        dir.join(name)
+    } else {
+        match CACHE_DIR.get() {
+            Some(dir) => dir.join(name),
+            None => PathBuf::from(name),
+        }
     }
 }
 
-/// Reads a cache file from the db directory, falling back to the legacy
-/// cwd-relative location so caches written by older builds still load. The
-/// next write lands in the db directory and removes the legacy copy.
-fn read_cache_file(name: &str) -> Option<String> {
-    if let Ok(content) = fs::read_to_string(cache_path(name)) {
+#[allow(dead_code)]
+fn cache_path(name: &str) -> PathBuf {
+    cache_path_with_dir(name, None)
+}
+
+fn read_cache_file_with_dir(name: &str, cache_dir: Option<&Path>) -> Option<String> {
+    if let Ok(content) = fs::read_to_string(cache_path_with_dir(name, cache_dir)) {
         return Some(content);
     }
     fs::read_to_string(name).ok()
 }
 
-fn write_cache_file(name: &str, content: &str) {
-    let path = cache_path(name);
+#[allow(dead_code)]
+fn read_cache_file(name: &str) -> Option<String> {
+    read_cache_file_with_dir(name, None)
+}
+
+fn write_cache_file_with_dir(name: &str, content: &str, cache_dir: Option<&Path>) {
+    let path = cache_path_with_dir(name, cache_dir);
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
@@ -211,10 +222,21 @@ fn write_cache_file(name: &str, content: &str) {
     }
 }
 
-fn delete_cache_file(name: &str) {
-    let _ = fs::remove_file(cache_path(name));
+#[allow(dead_code)]
+fn write_cache_file(name: &str, content: &str) {
+    write_cache_file_with_dir(name, content, None);
+}
+
+fn delete_cache_file_with_dir(name: &str, cache_dir: Option<&Path>) {
+    let _ = fs::remove_file(cache_path_with_dir(name, cache_dir));
     let _ = fs::remove_file(name);
 }
+
+#[allow(dead_code)]
+fn delete_cache_file(name: &str) {
+    delete_cache_file_with_dir(name, None);
+}
+
 
 /// Blended hybrid search result hit.
 #[derive(Debug, Clone)]
@@ -311,7 +333,11 @@ fn collect_files_recursive(dir: &std::path::Path, files: &mut Vec<std::path::Pat
 /// (the old behavior) should compare size/mtime themselves; the incremental
 /// ingest path deliberately accepts a stale fingerprint and diffs by hash.
 pub fn load_session_cache(corpus_path: &str) -> Option<SessionCache> {
-    let content = read_cache_file(CACHE_FILE)?;
+    load_session_cache_with_dir(corpus_path, None)
+}
+
+pub fn load_session_cache_with_dir(corpus_path: &str, cache_dir: Option<&Path>) -> Option<SessionCache> {
+    let content = read_cache_file_with_dir(CACHE_FILE, cache_dir)?;
     let cache: SessionCache = serde_json::from_str(&content).ok()?;
 
     if cache.corpus_path != corpus_path {
@@ -332,7 +358,11 @@ pub fn load_session_cache(corpus_path: &str) -> Option<SessionCache> {
 }
 
 pub fn load_cached_session(corpus_path: &str, current_size: u64, current_mtime: u64) -> Option<String> {
-    let cache = load_session_cache(corpus_path)?;
+    load_cached_session_with_dir(corpus_path, current_size, current_mtime, None)
+}
+
+pub fn load_cached_session_with_dir(corpus_path: &str, current_size: u64, current_mtime: u64, cache_dir: Option<&Path>) -> Option<String> {
+    let cache = load_session_cache_with_dir(corpus_path, cache_dir)?;
     if cache.corpus_size != current_size || cache.corpus_mtime != current_mtime {
         return None;
     }
@@ -340,6 +370,10 @@ pub fn load_cached_session(corpus_path: &str, current_size: u64, current_mtime: 
 }
 
 pub fn save_cached_session(corpus_path: &str, size: u64, mtime: u64, session_id: &str, ingested_hashes: Vec<String>) {
+    save_cached_session_with_dir(corpus_path, size, mtime, session_id, ingested_hashes, None);
+}
+
+pub fn save_cached_session_with_dir(corpus_path: &str, size: u64, mtime: u64, session_id: &str, ingested_hashes: Vec<String>, cache_dir: Option<&Path>) {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -355,16 +389,24 @@ pub fn save_cached_session(corpus_path: &str, size: u64, mtime: u64, session_id:
     };
 
     if let Ok(content) = serde_json::to_string_pretty(&cache) {
-        write_cache_file(CACHE_FILE, &content);
+        write_cache_file_with_dir(CACHE_FILE, &content, cache_dir);
     }
 }
 
 pub fn delete_cached_session() {
-    delete_cache_file(CACHE_FILE);
+    delete_cached_session_with_dir(None);
+}
+
+pub fn delete_cached_session_with_dir(cache_dir: Option<&Path>) {
+    delete_cache_file_with_dir(CACHE_FILE, cache_dir);
 }
 
 pub fn load_semantic_cache(corpus_path: &str, current_size: u64, current_mtime: u64) -> SemanticQueryCache {
-    if let Some(content) = read_cache_file(SEMANTIC_CACHE_FILE) {
+    load_semantic_cache_with_dir(corpus_path, current_size, current_mtime, None)
+}
+
+pub fn load_semantic_cache_with_dir(corpus_path: &str, current_size: u64, current_mtime: u64, cache_dir: Option<&Path>) -> SemanticQueryCache {
+    if let Some(content) = read_cache_file_with_dir(SEMANTIC_CACHE_FILE, cache_dir) {
         if let Ok(cache) = serde_json::from_str::<SemanticQueryCache>(&content) {
             if cache.corpus_path == corpus_path && cache.corpus_size == current_size && cache.corpus_mtime == current_mtime {
                 return cache;
@@ -380,10 +422,15 @@ pub fn load_semantic_cache(corpus_path: &str, current_size: u64, current_mtime: 
 }
 
 pub fn save_semantic_cache(cache: &SemanticQueryCache) {
+    save_semantic_cache_with_dir(cache, None);
+}
+
+pub fn save_semantic_cache_with_dir(cache: &SemanticQueryCache, cache_dir: Option<&Path>) {
     if let Ok(content) = serde_json::to_string_pretty(cache) {
-        write_cache_file(SEMANTIC_CACHE_FILE, &content);
+        write_cache_file_with_dir(SEMANTIC_CACHE_FILE, &content, cache_dir);
     }
 }
+
 
 fn fnv1a64(parts: &[&str]) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325;
@@ -495,7 +542,7 @@ fn ingest_tasks_concurrent(sess: &str, tasks: Vec<IngestTask>, token: &str) -> R
                             let mut total_lock = chunks_total.lock().unwrap();
                             *total_lock += created;
 
-                            if *total_lock % 100 == 0 || current_idx == total_tasks - 1 {
+                            if total_lock.is_multiple_of(100) || current_idx == total_tasks - 1 {
                                 let elapsed = start.elapsed().as_secs_f64();
                                 let rate = if elapsed > 0.0 { *total_lock as f64 / elapsed } else { 0.0 };
                                 eprintln!(
@@ -525,14 +572,23 @@ fn ingest_tasks_concurrent(sess: &str, tasks: Vec<IngestTask>, token: &str) -> R
     Ok(total_created)
 }
 
-/// Ingests all sections into a newly initialized shivvr session and caches it.
-/// Automatically chunks sections whose bodies are too large to avoid 413 Payload Too Large on the neural store.
 pub fn initialize_and_ingest_session(
     target_file: &str,
     sections: &[Section],
     corpus_size: u64,
     corpus_mtime: u64,
     token: &str,
+) -> Result<String, String> {
+    initialize_and_ingest_session_with_dir(target_file, sections, corpus_size, corpus_mtime, token, None)
+}
+
+pub fn initialize_and_ingest_session_with_dir(
+    target_file: &str,
+    sections: &[Section],
+    corpus_size: u64,
+    corpus_mtime: u64,
+    token: &str,
+    cache_dir: Option<&Path>,
 ) -> Result<String, String> {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -554,7 +610,7 @@ pub fn initialize_and_ingest_session(
         Ok(n) => n,
         Err(err) => {
             cleanup_session(&sess, token).ok();
-            delete_cached_session();
+            delete_cached_session_with_dir(cache_dir);
             return Err(format!("Semantic store ingestion error: {}", err));
         }
     };
@@ -567,17 +623,10 @@ pub fn initialize_and_ingest_session(
     let mut hashes: Vec<String> = hashed.into_iter().map(|(h, _)| h).collect();
     hashes.sort();
     hashes.dedup();
-    save_cached_session(target_file, corpus_size, corpus_mtime, &sess, hashes);
+    save_cached_session_with_dir(target_file, corpus_size, corpus_mtime, &sess, hashes, cache_dir);
     Ok(sess)
 }
 
-/// Returns a semantic session covering `sections`, ingesting only what's
-/// missing: a no-op when the corpus fingerprint matches the cached session,
-/// an incremental top-up of new/changed sections when it doesn't, and a full
-/// ingest only when no usable session exists (none cached, expired, or a
-/// legacy cache without content hashes). Sections deleted from the corpus
-/// leave orphan chunks in the remote store; they're filtered at blend time
-/// because their hash no longer resolves to a local section.
 pub fn ensure_semantic_session(
     target_file: &str,
     sections: &[Section],
@@ -585,7 +634,18 @@ pub fn ensure_semantic_session(
     corpus_mtime: u64,
     token: &str,
 ) -> Result<String, String> {
-    if let Some(cache) = load_session_cache(target_file) {
+    ensure_semantic_session_with_dir(target_file, sections, corpus_size, corpus_mtime, token, None)
+}
+
+pub fn ensure_semantic_session_with_dir(
+    target_file: &str,
+    sections: &[Section],
+    corpus_size: u64,
+    corpus_mtime: u64,
+    token: &str,
+    cache_dir: Option<&Path>,
+) -> Result<String, String> {
+    if let Some(cache) = load_session_cache_with_dir(target_file, cache_dir) {
         if cache.corpus_size == corpus_size && cache.corpus_mtime == corpus_mtime {
             return Ok(cache.session_id);
         }
@@ -605,9 +665,7 @@ pub fn ensure_semantic_session(
             if !missing.is_empty() {
                 let tasks = build_ingest_tasks(&missing);
                 if let Err(err) = ingest_tasks_concurrent(&cache.session_id, tasks, token) {
-                    // The session may be half-updated; drop it so the next
-                    // attempt starts clean rather than serving partial state.
-                    delete_cached_session();
+                    delete_cached_session_with_dir(cache_dir);
                     return Err(format!("Incremental semantic ingestion error: {}", err));
                 }
             }
@@ -616,12 +674,13 @@ pub fn ensure_semantic_session(
             hashes.extend(missing.into_iter().map(|(h, _)| h));
             hashes.sort();
             hashes.dedup();
-            save_cached_session(target_file, corpus_size, corpus_mtime, &cache.session_id, hashes);
+            save_cached_session_with_dir(target_file, corpus_size, corpus_mtime, &cache.session_id, hashes, cache_dir);
             return Ok(cache.session_id);
         }
     }
-    initialize_and_ingest_session(target_file, sections, corpus_size, corpus_mtime, token)
+    initialize_and_ingest_session_with_dir(target_file, sections, corpus_size, corpus_mtime, token, cache_dir)
 }
+
 
 pub fn cleanup_session(session_id: &str, token: &str) -> Result<(), String> {
     let url = format!("{}/temp/{}", get_shivvr_base_url(), session_id);
@@ -678,6 +737,26 @@ pub fn blend_hybrid_scores(
     alpha: f64,
     beta: f64,
 ) -> Vec<HybridHit> {
+    blend_hybrid_scores_with_mode(
+        bm25_hits,
+        semantic_results,
+        skg_scores,
+        hash_to_idx,
+        alpha,
+        beta,
+        crate::search::BlendMode::Multiplicative,
+    )
+}
+
+pub fn blend_hybrid_scores_with_mode(
+    bm25_hits: &[SearchHit],
+    semantic_results: &[SearchResult],
+    skg_scores: &HashMap<usize, f64>,
+    hash_to_idx: &HashMap<String, usize>,
+    alpha: f64,
+    beta: f64,
+    blend_mode: crate::search::BlendMode,
+) -> Vec<HybridHit> {
     let mut semantic_map: HashMap<usize, f64> = HashMap::new();
     for res in semantic_results {
         if let Some(ref src) = res.source {
@@ -731,7 +810,7 @@ pub fn blend_hybrid_scores(
     //    signals live on a comparable [0,1] scale, so a strong semantic/SKG
     //    match can actually move #1. Useful when the answer is a vocabulary
     //    match rather than a keyword match.
-    let normalize = std::env::var("LUME_BLEND_NORM")
+    let normalize = blend_mode == crate::search::BlendMode::Normalized || std::env::var("LUME_BLEND_NORM")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
     let bm25_max = candidate_indices
@@ -856,6 +935,8 @@ pub struct HybridSearchResult {
 }
 
 /// The core hybrid search primitive. Blends fast local BM25 indexing with concept-aware remote vector embeddings.
+/// The core hybrid search primitive. Blends fast local BM25 indexing with concept-aware remote vector embeddings.
+#[allow(clippy::too_many_arguments)]
 pub fn execute_hybrid_search(
     index: &Bm25Index,
     tagger: Option<&Tagger>,
@@ -863,36 +944,28 @@ pub fn execute_hybrid_search(
     query: &str,
     skg_scores: &HashMap<usize, f64>,
     beta: f64,
+    alpha: f64,
+    cache_dir: Option<&Path>,
+    params: &Bm25Params,
+    variant: SearchVariant,
+    blend_mode: crate::search::BlendMode,
+    _shivvr_url: Option<&str>,
+    auth_token: Option<&str>,
+    query_inversion: bool,
 ) -> Result<HybridSearchResult, String> {
-    let token = match load_nuts_token() {
-        Some(tok) => tok,
-        None => return Err("NUTS_SERVICES_TOKEN not set for hybrid semantic search.".to_string()),
+    let token = match auth_token {
+        Some(tok) => tok.to_string(),
+        None => match load_nuts_token() {
+            Some(tok) => tok,
+            None => return Err("NUTS_SERVICES_TOKEN not set for hybrid semantic search.".to_string()),
+        },
     };
 
     let path = std::path::Path::new(target_file);
     let (corpus_size, corpus_mtime) = get_corpus_metadata(path)
         .map_err(|e| format!("Failed to read metadata for {}: {}", target_file, e))?;
 
-    let mut semantic_cache = load_semantic_cache(target_file, corpus_size, corpus_mtime);
-
-    let variant = match env::var("VARIANT").as_deref() {
-        Ok("plus") => SearchVariant::Plus,
-        Ok("l") => SearchVariant::L,
-        _ => SearchVariant::Classic,
-    };
-
-    let params = Bm25Params {
-        k1: env::var("K1").ok().and_then(|s| s.parse().ok()).unwrap_or(1.2),
-        b: env::var("B").ok().and_then(|s| s.parse().ok()).unwrap_or(0.75),
-        delta: env::var("DELTA").ok().and_then(|s| s.parse().ok()).unwrap_or(1.0),
-        title_weight: env::var("TITLE_WEIGHT").ok().and_then(|s| s.parse().ok()).unwrap_or(2.0),
-        body_weight: env::var("BODY_WEIGHT").ok().and_then(|s| s.parse().ok()).unwrap_or(1.0),
-    };
-
-    let alpha: f64 = env::var("ALPHA")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(2.0);
+    let mut semantic_cache = load_semantic_cache_with_dir(target_file, corpus_size, corpus_mtime, cache_dir);
 
     let query_key = query.trim().to_lowercase();
     let mut is_cached = false;
@@ -901,7 +974,7 @@ pub fn execute_hybrid_search(
     // Query inversion is a debug aid (it shows what the embedding "hears"),
     // but it costs an extra embed + invert round-trip per search with no
     // effect on ranking — opt in via LUME_QUERY_INVERSION=1.
-    let inversion_enabled = env::var("LUME_QUERY_INVERSION")
+    let inversion_enabled = query_inversion || env::var("LUME_QUERY_INVERSION")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
     if inversion_enabled {
@@ -918,17 +991,17 @@ pub fn execute_hybrid_search(
     } else {
         let mut attempts = 0;
         let results = loop {
-            let session_id = ensure_semantic_session(target_file, &index.sections, corpus_size, corpus_mtime, &token)?;
+            let session_id = ensure_semantic_session_with_dir(target_file, &index.sections, corpus_size, corpus_mtime, &token, cache_dir)?;
 
             match query_semantic_search(&session_id, query, &token) {
                 Ok(res) => {
                     semantic_cache.queries.insert(query_key.clone(), res.clone());
-                    save_semantic_cache(&semantic_cache);
+                    save_semantic_cache_with_dir(&semantic_cache, cache_dir);
                     break res;
                 }
                 Err(e) => {
                     if e == "SESSION_EXPIRED" && attempts == 0 {
-                        delete_cached_session();
+                        delete_cached_session_with_dir(cache_dir);
                         attempts += 1;
                         continue;
                     }
@@ -960,28 +1033,28 @@ pub fn execute_hybrid_search(
             r.source.as_ref()
                 .filter(|s| !hash_to_idx.contains_key(s.as_str()))
                 .and_then(|s| s.parse::<usize>().ok())
-                .map_or(false, |idx| idx >= sections_len)
+                .is_some_and(|idx| idx >= sections_len)
         })
     };
     if is_stale(&semantic_results) {
         eprintln!("[⚠️] Semantic session is stale (chunk ids exceed corpus) — re-ingesting...");
-        delete_cached_session();
+        delete_cached_session_with_dir(cache_dir);
         semantic_cache.queries.clear();
-        let session_id = initialize_and_ingest_session(target_file, &index.sections, corpus_size, corpus_mtime, &token)?;
+        let session_id = initialize_and_ingest_session_with_dir(target_file, &index.sections, corpus_size, corpus_mtime, &token, cache_dir)?;
         semantic_results = query_semantic_search(&session_id, query, &token)
             .map_err(|e| format!("Failed to retrieve semantic vector search: {}", e))?;
         semantic_cache.queries.insert(query_key.clone(), semantic_results.clone());
-        save_semantic_cache(&semantic_cache);
+        save_semantic_cache_with_dir(&semantic_cache, cache_dir);
         is_cached = false;
     }
     let sem_elapsed = sem_start.elapsed();
 
     let lex_start = Instant::now();
-    let bm25_hits = index.search(query, variant, &params, tagger);
+    let bm25_hits = index.search(query, variant, params, tagger);
     let lex_elapsed = lex_start.elapsed();
 
     let blend_start = Instant::now();
-    let hybrid_hits = blend_hybrid_scores(&bm25_hits, &semantic_results, skg_scores, &hash_to_idx, alpha, beta);
+    let hybrid_hits = blend_hybrid_scores_with_mode(&bm25_hits, &semantic_results, skg_scores, &hash_to_idx, alpha, beta, blend_mode);
     let blend_elapsed = blend_start.elapsed();
 
     let mut lexical_top_hits = Vec::new();
@@ -1123,7 +1196,7 @@ impl HybridSearchResult {
             out.push_str(&format!("* **Metrics:** BM25: {:.4} | {}\n", hit.bm25_score, boost_indicator));
 
             let snippet_body = if hit.body.len() > 300 {
-                format!("{} ...", &hit.body[..300].trim())
+                format!("{} ...", hit.body[..300].trim())
             } else {
                 hit.body.trim().to_string()
             };
@@ -1230,7 +1303,7 @@ mod tests {
 
     #[test]
     fn blend_resolves_hash_sources_and_drops_orphans() {
-        let sections = vec![
+        let sections = [
             section("a.rs", "alpha", "first body"),
             section("b.rs", "beta", "second body"),
         ];

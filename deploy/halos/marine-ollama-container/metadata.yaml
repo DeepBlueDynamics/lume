@@ -1,0 +1,31 @@
+name: Ollama
+app_id: ollama
+version: 0.1.0-1
+upstream_version: 0.1.0
+description: Gateway to Ollama cloud models for the Lume TI Ask tab
+long_description: |
+  Ollama on the boat is a gateway to Ollama cloud models. After a one-time
+  `ollama signin`, the Signal K Lume TI plugin's Ask tab uses `:cloud` models such
+  as glm-5.3 whenever the boat has internet, to answer questions about telemetry and
+  the cruiser library with SQL. Lume never holds a key.
+
+  It does not run models locally by default (a Pi 5 is too slow for that).
+  It listens on 127.0.0.1:11434 only and has no authentication.
+homepage: https://ollama.com/
+maintainer: DeepBlue Dynamics <kord@deepbluedynamics.com>
+license: MIT
+tags:
+  - role::container-app
+  - field::marine
+  - interface::daemon
+debian_section: net
+architecture: arm64
+depends:
+  - docker.io (>= 20.10) | docker-ce (>= 20.10)
+web_ui:
+  enabled: false
+default_config:
+  OLLAMA_IMAGE: ollama/ollama:latest
+  OLLAMA_MEMORY_LIMIT: auto
+  OLLAMA_KEEP_ALIVE: 10m
+  OLLAMA_DEFAULT_MODEL: "-"

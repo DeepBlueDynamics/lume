@@ -1,0 +1,81 @@
+{
+  "resourceMetrics": [
+    {
+      "resource": {
+        "attributes": [
+          {
+            "key": "service.name",
+            "value": {
+              "stringValue": "claude-code"
+            }
+          },
+          {
+            "key": "service.instance.id",
+            "value": {
+              "stringValue": "pane-123"
+            }
+          }
+        ]
+      },
+      "scopeMetrics": [
+        {
+          "scope": {
+            "name": "claude-code"
+          },
+          "metrics": [
+            {
+              "name": "claude_code.token.usage",
+              "unit": "{token}",
+              "sum": {
+                "aggregationTemporality": 2,
+                "isMonotonic": true,
+                "dataPoints": [
+                  {
+                    "timeUnixNano": "1577836811000000000",
+                    "asInt": "10"
+                  },
+                  {
+                    "timeUnixNano": "1577836821000000000",
+                    "asInt": "20"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "claude_code.active_time",
+              "unit": "s",
+              "gauge": {
+                "dataPoints": [
+                  {
+                    "timeUnixNano": "1577836811000000000",
+                    "asDouble": 1.5
+                  }
+                ]
+              }
+            },
+            {
+              "name": "claude_code.tool.duration",
+              "unit": "s",
+              "histogram": {
+                "dataPoints": [
+                  {
+                    "timeUnixNano": "1577836811000000000",
+                    "sum": 4.5,
+                    "count": "3",
+                    "bucketCounts": [
+                      "1",
+                      "2"
+                    ],
+                    "explicitBounds": [
+                      1
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

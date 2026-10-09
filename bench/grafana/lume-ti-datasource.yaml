@@ -1,0 +1,22 @@
+# HaLOS Pi: Grafana shares InfluxDB's bridge namespace, not host networking.
+# Bind Lume pgwire to docker0 (172.17.0.1), never 0.0.0.0; HTTP stays loopback.
+# Supply LUME_PG_PASSWORD in Grafana's environment, matching the plugin password.
+# sslmode:
+#   - disable is fine over loopback (127.0.0.1) or docker0 (172.17.0.1).
+#   - require is required on any external/non-loopback bind unless --pg-allow-plaintext is given.
+apiVersion: 1
+datasources:
+  - name: Lume TI
+    uid: lume-ti
+    type: postgres
+    access: proxy
+    url: halos.local:5864
+    user: grafana
+    editable: false
+    jsonData:
+      database: ti
+      sslmode: disable # disable is fine over docker0 172.17.0.1; require elsewhere
+      postgresVersion: 1600
+      timescaledb: false
+    secureJsonData:
+      password: $__env{LUME_PG_PASSWORD}

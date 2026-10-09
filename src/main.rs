@@ -1,47 +1,28 @@
 use std::collections::HashMap;
 use std::env;
-use std::fs::{self, File};
+use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::{SystemTime, Instant};
 
-use serde::{Deserialize, Serialize};
-
-use lume::bm25::{Bm25Index, Section, SearchHit, Bm25Params, SearchVariant};
+use lume::bm25::{Bm25Index, Section, Bm25Params, SearchVariant};
 use lume::spelling::SpellIndex;
 use lume::semantic_mesh::EntityGraph;
 use lume::Tagger;
-use lume::Entry;
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct IndexState {
-    target_dir: String,
-    db_dir: String,
-    semantic_enabled: bool,
-    ollama_entities: bool,
-    ollama_model: String,
-    ollama_url: String,
-    tag_dict_path: Option<String>,
-    semantic_session_id: Option<String>,
-    cached_files: HashMap<String, (u64, Vec<Section>)>,
-}
-
-fn save_json<T: Serialize>(path: &Path, val: &T) -> Result<(), String> {
-    let file = File::create(path).map_err(|e| format!("Failed to create file {}: {}", path.display(), e))?;
-    let writer = io::BufWriter::new(file);
-    serde_json::to_writer_pretty(writer, val).map_err(|e| format!("Failed to write JSON to {}: {}", path.display(), e))?;
-    Ok(())
-}
-
-fn load_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, String> {
-    let file = File::open(path).map_err(|e| format!("Failed to open file {}: {}", path.display(), e))?;
-    let reader = io::BufReader::new(file);
-    let val = serde_json::from_reader(reader).map_err(|e| format!("Failed to parse JSON from {}: {}", path.display(), e))?;
-    Ok(val)
-}
+use lume::search::{
+    search, format_cli_output, correct_query, load_json, save_json, load_tagger_csv,
+    BlendMode, IndexState, LoadedIndex, SearchMode, SearchOptions,
+};
 
 fn main() {
+    // Debug builds of the TI serve path (DataFusion + pgwire futures) exceed the 1 MB Windows main stack.
+    let main = std::thread::Builder::new().stack_size(64 << 20).spawn(lume_main).expect("spawn main thread");
+    if let Err(panic) = main.join() {
+        std::panic::resume_unwind(panic);
+    }
+}
+
+fn lume_main() {
     let mut args: Vec<String> = env::args().collect();
     
     // Parse global --shivvr-url parameter first
@@ -75,6 +56,65 @@ fn main() {
 
     let subcommand = args[1].trim().to_lowercase();
     match subcommand.as_str() {
+        #[cfg(feature = "pdf")]
+        "__extract-document" => {
+            let result = args.get(2).ok_or_else(|| "missing document path".to_string()).and_then(|path| {
+                std::panic::catch_unwind(|| lume::document_extract::worker(Path::new(path)))
+                    .map_err(|_| "document parser panicked".to_string()).and_then(|r| r)
+            });
+            if serde_json::to_writer(std::io::stdout().lock(), &result).is_err() {
+                std::process::exit(1);
+            }
+        }
+        #[cfg(feature = "ti")]
+        "sql" => {
+            if let Err(e) = lume::sql::run_cli(&args[2..]) {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        }
+        #[cfg(feature = "ti")]
+        "ti" => {
+            if args.len() >= 3 && args[2] == "otlp" {
+                if let Err(e) = lume::ti_otlp::run(&args[3..]) {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+                return;
+            }
+            if args.len() >= 3 && args[2] == "ingest" {
+                if let Err(e) = handle_ti_ingest(&args[3..]) {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+                return;
+            }
+            if args.len() >= 3 && args[2] == "sync" {
+                if let Err(e) = handle_ti_sync(&args[3..]) {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+                return;
+            }
+            // W5: match() and the docs table use Lume BM25 over the store's docs/.
+            let documents = |root: &std::path::Path, store: &ti_store::Store, width: u64| {
+                let index = lume::ti_text::LumeText::open(root, store.catalog().clone(), width)?;
+                Ok(std::sync::Arc::new(index) as std::sync::Arc<dyn ti_contracts::DocumentIndex>)
+            };
+            let result = if args.get(2).is_some_and(|name| name == "rules") {
+                lume::ti_rules::run_cli(&args[3..])
+            } else if args.get(2).is_some_and(|name| name == "backfill") {
+                lume::ti_parquet::run_cli(&args[3..])
+            } else if args.get(2).is_some_and(|name| name == "import-docs") && args[3..].iter().any(|flag| flag == "--parquet") {
+                lume::ti_parquet::run_docs_cli(&args[3..])
+            } else {
+                ti_sql::cli::run_with_index(&args[2..], Some(&documents), Some(&lume::sql::register))
+            };
+            if let Err(e) = result {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        }
         "index" => {
             if args.len() >= 3 && args[2] == "update" {
                 if let Err(e) = handle_index_update(&args[3..]) {
@@ -129,6 +169,21 @@ fn main() {
                 print_crawl_help();
                 return;
             }
+            if args.iter().any(|a| a == "--list") {
+                match lume::crawl_list::parse_args(&args[2..]).and_then(|o| lume::crawl_list::run_list(&o)) {
+                    Ok((ok, failed, skipped)) => {
+                        println!("Fetched {ok}, failed {failed}, already present {skipped}");
+                        if failed > 0 {
+                            std::process::exit(1);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error: {e}");
+                        std::process::exit(2);
+                    }
+                }
+                return;
+            }
             lume::crawl::run(args[2..].to_vec());
         }
         "serve" | "--serve" => {
@@ -146,7 +201,154 @@ fn main() {
                     }
                 }
             }
-            if let Err(e) = lume::agent::serve(port) {
+            let ti_store = args.iter().position(|a| a == "--ti-store").map(|pos| {
+                args.get(pos+1).filter(|s|!s.starts_with("--")).map(String::as_str).unwrap_or_else(|| {
+                    eprintln!("--ti-store requires a store root");std::process::exit(2);
+                })
+            });
+            let http_auth = lume::http_auth::HttpBearer::from_server_args(
+                &args, Path::new(ti_store.unwrap_or(".lume-index")),
+            ).unwrap_or_else(|error| { eprintln!("{error}"); std::process::exit(2); });
+            let docs_index = args.iter().position(|a| a == "--docs-index").map(|pos| {
+                args.get(pos + 1).filter(|s| !s.starts_with("--")).map(Path::new).unwrap_or_else(|| {
+                    eprintln!("--docs-index requires an index path"); std::process::exit(2);
+                })
+            });
+            if args.iter().any(|a| a == "--otlp") && ti_store.is_none() {
+                eprintln!("--otlp requires --ti-store");
+                std::process::exit(2);
+            }
+            if args.iter().any(|a| a == "--otlp-token-file") && !args.iter().any(|a| a == "--otlp")
+            {
+                eprintln!("--otlp-token-file requires --otlp");
+                std::process::exit(2);
+            }
+            if docs_index.is_some() && ti_store.is_none() {
+                eprintln!("--docs-index requires --ti-store"); std::process::exit(2);
+            }
+            let bind=args.iter().position(|a|a=="--bind").map(|pos|{
+                args.get(pos+1).filter(|s|!s.starts_with("--")).map(String::as_str).unwrap_or_else(||{
+                    eprintln!("--bind requires an IP address");std::process::exit(2);
+                })
+            });
+            let pg_bind = args.iter().position(|a| a == "--pg-bind").map(|pos| {
+                args.get(pos + 1).filter(|s| !s.starts_with("--")).map(String::as_str).unwrap_or_else(|| {
+                    eprintln!("--pg-bind requires an IP address"); std::process::exit(2);
+                })
+            });
+            let pg_auth_config = args.iter().position(|a| a == "--pg-auth-config").map(|pos| {
+                args.get(pos + 1).filter(|s| !s.starts_with("--")).map(std::path::Path::new).unwrap_or_else(|| {
+                    eprintln!("--pg-auth-config requires a path"); std::process::exit(2);
+                })
+            });
+            let pg_tls_cert = args.iter().position(|a| a == "--pg-tls-cert").map(|pos| {
+                args.get(pos + 1).filter(|s| !s.starts_with("--")).map(std::path::PathBuf::from).unwrap_or_else(|| {
+                    eprintln!("--pg-tls-cert requires a path"); std::process::exit(2);
+                })
+            });
+            let pg_tls_key = args.iter().position(|a| a == "--pg-tls-key").map(|pos| {
+                args.get(pos + 1).filter(|s| !s.starts_with("--")).map(std::path::PathBuf::from).unwrap_or_else(|| {
+                    eprintln!("--pg-tls-key requires a path"); std::process::exit(2);
+                })
+            });
+            #[cfg(feature = "ti")]
+            let pg_allow_plaintext = args.iter().any(|a| a == "--pg-allow-plaintext");
+            let pg_require_tls = if let Some(arg) = args.iter().find(|a| a.starts_with("--pg-require-tls=")) {
+                match arg.strip_prefix("--pg-require-tls=").unwrap() {
+                    "true" | "1" => Some(true),
+                    "false" | "0" => Some(false),
+                    other => { eprintln!("Invalid --pg-require-tls value: {other}"); std::process::exit(2); }
+                }
+            } else if let Some(pos) = args.iter().position(|a| a == "--pg-require-tls") {
+                if let Some(next) = args.get(pos + 1).filter(|s| !s.starts_with("--")) {
+                    match next.as_str() {
+                        "true" | "1" => Some(true),
+                        "false" | "0" => Some(false),
+                        other => { eprintln!("Invalid --pg-require-tls value: {other}"); std::process::exit(2); }
+                    }
+                } else {
+                    Some(true)
+                }
+            } else {
+                None
+            };
+            #[cfg(not(feature = "ti"))]
+            let _ = pg_require_tls;
+            if (pg_tls_cert.is_some() && pg_tls_key.is_none()) || (pg_tls_cert.is_none() && pg_tls_key.is_some()) {
+                eprintln!("Both --pg-tls-cert and --pg-tls-key must be specified together"); std::process::exit(2);
+            }
+            let pg=args.iter().position(|a|a=="--pg").map(|pos|{
+                args.get(pos+1).and_then(|s|s.parse::<u16>().ok()).unwrap_or_else(||{
+                    eprintln!("--pg requires a port from 0 to 65535");std::process::exit(2);
+                })
+            });
+            if pg.is_none() && (pg_bind.is_some() || pg_auth_config.is_some()) {
+                eprintln!("--pg-bind and --pg-auth-config require --pg"); std::process::exit(2);
+            }
+            if pg.is_some() && ti_store.is_none(){eprintln!("--pg requires --ti-store");std::process::exit(2);}
+            #[cfg(feature = "ti")]
+            let pg_options = lume::ti_pg::PgOptions {
+                tls_cert: pg_tls_cert,
+                tls_key: pg_tls_key,
+                allow_plaintext: pg_allow_plaintext,
+                require_tls: pg_require_tls,
+                ..Default::default()
+            };
+            #[cfg(feature = "ti")]
+            let result=match ti_store{
+                Some(root) if args.iter().any(|a| a == "--otlp") => (|| {
+                    let token = lume::ti_otlp::token(&args)?;
+                    let address = bind.unwrap_or("127.0.0.1");
+                    if http_auth.is_none() {
+                        lume::ti_otlp::validate_bind(address, &token)?;
+                    }
+                    let mut server =
+                        lume::ti_http::TiServer::open_with_width(Path::new(root), Some(10))?
+                            .with_otlp(token)?;
+                    if let Some(path) = docs_index {
+                        server = server.with_docs_index(path)?;
+                    }
+                    if let Some(path) = pg_auth_config {
+                        server = server.with_pg_auth_config(path)?;
+                    }
+                    lume::agent::serve_with_ti_server_pg_http_options(
+                        port,
+                        std::sync::Arc::new(server),
+                        address,
+                        pg,
+                        pg_bind,
+                        &pg_options,
+                        http_auth,
+                    )
+                })(),
+                Some(root) => lume::agent::serve_with_ti_pg_tls_http_config(
+                    port,
+                    std::path::Path::new(root),
+                    bind.unwrap_or("127.0.0.1"),
+                    pg,
+                    pg_bind,
+                    pg_auth_config,
+                    docs_index,
+                    &pg_options,
+                    http_auth,
+                ),
+                None => lume::agent::serve_on_with_http_auth(
+                    port,
+                    bind.unwrap_or("127.0.0.1"),
+                    http_auth,
+                ),
+            };
+            #[cfg(not(feature = "ti"))]
+            let result = if ti_store.is_some() {
+                Err("--ti-store requires a build with --features ti".to_string())
+            } else {
+                lume::agent::serve_on_with_http_auth(
+                    port,
+                    bind.unwrap_or("127.0.0.1"),
+                    http_auth,
+                )
+            };
+            if let Err(e) = result {
                 eprintln!("Error starting serve mode: {}", e);
                 std::process::exit(1);
             }
@@ -159,7 +361,11 @@ fn main() {
             let mut ollama_url = String::from("http://localhost:11434");
             let mut ollama_model = String::from("gemma4:31b-cloud");
             let mut verbose = false;
+            let mut json_output = false;
+            let mut events = false;
             let mut db_dir = String::from(".lume-index");
+            let mut ti_store: Option<String> = None;
+            let mut docs_index: Option<String> = None;
             let mut question_parts = Vec::new();
             
             let mut idx = 2;
@@ -174,6 +380,18 @@ fn main() {
                 } else if arg == "--db" && idx + 1 < args.len() {
                     db_dir = args[idx + 1].clone();
                     idx += 2;
+                } else if arg == "--ti-store" && idx + 1 < args.len() {
+                    ti_store = Some(args[idx + 1].clone());
+                    idx += 2;
+                } else if arg == "--docs-index" && idx + 1 < args.len() {
+                    docs_index = Some(args[idx + 1].clone());
+                    idx += 2;
+                } else if arg == "--json" {
+                    json_output = true;
+                    idx += 1;
+                } else if arg == "--events" {
+                    events = true;
+                    idx += 1;
                 } else if arg == "-v" || arg == "-V" || arg == "--verbose" {
                     verbose = true;
                     idx += 1;
@@ -189,7 +407,17 @@ fn main() {
                 std::process::exit(1);
             }
             
-            if let Err(e) = lume::agent::run_agent_loop(&question, &ollama_url, &ollama_model, &db_dir, verbose) {
+            if let Err(e) = lume::agent::run_agent_loop(lume::agent::AgentLoopArgs {
+                question: &question,
+                ollama_url: &ollama_url,
+                ollama_model: &ollama_model,
+                db_dir: &db_dir,
+                verbose,
+                ti_store: ti_store.as_deref(),
+                docs_index: docs_index.as_deref(),
+                json_output,
+                events,
+            }) {
                 eprintln!("Error running agent: {}", e);
                 std::process::exit(1);
             }
@@ -206,6 +434,413 @@ fn main() {
             std::process::exit(1);
         }
     }
+}
+
+#[cfg(feature = "ti")]
+fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
+    if args.iter().any(|a| a == "-h" || a == "--help") {
+        println!("Usage: lume ti ingest --signalk <url> --store <root> [--config <path>] [--token <file|token>] [--serve] [--bind <IP>] [--port <port>] [--pg <port>] [--pg-bind <IP>] [--pg-auth-config <path>] [--pg-tls-cert <path>] [--pg-tls-key <path>] [--pg-require-tls[=<bool>]] [--pg-allow-plaintext] [--docs-index <index>] [--self-urn <urn>] [--otlp] [--otlp-token-file <path>] [--http-token-file <path>] [--nuts-auth [URL]] [--nuts-allow <list|@file>]");
+        println!("--pg-bind defaults to --bind; HTTP bind is independent. --pg-auth-config replaces store auth without merging; other sections are ignored. Unix file must be private (chmod 600).");
+        return Ok(());
+    }
+    let mut signalk_url = None;
+    let mut store_root = None;
+    let mut config_path = None;
+    let mut token_arg = None;
+    let mut serve = false;
+    let mut bind = None;
+    let mut port = 5863u16;
+    let mut pg = None;
+    let mut pg_bind = None;
+    let mut pg_auth_config = None;
+    let mut pg_tls_cert = None;
+    let mut pg_tls_key = None;
+    let mut pg_allow_plaintext = false;
+    let mut pg_require_tls = None;
+    let mut self_urn = None;
+    let mut docs_index = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--signalk" => {
+                let val = args.get(i + 1).ok_or("--signalk requires a URL")?;
+                signalk_url = Some(val.clone());
+                i += 2;
+            }
+            "--store" => {
+                let val = args.get(i + 1).ok_or("--store requires a path")?;
+                store_root = Some(val.clone());
+                i += 2;
+            }
+            "--config" => {
+                let val = args.get(i + 1).ok_or("--config requires a path")?;
+                config_path = Some(val.clone());
+                i += 2;
+            }
+            "--token" => {
+                let val = args.get(i + 1).ok_or("--token requires a file or token value")?;
+                if !std::path::Path::new(val).is_file() {
+                    eprintln!("Deprecated: raw ingest --token exposes credentials in process arguments; use --token <token-file> instead.");
+                }
+                token_arg = Some(val.clone());
+                i += 2;
+            }
+            "--docs-index" => {
+                docs_index = Some(args.get(i + 1).filter(|s| !s.starts_with("--")).ok_or("--docs-index requires an index path")?.clone());
+                i += 2;
+            }
+            "--self-urn" => {
+                let val = args.get(i + 1).ok_or("--self-urn requires a URN")?;
+                self_urn = Some(val.clone());
+                i += 2;
+            }
+            "--otlp" => {
+                i += 1;
+            }
+            "--otlp-token-file" => {
+                args.get(i + 1).ok_or("--otlp-token-file requires a path")?;
+                i += 2;
+            }
+            "--nuts-auth" => {
+                i += 1;
+                if args.get(i).is_some_and(|s| !s.starts_with("--")) { i += 1; }
+            }
+            "--nuts-allow" => {
+                args.get(i + 1).filter(|s| !s.starts_with("--"))
+                    .ok_or("--nuts-allow requires a list or @file")?;
+                i += 2;
+            }
+            "--http-token-file" => {
+                args.get(i + 1)
+                    .filter(|s| !s.starts_with("--"))
+                    .ok_or("--http-token-file requires a path")?;
+                i += 2;
+            }
+            "--serve" => {
+                serve = true;
+                i += 1;
+            }
+            "--bind" => {
+                let val = args.get(i + 1).ok_or("--bind requires an IP address")?;
+                bind = Some(val.clone());
+                i += 2;
+            }
+            "--port" | "-p" => {
+                let val = args.get(i + 1).ok_or("--port requires a port")?;
+                port = val.parse::<u16>().map_err(|_| "invalid --port")?;
+                i += 2;
+            }
+            "--pg" => {
+                let val = args.get(i + 1).ok_or("--pg requires a port")?;
+                pg = Some(val.parse::<u16>().map_err(|_| "invalid --pg port")?);
+                i += 2;
+            }
+            "--pg-bind" => {
+                pg_bind = Some(args.get(i + 1).ok_or("--pg-bind requires an IP address")?.clone());
+                i += 2;
+            }
+            "--pg-auth-config" => {
+                pg_auth_config = Some(args.get(i + 1).ok_or("--pg-auth-config requires a path")?.clone());
+                i += 2;
+            }
+            "--pg-tls-cert" => {
+                pg_tls_cert = Some(args.get(i + 1).ok_or("--pg-tls-cert requires a path")?.clone());
+                i += 2;
+            }
+            "--pg-tls-key" => {
+                pg_tls_key = Some(args.get(i + 1).ok_or("--pg-tls-key requires a path")?.clone());
+                i += 2;
+            }
+            "--pg-allow-plaintext" => {
+                pg_allow_plaintext = true;
+                i += 1;
+            }
+            "--pg-require-tls" => {
+                if let Some(next) = args.get(i + 1).filter(|s| !s.starts_with("--")) {
+                    match next.as_str() {
+                        "true" | "1" => { pg_require_tls = Some(true); i += 2; }
+                        "false" | "0" => { pg_require_tls = Some(false); i += 2; }
+                        other => return Err(format!("Invalid --pg-require-tls value: {other}")),
+                    }
+                } else {
+                    pg_require_tls = Some(true);
+                    i += 1;
+                }
+            }
+            opt if opt.starts_with("--pg-require-tls=") => {
+                match opt.strip_prefix("--pg-require-tls=").unwrap() {
+                    "true" | "1" => pg_require_tls = Some(true),
+                    "false" | "0" => pg_require_tls = Some(false),
+                    other => return Err(format!("Invalid --pg-require-tls value: {other}")),
+                }
+                i += 1;
+            }
+            other => return Err(format!("Unknown option: {other}")),
+        }
+    }
+
+    if args
+        .iter()
+        .any(|a| a == "--otlp" || a == "--otlp-token-file")
+        && !serve
+    {
+        return Err("--otlp and --otlp-token-file require --serve".into());
+    }
+    if args.iter().any(|arg| arg == "--http-token-file") && !serve {
+        return Err("--http-token-file requires --serve".into());
+    }
+    if args.iter().any(|arg| arg == "--nuts-auth" || arg == "--nuts-allow") && !serve {
+        return Err("--nuts-auth and --nuts-allow require --serve".into());
+    }
+    if docs_index.is_some() && !serve { return Err("--docs-index requires --serve".into()); }
+    if pg.is_some() && !serve { return Err("--pg requires --serve".into()); }
+    if pg.is_none() && (pg_bind.is_some() || pg_auth_config.is_some()) {
+        return Err("--pg-bind and --pg-auth-config require --pg".into());
+    }
+    if (pg_tls_cert.is_some() && pg_tls_key.is_none()) || (pg_tls_cert.is_none() && pg_tls_key.is_some()) {
+        return Err("Both --pg-tls-cert and --pg-tls-key must be specified together".into());
+    }
+    if let Some(address) = &pg_bind {
+        address.parse::<std::net::IpAddr>().map_err(|_| "Invalid --pg-bind IP address")?;
+    }
+    let store_root_str = store_root.ok_or("--store is required")?;
+    let store_path = PathBuf::from(&store_root_str);
+    let http_auth = lume::http_auth::HttpBearer::from_server_args(args, &store_path)?;
+    if serve {
+        lume::http_auth::validate_bind(bind.as_deref().unwrap_or("127.0.0.1"), http_auth.is_some())?;
+    }
+
+    let mut config = if let Some(ref cp) = config_path {
+        let content = fs::read_to_string(cp)
+            .map_err(|e| format!("Failed to read config file {cp}: {e}"))?;
+        ti_contracts::TiConfig::from_toml(&content)
+            .map_err(|e| format!("Invalid ti.toml config: {e}"))?
+    } else {
+        let default_config_file = store_path.join("ti.toml");
+        if default_config_file.is_file() {
+            let content = fs::read_to_string(&default_config_file)
+                .map_err(|e| format!("Failed to read {}: {e}", default_config_file.display()))?;
+            ti_contracts::TiConfig::from_toml(&content)
+                .map_err(|e| format!("Invalid ti.toml config: {e}"))?
+        } else {
+            ti_contracts::TiConfig::default()
+        }
+    };
+
+    config.store_root = store_root_str.clone();
+
+    if let Some(url) = signalk_url {
+        config.signal_k.url = ti_ingest::service::normalize_signalk_url(&url);
+    }
+    if let Some(tok) = token_arg {
+        config.signal_k.token = ti_ingest::service::resolve_token(Some(&tok), config.signal_k.token.as_deref());
+    }
+
+    config.validate().map_err(|e| format!("Configuration validation failed: {e}"))?;
+
+    let running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+
+    let mut service = ti_ingest::service::IngestService::new(config, running.clone());
+    if let Some(urn) = self_urn {
+        service = service.with_self_urn(urn);
+    }
+
+    if serve {
+        let serve_bind = bind.unwrap_or_else(|| "127.0.0.1".to_string());
+        let width = service.config.width_seconds;
+        match lume::ti_http::TiServer::open_with_width(&store_path, Some(width)) {
+            Ok(server) => {
+                let server = if args.iter().any(|a| a == "--otlp") {
+                    let token = lume::ti_otlp::token(args)?;
+                    if http_auth.is_none() {
+                        lume::ti_otlp::validate_bind(&serve_bind, &token)?;
+                    }
+                    server.with_otlp(token)?
+                } else {
+                    server
+                };
+                let server = if let Some(path) = &docs_index {
+                    server.with_docs_index(Path::new(path))?
+                } else { server };
+                let server = if let Some(path) = &pg_auth_config {
+                    server.with_pg_auth_config(Path::new(path))?
+                } else { server };
+                // Validate credentials and auth-file policy before telemetry starts.
+                if pg.is_some() {
+                    server.validate_pg_auth(pg_bind.as_deref().unwrap_or(&serve_bind))?;
+                }
+                let ti_server = std::sync::Arc::new(server);
+                let ti_server_clone = ti_server.clone();
+                service.set_flush_hook(std::sync::Arc::new(move || {
+                    let _ = ti_server_clone.reload_engine();
+                }));
+                let pg_options = lume::ti_pg::PgOptions {
+                    tls_cert: pg_tls_cert.map(PathBuf::from).or_else(|| service.config.bind.pg_tls_cert.clone().map(PathBuf::from)),
+                    tls_key: pg_tls_key.map(PathBuf::from).or_else(|| service.config.bind.pg_tls_key.clone().map(PathBuf::from)),
+                    allow_plaintext: pg_allow_plaintext || service.config.bind.pg_allow_plaintext,
+                    require_tls: pg_require_tls.or(service.config.bind.pg_require_tls),
+                    ..Default::default()
+                };
+                std::thread::spawn(move || {
+                    println!("Starting integrated query server on {serve_bind}:{port}...");
+                    if let Err(e) = lume::agent::serve_with_ti_server_pg_http_options(
+                        port,
+                        ti_server,
+                        &serve_bind,
+                        pg,
+                        pg_bind.as_deref(),
+                        &pg_options,
+                        http_auth,
+                    ) {
+                        eprintln!("Error in query server: {e}");
+                    }
+                });
+            }
+            Err(e) => {
+                if pg.is_some() { return Err(format!("Failed to initialize integrated query server: {e}")); }
+                eprintln!("Failed to initialize integrated query server: {e}");
+            }
+        }
+    }
+
+    println!(
+        "Starting live Signal K ingestion from {} into {}",
+        service.config.signal_k.url, store_root_str
+    );
+    service.run().map_err(|e| format!("Ingest service error: {e}"))?;
+    println!("Ingest service shut down cleanly.");
+    Ok(())
+}
+
+#[cfg(feature = "ti")]
+fn handle_ti_sync(args: &[String]) -> Result<(), String> {
+    if args.iter().any(|a| a == "-h" || a == "--help") {
+        println!("Usage: lume ti sync --to <url> --store <root> [--token <token>] [--token-file <path>] [--chunk-size <bytes>] [--link-budget <bytes>] [--idle]");
+        return Ok(());
+    }
+    let mut to_url: Option<String> = None;
+    let mut store_path: Option<std::path::PathBuf> = None;
+    let mut token: Option<String> = None;
+    let mut token_file: Option<std::path::PathBuf> = None;
+    let mut chunk_size = ti_sync::DEFAULT_CHUNK_SIZE;
+    let mut link_budget: Option<u64> = None;
+    let mut idle = false;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--to" => {
+                i += 1;
+                to_url = Some(args.get(i).ok_or("missing value for --to")?.clone());
+            }
+            "--store" => {
+                i += 1;
+                store_path = Some(std::path::PathBuf::from(
+                    args.get(i).ok_or("missing value for --store")?,
+                ));
+            }
+            "--token" => {
+                i += 1;
+                token = Some(args.get(i).ok_or("missing value for --token")?.clone());
+                eprintln!("Deprecated: raw sync --token exposes credentials in process arguments; use --token-file <path> instead.");
+            }
+            "--token-file" => {
+                i += 1;
+                token_file = Some(std::path::PathBuf::from(
+                    args.get(i).ok_or("missing value for --token-file")?,
+                ));
+            }
+            "--chunk-size" => {
+                i += 1;
+                let val: usize = args
+                    .get(i)
+                    .ok_or("missing value for --chunk-size")?
+                    .parse()
+                    .map_err(|e| format!("invalid --chunk-size: {e}"))?;
+                chunk_size = val;
+            }
+            "--link-budget" => {
+                i += 1;
+                let val: u64 = args
+                    .get(i)
+                    .ok_or("missing value for --link-budget")?
+                    .parse()
+                    .map_err(|e| format!("invalid --link-budget: {e}"))?;
+                link_budget = Some(val);
+            }
+            "--idle" => {
+                idle = true;
+            }
+            other => return Err(format!("unknown argument for lume ti sync: {other}")),
+        }
+        i += 1;
+    }
+
+    let to = to_url.ok_or("missing required --to <url>")?;
+    let store_root = store_path.ok_or("missing required --store <root>")?;
+
+    if !store_root.exists() {
+        return Err(format!("store root does not exist: {}", store_root.display()));
+    }
+
+    let ti_toml = store_root.join("ti.toml");
+    let cfg = if ti_toml.exists() {
+        let content = std::fs::read_to_string(&ti_toml).map_err(|e| format!("failed to read ti.toml: {e}"))?;
+        Some(ti_contracts::TiConfig::from_toml(&content).map_err(|e| format!("invalid ti.toml: {e}"))?)
+    } else {
+        None
+    };
+
+    let resolved_token = if let Some(t) = token {
+        Some(t)
+    } else if let Some(tf) = token_file {
+        let content = std::fs::read_to_string(&tf)
+            .map_err(|e| format!("failed to read token file '{}': {e}", tf.display()))?;
+        let trimmed = content.trim().to_string();
+        if trimmed.is_empty() {
+            return Err(format!("token file '{}' is empty", tf.display()));
+        }
+        Some(trimmed)
+    } else if let Some(cfg) = &cfg {
+        if cfg.sync.token_file.is_none() && cfg.sync.token.is_some() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let meta = std::fs::metadata(&ti_toml)
+                    .map_err(|e| format!("cannot stat ti.toml: {e}"))?;
+                if meta.permissions().mode() & 0o077 != 0 {
+                    return Err("ti.toml containing inline sync token must not be group- or world-accessible (use chmod 600, or prefer token_file)".into());
+                }
+            }
+        }
+        cfg.sync.resolved_token()?
+    } else {
+        None
+    };
+
+    let width = if let Some(cfg) = &cfg {
+        cfg.width_seconds
+    } else {
+        ti_sql::store_width(&store_root, None).unwrap_or(10)
+    };
+
+    let store = ti_store::Store::open_or_create(&store_root, width)
+        .map_err(|e| format!("failed to open store: {e}"))?;
+
+    let transport = ti_sync::HttpTransport::new(to, resolved_token);
+    let client = ti_sync::SyncClient::new(std::sync::Arc::new(std::sync::Mutex::new(store)), transport)
+        .with_chunk_size(chunk_size)
+        .with_link_budget(link_budget)
+        .with_idle_priority(idle);
+
+    let report = client.sync_all().map_err(|e| format!("sync failed: {e}"))?;
+    println!(
+        "Synced {} shards ({} bytes in {} chunks, {} retries)",
+        report.shards_synced, report.bytes_uploaded, report.chunks_sent, report.retries
+    );
+
+    Ok(())
 }
 
 fn print_global_help() {
@@ -238,6 +873,14 @@ SUBCOMMANDS:
   stream     Stream the live phase/Weber search relaxation as NDJSON for the 3D visualizer
   answer     Agentic plan→retrieve→answer loop with citations, streamed for the visualizer
 "#, env!("CARGO_PKG_VERSION"));
+    #[cfg(feature = "ti")]
+    println!(r#"  sql        Read-only SQL over a Lume index (sql --help)
+
+TIME SERIES (Lume TI):
+  ti query   SQL over telemetry, documents and alerts in one store (ti --help)
+  ti repl    Interactive SQL shell over a TI store
+  ti ingest  Stream a live Signal K server into a store (--serve adds HTTP, --pg adds pgwire)
+  ti status  Store coverage, shards and ingest lag"#);
 }
 
 fn print_index_help() {
@@ -539,7 +1182,7 @@ fn scan_directory(
                 let ext_lower = ext.to_lowercase();
                 if matches!(
                     ext_lower.as_str(),
-                    "pdf" | "txt" | "md" | "rs" | "py" | "js" | "ts" | "go" | "c" | "cpp" | "h" | "java" | "sh" | "yml" | "yaml" | "toml" | "html" | "css" | "ini" | "cfg" | "conf"
+                    "pdf" | "epub" | "txt" | "md" | "rs" | "py" | "js" | "ts" | "go" | "c" | "cpp" | "h" | "java" | "sh" | "yml" | "yaml" | "toml" | "html" | "css" | "ini" | "cfg" | "conf"
                 ) {
                     files.push(path);
                 }
@@ -571,45 +1214,6 @@ fn find_extractor_script() -> PathBuf {
         }
     }
     PathBuf::from("lib/lume_extractor.py")
-}
-
-fn run_extractor_pdf(pdf_path: &Path) -> Result<Vec<Section>, String> {
-    let script = find_extractor_script();
-    let output = Command::new("uv")
-        .arg("run")
-        .arg(&script)
-        .arg("pdf")
-        .arg(pdf_path)
-        .output()
-        .map_err(|e| format!("Failed to spawn `uv run {}`: {}", script.display(), e))?;
-
-    if !output.status.success() {
-        return Err(format!("Python extractor failed: {}", String::from_utf8_lossy(&output.stderr)));
-    }
-
-    let stdout_str = String::from_utf8_lossy(&output.stdout);
-    let json_val: serde_json::Value = serde_json::from_str(&stdout_str)
-        .map_err(|e| format!("Failed to parse extractor output: {}. Raw: {}", e, stdout_str))?;
-
-    if !json_val["success"].as_bool().unwrap_or(false) {
-        return Err(json_val["error"].as_str().unwrap_or("Unknown error").to_string());
-    }
-
-    let mut sections = Vec::new();
-    let pages = json_val["pages"].as_array().ok_or("No pages in output")?;
-    let filename_str = pdf_path.to_string_lossy().to_string();
-    for page in pages {
-        let page_num = page["page_number"].as_u64().unwrap_or(0);
-        let text = page["text"].as_str().unwrap_or("").to_string();
-        sections.push(Section {
-            title: format!("Page {}", page_num),
-            body: text,
-            line_number: page_num as usize,
-            filename: Some(filename_str.clone()),
-            entities: Vec::new(),
-        });
-    }
-    Ok(sections)
 }
 
 fn run_extractor_entities(
@@ -700,49 +1304,6 @@ fn chunk_text_file(path: &Path, content: &str) -> Vec<Section> {
     }
 }
 
-fn load_tagger_csv(path: &Path) -> io::Result<Tagger> {
-    let kind = path.file_stem().and_then(|s| s.to_str()).unwrap_or("entity").to_string();
-    let text = std::fs::read_to_string(path)?;
-    let mut lines = text.lines();
-    let header_line = match lines.next() {
-        Some(h) => h,
-        None => return Err(io::Error::new(io::ErrorKind::InvalidData, "Empty CSV file")),
-    };
-    let headers = lume::parse_csv_line(header_line);
-    let action_col = headers
-        .iter()
-        .position(|h| h.trim().eq_ignore_ascii_case("action"));
-    let is_regex_col = headers
-        .iter()
-        .position(|h| h.trim().eq_ignore_ascii_case("is_regex"));
-
-    let mut entries = Vec::new();
-    for (i, raw) in lines.enumerate() {
-        let cells = lume::parse_csv_line(raw);
-        let phrase = cells.first().map(|s| s.trim()).unwrap_or("");
-        if phrase.is_empty() {
-            continue;
-        }
-        let output_override = action_col
-            .and_then(|idx| cells.get(idx))
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string());
-        let is_regex_val = is_regex_col
-            .and_then(|idx| cells.get(idx))
-            .map(|s| s.trim().eq_ignore_ascii_case("true"))
-            .unwrap_or(false);
-
-        let mut entry = Entry::new(phrase, kind.clone(), format!("csv-{}", i))
-            .with_regex(is_regex_val);
-        if let Some(out) = output_override {
-            entry = entry.with_output(out);
-        }
-        entries.push(entry);
-    }
-    Tagger::build(entries)
-}
-
 /// Reads a file as text, tolerating non-UTF-8 content. UTF-16 files (BOM) are
 /// decoded properly; other encodings are decoded lossily; content that still
 /// looks binary (>5% undecodable) yields Ok(None) so the caller can skip the
@@ -767,11 +1328,11 @@ fn read_text_tolerant(path: &Path) -> Result<Option<String>, String> {
         return Ok(Some(String::new()));
     }
     if bytes.len() >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE {
-        let utf16: Vec<u16> = bytes[2..].chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+        let utf16: Vec<u16> = bytes[2..].as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
         return Ok(accept(String::from_utf16_lossy(&utf16)));
     }
     if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
-        let utf16: Vec<u16> = bytes[2..].chunks_exact(2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect();
+        let utf16: Vec<u16> = bytes[2..].as_chunks::<2>().0.iter().map(|c| u16::from_be_bytes([c[0], c[1]])).collect();
         return Ok(accept(String::from_utf16_lossy(&utf16)));
     }
     // BOM-less UTF-16: NUL bytes are valid UTF-8, so a UTF-16 file of mostly
@@ -782,9 +1343,9 @@ fn read_text_tolerant(path: &Path) -> Result<Option<String>, String> {
     if nul_total * 4 > bytes.len() {
         let odd_nuls = bytes.iter().skip(1).step_by(2).filter(|&&b| b == 0).count();
         let utf16: Vec<u16> = if odd_nuls * 2 >= nul_total {
-            bytes.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect()
+            bytes.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes([c[0], c[1]])).collect()
         } else {
-            bytes.chunks_exact(2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect()
+            bytes.as_chunks::<2>().0.iter().map(|c| u16::from_be_bytes([c[0], c[1]])).collect()
         };
         return Ok(accept(String::from_utf16_lossy(&utf16)));
     }
@@ -820,9 +1381,6 @@ fn flush_searchable_indexes(
     db_path: &Path,
 ) -> Result<usize, String> {
     let all_sections = collect_all_sections(cached_files);
-    if all_sections.is_empty() {
-        return Ok(0);
-    }
     let count = all_sections.len();
     let bm25 = Bm25Index::build(all_sections, tagger);
     let corpus_terms: Vec<Vec<u8>> = bm25.posting_lists.keys().cloned().collect();
@@ -837,6 +1395,10 @@ fn flush_searchable_indexes(
     save_json(&db_path.join("bm25.json"), &bm25)?;
     save_json(&db_path.join("spelling.json"), &spelling)?;
     save_json(&db_path.join("entity_graph.json"), &entity_graph)?;
+    // Publish only after every searchable table has been written.
+    save_json(&db_path.join("manifest.json"), &serde_json::json!({
+        "generation": lume::uuid_v4(), "sections": count,
+    }))?;
     Ok(count)
 }
 
@@ -856,6 +1418,7 @@ fn format_eta(secs: f64) -> String {
     }
 }
 
+#[allow(clippy::too_many_arguments, reason = "private CLI entry; the ten index flags stay positional")]
 fn run_indexing(
     target_dir: &str,
     db_dir: &str,
@@ -909,6 +1472,8 @@ fn run_indexing(
     let mut last_flush = Instant::now();
     let mut files_indexed = 0usize;
     let mut files_skipped_binary = 0usize;
+    let mut files_skipped_documents = 0usize;
+    let mut units_skipped_documents = 0usize;
 
     for (file_num, file_path) in files.iter().enumerate() {
         let file_progress = format!("[file {}/{}]", file_num + 1, total_files);
@@ -937,9 +1502,25 @@ fn run_indexing(
         if needs_index {
             let file_start = Instant::now();
             let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
-            let mut sections = if ext == "pdf" {
-                println!("[⚙️] {} Processing PDF file: {}", file_progress, path_str);
-                run_extractor_pdf(file_path)?
+            let mut sections = if ext == "pdf" || ext == "epub" {
+                println!("[⚙️] {} Processing document: {}", file_progress, path_str);
+                let script = find_extractor_script();
+                match lume::document_extract::extract(file_path, if ext == "pdf" { Some(&script) } else { None }) {
+                    Ok(report) => {
+                        units_skipped_documents += report.skipped_units;
+                        if report.skipped_units > 0 {
+                            eprintln!("[⚠️] {}: skipped {} pages/chapters: {}", path_str, report.skipped_units, report.warnings.join("; "));
+                        }
+                        if report.sections.is_empty() { files_skipped_documents += 1; }
+                        report.sections
+                    }
+                    Err(error) => {
+                        files_skipped_documents += 1;
+                        cached_files.remove(&path_str);
+                        eprintln!("[⚠️] Document skipped {}: {}", path_str, error);
+                        continue;
+                    }
+                }
             } else {
                 let content = match read_text_tolerant(file_path)? {
                     Some(c) => c,
@@ -997,12 +1578,11 @@ fn run_indexing(
         }
     }
 
+    if files_skipped_documents > 0 || units_skipped_documents > 0 {
+        eprintln!("[⚠️] Extraction warnings: {} files skipped, {} pages/chapters skipped.", files_skipped_documents, units_skipped_documents);
+    }
     let all_sections = collect_all_sections(&cached_files);
 
-    if all_sections.is_empty() {
-        println!("[⚠️] No sections to index.");
-        return Ok(());
-    }
 
     println!(
         "[📊] Indexing {} sections total ({} files indexed this run, {} skipped as binary, {} files in corpus)...",
@@ -1270,28 +1850,6 @@ fn run_indexing(
     Ok(())
 }
 
-fn correct_query(spelling: &SpellIndex, query: &str) -> String {
-    let mut words = Vec::new();
-    for word in query.split_whitespace() {
-        let clean: String = word.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase();
-        if clean.is_empty() {
-            words.push(word.to_string());
-            continue;
-        }
-        if spelling.vocab_set.contains(&clean) {
-            words.push(word.to_string());
-        } else {
-            let suggestions = spelling.correct_word(&clean, 1);
-            if let Some((best, _)) = suggestions.first() {
-                words.push(best.clone());
-            } else {
-                words.push(word.to_string());
-            }
-        }
-    }
-    words.join(" ")
-}
-
 fn handle_search(args: &[String]) -> Result<(), String> {
     if args.iter().any(|a| a == "-h" || a == "--help") {
         print_search_help();
@@ -1348,97 +1906,55 @@ fn handle_search(args: &[String]) -> Result<(), String> {
 
     let query = query_opt.ok_or_else(|| String::from("Missing search query"))?;
 
-    let db_path = Path::new(&db_dir);
-    let state_file_path = db_path.join("state.json");
-    if !state_file_path.exists() {
-        return Err(format!("Index state file not found at {}. Index the directory first.", state_file_path.display()));
-    }
-    // Session/semantic caches live with the index, not in the process cwd.
-    lume::hybrid::set_cache_dir(db_path);
+    let index = LoadedIndex::open(&db_dir)?;
 
-    let state: IndexState = load_json(&state_file_path)?;
-    let bm25: Bm25Index = load_json(&db_path.join("bm25.json"))?;
-    let spelling: SpellIndex = load_json(&db_path.join("spelling.json"))?;
-
-    println!(
-        "Searching corpus: {} ({} sections, db: {})",
-        state.target_dir, bm25.sections.len(), db_dir
-    );
-
-    let mut corrected_query = query.clone();
-    if spell_check {
-        corrected_query = correct_query(&spelling, &query);
-        if corrected_query != query {
-            println!("Corrected query to: {}", corrected_query);
-        }
-    }
-
-    // SKG graph boost (Primitive 6 → 7): resolve the query's entities, walk the
-    // co-occurrence graph to their neighbors, and produce a per-section boost
-    // shared by both the lexical and hybrid paths. `beta = 0` disables it and
-    // reproduces the original ranking. Runs locally — no token needed.
-    let beta: f64 = match graph_beta {
+    let beta = match graph_beta {
         Some(v) => v,
         None => std::env::var("GRAPH_ALPHA").ok().and_then(|s| s.parse().ok()).unwrap_or(0.4),
     };
-    let skg_scores = compute_skg_for_search(&bm25, db_path, &corrected_query, beta, use_relatedness);
 
-    let token_opt = lume::hybrid::load_nuts_token();
-    // Tell the caller explicitly when the semantic leg can't engage — an MCP
-    // client asking for alpha > 0 must be able to see it got lexical-only.
-    if alpha > 0.0 && state.semantic_session_id.is_none() {
-        println!("[⚠️] Semantic search unavailable for this index (no semantic session — index with -s); falling back to lexical BM25.");
-    } else if alpha > 0.0 && token_opt.is_none() {
-        println!("[⚠️] Semantic search unavailable (no NUTS_SERVICES_TOKEN and shivvr endpoint is not local); falling back to lexical BM25.");
-    }
-    if let (Some(_sess_id), Some(_token)) = (&state.semantic_session_id, token_opt) {
-        if alpha > 0.0 {
-            println!("Executing hybrid search (alpha={}, graph={})...", alpha, beta);
-            let mut tagger = None;
-            if let Some(ref tag_dict) = state.tag_dict_path {
-                let tag_dict_p = Path::new(tag_dict);
-                if tag_dict_p.exists() {
-                    tagger = load_tagger_csv(tag_dict_p).ok();
-                }
-            }
+    let mode = if alpha > 0.0 {
+        SearchMode::HybridOrFallback
+    } else {
+        SearchMode::LexicalOnly
+    };
 
-            // Set environment variables for the execute_hybrid_search config lookup
-            std::env::set_var("ALPHA", alpha.to_string());
+    let (bm25_params, bm25_variant) = if alpha > 0.0 {
+        (Bm25Params::from_env(), SearchVariant::from_env())
+    } else {
+        (Bm25Params::default(), SearchVariant::Classic)
+    };
 
-            match lume::hybrid::execute_hybrid_search(
-                &bm25,
-                tagger.as_ref(),
-                &state.target_dir,
-                &corrected_query,
-                &skg_scores,
-                beta,
-            ) {
-                Ok(mut results) => {
-                    results.hits.truncate(limit);
-                    print_hybrid_results(&results, &corrected_query);
-                    return Ok(());
-                }
-                Err(err) => {
-                    eprintln!("Warning: Semantic hybrid search failed ({}), falling back to lexical BM25.", err);
-                }
-            }
-        }
-    }
+    let blend_mode = if std::env::var("LUME_BLEND_NORM").map(|v| v == "1" || v == "true").unwrap_or(false) {
+        BlendMode::Normalized
+    } else {
+        BlendMode::Multiplicative
+    };
 
-    println!("Executing lexical BM25 search (graph={})...", beta);
-    let params = Bm25Params::default();
-    let variant = SearchVariant::Classic;
-    let mut tagger = None;
-    if let Some(ref tag_dict) = state.tag_dict_path {
-        let tag_dict_p = Path::new(tag_dict);
-        if tag_dict_p.exists() {
-            tagger = load_tagger_csv(tag_dict_p).ok();
-        }
-    }
-    let mut hits = bm25.search(&corrected_query, variant, &params, tagger.as_ref());
-    lume::graph_search::apply_skg_boost(&mut hits, &skg_scores, beta);
-    hits.truncate(limit);
-    print_lexical_hits(&hits, &bm25, &corrected_query, &skg_scores);
+    let query_inversion = std::env::var("LUME_QUERY_INVERSION")
+        .map(|v| v == "1" || v == "true")
+        .unwrap_or(false);
+
+    let opts = SearchOptions {
+        limit,
+        spell_check,
+        mode,
+        alpha,
+        graph_beta: beta,
+        use_relatedness,
+        bm25_params,
+        bm25_variant,
+        blend_mode,
+        shivvr_url: std::env::var("SHIVVR_BASE_URL").ok(),
+        auth_token: None,
+        query_inversion,
+        max_snippet_chars: 6000,
+    };
+
+    let results = search(&index, &query, &opts)?;
+    let (stdout, stderr) = format_cli_output(&results, &index, &db_dir);
+    print!("{}", stdout);
+    eprint!("{}", stderr);
 
     Ok(())
 }
@@ -1796,7 +2312,7 @@ fn handle_answer(args: &[String]) -> Result<(), String> {
     // actually widens what the evaluator/answerer can see, instead of a fixed 10.
     let n_feed = candidates.clamp(10, 20);
 
-    let mut cands: Vec<lume::stream::Candidate> = Vec::new();
+    let mut cands: Vec<lume::stream::Candidate>;
     let mut round = 1usize;
     loop {
         cands = retrieve_union(&bm25, graph.as_ref(), beta, &queries, candidates);
@@ -1917,178 +2433,6 @@ Each frame is a JSON object: {{type:"frame", step, r_global, nodes:[{{id, pos[3]
 vel[3], acc[3], phase, cos_q, approach_vel, approach_acc, cluster, is_query}}]}}.
 A leading {{type:"meta"}} frame carries node labels; a trailing {{type:"done"}}.
 "#);
-}
-
-/// Loads the SKG graph and walks it for `query`, returning per-section boost
-/// scores. Returns an empty map (no boost) when `beta <= 0`, the graph file is
-/// missing, or no query entities resolve. Emits a stderr "SKG walk" trace.
-fn compute_skg_for_search(
-    bm25: &Bm25Index,
-    db_path: &Path,
-    query: &str,
-    beta: f64,
-    use_relatedness: bool,
-) -> std::collections::HashMap<usize, f64> {
-    use std::collections::HashMap;
-    if beta <= 0.0 {
-        return HashMap::new();
-    }
-    let graph_path = db_path.join("entity_graph.json");
-    if !graph_path.exists() {
-        eprintln!("\x1B[35m[SKG] No entity_graph.json found; graph boost disabled (re-run `lume index`).\x1B[0m");
-        return HashMap::new();
-    }
-    let graph: EntityGraph = match load_json(&graph_path) {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("\x1B[35m[SKG] Failed to load entity_graph.json ({}); graph boost disabled.\x1B[0m", e);
-            return HashMap::new();
-        }
-    };
-    let params = lume::graph_search::SkgBoostParams { beta, use_relatedness, ..Default::default() };
-    let walk = lume::graph_search::compute_skg_scores(bm25, &graph, query, &params);
-    print_skg_walk(&walk, bm25);
-    walk.scores
-}
-
-/// Prints the SKG traversal (resolved seed entities → their strongest
-/// neighbors) to stderr, using display labels. This is the "walk the graph from
-/// Mercédès" trace made visible.
-fn print_skg_walk(walk: &lume::graph_search::SkgWalk, bm25: &Bm25Index) {
-    let label = |k: &str| bm25.entity_labels.get(k).cloned().unwrap_or_else(|| k.to_string());
-    if walk.seeds.is_empty() {
-        println!("[SKG walk] no query entities resolved — no graph boost");
-        return;
-    }
-    let seeds: Vec<String> = walk.seeds.iter().map(|s| label(s)).collect();
-    let neighbors: Vec<String> = walk
-        .expanded
-        .iter()
-        .take(8)
-        .map(|(k, w)| format!("{} ({:.2})", label(k), w))
-        .collect();
-    println!(
-        "[SKG walk] seeds: {} → neighbors: {}",
-        seeds.join(", "),
-        if neighbors.is_empty() { "(none)".to_string() } else { neighbors.join(", ") }
-    );
-}
-
-/// Builds a short snippet centered on the line containing the most distinct
-/// query terms, with one line of surrounding context. Falls back to the first
-/// non-blank lines when no query term is found in the body. This replaces the
-/// old "first three lines" snippet, which never showed *why* a section matched.
-fn best_snippet(body: &str, query: &str) -> String {
-    if body.chars().count() <= 6000 {
-        return body.trim().to_string();
-    }
-
-    use std::collections::HashSet;
-    let q_tokens = lume::bm25::filter_query_stopwords(lume::tokenize(query));
-    let qset: HashSet<Vec<u8>> = q_tokens.into_iter().map(|t| t.bytes).collect();
-
-    let lines: Vec<&str> = body.lines().collect();
-    if lines.is_empty() {
-        return String::new();
-    }
-
-    let mut best_idx = 0usize;
-    let mut best_score = 0usize;
-    for (i, line) in lines.iter().enumerate() {
-        let mut seen: HashSet<&Vec<u8>> = HashSet::new();
-        for t in lume::tokenize(line) {
-            if let Some(k) = qset.get(&t.bytes) {
-                seen.insert(k);
-            }
-        }
-        if seen.len() > best_score {
-            best_score = seen.len();
-            best_idx = i;
-        }
-    }
-
-    if best_score == 0 {
-        return lines
-            .iter()
-            .filter(|l| !l.trim().is_empty())
-            .take(15)
-            .copied()
-            .collect::<Vec<_>>()
-            .join("\n");
-    }
-
-    let start = best_idx.saturating_sub(35);
-    let end = (best_idx + 45).min(lines.len());
-    let snippet = lines[start..end].join("\n");
-    let trimmed = snippet.trim();
-    if trimmed.chars().count() > 6000 {
-        let capped: String = trimmed.chars().take(6000).collect();
-        format!("{}…", capped)
-    } else {
-        trimmed.to_string()
-    }
-}
-
-fn print_lexical_hits(
-    hits: &[SearchHit],
-    bm25: &Bm25Index,
-    query: &str,
-    skg_scores: &std::collections::HashMap<usize, f64>,
-) {
-    if hits.is_empty() {
-        println!("No hits found.");
-        return;
-    }
-    for (i, hit) in hits.iter().enumerate() {
-        if let Some(sec) = bm25.sections.get(hit.section_index) {
-            let filename = sec.filename.as_deref().unwrap_or("unknown");
-            let skg_tag = match skg_scores.get(&hit.section_index) {
-                Some(s) if *s > 0.0 => format!(" [SKG: {:.2}]", s),
-                _ => String::new(),
-            };
-            println!(
-                "[{}] Score: {:.4}{} | {} (File: {}, Line: {})",
-                i + 1,
-                hit.score,
-                skg_tag,
-                sec.title,
-                filename,
-                sec.line_number
-            );
-            let filtered_entities: Vec<&str> = sec.entities.iter()
-                .map(|e| e.as_str())
-                .filter(|&e| e != "__LUME_PROCESSED__")
-                .collect();
-            if !filtered_entities.is_empty() {
-                println!("  Entities: {:?}", filtered_entities);
-            }
-            let snippet = best_snippet(&sec.body, query);
-            println!("{}\n", snippet);
-        }
-    }
-}
-
-fn print_hybrid_results(results: &lume::hybrid::HybridSearchResult, query: &str) {
-    if results.hits.is_empty() {
-        println!("No hybrid hits found.");
-        return;
-    }
-    for hit in &results.hits {
-        let filename = hit.filename.as_deref().unwrap_or("unknown");
-        println!(
-            "[{}] Hybrid Score: {:.4} (BM25: {:.4}, Semantic: {:.4}, SKG: {:.2}) | {} (File: {}, Line: {})",
-            hit.rank,
-            hit.hybrid_score,
-            hit.bm25_score,
-            hit.semantic_score,
-            hit.skg_score,
-            hit.title,
-            filename,
-            hit.line_number
-        );
-        let snippet = best_snippet(&hit.body, query);
-        println!("{}\n", snippet);
-    }
 }
 
 fn print_generate_help() {
@@ -2388,6 +2732,24 @@ USAGE:
 
 OPTIONS:
   -p, --port <PORT>      Port to bind the HTTP server to [default: 5863 — "LUME" on a phone keypad]
+  --ti-store <ROOT>     Open one shared TI engine for /ti and MCP (requires feature ti)
+  --docs-index <INDEX>  Add sections/entities tables; reload on index publication
+  --http-token-file <PATH> Require a bearer on every HTTP route; route tokens take precedence
+  --nuts-auth [URL]    Nuts RS256 JWT/AHP authentication [https://auth.nuts.services]
+  --nuts-allow <LIST>  Required emails/user_ids, comma list or @file; read/write scopes
+                      Public /health; JWKS cached in ROOT/auth/jwks.json
+                      Plain serve ROOT is .lume-index; non-loopback requires auth
+  --otlp               Enable OTLP HTTP/JSON /v1/metrics and /v1/logs (requires --ti-store)
+  --otlp-token-file <PATH> OTLP bearer; required off loopback without an HTTP bearer
+  --pg <PORT>          Enable read-only Postgres; requires --ti-store [off by default]
+  --pg-bind <IP>       Postgres bind only [defaults to --bind]
+  --pg-auth-config <PATH>  Private ti.toml: auth replaces store auth, no merging;
+                          other sections ignored; Unix chmod 600 required
+  --pg-tls-cert <PATH> PEM certificate or chain for Postgres TLS
+  --pg-tls-key <PATH>  PEM private key for Postgres TLS (Unix chmod 600 required)
+  --pg-require-tls[=<bool>] Require or disable TLS explicitly [true/false]
+  --pg-allow-plaintext Allow unencrypted Postgres connections on non-loopback binds
+  --bind <IP>           Bind address [default: 127.0.0.1]
   -h, --help             Prints help information
 "#);
 }
@@ -2401,6 +2763,10 @@ USAGE:
 
 OPTIONS:
   --db <DIR>                Path to the persisted index database [default: .lume-index]
+  --ti-store <ROOT>         Path to the TI store root directory
+  --docs-index <INDEX>      Path to documentation index for lume_sql
+  --json                    Emit structured JSON output
+  --events                  Emit live NDJSON events to stderr (thinking, tool_call, tool_result)
   --ollama-url <URL>        Ollama API URL [default: http://localhost:11434]
   --ollama-model <MODEL>    Ollama model name [default: gemma4:31b-cloud]
   -v, --verbose             Print verbose reasoning and tool logs
@@ -2417,11 +2783,23 @@ Stealth crawl webpage content and save it to the personal search collection.
 
 USAGE:
   lume crawl [FLAGS] <URL>
+  lume crawl --list <CSV> [--out <DIR>] [--only <ID,...>] [--formats pdf,epub,txt,html]
+             [--category <NAME>] [--limit <N>] [--max-mb <MB>] [--timeout <SECS>] [--force] [--dry-run]
 
 FLAGS:
   -h, --help             Prints help information
 
 ARGS:
   <URL>                  The webpage URL (or Hacker News story URL) to crawl
+
+LIST MODE:
+  Fetches every row of a reading-list CSV (header with title, format, url; category,
+  subcategory and publisher optional; see docs/cruiser_library.csv) into --out
+  [default: library], then `lume index <DIR>` indexes it. Each row's id is derived
+  from its URL; <DIR>/library.json maps files back to title, publisher and URL, and
+  reruns skip rows already fetched. Documents download as files and HTML pages become
+  Markdown. A local Grub (GRUB_BASE_URL, default http://localhost:6792) handles HTML and
+  retries blocked downloads when it is reachable; otherwise rows are fetched directly.
+  ZIM archives are skipped unless --formats names zim. --max-mb defaults to 128.
 "#);
 }

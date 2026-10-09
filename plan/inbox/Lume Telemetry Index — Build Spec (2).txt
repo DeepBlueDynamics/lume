@@ -1,0 +1,1361 @@
+=== PAGE 1 of 31 ===
+Lume Telemetry Index — Build Spec
+
+ Lume Telemetry Index — Build Spec
+
+   Oct 5, 2026 · ​@Tom
+
+ Purpose and goals
+
+  We are adding a bitmap-indexed, SQL-queryable telemetry index to Lume ("Lume TI"). It
+  sits beside Signal K and signalk-parquet, so one query can combine numeric thresholds,
+  discrete states, events, geography and full text across a fleet, and return in milliseconds.
+  It applies Pilosa/FeatureBase ideas (roaring bitmaps, bit-sliced indexes, time-sharded
+  column space) in Rust inside Lume. Apache DataFusion supplies the SQL engine.
+  The query it exists to answer:
+
+     SELECT vessel, date_bin(INTERVAL '10 minutes', ts) AS win,
+     max("environment.wind.speedTrue@max")
+     FROM telemetry
+     WHERE "propulsion.port.state" = 'started'
+
+        AND "electrical.bilge.pumpCycles" > 3
+        AND "environment.wind.speedTrue@max" > 12.9 -- 25 kn in m/s
+        AND match(notes, 'leak OR water')
+        AND ts > now() - INTERVAL '90 days'
+     GROUP BY vessel, win;
+
+ Goals
+
+   1. G1 Full SQL over Signal K. Full read-only SQL over bucketed telemetry and raw
+      samples, for one vessel or a fleet: joins, CTEs, subqueries and window functions.
+      Served over MCP, HTTP, CLI and the Postgres wire protocol, so psql, Grafana and
+      DBeaver connect unchanged.
+
+   2. G2 Fast selective queries. Queries with four or more predicates run in bitmap space.
+      See Benchmarks for targets on a Raspberry Pi 5 and on a shore host.
+
+   3. G3 Text and telemetry in one column space. match() over notes, logbook entries,
+      notifications and Meridian VHF transcripts is just another bitmap filter.
+
+   4. G4 Derived and rebuildable. Raw truth stays in signalk-parquet and the delta stream.
+      The index can be dropped and rebuilt at any time.
+
+   5. G5 Agent-first. Schema introspection, natural-language path resolution through Lume
+      hybrid search, and an explain that says what was pushed down.
+
+                                                                                                                                                                                                                                                    Page 1 of 31
+
+=== PAGE 2 of 31 ===
+Lume Telemetry Index — Build Spec
+
+   6. G6 Fleet-native. Each vessel indexes at the edge. Sealed shards replicate to shore over
+      intermittent links, and a shore node queries every vessel.
+
+   7. G7 Plugs into the boat's Pi computer. One-click install on a Hat Labs HALPI2 running
+      HaLOS (its container app store), and on any Raspberry Pi running OpenPlotter (the
+      Signal K App Store). No compiler, no cloud, and no change to OpenCPN or the NMEA
+      2000 network. Pi 4 (4 GB) is the floor; the CM5/Pi 5 class is the target.
+
+ Non-goals for v1
+
+      Replacing Signal K storage or the History API's provider. The History API adapter is a
+      stretch goal.
+      Raw-sample fidelity in the bitmap index. Raw samples are reached through a federated
+       raw table that reads Parquet directly.
+      Writes through SQL (no INSERT, UPDATE or DELETE).
+      Clustering or consensus. Every node is single-process, and fleet scale comes from
+      shard federation.
+      Sub-second alerting. Rules and alarms stay in Signal K.
+      Stored procedures, triggers or user-defined schemas. Queries get full read-only
+      DataFusion SQL, and pushdown changes only speed, never which SQL is accepted.
+
+ Done means
+
+      The golden query corpus (≥ 60 queries) returns results identical to the DuckDB oracle,
+      within fixed-point tolerance.
+      Benchmark targets are met on both reference machines.
+      An agent connected only to Lume's MCP server can answer the motivating query from
+      a plain-English question.
+      On the pilot vessel's HALPI, Lume TI installs from the Signal K App Store in under 30
+      minutes. An energy query then runs from psql and from the plugin's webapp.
+
+ Pilot vessel (PV-1)
+
+  PV-1 is the v1 reference boat: the first real dataset, the first install, and the test of whether
+  Lume TI really plugs into a Pi in an afternoon. She is a privately owned 16 m aluminium
+  hybrid catamaran in fit-out, which replaces the owner's previous boat ("the previous
+  boat" below). Her electronics were still being chosen as of February 2026, so ingest has to
+  work with whatever ends up on the NMEA 2000 backbone.
+
+                                                                                                                                                                                                                                                    Page 2 of 31
+
+=== PAGE 3 of 31 ===
+Lume Telemetry Index — Build Spec
+
+PV-1 runs a Hat Labs HALPI. If it is the HALPI2, it is a Raspberry Pi CM5 in an IP65
+aluminium case. It has an NVMe SSD, an isolated CAN-FD port for NMEA 2000, an isolated
+RS-485 port for NMEA 0183, and runs from 10–32 V or from the NMEA 2000 bus. The
+HALPI2's default OS, HaLOS, is container-based. Its Marine image ships Signal K, Grafana,
+InfluxDB and AvNav as containers behind Cockpit, a Homarr dashboard and single sign-
+on. A desktop image with Signal K and OpenCPN pre-installed is the alternative.
+
+Three things follow for the build:
+
+    Ingest. NMEA 2000 reaches Signal K straight from can0, so no gateway hardware is
+    needed.
+    Backfill. Existing history is in InfluxDB, not Parquet.
+    Install. On HaLOS, the primary install path is a container app, not a process spawned
+    from a Signal K plugin.
+
+What we know about the boat
+
+System      Equipment              Reaches         Main paths                           TI fields
+Propulsion  (status)               Signal K via
+
+Energy      Nanni N4.80            N2K engine      propulsion.*.revolutions ,           bsi , set ,
+storage     diesel + 2 × 25        gateway;        .temperature , .state , motor power  count
+            kW electric            format to                                            ( @starts )
+Solar       (published)            confirm with
+                                   Nanni
+            40 kWh bank
+            (published);           Victron         electrical.batteries.*.voltage ,     bsi
+            Victron
+            Multiplus 24 V         VE.Direct or    .current , .stateOfCharge
+            on the previous
+            boat                   Venus OS via
+
+            3.75 kWp array         signalk-venus-
+            (published);
+            Victron                plugin
+            SmartSolar
+            MPPT on the            as above        electrical.solar.*.panelPower ,      bsi
+            previous boat
+                                                   yield
+
+                                                                                                   Page 3 of 31
+
+=== PAGE 4 of 31 ===
+Lume Telemetry Index — Build Spec
+
+System          Equipment          Reaches         Main paths                         TI fields
+Navigation      (status)           Signal K via    navigation.position ,              bsi , geo
+                                   HALPI's native  .speedOverGround ,
+Instruments     B&G Zeus 3S,       CAN port        .courseOverGroundTrue ,            bsi
+                Halo 20+ radar,    (can0), no      .headingMagnetic
+Water           Triton 2 on the    extra gateway                                      bsi ( slow
+AIS and         previous boat;                     environment.wind.* ,               profile)
+VHF             our Oct 2025       N2K             environment.depth.* ,              set , text
+Satellite link  research                           environment.outside.*              —
+                recommends         N2K tank
+                B&G for 2.0 (not   senders         tanks.freshWater.*.currentLevel
+                announced)
+                                   N2K; Meridian   AIS contexts; transcripts as Lume
+                Maretron N2K       publishes       documents
+                wind, depth,       transcripts
+                speed, baro,                       link state for ti-sync
+                temperature,       n/a
+                humidity on the
+                previous boat
+
+                900 L tankage
+                with roof rain
+                catchment
+                (published)
+
+                AIS on the
+                previous boat;
+                Meridian VHF
+                monitor
+                proposed
+
+                Viasat Sailor
+                600 on the
+                previous boat;
+                Starlink
+                unconfirmed
+
+Queries this boat makes worth it
+
+She is an energy boat: 40 kWh, 3.75 kWp of solar, induction cooking on the previous boat,
+and hybrid drive. The first saved queries in the webapp should answer energy questions.
+Path names below are illustrative until the N2K list is final.
+
+                                                                                      Page 4 of 31
+
+=== PAGE 5 of 31 ===
+Lume Telemetry Index — Build Spec
+
+     -- Daily energy balance, 10 s buckets: mean W × 10 s / 3.6e6 = kWh
+     SELECT date_trunc('day', ts) AS day,
+
+                 sum("electrical.solar.house.panelPower") * 10 / 3.6e6 AS solar_kwh,
+                 sum(coalesce("propulsion.port.motorPower", 0)
+
+                     + coalesce("propulsion.starboard.motorPower", 0)) * 10 / 3.6e6 AS
+     motor_kwh,
+
+                 min("electrical.batteries.house.stateOfCharge@min") AS min_soc
+     FROM telemetry
+     WHERE ts >= now() - INTERVAL '30 days'
+     GROUP BY day ORDER BY day;
+
+     -- Electric-only motoring: motors pulling, diesel off, at least 10 minutes
+     SELECT * FROM intervals(
+
+        '"propulsion.port.motorPower" > 500 AND "propulsion.main.state" !=
+     ''started''',
+
+        min_len => '10m');
+
+  Other questions an owner of this boat is likely to ask:
+      How many miles did we do on sun alone this month?
+      What did the rain catchment add?
+      Which anchorages had VHF traffic mentioning weather while the wind was over 25 kn?
+
+ Assumptions to confirm with the owner
+
+      Boat computer: a Hat Labs HALPI. Still to confirm: the exact model (Hat Labs
+      documents the HALPI2; we found no "HALPI-M"), the CM5 RAM size, which OS image it
+      runs (HaLOS Marine or the desktop image with OpenCPN), and whether OpenCPN
+      really runs on the same HALPI as Signal K (believed so; see Single-box budget).
+      The final NMEA 2000 equipment list: MFD brand, instrument vendor and engine
+      gateway.
+      Whether Victron stays on 2.0, and whether a Cerbo GX or Venus OS device is aboard.
+      Consent to record 90 days of data for the benchmark dataset, and what of it may be
+      shared publicly.
+      Satellite link (Starlink or Viasat) and the data budget ti-sync may use.
+
+                                                                                                                                                                                                                                                    Page 5 of 31
+
+=== PAGE 6 of 31 ===
+Lume Telemetry Index — Build Spec
+
+Single-box budget
+
+On PV-1, Signal K, OpenCPN and Lume TI are believed to share one HALPI. Navigation
+therefore always wins: Lume TI runs as a low-priority guest, and a heavy query can slow
+itself down but never OpenCPN or Signal K.
+
+Process                            Priority              Memory (planning        CPU
+                                   highest, untouched    estimate, 8 GB CM5)
+OpenCPN                            high, untouched       0.5–1 GB                bursts on
+                                   normal                                        chart redraw
+Signal K server                                          0.2–0.4 GB              light
+InfluxDB + Grafana                                       0.3–0.6 GB              light
+(HaLOS Marine only)
+Lume TI ingest                     low ( CPUWeight=50 ,  ≤ 400 MB RSS            ≤ 25 % of one
+                                   nice 10)                                      core
+Lume TI queries                    lowest                1 GB pool (512 MB on 4  2 of 4 cores
+                                                         GB boards)
+Lume TI seal, backfill,            idle ( ionice -c3 )   within the ingest       paused under
+sync                                                     budget                  load
+
+Rules enforced in ti-serve and the container or systemd unit:
+
+    Hard cap. MemoryMax=1.5G on the whole Lume TI unit. A query that needs more fails
+    with a hint to narrow ts ; it never swaps the box.
+    Admission. DataFusion runs with target_partitions = 2 on the boat. One heavy
+    query runs at a time, others queue, and the default timeout is 30 s.
+    Thermal. The HALPI2 is passively cooled, and its host daemon reports SoC
+    temperature. Above 75 °C, background jobs pause and query threads drop to 1.
+    Shutdown. On the HALPI shutdown signal (power-button double-click or the host
+    daemon), Lume TI flushes the WAL first. A power cut costs at most 60 s of buckets,
+    which backfill can replay from InfluxDB or Parquet.
+    Contention test. Gates M6 (see Benchmarks).
+
+The memory figures are estimates to replace with measurements from PV-1's own box in
+M6.
+
+                                                                                 Page 6 of 31
+
+=== PAGE 7 of 31 ===
+Lume Telemetry Index — Build Spec
+
+ System architecture
+
+  Lume TI is four layers in one Rust binary: ingest, store, query and interfaces. It runs on
+  every vessel, and sealed shards are the only thing that moves to shore.
+
+  Lume TI architecture · 4 layers, one binary per vessel
+
+  The bitmap evaluator (highlighted) is the only place Predicate IR meets roaring rows,
+  which is why it is the contract every lane builds against. Raw samples bypass the index
+  entirely through the federated raw table over Parquet.
+
+                                                                                                                                                                                                                                                    Page 7 of 31
+
+=== PAGE 8 of 31 ===
+Lume Telemetry Index — Build Spec
+
+Data model
+
+Every column is one time bucket for one vessel. Every field is a set of roaring-bitmap rows
+over those columns. A shard is one vessel × 65,536 consecutive buckets, so each row in a
+shard fits exactly one roaring container (≤ 8 KB).
+
+Column space
+
+    Bucket width W : configurable per deployment, default 10 s. It is fixed once a store is
+    created, and changing it means a rebuild.
+    Bucket index: b = floor((t − EPOCH) / W) , with EPOCH = 2020-01-01T00:00:00Z .
+    Column id: col: u64 = (vessel_ord as u64) << 32 | b . A 32-bit bucket index
+    holds about 1,360 years at 10 s.
+    Shard key: (vessel_ord, b >> 16) . At 10 s a shard spans 7.58 days, and a year is
+    about 48 shards per vessel.
+    Local column: b & 0xFFFF , stored in a RoaringBitmap (u32) per row per shard.
+    Vessel ordinal: a dense u32 assigned by the vessels catalog and keyed by Signal K
+    context URN (e.g. vessels.urn:mrn:imo:mmsi:367000000 ). The local vessels.self
+    resolves to its URN at ingest.
+
+Field types
+
+Type      Used for                       Rows per shard   Supported predicates
+                                         1
+presence  One per indexed path; bit set                   IS NOT NULL , IS
+          if any sample landed in the
+          bucket                                          NULL
+
+set       Strings, enums, booleans,      1 per distinct value = , != , IN , NOT IN
+
+          $source labels, derived
+
+          states
+
+bsi       Numeric values, one field per  exists + sign +  = , < , <= , > , >= ,
+                                         depth magnitude  BETWEEN ; sum , min ,
+          aggregate                      rows             max , count pushdown
+
+count     Event counts per bucket        a bsi with no sign as bsi
+          (pump cycles, alarms raised)   row
+
+                                                                                    Page 8 of 31
+
+=== PAGE 9 of 31 ===
+Lume Telemetry Index — Build Spec
+
+Type           Used for                              Rows per shard       Supported predicates
+
+geo            H3 cells of                           1 per occupied cell  in_bbox() ,
+               navigation.position at                                     within_nm() (inexact,
+text           resolutions 5, 7 and 9                                     refined by lat/lon BSI)
+
+               Lume BM25 documents                   resolved on          match()
+               mapped onto buckets                   demand from
+                                                     Lume postings
+
+BSI encoding
+
+    Fixed-point: i = round(v × 10^scale) . Scale comes from the path's Signal K
+     meta.units through the registry below, and a per-path override is allowed.
+    Sign-magnitude: rows exists , sign , then bit[0..depth) . Depth grows when a
+    value exceeds the current range. A wider depth only adds rows and never rewrites old
+    ones.
+    Comparisons: use the O'Neil/Quass bit-sliced range algorithm, as Pilosa did. It takes
+    one pass over depth rows, AND/OR/ANDNOT only.
+    Tolerance: the oracle comparison allows ±0.5 × 10^−scale.
+
+Signal K unit                      Scale Resolution
+
+rad                                4  0.0001 rad (≈ 0.006°)
+m/s
+K                                  3  1 mm/s
+V
+A                                  2  0.01 K
+W
+Pa                                 3  1 mV
+ratio
+m                                  2  10 mA
+Hz
+                                   1  0.1 W
+s, J, C
+                                   0  1 Pa
+
+                                   4  0.01 %
+
+                                   2  1 cm
+
+                                   1  0.1 Hz
+
+                                   0  1 unit
+
+                                                                                   Page 9 of 31
+
+=== PAGE 10 of 31 ===
+Lume Telemetry Index — Build Spec
+
+Signal K unit                      Scale Resolution
+
+lat/lon (deg)                      7  ≈ 1.1 cm
+
+unknown numeric 3                     logged as a registry miss
+
+Bucket aggregates
+
+Each numeric path keeps running count , sum , min , max and last per bucket. The
+bucket closes into BSI fields named path@agg . The bare path name is an alias for @mean .
+
+    Default profile: @mean , @min , @max .
+     slow profile: @last only. Used for paths with a median sample interval ≥ W , such as
+    tank levels.
+    Opt-in: @last and @count on any path.
+
+Derived fields
+
+These are computed at bucket close from rules in ti.toml :
+    Transitions: e.g. propulsion.*.state changing to started becomes a count field …
+    @starts .
+    Edge counts: a boolean path's rising edges per bucket, e.g. bilge pump cycles.
+    Notifications: each notifications.* path becomes a set field over state values
+    ( normal , alert , warn , alarm , emergency ), plus a count of raises.
+
+Multiple sources
+
+    The path's value comes from the preferred source, using Signal K source priorities
+    when configured, otherwise the first source seen.
+    Every source that reported in the bucket is recorded in a path$source set field, so
+     WHERE "navigation.speedOverGround$source" = 'n2k.115' works.
+    Per-source values are a v2 option.
+
+Text mapping
+
+Notes (Resources API), logbook entries and notification messages are indexed as Lume
+documents with ts_start and an optional ts_end . match(notes, q) runs Lume BM25
+over the docs of that kind. Each hit becomes the bucket columns its time range covers.
+The resulting bitmap is cached per (q, shard) with an LRU.
+
+                                                                 Page 10 of 31
+
+=== PAGE 11 of 31 ===
+Lume Telemetry Index — Build Spec
+
+ Catalogs
+
+  These are stored as JSON in the store root and exposed as SQL tables:
+
+        vessels(ord, urn, name, mmsi, first_seen, last_seen)
+        paths(path, field, agg, type, units, scale, depth, description,
+
+      first_seen, last_seen) , with description from Signal K meta and the spec
+
+        shards(vessel, shard_no, ts_from, ts_to, sealed, bytes, hash)
+
+ Size budget
+
+      Worst case: a dense BSI field at depth 16 is 18 rows × 8 KB × 48 shards ≈ 6.9 MB per
+      vessel-year at 10 s.
+      Typical boat: 120 numeric paths under the default profile is about 360 fields, so ≤ 2.5
+      GB per vessel-year worst case. Run containers and sparse paths bring the expected
+      size to 0.6–1.0 GB.
+      Pi retention: default 2 years. Older shards live only on shore.
+
+ Ingest pipeline
+
+  Live deltas and Parquet backfill feed the same bucketer. Buckets close on a watermark
+  and land in shards through a write-ahead log, and a shard seals once it is entirely in the
+  past.
+
+ Sources
+
+   1. Live. A Rust WebSocket client connects to ws://<host>:3000/signalk/v1/stream?
+      subscribe=none . It then sends {"context":"vessels.self","subscribe":
+      [{"path":"*","period":1000,"policy":"instant"}]} and
+
+        {"context":"vessels.self","subscribe":
+
+      [{"path":"notifications.*","policy":"instant"}]} . Auth uses a Signal K device
+      token from an access request, stored in ti.toml .
+   2. Backfill. Reads signalk-parquet files with the arrow-rs parquet crate. It maps
+       received_timestamp / signalk_timestamp , path , value and value_* columns, and
+      skips files whose content hash is already in the manifest. On HaLOS Marine, history
+      lives in the bundled InfluxDB rather than in Parquet. A second backfill reader exports it
+      by measurement and time range, and maps it to the same tuples.
+
+                                                                                                                                                                                                                                                  Page 11 of 31
+
+=== PAGE 12 of 31 ===
+Lume Telemetry Index — Build Spec
+
+   3. Meta. On connect and every hour, it fetches GET /signalk/v1/api/vessels/self to
+      read meta (units, displayName, description, zones) into the path registry.
+
+   4. Documents. It polls GET /signalk/v2/api/resources/notes every 60 s. It also takes
+      logbook plugin entries when that plugin is installed, and notification messages from
+      the live stream. Each becomes a Lume document with a time range.
+
+ Stages
+
+   1. Decode. Turn each delta into (context, path, $source, timestamp, value) tuples,
+      using the update's timestamp and falling back to receive time if it's missing or skewed
+      by more than 5 min.
+
+   2. Normalize. Flatten object values. navigation.position becomes .latitude ,
+       .longitude plus H3 cells, and {value: {a, b}} becomes path.a , path.b . Drop
+      paths matching the deny-list (default: *.ais.* raw sentences and design.* ).
+
+   3. Classify. Map numbers to bsi , and strings, booleans and enums to set . Objects are
+      flattened and recursed. A path's first classification is sticky, and a later type change
+      logs and creates a path#2 field.
+
+   4. Bucket. Keep per- (vessel, path) accumulators keyed by bucket index: count , sum ,
+       min , max , last , sources seen, and edge or transition counters.
+
+   5. Close. A bucket closes when the watermark (max event time − 30 s lateness) passes
+      its end. Closing emits BucketRecord s (see Fleet workstreams).
+
+   6. Write. Append to the per-vessel WAL (length-prefixed bincode with CRC32), then
+      apply to in-memory shard rows. Flush dirty shard rows to disk every 60 s or every 50k
+      records, then truncate the WAL to the flush point.
+
+   7. Seal. A shard seals once now − shard_end > 1 h . Sealing writes immutable per-field
+       .rbm files (roaring portable format), computes a BLAKE3 hash over the field files, and
+      updates the manifest.
+
+ Late and re-ingested data
+
+      Data arriving after its bucket closed but before the shard seals re-opens that bucket
+      for that field. This is a clear-and-rewrite, since BSI rewrite clears every row's bit for the
+      column first.
+      Late data after the shard sealed goes to a repair queue. A repair rewrites the shard
+      into a new version and changes its hash. Shore picks the new version up by hash.
+      Backfill always uses the clear-and-rewrite path, so it is idempotent.
+
+                                                                                                                                                                                                                                                  Page 12 of 31
+
+=== PAGE 13 of 31 ===
+Lume Telemetry Index — Build Spec
+
+Throughput targets
+
+    Pi 5: ≥ 20,000 values/s sustained live ingest, at ≤ 25 % of one core and ≤ 400 MB RSS.
+    Shore host, backfill: ≥ 1,000,000 values/s.
+
+On-disk layout
+
+ti/
+
+ti.toml
+
+catalog/vessels.json catalog/paths.json
+
+manifest.json                      # shards, versions, hashes
+
+wal/<vessel_ord>.wal
+
+shards/<vessel_ord>/<shard_no>/v<version>/<field_id>.rbm
+
+docs/                              # Lume index for notes, logs,
+
+notifications
+
+Query layer
+
+DataFusion parses, plans and executes SQL. Lume TI is a TableProvider that takes
+pushed-down filters, evaluates them as bitmap operations per shard, and materializes
+only the surviving rows into Arrow. Pin one DataFusion major version per release, and
+upgrade only behind the golden corpus.
+
+SQL surface
+
+Table                              Rows are                  Key columns
+                                   one per (vessel, bucket)
+telemetry                          with any data             vessel , ts (bucket start, UTC), one
+                                                             column per field: "path" ,
+docs                               one per indexed document  "path@agg" , "path$source" ; virtual
+raw                                                          notes , logbook , alerts for
+                                   one per raw sample
+                                                             match()
+
+                                                             vessel , kind , ts_start , ts_end ,
+                                                             title , body , score (only
+                                                             populated with match() )
+
+                                                             DataFusion ListingTable over
+                                                             signalk-parquet files: exact samples,
+                                                             no bitmap acceleration
+
+                                                                  Page 13 of 31
+
+=== PAGE 14 of 31 ===
+Lume Telemetry Index — Build Spec
+
+Table                              Rows are         Key columns
+                                   catalog entries  as in Data model
+vessels , paths ,
+
+shards
+
+Column names are exact Signal K paths and must be double-quoted. Agents never guess
+them: they call ti_resolve first (see Interfaces).
+
+SQL coverage
+
+The SQL is full read-only SQL: anything DataFusion accepts runs against every table here.
+Pushdown decides only how fast a query runs, never whether it runs. Supported:
+
+    Joins of any kind across telemetry , docs , raw and the catalogs
+    CTEs, including recursive ones
+    Correlated and scalar subqueries
+    Window functions ( lag , lead , row_number , framed rolling aggregates)
+     UNION , INTERSECT , EXCEPT
+     CASE , GROUP BY / HAVING , ORDER BY / LIMIT
+    DataFusion's scalar, aggregate and time functions ( date_bin ,
+     approx_percentile_cont , and so on), plus the Lume TI functions below
+
+INSERT, UPDATE, DELETE and DDL are rejected with an error that names the table as
+derived.
+
+  -- Window function over pushed-down rows: hours where house SOC fell faster
+  than 5 %/h
+  WITH h AS (
+
+      SELECT date_bin(INTERVAL '1 hour', ts) AS hr,
+                  avg("electrical.batteries.house.stateOfCharge") AS soc
+
+      FROM telemetry
+      WHERE ts >= now() - INTERVAL '14 days'
+      GROUP BY hr),
+  d AS (
+      SELECT hr, soc, soc - lag(soc) OVER (ORDER BY hr) AS delta FROM h)
+  SELECT * FROM d WHERE delta < -0.05 ORDER BY hr;
+
+The ts filter is pushed down. The CTE, the window and the outer filter run in DataFusion
+over the rows that survive it.
+
+                                                                      Page 14 of 31
+
+=== PAGE 15 of 31 ===
+Lume Telemetry Index — Build Spec
+
+Functions
+
+     match(text_col, query) → bool : Lume query syntax. Valid only in WHERE and always
+    pushed down.
+     in_bbox(lat_min, lon_min, lat_max, lon_max) → bool : covered by H3 cells, then
+    refined against lat/lon BSI.
+     within_nm(lat, lon, radius_nm) → bool : same approach, refined by haversine on
+    the materialized rows.
+     date_bin , date_trunc and every other function are standard DataFusion.
+
+     intervals(predicate_sql, min_len => '0s', max_gap => '0s', vessel =>
+
+    NULL) : a table function. It returns (vessel, start, end, buckets) for each
+    contiguous run of buckets where the predicate holds. It reads runs straight out of the
+    result bitmap, using run containers when present, then merges gaps ≤ max_gap .
+
+  -- When did we motor in more than 25 kn of wind this season?
+  SELECT * FROM intervals(
+
+      '"propulsion.port.state" = ''started'' AND "environment.wind.speedTrue@max"
+  > 12.9',
+
+      min_len => '5m', max_gap => '1m')
+  WHERE start > '2026-05-01';
+
+Pushdown
+
+supports_filters_pushdown classifies each conjunct and returns:
+
+Expression                         Pushdown  Bitmap evaluation
+                                   Exact     prunes shards by vessel ordinal
+vessel = / IN                      Exact     prunes shards, then a range mask
+                                             inside the boundary shards
+ts comparisons and BETWEEN                   row OR, or presence ANDNOT row
+                                             BSI range compare (literal scaled
+set_col = / != / IN / NOT IN       Exact     and rounded consistently)
+                                   Exact     presence row
+bsi_col <op> literal , BETWEEN               Lume postings mapped to buckets
+
+col IS [NOT] NULL                  Exact
+match(...)                         Exact
+
+                                                                 Page 15 of 31
+
+=== PAGE 16 of 31 ===
+Lume Telemetry Index — Build Spec
+
+Expression                         Pushdown  Bitmap evaluation
+in_bbox , within_nm
+                                   Inexact   H3 cover rows OR; DataFusion re-
+AND , OR , NOT of the above                  applies the exact predicate
+Anything else (column-vs-column,
+arithmetic, UDFs)                  Exact     bitmap AND, OR, ANDNOT
+
+                                   Unsupported DataFusion filters after
+                                                          materialization
+
+Execution
+
+1. Plan. Translate pushed filters into the Predicate IR (see Fleet workstreams). Prune to
+    candidate shards using the vessel and ts bounds plus the manifest.
+
+2. Evaluate. Each shard is a partition in DataFusion. Evaluating the IR yields a
+     RoaringBitmap of local columns.
+
+3. Materialize. Iterate the set bits in batches of 8,192. For each projected column, read
+    values: set columns do a row-membership lookup per value, and bsi columns
+    reconstruct the integer from depth rows and divide by 10^scale. Emit a RecordBatch .
+
+4. Stream. Batches go to DataFusion operators (aggregate, sort, join) unchanged.
+
+Aggregate rewrites (M4)
+
+A physical optimizer rule replaces Aggregate(Scan) with a BitmapAggregateExec when
+every aggregate is one of the following, over pushed filters only:
+
+     count(*) , computed as bitmap cardinality
+     count(col) , computed as cardinality of filter AND presence
+     sum , min or max of a bsi column, using the bit-sliced algorithms
+
+The GROUP BY must be absent or limited to vessel and date_bin(ts) . Group windows
+become column-range masks. The target is ≥ 10× faster than materialize-then-aggregate
+on year-long windows.
+
+Explain
+
+EXPLAIN and ti_explain print the DataFusion plan plus a Lume TI section. It lists shards
+pruned versus scanned, each conjunct's pushdown class, bitmap cardinality after each
+step, and the materialized row count. Agents use this to rewrite slow queries.
+
+                                                                           Page 16 of 31
+
+=== PAGE 17 of 31 ===
+Lume Telemetry Index — Build Spec
+
+Interfaces
+
+All surfaces are thin wrappers over one TiEngine handle. MCP is the primary consumer,
+because nemesis8 agents are the main users.
+
+MCP tools (added to lume serve )
+
+Tool                               Input                             Returns
+
+ti_resolve                         phrase , optional vessel , limit  Ranked candidate columns with
+                                   (default 8)                       path, agg, units, description and last
+                                                                     value. Uses Lume hybrid search
+ti_schema                          optional prefix , type            over the paths catalog plus Signal
+                                                                     K spec descriptions
+ti_sql                             sql , max_rows (default 500),
+                                   format ( json , csv , markdown )  Tables, columns, types, units, scale,
+                                                                     time coverage
+ti_intervals                       predicate , min_len , max_gap ,
+                                   time range                        Rows, truncation flag, elapsed ms,
+                                                                     and a one-line pushdown summary
+ti_explain                         sql
+                                                                     Interval list (sugar over the
+ti_status                          none                              intervals() table function)
+
+                                                                     Plan and pushdown report
+
+                                                                     Ingest lag, WAL size, shards open or
+                                                                     sealed, last sync per vessel
+
+Tool output caps: 500 rows and 64 KB. Over that, the tool returns the first rows plus a hint
+to aggregate. Every result echoes the resolved units, so the agent never confuses m/s and
+kn.
+
+HTTP (same port as lume serve )
+
+     POST /ti/sql with body {sql, format} . Responds as Arrow IPC stream
+    ( application/vnd.apache.arrow.stream ), JSON or CSV, picked from Accept .
+     GET /ti/schema , GET /ti/status .
+     POST /ti/ingest with NDJSON Signal K deltas, for sources that push instead of
+    being subscribed to.
+
+                                                                     Page 17 of 31
+
+=== PAGE 18 of 31 ===
+Lume Telemetry Index — Build Spec
+
+GET /ti/manifest , GET /ti/shards/{vessel}/{shard}/{version}.tar for sync
+(see the fleet topology below).
+Auth reuses NUTS auth on shore. On the boat it binds to the LAN with an optional
+bearer token.
+
+CLI (subcommands of lume )
+
+lume ti init                       --width 10s --root ./ti
+lume ti ingest
+lume ti backfill                   --sk ws://openplotter.local:3000 --token $SK_TOKEN
+lume ti sql
+lume ti seal                       --parquet ~/.signalk/data/parquet
+lume ti verify
+lume ti sync                       "SELECT ..." [--format table|csv|json]
+lume ti serve
+enabled                            [--vessel self]          # force-seal past shards
+
+                                   --oracle duckdb --corpus tests/golden
+
+                                   --to https://shore.example/ti | s3://bucket/ti
+
+                                   --port 8080              # alias for lume serve with TI
+
+Signal K plugin signalk-lume-ti (thin, Node)
+
+    Packaging. Ships as signalk-lume-ti in the Signal K App Store. Prebuilt lume
+    binaries for linux-arm64 (Pi 4 and Pi 5 on 64-bit Raspberry Pi OS / OpenPlotter) and
+    linux-x64 come as platform-specific optional npm dependencies. npm fetches the right
+    one, and nothing compiles on the boat. Binaries are statically linked against musl, so
+    the same file also runs inside a containerized Signal K. 32-bit armv7 is a stretch target.
+    Auth. Handles the Signal K access-request flow and stores the device token, so the
+    Rust process never needs a user password.
+    Supervision. Runs lume ti ingest and lume ti serve as child processes and
+    restarts them on crash. Shows ingest lag, WAL size and disk use in the Admin UI.
+    Webapp. SQL console, saved queries with CSV download, and schema browser. The
+    PV-1 energy queries ship as defaults.
+    Pin to chart. On an explicit user action only, it writes query results to the Signal K
+    Resources API, e.g. intervals() as notes or regions that Freeboard-SK displays. It
+    writes only resources, never data paths.
+    Stretch (M6+). Registers as a Signal K History API provider and answers
+     /signalk/v2/api/history/values from Lume TI, so Freeboard-SK and KIP get fast
+    history for free.
+
+                                                                                            Page 18 of 31
+
+=== PAGE 19 of 31 ===
+Lume Telemetry Index — Build Spec
+
+ Postgres wire protocol
+
+   lume ti serve --pg 5432 exposes the same DataFusion session over the Postgres wire
+  protocol, using the pgwire crate. Any Postgres client works unchanged: psql, Grafana's
+  PostgreSQL data source, DBeaver, pandas or psycopg.
+
+      Simple and extended query protocols, read-only sessions.
+      SCRAM password auth from ti.toml . Binds to the LAN interface only by default.
+      DataFusion's information_schema , plus the minimal pg_catalog views Grafana and
+      DBeaver need for table and column introspection.
+      The memory pool is capped per query: 512 MB on Pi 4, 1 GB on Pi 5. Over the cap, the
+      query errors with a hint to narrow ts .
+
+ Install on a HALPI2 (HaLOS)
+
+  On HaLOS, Lume TI ships as a container app in the HaLOS Marine store, next to Signal K,
+  Grafana and InfluxDB. It is not a process spawned from inside the Signal K container.
+
+      Package. lume-ti-container , built with Hat Labs' container-packaging-tools as an
+      apt package. It goes upstream to halos-marine-containers, or into a DeepBlue store
+      definition until it is accepted.
+      Image. Multi-arch OCI image (arm64, amd64) holding the static lume binary. The store
+      sits on a named volume on the HALPI's NVMe SSD.
+      Signal K. Joins the Signal K container's network and subscribes over WebSocket. The
+      token comes from a Signal K access request approved once in the Signal K admin UI.
+      The thin Signal K plugin is optional here; it adds the webapp inside Signal K.
+      Routing. HTTP and the webapp sit behind HaLOS's Traefik and Authelia single sign-on,
+      with a tile on the Homarr dashboard. Postgres wire is published on LAN port 5432 with
+      SCRAM auth.
+      Grafana. The app provisions a PostgreSQL data source pointing at Lume TI, plus a
+      starter energy dashboard built from the PV-1 saved queries.
+      Backfill. The config form offers a one-time import from the bundled InfluxDB container,
+      then live ingest takes over.
+  Steps:
+   1. Cockpit → Container Apps → Marine store → install Lume TI.
+   2. Approve its access request in Signal K.
+   3. Optionally run the InfluxDB backfill from the app's config form.
+
+                                                                                                                                                                                                                                                  Page 19 of 31
+
+=== PAGE 20 of 31 ===
+Lume Telemetry Index — Build Spec
+
+   4. Open Lume TI from the Homarr dashboard, or query it from Grafana or psql.
+
+ Install on an OpenPlotter Pi
+
+   1. In Signal K Admin, open App Store, install signalk-lume-ti and restart.
+   2. Approve the plugin's access request under Security → Access Requests.
+   3. Pick a store path in Plugin Config. A USB or NVMe SSD is recommended, and the plugin
+
+      warns if the store is on the SD card.
+   4. If signalk-parquet is installed, click Backfill to index existing history.
+   5. Open the webapp, or connect with psql -h <pi> -p 5432 -U ti .
+  Relationship to OpenCPN:
+
+      OpenCPN keeps its existing Signal K or NMEA connection unchanged. Lume TI
+      subscribes to Signal K separately and never transmits on NMEA 2000.
+      In v1, OpenCPN shows no Lume TI results. Whether OpenCPN can display Signal K
+      resources (notes, regions) is an open question. If it can't, a small OpenCPN plugin is a
+      v2 option.
+
+ Fleet topology
+
+      Each vessel runs lume ti ingest plus serve . Sealed shards are immutable and
+      content-hashed, which makes them the unit of replication.
+       lume ti sync diffs the local manifest against shore and ships missing shard versions.
+      It resumes chunked uploads, so it tolerates Starlink and cellular drops.
+      The open shard ships as WAL tail segments every 5 min when online, so shore lag stays
+      at 5 min or less.
+      The shore node mounts all vessels' shards. Its telemetry table spans every vessel
+      ordinal, and vessel ordinals are re-mapped by URN at import.
+
+ Fleet workstreams
+
+  Nine crates, nine agent lanes. One lane (W0) freezes the shared contracts in week 1. After
+  that, every lane builds against traits and fixtures and never waits on another lane's
+  implementation. All crates live in the Lume workspace under crates/ti-* .
+
+                                                                                                                                                                                                                                                  Page 20 of 31
+
+=== PAGE 21 of 31 ===
+Lume Telemetry Index — Build Spec
+
+Lane Crate                         Owns                        Depends     First deliverable
+                                                               on
+                                                               (contract   Merged contracts + 60
+                                                               only)       golden queries +
+                                                                           DuckDB oracle results
+W0 ti-                             Types and traits below,     none
+                                   ti.toml schema, golden                  Predicate::eval
+            contracts              corpus, synthetic
+                                   generator                               passing proptests
+                                                                           against a naive
+W1  ti-core                        Column addressing, set / W0
+                                   bsi / presence / count                  Vec<Option<i64>>
+                                   rows, BSI range compare,
+                                   sum, min, max, IR evaluator             model
+                                                                           Crash-recovery test:
+W2  ti-store                       WAL, shard files, manifest, W0          kill -9 during flush,
+                                   seal, versioning, repair,               restart, no lost or
+                                   mmap/read cache                         duplicated record
+                                                                           Replays a recorded
+W3  ti-ingest                      SK WebSocket client, delta W0           delta log into
+                                   decode, normalize, classify,            BucketRecord s
+                                   bucketer, watermark,                    identical to the oracle
+                                   unit/scale registry, Parquet            bucketing
+                                   backfill                                Golden corpus green
+                                                                           against an in-memory
+W4  ti-sql                         TableProvider ,             W0 (+ W1    ShardSource fixture
+                                   pushdown classifier, IR     via trait)
+                                   translation, materializer,              match() subset of the
+                                   intervals() ,                           golden corpus green
+                                   BitmapAggregateExec ,
+                                   explain                                 Cover never misses a
+                                                                           point (proptest), ≤ 30
+W5  ti-text                        Doc ingestion from notes,   W0, Lume    % false-positive
+                                   logbook and notifications;  search API  buckets at res 9
+                                   match() → bucket
+                                   bitmaps; LRU
+
+W6  ti-geo                         H3 indexing (h3o crate),    W0
+
+                                   bbox and radius cover,
+
+                                   refine
+
+                                                                           Page 21 of 31
+
+=== PAGE 22 of 31 ===
+Lume Telemetry Index — Build Spec
+
+Lane Crate                         Owns                      Depends    First deliverable
+                                                             on
+W7  ti-serve                       MCP tools, HTTP routes,   (contract  Agent end-to-end:
+                                   Postgres wire, CLI,       only)      plain-English question
+                                   ti_resolve over Lume      W0         → correct rows
+                                   hybrid search, Signal K
+                                   plugin                    W0, W2     Two-node sync test
+                                                                        with a link that drops
+W8 ti-sync + Manifest diff, resumable                                   20 % of chunks
+
+    ti-bench                       shard shipping, WAL-tail
+
+                                   ship; benchmark harness
+
+                                   and reports
+
+Frozen contracts (W0, week 1)
+
+Changing anything below requires a contracts PR approved by the integrator. Each lane
+mocks the others behind these.
+
+pub type VesselOrd = u32;                                    // floor((t - EPOCH) / W)
+pub type BucketIx = u32;                                     // (vessel as u64) << 32 | bucket
+pub type ColumnId = u64;
+
+#[derive(Clone, Copy, Hash, Eq, PartialEq, Ord, PartialOrd)]
+pub struct ShardKey { pub vessel: VesselOrd, pub shard: u32 } // shard =
+bucket >> 16
+
+pub enum FieldKind { Presence, Set, Bsi { scale: u8 }, Count, Geo { res: u8 }
+}
+
+pub struct FieldSpec {
+       pub id: u32, pub path: String, pub agg: Option<Agg>, pub kind: FieldKind,
+       pub units: Option<String>,
+
+}
+pub enum Agg { Mean, Min, Max, Last, Count, Starts, Edges }
+
+/// Output of the bucketer; input to the store.
+pub struct BucketRecord {
+
+       pub vessel: VesselOrd, pub bucket: BucketIx, pub field: u32,
+       pub value: FieldValue, pub rewrite: bool,
+
+                                                                                                Page 22 of 31
+
+=== PAGE 23 of 31 ===
+Lume Telemetry Index — Build Spec
+
+}
+pub enum FieldValue { Present, SetValue(u32 /* row id */), Int(i64),
+Cells(Vec<u64>) }
+
+/// The only language between SQL and bitmaps.
+
+pub enum Predicate {
+
+   All, None,
+
+   Present(u32),
+
+   SetEq { field: u32, rows: Vec<u32>, negate: bool },
+
+   BsiCmp { field: u32, op: CmpOp, lo: i64, hi: Option<i64> }, // hi for
+
+BETWEEN
+
+   TsRange { from: BucketIx, to: BucketIx },            // inclusive
+
+   Text { kind: String, query: String },
+
+   GeoCover { field: u32, cells: Vec<u64> },
+
+   And(Vec<Predicate>), Or(Vec<Predicate>), Not(Box<Predicate>),
+
+}
+
+pub enum CmpOp { Eq, Ne, Lt, Le, Gt, Ge, Between }
+
+pub trait ShardSource: Send + Sync {
+       fn shards(&self, vessels: Option<&[VesselOrd]>, from: BucketIx, to:
+
+BucketIx) -> Vec<ShardKey>;
+       fn eval(&self, shard: ShardKey, p: &Predicate) -> Result<RoaringBitmap>;
+
+// local cols
+       fn read(&self, shard: ShardKey, cols: &RoaringBitmap, fields: &[u32]) ->
+
+Result<RecordBatch>;
+       fn agg(&self, shard: ShardKey, cols: &RoaringBitmap, field: u32, a:
+
+AggOp) -> Result<AggPartial>;
+}
+pub trait ShardSink: Send {
+
+       fn apply(&mut self, recs: &[BucketRecord]) -> Result<()>;
+       fn flush(&mut self) -> Result<()>;
+       fn seal(&mut self, key: ShardKey) -> Result<ShardManifestEntry>;
+}
+pub trait TextIndex: Send + Sync {
+       fn match_buckets(&self, vessel: VesselOrd, kind: &str, q: &str, from:
+BucketIx, to: BucketIx)
+
+              -> Result<RoaringTreemap>; // global ColumnIds
+}
+
+                                                                          Page 23 of 31
+
+=== PAGE 24 of 31 ===
+Lume Telemetry Index — Build Spec
+
+ Rules for every agent PR
+
+       cargo test , cargo clippy -- -D warnings , and cargo fmt --check all pass. No
+       unsafe outside ti-store mmap code, and that code needs a comment justifying it.
+      Every new predicate or aggregate path adds at least one golden query and one
+      proptest.
+      Performance-sensitive changes attach a ti-bench before/after table to the PR.
+      No new runtime dependency without a line in the decisions log. C bindings are allowed
+      only for croaring , and only after the M4 evaluation.
+      Lanes integrate on main daily behind a feature flag ( ti ). The integrator agent runs
+      the full corpus nightly and files regressions back to the owning lane.
+
+ Milestones and acceptance
+
+  The plan runs 12 weeks from kickoff. W0 freezes contracts in week 1, then core, ingest and
+  SQL build in parallel from week 2 against fixtures. The week counts are a proposal, sized
+  for one agent per lane plus an integrator.
+
+  Proposed 12-week plan · 7 milestones, each closed by a gate
+
+  A milestone closes only when every gate test below passes in CI on main .
+
+                                                                                                                                                                                                                                                  Page 24 of 31
+
+=== PAGE 25 of 31 ===
+Lume Telemetry Index — Build Spec
+
+ M0 Contracts (W0)
+
+       ti-contracts merged with the types and traits from Fleet workstreams, plus doc
+      comments
+       ti.toml schema with defaults (W = 10 s, profiles, allow/deny lists, unit-to-scale table)
+       ti-bench gen produces the 5-vessel × 90-day correctness set deterministically from
+      a seed
+      ≥ 60 golden queries covering Q1–Q8, each with a DuckDB oracle twin and stored
+      expected output
+
+ M1 Core and store (W1, W2)
+
+      BSI compare, sum, min and max agree with a naive model on 10,000 proptest cases,
+      including negatives and depth growth
+       Predicate::eval agrees with the naive model for random AND/OR/NOT trees of
+      depth ≤ 4
+      Crash test: 1,000 kill -9 runs during flush, with zero lost or duplicated records after
+      replay
+      Seal produces byte-identical files and hashes from identical input
+
+ M2 Ingest (W3)
+
+      Replaying a recorded 24 h delta log yields BucketRecord s equal to oracle bucketing
+      Parquet backfill of the correctness set is idempotent: running it twice gives identical
+      manifest hashes
+      Pi 5 sustains 20,000 values/s for 1 h within the CPU and RSS budget
+
+ M3 SQL and pushdown (W4)
+
+      All non-text, non-geo golden queries match the oracle, first on the in-memory fixture,
+      then on a real store
+       EXPLAIN shows Exact pushdown for every expression the pushdown table marks
+      Exact
+       raw table queries the same Parquet and matches DuckDB exactly
+
+ M4 Text, geo, intervals (W4, W5, W6)
+
+      Full golden corpus green, including match() , in_bbox , within_nm and intervals()
+
+                                                                                                                                                                                                                                                  Page 25 of 31
+
+=== PAGE 26 of 31 ===
+Lume Telemetry Index — Build Spec
+
+       BitmapAggregateExec is ≥ 10× faster than the materializing path on Q4 at shore scale
+       croaring frozen-view evaluation written up in the decisions log, adopt or reject
+
+ M5 Agent surface (W7)
+
+      MCP tools are live in lume serve , and ti_resolve returns the right column in the top
+      3 for ≥ 90 % of a 100-phrase test set
+      A nemesis8 agent with only Lume MCP answers 20 scripted fleet questions, and the
+      integrator grades the answers against oracle results
+      The Signal K plugin installs on a HALPI2 from the HaLOS Marine container store, and on
+      OpenPlotter from the Signal K App Store (Pi 4 4 GB and Pi 5), obtains a token and
+      supervises ingest. psql and Grafana connect over Postgres wire and pass a 20-query
+      smoke set
+
+ M6 Fleet and benchmarks (W8, integrator)
+
+      Two-node sync converges with 20 % chunk loss and a 30-minute link outage
+      The shore node answers fleet queries across 50 synthetic vessels
+      Benchmark report against every target. Go or no-go is recorded in the decisions log
+
+ Benchmarks and evaluation
+
+  Correctness is defined by a DuckDB oracle over the same Parquet. Speed is judged
+  against that same DuckDB baseline on two reference machines. The targets below are
+  proposals to confirm at M0, not measurements.
+
+ Reference machines
+
+      Edge: Hat Labs HALPI2 (CM5, 8 GB, built-in NVMe), the PV-1 computer, 1 vessel. Same
+      SoC class as a Pi 5. Floor: Pi 4, 4 GB, USB SSD, which must pass the golden corpus with
+      p95 targets relaxed 3×.
+      Shore: 8-core x86-64, 64 GB RAM, NVMe, 50 vessels.
+
+ Datasets
+
+   1. Synthetic fleet ( ti-bench gen ). 50 vessels × 365 days × 120 paths (10 navigation
+      paths at 1 Hz, the rest at 0.1 Hz), about 33 billion raw values, written in the signalk-
+      parquet layout. The full set is for performance runs only. Correctness runs use a 5-
+
+                                                                                                                                                                                                                                                  Page 26 of 31
+
+=== PAGE 27 of 31 ===
+Lume Telemetry Index — Build Spec
+
+    vessel × 90-day subset. The generator models passages, anchoring and dock time. It
+    includes engine on/off states, bilge cycles correlated with heel, wind fronts,
+    notifications, and notes with planted keywords. The seed is fixed so results are
+    reproducible.
+2. Real boat. At least 90 days of recorded deltas from PV-1 (see Pilot vessel), or another
+    DeepBlue test vessel if her install slips. This catches path sprawl, source conflicts and
+    timestamp skew that synthetic data hides.
+
+Oracle
+
+The oracle uses DuckDB SQL over the same Parquet. Each golden query has an oracle twin
+that buckets with time_bucket(INTERVAL 'W', ts, TIMESTAMP '2020-01-01') . It then
+applies the same aggregate and fixed-point rounding.
+lume ti verify runs both and diffs the results:
+
+    Exact on keys, set values and counts.
+    ±0.5 × 10^−scale on BSI values.
+
+Query classes and targets
+
+Class                              Example                        Edge p95 (1    Shore p95 (50
+                                                                  vessel, 1 yr)  vessels, 1 yr)
+Q1 point lookup                    wind at a timestamp                           ≤ 20 ms
+Q2 selective multi-                motivating query               ≤ 20 ms        ≤ 100 ms
+predicate (4+ conjuncts,
+< 1 % selectivity)                                                ≤ 150 ms       ≤ 60 ms
+Q3 count with filters
+                                   buckets with SOG > 6 kn and ≤ 50 ms           ≤ 300 ms
+Q4 windowed aggregate              engine off                                    ≤ 150 ms
+Q5 intervals
+                                   max wind per day, 1 year       ≤ 400 ms       ≤ 150 ms
+Q6 text + telemetry
+                                   motoring in > 25 kn, runs ≥ 5  ≤ 150 ms       ≤ 250 ms
+Q7 geo + telemetry                 min
+
+                                   match(notes,'leak') and        ≤ 200 ms
+                                   heel > 20°
+
+                                   within 5 nm of a point, depth ≤ 300 ms
+                                   <3m
+
+                                                                                 Page 27 of 31
+
+=== PAGE 28 of 31 ===
+Lume Telemetry Index — Build Spec
+
+Class                              Example                   Edge p95 (1    Shore p95 (50
+                                                             vessel, 1 yr)  vessels, 1 yr)
+Q8 broad scan                      mean battery voltage per
+(selectivity > 30 %)               hour                      DuckDB         DuckDB parity
+                                                             parity ±50 %   ±50 %
+
+Q2, Q3, Q5 and Q6 must also beat the DuckDB baseline by at least 5× on shore. If they
+don't, the decisions log records why bitmaps aren't paying off, and the fallback in Risks is
+triggered.
+
+Single-box contention test (gates M6). On the HALPI2, run OpenCPN with continuous
+chart pan and zoom while Signal K ingests at full rate. Then run Q4 and Q8 back to back for
+10 minutes. The test passes if:
+
+    Signal K delta latency (sensor timestamp to WebSocket client) rises by less than 10 %
+    against the same run without Lume TI.
+    No delta is dropped.
+    OpenCPN shows no visible stutter, measured as 95th-percentile frame time.
+
+Reported per run
+
+    p50, p95 and p99 per class, plus cold and warm cache timings.
+    Index bytes per vessel-year, compared with the Parquet bytes.
+    Ingest values/s, CPU % and RSS on the Pi.
+    Sync bytes per day per vessel.
+    Results go to bench/results/<date>-<git sha>.json with a markdown summary,
+    and CI fails on a > 15 % p95 regression.
+
+Risks, open questions and decisions
+
+The biggest risk is that bitmaps don't beat DuckDB by enough on single-boat data to
+justify a second engine. The M6 benchmark gate exists to find that out early and cheaply.
+
+                                                                            Page 28 of 31
+
+=== PAGE 29 of 31 ===
+Lume Telemetry Index — Build Spec
+
+Risks
+
+Risk                               Signal              Mitigation
+                                   M6 bench report
+Bitmap speedup < 5× vs                                 Keep ti-sql and route broad
+DuckDB on Q2, Q3, Q5, Q6                               queries to the raw table. Ship
+                                                       only text, geo and intervals() ,
+Pi memory pressure on year-        RSS > 1 GB in Q4    where bitmaps are unique
+long queries
+                                                       Shard-at-a-time streaming,
+Path explosion (AIS, per-device > 2,000 fields per     mmap read path, evaluate
+                                                       croaring frozen views in M4
+sources, plugin noise)             vessel
+                                                       Allow/deny lists in ti.toml ,
+Fixed-point surprises (wrong       Registry misses     slow profile auto-detection,
+units, missing meta)               logged at ingest    field cap with a ti_status
+                                                       warning
+Clock skew and backfilled          Updates far from
+history                            receive time        Unit-to-scale table plus per-path
+                                                       override. ti_status lists paths
+DataFusion API churn               Breaking change on  without units
+                                   upgrade
+                                                       5-min skew rule, repair queue,
+Bucket semantics mislead           Agent answers       versioned shards
+users ("max" of a 10 s mean)       disagree with raw
+                                                       Pin the major version and
+                                                       upgrade quarterly behind the
+                                                       golden corpus
+
+                                                       @agg naming is mandatory in
+                                                       output, ti_sql echoes it, and
+                                                       raw is available for exact checks
+
+Open questions
+
+    Default bucket width: 10 s, or 1 s with 1-min rollups? (1 s is 10× the index size)
+    Per-source values as first-class columns in v1, or only $source sets?
+    AIS contacts as a second table ( contacts , columns = observer × bucket, rows =
+    MMSI), or out of scope?
+    Shore storage: local NVMe only, or sealed shards in object storage with a read cache?
+    Should ti_resolve also index Signal K spec descriptions for paths a vessel has never
+    reported?
+
+                                                       Page 29 of 31
+
+=== PAGE 30 of 31 ===
+Lume Telemetry Index — Build Spec
+
+    Licensing check: borrow algorithm ideas only from FeatureBase (Apache-2.0), and
+    copy no code, to keep Lume BSD-3-clean.
+
+Decisions log
+
+# Decision                                      Why
+
+D1 The index is derived and rebuildable.        No migration risk, and the oracle comes
+         Parquet and deltas stay the source of  for free
+         truth
+
+D2 Build it in Lume (Rust, roaring) rather      One binary, BM25 postings already
+         than revive FeatureBase (Go, archived  roaring-native, Pi-friendly
+         Feb 2024)
+
+D3 DataFusion for SQL                           Mature planner, Arrow-native,
+                                                TableProvider pushdown API, can also
+                                                query Parquet ( raw )
+
+D4 Shard = vessel × 2^16 buckets                One roaring container per row per shard.
+                                                Vessel-local seal and sync
+
+D5 The sealed, content-hashed shard is the Idempotent sync over flaky links. Shore
+
+unit of replication                             needs no merge logic
+
+D6 The DuckDB oracle defines correctness Deterministic acceptance for agent lanes
+
+D7 Predicate IR is the only interface           Lets W1 and W4 build in parallel from day
+         between SQL and bitmaps                one
+
+Sources
+
+    Lume README: hybrid search, roaring-bitmap SKG, MCP server
+    FeatureBase repository: archived Feb 21, 2024, Apache-2.0
+    signalk-parquet README: Parquet archive, DuckDB querying, History API provider
+    Signal K History API: /signalk/v2/api/history , from / to / duration parameters
+    Signal K Resources API, provider methods: filtering is left to provider plugins
+    HALPI2 documentation: CM5 boat computer, NVMe, CAN-FD NMEA 2000, RS-485
+    NMEA 0183
+
+                                                                                   Page 30 of 31
+
+=== PAGE 31 of 31 ===
+Lume Telemetry Index — Build Spec
+
+      HALPI2 operating system images: HaLOS container distribution, Marine image with
+      Signal K, Grafana, InfluxDB, AvNav
+      halos-marine-containers: HaLOS Marine container store definitions
+
+                                                                                                                                                                                                                                                  Page 31 of 31
+

@@ -1,0 +1,39 @@
+services:
+  ollama:
+    image: ${OLLAMA_IMAGE:-ollama/ollama:latest}
+    container_name: ollama
+    restart: unless-stopped
+    logging:
+      driver: journald
+      options:
+        tag: '{{.Name}}'
+    # Loopback only: the Lume plugin's Ask tab (in the Signal K container on the host
+    # network) reaches it at http://127.0.0.1:11434. Ollama has no auth, so it must
+    # not be published to the LAN.
+    ports:
+    - 127.0.0.1:11434:11434
+    volumes:
+    # Models and the `ollama signin` key live here and survive image updates.
+    - ${CONTAINER_DATA_ROOT}/ollama:/root/.ollama
+    environment:
+    - OLLAMA_HOST=0.0.0.0:11434
+    # lume chat asks for a 16k context; flash attention with an 8-bit KV cache keeps
+    # a 4B model plus that context inside the Pi's memory budget.
+    - OLLAMA_FLASH_ATTENTION=1
+    - OLLAMA_KV_CACHE_TYPE=q8_0
+    - OLLAMA_MAX_LOADED_MODELS=1
+    - OLLAMA_NUM_PARALLEL=1
+    - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:-10m}
+    - _HALOS_SYSTEMD_CHECK=${HALOS_SYSTEMD_STARTED:?Container must be started via
+      systemctl, not docker compose directly}
+    mem_limit: ${OLLAMA_MEMORY_LIMIT:-1g}
+    cpus: 3
+    healthcheck:
+      test:
+      - CMD
+      - ollama
+      - list
+      interval: 60s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
