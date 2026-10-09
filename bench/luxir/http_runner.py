@@ -87,5 +87,5 @@ def throughput(client_factory, queries, operation, workers=8, seconds=60):
             "requests": count, "errors": sum(r[1] for r in results),
             "driver_cpu_seconds": cpu_seconds,
             "driver_cpu_percent_one_core": 100 * cpu_seconds / elapsed,
-            "transport": "persistent HTTP connection per worker; TCP_NODELAY",
+            "transport": "per-worker HTTP client; server-supported reuse; TCP_NODELAY",
             "includes_inflight_drain": True}

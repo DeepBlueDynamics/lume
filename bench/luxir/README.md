@@ -16,6 +16,11 @@ On the desktop, replace the root with the host's corresponding shared path.
 Preparation is stdlib-only and reads individual ZIP members without extracting
 archive paths. Each dataset has docs.jsonl (`id,text`), queries.tsv
 (`qid<TAB>text`) and qrels.tsv (`qid<TAB>docid<TAB>grade`), without headers.
+`prepare.py --with-meta` additionally creates docs_meta.jsonl with the same
+id/text plus synthetic year (1990–2024), one of eight categories, n_cites
+(0–1000), a UTC published_at within that year, and 1–3 unique tag_00–tag_19.
+Seed 42 and the candidate lists are recorded in metadata.json; these fields
+are generated capability fixtures, not factual paper metadata.
 Only query IDs in test qrels are retained. Titles precede bodies with two
 newlines. Archive SHA-256, URL and counts are recorded in prepare.json;
 recorded hashes establish provenance, not independent publisher verification.

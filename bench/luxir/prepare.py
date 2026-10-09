@@ -102,13 +102,48 @@ def prepare(dataset, root):
     return manifest
 
 
+def metadata(dataset, root):
+    """Synthetic capability fields; never asserted to be real paper metadata."""
+    import datetime
+    import random
+    rng = random.Random(42)
+    directory = Path(root) / dataset
+    temporary = directory / "docs_meta.jsonl.part"
+    categories = ["biology", "medicine", "chemistry", "physics",
+                  "computing", "ecology", "psychology", "engineering"]
+    tags = ["tag_" + str(i).zfill(2) for i in range(20)]
+    count = 0
+    with (directory / "docs.jsonl").open(encoding="utf-8") as source, temporary.open(
+            "w", encoding="utf-8", newline="\n") as output:
+        for line in source:
+            row = json.loads(line)
+            year = rng.randint(1990, 2024)
+            start = datetime.datetime(year, 1, 1, tzinfo=datetime.timezone.utc)
+            end = start.replace(year=year + 1)
+            published = start + datetime.timedelta(seconds=rng.randrange(int((end - start).total_seconds())))
+            row.update(year=year, category=rng.choice(categories),
+                       n_cites=rng.randint(0, 1000),
+                       published_at=published.isoformat().replace("+00:00", "Z"),
+                       tags=rng.sample(tags, rng.randint(1, 3)))
+            output.write(json.dumps(row, ensure_ascii=False) + "\n")
+            count += 1
+    os.replace(temporary, directory / "docs_meta.jsonl")
+    return {"documents": count, "seed": 42, "synthetic": True,
+            "categories": categories, "tags": tags}
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     p.add_argument("--datasets", nargs="+", choices=DATASETS, default=list(DATASETS))
+    p.add_argument("--with-meta", action="store_true", help="also emit deterministic synthetic capability metadata (seed 42)")
     args = p.parse_args()
     for dataset in args.datasets:
         prepare(dataset, args.root)
+        if args.with_meta:
+            manifest = metadata(dataset, args.root)
+            (args.root / dataset / "metadata.json").write_text(json.dumps(manifest, indent=2) + "\n")
+            print(json.dumps(manifest), flush=True)
 
 
 if __name__ == "__main__":
