@@ -78,9 +78,11 @@ jobs:
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             lto: fat
+          # The arm runner was killed twice at the fat-LTO link (v0.12.1), so the
+          # arm64 Linux leg uses thin LTO too.
           - os: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
-            lto: fat
+            lto: thin
           # macos-14 runners have 7 GB of RAM; fat LTO peaks at about 7.6 GiB (D45),
           # so the macOS legs use thin LTO with one codegen unit (1.7 GiB).
           - os: macos-14
