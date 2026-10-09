@@ -227,3 +227,63 @@ test('Supervisor OTLP options and validation', () => {
 
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
+
+test('External mode writes the server arguments and spawns nothing', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lume-sup-ext-'));
+  const storeDir = path.join(tmpDir, 'store');
+  const argsFile = path.join(storeDir, 'server.args');
+  const tokenFile = path.join(tmpDir, 'token.txt');
+  fs.writeFileSync(tokenFile, 'secret-jwt-token-12345', 'utf8');
+
+  const supervisor = new Supervisor({
+    binaryPath: path.join(tmpDir, 'does-not-exist'),
+    signalkUrl: 'ws://127.0.0.1:3000',
+    storeDir,
+    servePort: 5899,
+    tokenPath: tokenFile,
+    otlpEnabled: true,
+    external: true,
+    argsFile,
+  });
+
+  assert.strictEqual(supervisor.start(), true);
+  assert.strictEqual(supervisor.child, null, 'external mode must not spawn lume');
+  assert.strictEqual(supervisor.getStatus().mode, 'external');
+  const lines = fs.readFileSync(argsFile, 'utf8').trimEnd().split('\n');
+  assert.deepStrictEqual(lines, supervisor.buildArgs());
+  assert.deepStrictEqual(lines.slice(0, 4), ['ti', 'ingest', '--signalk', 'ws://127.0.0.1:3000']);
+  assert.ok(lines.includes('--otlp'));
+  assert.strictEqual(lines[lines.indexOf('--token') + 1], tokenFile, 'token path, never the token itself');
+  assert.ok(!fs.readFileSync(argsFile, 'utf8').includes('secret-jwt-token'), 'token value stays out of the args file');
+  assert.deepStrictEqual(fs.readdirSync(storeDir).filter(n => n.includes('.tmp-')), [], 'no temp file left behind');
+  await supervisor.stop();
+  assert.ok(fs.existsSync(argsFile), 'plugin stop leaves the container app running');
+  fs.rmSync(tmpDir, {recursive: true, force: true});
+});
+
+test('External mode refuses arguments with line breaks', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lume-sup-ext-'));
+  const storeDir = path.join(tmpDir, 'store');
+  const argsFile = path.join(storeDir, 'server.args');
+  const supervisor = new Supervisor({
+    binaryPath: process.execPath, storeDir, external: true, argsFile,
+    signalkUrl: 'ws://127.0.0.1:3000\n--bind\n0.0.0.0',
+  });
+  assert.strictEqual(supervisor.start(), false);
+  assert.match(supervisor.getStatus().lastError, /line breaks/);
+  assert.ok(!fs.existsSync(argsFile));
+  fs.rmSync(tmpDir, {recursive: true, force: true});
+});
+
+test('Embedded mode removes a stale server.args so the container app idles', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lume-sup-emb-'));
+  const storeDir = path.join(tmpDir, 'store');
+  const argsFile = path.join(storeDir, 'server.args');
+  fs.mkdirSync(storeDir, {recursive: true});
+  fs.writeFileSync(argsFile, 'ti\ningest\n');
+  const supervisor = new Supervisor({binaryPath: mockLumeBin, storeDir, servePort: 5898, argsFile});
+  assert.strictEqual(supervisor.start(), true);
+  assert.ok(!fs.existsSync(argsFile));
+  await supervisor.stop();
+  fs.rmSync(tmpDir, {recursive: true, force: true});
+});

@@ -1,0 +1,7 @@
+marine-lume-container (0.12.1-1) stable; urgency=medium
+
+  * Initial release: the Lume TI ingest and query server as a HaLOS
+    container app, run from the arguments the signalk-lume-ti plugin
+    writes in external server mode.
+
+ -- DeepBlue Dynamics <kord@deepbluedynamics.com>  Fri, 09 Oct 2026 00:00:00 +0000

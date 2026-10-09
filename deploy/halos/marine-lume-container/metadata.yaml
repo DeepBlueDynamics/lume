@@ -1,0 +1,38 @@
+name: Lume TI Server
+app_id: lume
+version: 0.12.1-1
+upstream_version: 0.12.1
+description: Lume TI telemetry store and query server for Signal K
+long_description: |
+  Runs the Lume TI ingest and query server in its own container, with its own
+  memory limit, instead of inside the Signal K server.
+
+  It records Signal K data into the Lume TI store and serves it on
+  127.0.0.1:5863 to the signalk-lume-ti plugin (history API, SQL console, Ask
+  tab, Library) and optionally to Grafana over PostgreSQL.
+
+  It needs the marine-lume package (the Signal K plugin). Installing this app
+  switches the plugin's Query Server Mode to external; the plugin settings page
+  still controls the server (OTLP, PostgreSQL, token), and this container
+  restarts lume whenever they change.
+homepage: https://github.com/DeepBlueDynamics/lume
+maintainer: DeepBlue Dynamics <kord@deepbluedynamics.com>
+license: BSD-3-Clause
+tags:
+  - role::container-app
+  - field::marine
+  - category::monitoring
+  - interface::daemon
+  - works-with::db
+debian_section: net
+architecture: arm64
+depends:
+  - docker.io (>= 20.10) | docker-ce (>= 20.10)
+  - marine-signalk-server-container
+  - marine-lume (>= 0.12.1)
+web_ui:
+  enabled: false
+default_config:
+  LUME_IMAGE: deepbluedynamics/lume:0.12.1
+  LUME_MEMORY_LIMIT: auto
+  LUME_SET_PLUGIN_EXTERNAL: "true"

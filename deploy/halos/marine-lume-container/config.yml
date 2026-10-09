@@ -1,0 +1,31 @@
+version: "1.0"
+
+groups:
+  - id: resources
+    label: Resource Limits
+    description: Container resources
+    fields:
+      - id: LUME_MEMORY_LIMIT
+        label: Memory Limit
+        type: string
+        default: auto
+        required: true
+        description: Hard memory cap for the Lume container (e.g. 1g, 1536m). auto is 20% of RAM, 768 MiB to 3 GiB.
+
+  - id: server
+    label: Server
+    description: Image and Signal K plugin handover
+    fields:
+      - id: LUME_IMAGE
+        label: Docker Image
+        type: string
+        default: deepbluedynamics/lume:0.12.1
+        required: true
+        description: Container image for the Lume TI server
+
+      - id: LUME_SET_PLUGIN_EXTERNAL
+        label: Switch plugin to external mode
+        type: boolean
+        default: true
+        required: true
+        description: On start, set the signalk-lume-ti plugin's Query Server Mode to external (restarting Signal K once if it changed)

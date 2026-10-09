@@ -86,6 +86,12 @@ class Supervisor {
     this.pgTlsKey = options.pgTlsKey || null;
     this.pgAllowPlaintext = options.pgAllowPlaintext === true;
     this.extraArgs = options.extraArgs || [];
+    // External mode: the marine-lume-container app runs `lume`. start() writes the
+    // arguments it would have spawned with to argsFile (one per line) and the
+    // container's entrypoint runs and restarts lume from them; embedded mode
+    // removes the file so a container left installed stays idle.
+    this.external = options.external === true;
+    this.argsFile = options.argsFile || null;
     // Cruiser library index served next to telemetry; a missing index is served empty and
     // picked up when it is first published.
     this.docsIndex = options.docsIndex || null;
@@ -206,6 +212,8 @@ class Supervisor {
     }
 
     const args = this.buildArgs();
+    if (this.external) return this.writeArgsFile(args);
+    this.removeArgsFile();
     this.onLog(`[supervisor] Spawning: ${this.binaryPath} ${args.join(' ')}`);
 
     try {
@@ -274,6 +282,44 @@ class Supervisor {
 
     this.onStateChange(this.getStatus());
     return true;
+  }
+
+  /**
+   * Hand the server arguments to the container app (external mode).
+   *
+   * Written to a temporary file and renamed, so the container never reads half a file.
+   *
+   * @param {string[]} args
+   * @returns {boolean}
+   */
+  writeArgsFile(args) {
+    try {
+      if (!this.argsFile) throw new Error('external server mode needs an args file path');
+      if (args.some(a => /[\r\n\0]/.test(a))) throw new Error('server arguments may not contain line breaks');
+      const tmp = `${this.argsFile}.tmp-${process.pid}`;
+      fs.writeFileSync(tmp, `${args.join('\n')}\n`, {mode: 0o644});
+      fs.renameSync(tmp, this.argsFile);
+    } catch (err) {
+      this.lastError = `Failed writing server arguments: ${err.message}`;
+      this.onLog(`[supervisor] ${this.lastError}`, true);
+      this.onStateChange(this.getStatus());
+      return false;
+    }
+    this.lastError = null;
+    this.onLog(`[supervisor] External server mode: wrote ${args.length} arguments to ${this.argsFile}`);
+    this.onStateChange(this.getStatus());
+    return true;
+  }
+
+  /** Remove a stale args file so an installed container app idles. */
+  removeArgsFile() {
+    if (!this.argsFile) return;
+    try {
+      fs.unlinkSync(this.argsFile);
+      this.onLog(`[supervisor] Removed ${this.argsFile}; the container app (if installed) will idle`);
+    } catch (err) {
+      if (err.code !== 'ENOENT') this.onLog(`[supervisor] Could not remove ${this.argsFile}: ${err.message}`, true);
+    }
   }
 
   /**
@@ -373,6 +419,7 @@ class Supervisor {
       : 0;
 
     return {
+      mode: this.external ? 'external' : 'embedded',
       running: this.running,
       stopping: this.stopping,
       pid: this.child ? this.child.pid : null,

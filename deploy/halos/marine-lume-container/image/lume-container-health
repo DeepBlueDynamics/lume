@@ -1,0 +1,16 @@
+#!/bin/bash
+# Healthy when idle (no args file) or when lume answers /ti/status on its port.
+args_file="${LUME_ARGS_FILE:-/home/node/.signalk/plugin-config-data/signalk-lume-ti/lume-ti/server.args}"
+[ -f "$args_file" ] || exit 0
+mapfile -t args < "$args_file"
+port=5863
+for i in "${!args[@]}"; do
+    [ "${args[$i]}" = "--port" ] && port="${args[$((i + 1))]}"
+done
+exec 3<> "/dev/tcp/127.0.0.1/$port" || exit 1
+printf 'GET /ti/status HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n' >&3
+IFS= read -r -t 5 status <&3 || exit 1
+case "$status" in
+    "HTTP/1."?" 200"*) exit 0 ;;
+    *) exit 1 ;;
+esac
