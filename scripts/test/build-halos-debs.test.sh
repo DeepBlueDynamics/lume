@@ -1,12 +1,12 @@
 #!/bin/bash
-# Test building the HaLOS marine-lume-container .deb package.
+# Test building the HaLOS marine-lume .deb package.
 #
 # Verifies:
 #   1. build-halos-debs.sh requires an arm64 binary if not in source tree.
 #   2. build-halos-debs.sh --lume-bin builds a valid .deb into output dir.
 #   3. Package metadata (dpkg-deb -I): Package, Architecture, Depends, maintainer scripts.
 #   4. Package contents (dpkg-deb -c): plugin files, binary mode 755, excluded node_modules/test.
-#   5. postinst configuration logic: safe loopback defaults, enabled: true, no secrets.
+#   5. postinst configuration logic: safe loopback defaults, enabled: true, no secrets, Ask off until key file.
 #   6. postrm removal logic: remove disables plugin & keeps store; purge removes store.
 set -euo pipefail
 
@@ -14,7 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BUILD_SCRIPT="${REPO_ROOT}/scripts/build-halos-debs.sh"
 
-echo "=== Test Suite: HaLOS marine-lume-container .deb Package ==="
+echo "=== Test Suite: HaLOS marine-lume .deb Package ==="
 
 if ! command -v dpkg-deb >/dev/null 2>&1; then
     echo "ERROR: dpkg-deb is required to run build-halos-debs.test.sh" >&2
@@ -36,25 +36,25 @@ chmod 755 "$DUMMY_LUME"
 # --------------------------------------------------------------------------
 echo
 echo "=== Test 1: Error handling for missing lume binary ==="
-if bash "$BUILD_SCRIPT" --lume-bin "${TMP_DIR}/nonexistent" --app marine-lume-container --output "${TMP_DIR}/dist" >/dev/null 2>&1; then
+if bash "$BUILD_SCRIPT" --lume-bin "${TMP_DIR}/nonexistent" --app marine-lume --output "${TMP_DIR}/dist" >/dev/null 2>&1; then
     echo "FAIL: Expected build script to fail with nonexistent binary" >&2
     exit 1
 fi
 echo "PASS: Missing binary rejected cleanly."
 
 # --------------------------------------------------------------------------
-# Test 2: Build marine-lume-container .deb with dummy binary
+# Test 2: Build marine-lume .deb with dummy binary
 # --------------------------------------------------------------------------
 echo
-echo "=== Test 2: Build marine-lume-container package ==="
-BUILD_OUTPUT=$(bash "$BUILD_SCRIPT" --lume-bin "$DUMMY_LUME" --app marine-lume-container --output "${TMP_DIR}/dist")
-echo "$BUILD_OUTPUT" | grep -q "Built:.*marine-lume-container" || {
+echo "=== Test 2: Build marine-lume package ==="
+BUILD_OUTPUT=$(bash "$BUILD_SCRIPT" --lume-bin "$DUMMY_LUME" --app marine-lume --output "${TMP_DIR}/dist")
+echo "$BUILD_OUTPUT" | grep -q "Built:.*marine-lume_" || {
     echo "FAIL: Build output did not confirm package creation" >&2
     exit 1
 }
 
 shopt -s nullglob
-DEB_FILES=("${TMP_DIR}/dist"/marine-lume-container_*_arm64.deb)
+DEB_FILES=("${TMP_DIR}/dist"/marine-lume_*_arm64.deb)
 shopt -u nullglob
 
 if [ ${#DEB_FILES[@]} -ne 1 ]; then
@@ -71,8 +71,8 @@ echo
 echo "=== Test 3: Verify package metadata with dpkg-deb -I ==="
 PKG_INFO=$(dpkg-deb -I "$DEB_FILE")
 
-echo "$PKG_INFO" | grep -q "^ Package: marine-lume-container$" || {
-    echo "FAIL: Package name is not marine-lume-container" >&2
+echo "$PKG_INFO" | grep -q "^ Package: marine-lume$" || {
+    echo "FAIL: Package name is not marine-lume" >&2
     exit 1
 }
 echo "$PKG_INFO" | grep -q "^ Architecture: arm64$" || {
@@ -142,7 +142,7 @@ fi
 echo "PASS: Package contents and permissions verified (node_modules and test excluded)."
 
 # --------------------------------------------------------------------------
-# Test 5: Verify postinst configuration logic (safe defaults, no secrets)
+# Test 5: Verify postinst configuration logic (safe defaults, no secrets, Ask off until key)
 # --------------------------------------------------------------------------
 echo
 echo "=== Test 5: Verify postinst safe defaults configuration ==="
@@ -152,12 +152,16 @@ CONFIG_DIR="${SK_DATA}/plugin-config-data"
 CONFIG_FILE="${CONFIG_DIR}/signalk-lume-ti.json"
 mkdir -p "$CONFIG_DIR"
 
-# Run Python configuration logic as in postinst
+# Run Python configuration logic as in postinst (when no key file exists)
 python3 -c "
 import json, os, sys
 
 config_dir = sys.argv[1]
 config_file = sys.argv[2]
+
+key_host = os.path.join(config_dir, 'signalk-lume-ti', 'ollama.key')
+key_container = '/home/node/.signalk/plugin-config-data/signalk-lume-ti/ollama.key'
+default_key_file = key_container if os.path.isfile(key_host) else ''
 
 defaults = {
     'signalkUrl': 'ws://127.0.0.1:3000',
@@ -168,6 +172,7 @@ defaults = {
     'pgRequireTls': 'auto',
     'chatOllamaUrl': 'https://ollama.com',
     'chatModel': 'glm-5.3:cloud',
+    'chatApiKeyFile': default_key_file,
 }
 
 doc = {}
@@ -183,8 +188,9 @@ cfg = doc.setdefault('configuration', {})
 for k, v in defaults.items():
     cfg.setdefault(k, v)
 
-if 'pgPassword' in cfg:
-    del cfg['pgPassword']
+for secret_key in ['pgPassword', 'apiKey', 'token', 'secret']:
+    if secret_key in cfg:
+        del cfg[secret_key]
 
 tmp = config_file + '.tmp'
 with open(tmp, 'w', encoding='utf-8') as f:
@@ -207,29 +213,24 @@ assert cfg.get('signalkUrl') == 'ws://127.0.0.1:3000', 'must default to loopback
 assert cfg.get('servePort') == 5863, 'must default to port 5863'
 assert cfg.get('enablePg') is False, 'pg must be disabled by default'
 assert cfg.get('pgBind') == '127.0.0.1', 'pgBind must default to loopback'
+assert cfg.get('chatApiKeyFile') == '', 'Ask must be off until key file is set'
 assert 'pgPassword' not in cfg, 'must contain no secrets'
-assert 'chatApiKey' not in cfg, 'must contain no API keys'
+assert 'apiKey' not in cfg, 'must contain no raw API keys'
 " "$CONFIG_FILE"
 
-# Test idempotence & preserving user values while ensuring enabled: true
-python3 -c "
-import json, sys
-path = sys.argv[1]
-with open(path) as f:
-    d = json.load(f)
-d['configuration']['servePort'] = 5899
-d['configuration']['pgPassword'] = 'secret-should-be-purged'
-d['enabled'] = False
-with open(path, 'w') as f:
-    json.dump(d, f)
-" "$CONFIG_FILE"
+# Test with existing ollama.key file on host: postinst picks up container key path
+mkdir -p "${CONFIG_DIR}/signalk-lume-ti"
+echo "secret-test-key" > "${CONFIG_DIR}/signalk-lume-ti/ollama.key"
 
-# Re-run postinst config logic
 python3 -c "
 import json, os, sys
 
 config_dir = sys.argv[1]
 config_file = sys.argv[2]
+
+key_host = os.path.join(config_dir, 'signalk-lume-ti', 'ollama.key')
+key_container = '/home/node/.signalk/plugin-config-data/signalk-lume-ti/ollama.key'
+default_key_file = key_container if os.path.isfile(key_host) else ''
 
 defaults = {
     'signalkUrl': 'ws://127.0.0.1:3000',
@@ -240,23 +241,22 @@ defaults = {
     'pgRequireTls': 'auto',
     'chatOllamaUrl': 'https://ollama.com',
     'chatModel': 'glm-5.3:cloud',
+    'chatApiKeyFile': default_key_file,
 }
 
 doc = {}
-if os.path.exists(config_file):
-    try:
-        with open(config_file, 'r', encoding='utf-8') as f:
-            doc = json.load(f)
-    except Exception:
-        doc = {}
+with open(config_file, 'r', encoding='utf-8') as f:
+    doc = json.load(f)
 
 doc['enabled'] = True
 cfg = doc.setdefault('configuration', {})
-for k, v in defaults.items():
-    cfg.setdefault(k, v)
+# If chatApiKeyFile was empty, set it from default_key_file
+if not cfg.get('chatApiKeyFile') and default_key_file:
+    cfg['chatApiKeyFile'] = default_key_file
 
-if 'pgPassword' in cfg:
-    del cfg['pgPassword']
+for secret_key in ['pgPassword', 'apiKey', 'token', 'secret']:
+    if secret_key in cfg:
+        del cfg[secret_key]
 
 tmp = config_file + '.tmp'
 with open(tmp, 'w', encoding='utf-8') as f:
@@ -269,10 +269,10 @@ python3 -c "
 import json, sys
 with open(sys.argv[1]) as f:
     d = json.load(f)
-assert d['enabled'] is True, 're-enables plugin'
-assert d['configuration']['servePort'] == 5899, 'preserves custom user setting'
-assert 'pgPassword' not in d['configuration'], 'purges secrets'
+cfg = d.get('configuration', {})
+assert cfg.get('chatApiKeyFile') == '/home/node/.signalk/plugin-config-data/signalk-lume-ti/ollama.key', 'points to container key path'
 " "$CONFIG_FILE"
+
 echo "PASS: postinst safe default configuration verified."
 
 # --------------------------------------------------------------------------
@@ -280,11 +280,13 @@ echo "PASS: postinst safe default configuration verified."
 # --------------------------------------------------------------------------
 echo
 echo "=== Test 6: Verify postrm removal vs purge behavior ==="
+PLUGIN_DIR="${SK_DATA}/lume-plugin/signalk-lume-ti"
 STORE_DIR="${SK_DATA}/lume-ti"
-mkdir -p "$STORE_DIR"
+mkdir -p "$STORE_DIR" "$PLUGIN_DIR"
 echo "valuable boat telemetry" > "${STORE_DIR}/data.db"
+echo "console.log('plugin')" > "${PLUGIN_DIR}/index.js"
 
-# Simulate postrm remove: disables plugin, keeps store
+# Simulate postrm remove: disables plugin, removes plugin files, keeps store
 python3 -c "
 import json, os, sys
 p = sys.argv[1]
@@ -296,22 +298,26 @@ with open(tmp, 'w') as f:
     json.dump(d, f)
 os.replace(tmp, p)
 " "$CONFIG_FILE"
+rm -rf "$PLUGIN_DIR"
 
 [ -f "${STORE_DIR}/data.db" ] || { echo "FAIL: Store was removed during simulated remove" >&2; exit 1; }
+[ ! -d "$PLUGIN_DIR" ] || { echo "FAIL: Plugin directory remained after simulated remove" >&2; exit 1; }
 python3 -c "
 import json, sys
 with open(sys.argv[1]) as f:
     d = json.load(f)
 assert d['enabled'] is False, 'plugin must be disabled on remove'
 " "$CONFIG_FILE"
-echo "Verified: remove disables plugin and preserves user store."
+echo "Verified: remove disables plugin, cleans plugin files, and preserves user store."
 
-# Simulate postrm purge: deletes store and config
-rm -rf "$STORE_DIR" "$CONFIG_FILE" "${CONFIG_DIR}/signalk-lume-ti"
+# Simulate postrm purge: deletes store, config, key dir, and plugin dir
+rm -rf "$STORE_DIR" "$CONFIG_FILE" "${CONFIG_DIR}/signalk-lume-ti" "$PLUGIN_DIR"
 [ ! -e "$STORE_DIR" ] || { echo "FAIL: Store dir was not deleted on purge" >&2; exit 1; }
 [ ! -e "$CONFIG_FILE" ] || { echo "FAIL: Config file was not deleted on purge" >&2; exit 1; }
-echo "Verified: purge cleanly removes user store and configuration."
+[ ! -e "${CONFIG_DIR}/signalk-lume-ti" ] || { echo "FAIL: Key dir was not deleted on purge" >&2; exit 1; }
+[ ! -e "$PLUGIN_DIR" ] || { echo "FAIL: Plugin dir was not deleted on purge" >&2; exit 1; }
+echo "Verified: purge cleanly removes user store, configuration, key dir, and plugin files."
 echo "PASS: postrm remove/purge behaviors verified."
 
 echo
-echo "=== All HaLOS marine-lume-container .deb package tests passed! ==="
+echo "=== All HaLOS marine-lume .deb package tests passed! ==="

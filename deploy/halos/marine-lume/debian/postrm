@@ -1,18 +1,19 @@
 #!/bin/sh
 set -e
 
-# postrm script for marine-lume-container
+# postrm script for marine-lume
 SK_DATA="/var/lib/container-apps/marine-signalk-server-container/data/data"
 PLUGIN_DEST="$SK_DATA/lume-plugin/signalk-lume-ti"
 CONFIG_FILE="$SK_DATA/plugin-config-data/signalk-lume-ti.json"
 STORE_DIR="$SK_DATA/lume-ti"
 
 restart_signalk() {
-    if command -v systemctl >/dev/null 2>&1; then
-        if [ -d /run/systemd/system ]; then
-            echo "Restarting marine-signalk-server-container..."
-            systemctl restart marine-signalk-server-container || true
-        fi
+    if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+        echo "Restarting marine-signalk-server-container..."
+        systemctl restart marine-signalk-server-container || true
+    elif command -v docker >/dev/null 2>&1; then
+        echo "Restarting marine-signalk-server-container via docker..."
+        docker restart marine-signalk-server-container 2>/dev/null || true
     fi
 }
 

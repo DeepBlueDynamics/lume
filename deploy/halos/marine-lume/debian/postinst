@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-# postinst script for marine-lume-container
+# postinst script for marine-lume
 SK_DATA="/var/lib/container-apps/marine-signalk-server-container/data/data"
 PLUGIN_DEST="$SK_DATA/lume-plugin/signalk-lume-ti"
 CONFIG_DIR="$SK_DATA/plugin-config-data"
@@ -17,7 +17,7 @@ case "$1" in
             fi
         fi
 
-        # Enable plugin with safe defaults (loopback, no secrets)
+        # Enable plugin with safe defaults: loopback, no secrets in config, Ask off until a key file is set
         mkdir -p "$CONFIG_DIR"
         chown 1000:1000 "$CONFIG_DIR" 2>/dev/null || true
         chmod 755 "$CONFIG_DIR" 2>/dev/null || true
@@ -28,6 +28,10 @@ import json, os, sys
 config_dir = sys.argv[1]
 config_file = sys.argv[2]
 
+key_host = os.path.join(config_dir, 'signalk-lume-ti', 'ollama.key')
+key_container = '/home/node/.signalk/plugin-config-data/signalk-lume-ti/ollama.key'
+default_key_file = key_container if os.path.isfile(key_host) else ''
+
 defaults = {
     'signalkUrl': 'ws://127.0.0.1:3000',
     'servePort': 5863,
@@ -37,6 +41,7 @@ defaults = {
     'pgRequireTls': 'auto',
     'chatOllamaUrl': 'https://ollama.com',
     'chatModel': 'glm-5.3:cloud',
+    'chatApiKeyFile': default_key_file,
 }
 
 doc = {}
@@ -53,8 +58,9 @@ for k, v in defaults.items():
     cfg.setdefault(k, v)
 
 # Ensure no secrets in config
-if 'pgPassword' in cfg:
-    del cfg['pgPassword']
+for secret_key in ['pgPassword', 'apiKey', 'token', 'secret']:
+    if secret_key in cfg:
+        del cfg[secret_key]
 
 tmp = config_file + '.tmp'
 with open(tmp, 'w', encoding='utf-8') as f:
@@ -80,7 +86,8 @@ except Exception:
     "pgBind": "127.0.0.1",
     "pgRequireTls": "auto",
     "chatOllamaUrl": "https://ollama.com",
-    "chatModel": "glm-5.3:cloud"
+    "chatModel": "glm-5.3:cloud",
+    "chatApiKeyFile": ""
   }
 }
 EOF
@@ -89,12 +96,13 @@ EOF
             fi
         }
 
-        # Restart Signal K container if systemd is active
-        if command -v systemctl >/dev/null 2>&1; then
-            if [ -d /run/systemd/system ]; then
-                echo "Restarting marine-signalk-server-container..."
-                systemctl restart marine-signalk-server-container || true
-            fi
+        # Restart Signal K container
+        if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+            echo "Restarting marine-signalk-server-container..."
+            systemctl restart marine-signalk-server-container || true
+        elif command -v docker >/dev/null 2>&1; then
+            echo "Restarting marine-signalk-server-container via docker..."
+            docker restart marine-signalk-server-container 2>/dev/null || true
         fi
         ;;
     abort-upgrade|abort-remove|abort-deconfigure)

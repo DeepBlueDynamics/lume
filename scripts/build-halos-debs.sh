@@ -8,7 +8,7 @@
 #
 # Options:
 #   --lume-bin <path>   Path to linux-arm64 lume binary
-#   --app <name>        Build only a specific package (marine-lume-container,
+#   --app <name>        Build only a specific package (marine-lume,
 #                       marine-grubcrawler-container, marine-ollama-container, all)
 #   -o, --output <dir>  Output directory for .deb packages (default: dist/halos)
 #   -h, --help          Show this help message
@@ -28,7 +28,7 @@ Build HaLOS Debian packages (.deb) into dist/halos/.
 
 Options:
   --lume-bin <path>   Path to linux-arm64 lume binary
-  --app <name>        Build only a specific package (marine-lume-container,
+  --app <name>        Build only a specific package (marine-lume,
                       marine-grubcrawler-container, marine-ollama-container, all)
   -o, --output <dir>  Output directory for .deb packages (default: dist/halos)
   -h, --help          Show this help message
@@ -76,9 +76,9 @@ done
 mkdir -p "${DIST_DIR}"
 
 build_marine_lume() {
-    echo "--- Building marine-lume-container ---"
+    echo "--- Building marine-lume ---"
     if ! command -v dpkg-deb >/dev/null 2>&1; then
-        echo "ERROR: dpkg-deb is required to build marine-lume-container" >&2
+        echo "ERROR: dpkg-deb is required to build marine-lume" >&2
         exit 1
     fi
 
@@ -94,12 +94,12 @@ build_marine_lume() {
         exit 1
     fi
 
-    local pkg_dir="${REPO_ROOT}/deploy/halos/marine-lume-container"
+    local pkg_dir="${REPO_ROOT}/deploy/halos/marine-lume"
     if [ ! -d "$pkg_dir" ]; then
-        pkg_dir="${REPO_ROOT}/deploy/halos/marine-lume"
+        pkg_dir="${REPO_ROOT}/deploy/halos/marine-lume-container"
     fi
     if [ ! -d "$pkg_dir" ]; then
-        echo "ERROR: Package source directory not found at deploy/halos/marine-lume-container" >&2
+        echo "ERROR: Package source directory not found at deploy/halos/marine-lume" >&2
         exit 1
     fi
 
@@ -115,7 +115,7 @@ build_marine_lume() {
         version="0.12.0"
     fi
     local deb_version="${version}-1"
-    local deb_filename="marine-lume-container_${deb_version}_arm64.deb"
+    local deb_filename="marine-lume_${deb_version}_arm64.deb"
 
     local stage_dir
     stage_dir="$(mktemp -d -t marine-lume-stage.XXXXXX)"
