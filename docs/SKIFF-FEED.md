@@ -23,7 +23,7 @@ Get a token with the helper in the next section, then start Skiff:
 ```powershell
 cd C:\Users\kordl\Code\DeepBlueDynamics\skiff
 $env:SIGNALK_HOST = "halos.local:3000"
-$env:SIGNALK_TOKEN = "<token printed by scripts/skiff-to-pi.ps1>"
+$env:SIGNALK_TOKEN = (Get-Content -Raw "$env:USERPROFILE\.skiff\signalk-token").Trim()
 cargo run --bin skiff
 ```
 
@@ -47,21 +47,23 @@ Skiff never calls `/signalk/v1/access/requests`. Nothing in the Skiff tree reque
 
 The Lume plugin requests `readonly` for its own client. That token cannot send deltas. Do not copy it.
 
-On the Windows PC, run `scripts/skiff-to-pi.ps1` from this branch (`docs/skiff-feed`). The helper only talks to the access-request API. It does not start Skiff, and it does not write the token to disk.
+On the Windows PC, run `scripts/skiff-token.ps1` from this branch (`docs/skiff-feed`). The helper only talks to the access-request API. It does not start Skiff. It never prints the token.
 
 ```powershell
-powershell -NoProfile -File .\scripts\skiff-to-pi.ps1 -SignalKHost halos.local:3000
+powershell -NoProfile -File .\scripts\skiff-token.ps1
 ```
 
 What it does:
 
 1. Reuses a client UUID stored in `%USERPROFILE%\.skiff\signalk-client-id.json`, or creates one. That file is not the token, and it is outside the repo.
 2. POSTs `http://halos.local:3000/signalk/v1/access/requests` with `permissions` set to `readwrite` and description `Skiff sailing simulator`.
-3. Asks you to approve the request in the Signal K admin: Security > Access Requests.
-4. Polls the returned `href` for up to five minutes, until the state is `COMPLETED` or `DENIED`.
-5. Prints three lines to paste into the Skiff window: `SIGNALK_HOST`, `SIGNALK_TOKEN`, and `cargo run --bin skiff`.
+3. Prints `approve it in Signal K > Security > Access Requests`.
+4. Polls the returned `href` until the state is `COMPLETED` or `DENIED`.
+5. On approval, writes the token to `%USERPROFILE%\.skiff\signalk-token`. The file DACL grants only the current Windows user. The script then prints the three startup lines from section 1, which read that file. The token value stays off the screen.
 
-Approve the request while the script is polling. A denied request exits with an error. A timeout leaves the request pending; approve it and run the script again. The same client id is reused.
+Approve the request while the script is polling. A denied request exits with an error and writes nothing. Ctrl+C stops the wait. The same client id is reused on the next run.
+
+`-SignalKHost` defaults to `halos.local:3000`. The startup lines use whatever host you passed.
 
 ## 3. Confirm the data
 

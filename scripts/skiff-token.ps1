@@ -1,29 +1,25 @@
-# Request a readwrite Signal K token for Skiff and print the startup lines.
+# Request a readwrite Signal K token for Skiff.
 #
 # Run this on the Windows PC that runs Skiff. It does not start Skiff.
-# It does not write the token anywhere. Approve the request in the Signal K
-# admin under Security > Access Requests while this script polls.
+# It never prints the token. The token is saved outside the repo, and the
+# file DACL grants only the current user.
 #
-#   powershell -NoProfile -File .\scripts\skiff-to-pi.ps1
-#   powershell -NoProfile -File .\scripts\skiff-to-pi.ps1 -SignalKHost halos.local:3000
+#   powershell -NoProfile -File .\scripts\skiff-token.ps1
+#   powershell -NoProfile -File .\scripts\skiff-token.ps1 -SignalKHost halos.local:3000
 #
-# Do not redirect the output into the git repo. The token is a secret.
+# Ctrl+C stops the wait. A denied request exits without writing a token.
 
 [CmdletBinding()]
 param(
     [string]$SignalKHost = 'halos.local:3000',
     [string]$Description = 'Skiff sailing simulator',
-    [int]$TimeoutSec = 300,
     [int]$PollSec = 2
 )
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-function Format-PsLiteral {
-    param([string]$Value)
-    return "'" + ($Value -replace "'", "''") + "'"
-}
+$ApproveText = 'approve it in Signal K > Security > Access Requests'
 
 function Get-HttpBase {
     param([string]$HostValue)
@@ -46,8 +42,8 @@ function Get-BareHost {
 }
 
 function Get-SkiffClientId {
-    $dir = Join-Path $env:USERPROFILE '.skiff'
-    $file = Join-Path $dir 'signalk-client-id.json'
+    param([string]$Dir)
+    $file = Join-Path $Dir 'signalk-client-id.json'
     $pattern = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
     if (Test-Path -LiteralPath $file) {
         try {
@@ -60,7 +56,6 @@ function Get-SkiffClientId {
         }
     }
     $id = [guid]::NewGuid().ToString()
-    New-Item -ItemType Directory -Force -Path $dir | Out-Null
     @{ clientId = $id } | ConvertTo-Json | Set-Content -LiteralPath $file -Encoding ascii
     return $id
 }
@@ -133,25 +128,62 @@ function Invoke-SkiffJson {
     [pscustomobject]@{
         Status = $status
         Body = $body
-        Raw = $content
     }
 }
 
+function Set-UserOnlyAcl {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $me = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+    $account = $me.Name
+    $acl = New-Object System.Security.AccessControl.FileSecurity
+    $acl.SetAccessRuleProtection($true, $false)
+    $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+        $account,
+        'FullControl',
+        'Allow')
+    $acl.SetAccessRule($rule)
+    Set-Acl -LiteralPath $Path -AclObject $acl
+
+    $check = Get-Acl -LiteralPath $Path
+    $others = @($check.Access | Where-Object {
+        $_.IdentityReference.Value -ne $account -and
+        $_.IdentityReference.Value -ne $me.User.Value
+    })
+    if ($others.Count -ne 0) {
+        $names = ($others | ForEach-Object { $_.IdentityReference.Value }) -join ', '
+        throw "Token file ACL still grants: $names"
+    }
+}
+
+function Save-SkiffToken {
+    param(
+        [Parameter(Mandatory = $true)][string]$Dir,
+        [Parameter(Mandatory = $true)][string]$Token
+    )
+    $path = Join-Path $Dir 'signalk-token'
+    if (-not (Test-Path -LiteralPath $path)) {
+        New-Item -ItemType File -Path $path | Out-Null
+    }
+    # Lock the DACL before the secret is written.
+    Set-UserOnlyAcl -Path $path
+    [System.IO.File]::WriteAllText($path, $Token)
+    return $path
+}
+
 function Show-StartupLines {
-    param([string]$BareHost, [string]$Token)
+    param([string]$BareHost, [string]$TokenPath)
     Write-Host ''
-    Write-Host 'Approved. Paste these into the Skiff window. Do not commit the token.'
-    Write-Host 'Skiff always connects with ws://. A readonly Lume plugin token will not send deltas.'
+    Write-Host "Token saved for the current user only: $TokenPath"
+    Write-Host 'The token was not printed. Start Skiff with:'
     Write-Host ''
-    Write-Output ("`$env:SIGNALK_HOST = {0}" -f (Format-PsLiteral $BareHost))
-    Write-Output ("`$env:SIGNALK_TOKEN = {0}" -f (Format-PsLiteral $Token))
+    Write-Output ("`$env:SIGNALK_HOST = `"{0}`"" -f $BareHost)
+    Write-Output '$env:SIGNALK_TOKEN = (Get-Content -Raw "$env:USERPROFILE\.skiff\signalk-token").Trim()'
     Write-Output 'cargo run --bin skiff'
 }
 
 if (-not $env:USERPROFILE) {
-    throw 'USERPROFILE is not set, so the client id cannot be stored outside the repo.'
+    throw 'USERPROFILE is not set, so the token cannot be stored outside the repo.'
 }
-if ($TimeoutSec -lt 1) { throw '-TimeoutSec must be at least 1.' }
 if ($PollSec -lt 1) { throw '-PollSec must be at least 1.' }
 if ([string]::IsNullOrWhiteSpace($SignalKHost)) { throw '-SignalKHost is empty.' }
 if ([string]::IsNullOrWhiteSpace($Description)) { throw '-Description is empty.' }
@@ -165,11 +197,11 @@ if ($SignalKHost -match '^(?i)(https|wss)://') {
     Write-Host 'wss:// is not implemented in the Skiff client.'
 }
 
-$clientId = Get-SkiffClientId
-$clientFile = Join-Path (Join-Path $env:USERPROFILE '.skiff') 'signalk-client-id.json'
+$dir = Join-Path $env:USERPROFILE '.skiff'
+New-Item -ItemType Directory -Force -Path $dir | Out-Null
+$clientId = Get-SkiffClientId -Dir $dir
 Write-Host "Using client id $clientId"
-Write-Host "Client id file (not a token): $clientFile"
-Write-Host 'Approve "Skiff sailing simulator" with readwrite under Security > Access Requests.'
+Write-Host $ApproveText
 
 $payload = @{
     clientId = $clientId
@@ -182,60 +214,63 @@ Write-Host "POST $requestUrl"
 $created = Invoke-SkiffJson -Method 'POST' -Uri $requestUrl -JsonBody $payload
 if ($created.Status -lt 200 -or $created.Status -ge 300) {
     Write-Host "Access request failed with HTTP $($created.Status)."
-    if ($created.Raw) { Write-Host $created.Raw }
     exit 1
 }
 
 $state = ''
 if ($created.Body -and $created.Body.state) { $state = [string]$created.Body.state }
 $token = Get-ResponseToken $created.Body
-if ($state.ToUpperInvariant() -eq 'COMPLETED' -and $token) {
-    Show-StartupLines -BareHost $bareHost -Token $token
-    exit 0
-}
 if ($state.ToUpperInvariant() -eq 'DENIED') {
     Write-Host 'The administrator denied the access request.'
     exit 1
+}
+if ($token) {
+    $saved = Save-SkiffToken -Dir $dir -Token $token
+    Show-StartupLines -BareHost $bareHost -TokenPath $saved
+    exit 0
 }
 
 $href = $null
 if ($created.Body) { $href = [string]$created.Body.href }
 if ([string]::IsNullOrWhiteSpace($href)) {
     Write-Host 'The access request did not return a token or an href to poll.'
-    if ($created.Raw) { Write-Host $created.Raw }
     exit 1
 }
 $pollUrl = Resolve-RequestHref -Base $httpBase -Href $href
 Write-Host "Pending. Polling $pollUrl"
+Write-Host $ApproveText
 
-$deadline = (Get-Date).AddSeconds($TimeoutSec)
-$noteDue = Get-Date
-while ((Get-Date) -lt $deadline) {
+$noteDue = (Get-Date).AddSeconds(15)
+while ($true) {
     if ((Get-Date) -ge $noteDue) {
-        Write-Host 'Waiting. In Signal K admin, open Security > Access Requests and approve this client with readwrite.'
+        Write-Host $ApproveText
         $noteDue = (Get-Date).AddSeconds(15)
     }
 
-    $poll = Invoke-SkiffJson -Method 'GET' -Uri $pollUrl
+    try {
+        $poll = Invoke-SkiffJson -Method 'GET' -Uri $pollUrl
+    } catch {
+        Write-Host 'Poll failed. Still waiting.'
+        Start-Sleep -Seconds $PollSec
+        continue
+    }
+
     if ($poll.Status -ge 200 -and $poll.Status -lt 300 -and $poll.Body) {
         $pollState = ''
         if ($poll.Body.state) { $pollState = [string]$poll.Body.state }
-        $pollToken = Get-ResponseToken $poll.Body
-        if ($pollState.ToUpperInvariant() -eq 'COMPLETED' -and $pollToken) {
-            Show-StartupLines -BareHost $bareHost -Token $pollToken
-            exit 0
-        }
         if ($pollState.ToUpperInvariant() -eq 'DENIED') {
             Write-Host 'The administrator denied the access request.'
             exit 1
         }
+        $pollToken = Get-ResponseToken $poll.Body
+        if ($pollToken -and ($pollState.Length -eq 0 -or $pollState.ToUpperInvariant() -eq 'COMPLETED')) {
+            $saved = Save-SkiffToken -Dir $dir -Token $pollToken
+            Show-StartupLines -BareHost $bareHost -TokenPath $saved
+            exit 0
+        }
     } elseif ($poll.Status -ge 400) {
-        Write-Host "Poll returned HTTP $($poll.Status). Still waiting until the timeout."
+        Write-Host "Poll returned HTTP $($poll.Status). Still waiting."
     }
 
     Start-Sleep -Seconds $PollSec
 }
-
-Write-Host "Timed out after $TimeoutSec seconds. The request is still pending at $pollUrl"
-Write-Host 'Approve it in Security > Access Requests, then run this script again.'
-exit 1
