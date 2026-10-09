@@ -1,14 +1,14 @@
 # Lume TI — Status board
 
-Last updated: **2026-10-08** (docs keeper, after `9334f18`: **D48 gap 2 contention on Pi** (`9334f18`), **plain serve loopback default & OPERATIONS.md** (`9e95173`, A18), **Pi docs use halos.local** (`fd80db8`), **nuts.services HTTP bearer auth** (`f8d95ec`, A17, D51 ACCEPTED), **gap 4 closed on Pi** (`ffe648a`), **q6-004 pruning** (`f4422f6`, A15), **OTLP split commit queues** (`377eebe`, A16, D50), **live Ask tool calls & prompt fix** (`cd6a323`, `6ff0376`, B17); earlier at `51080e9`: **zero-tail recovery** (`51080e9`, A13b), **WAL checkpoint fix** (`38f7f12`, A14), **append-only DocStore** (`ad7a1d0`, A13), **OTLP reload & group commit** (`e8aa41f`, A10), **pgwire frame cap** (`9891f31`, A12), **HTTP bearer opt-in** (`b46482f`, A11), **hardening & D51** (`f754c0d`, `c70d617`, A9), **otlp-soak** (`2c53d3f`, A7), **PR #4 review** (`6e27791`, `e004349`, A8), **contention harness** (`3c5ab9d`, A6), **Pi gap 4 measured** (`a47ff21`), **CI dashboard SQL build** (`fa37d06`); earlier at `3633d9a`: HaLOS container .debs, Q6 bench PASS, Ollama HaLOS app, Grub image, library search, plugin TLS, M6 items 1-3; earlier: M2 item 3 on Pi, D46 pgwire TLS, release pipeline)
+Last updated: **2026-10-09** (docs keeper, after `d58a0a5`: **deploy/halos LF in gitattributes** (`d58a0a5`), **release pipeline publishes marine-lume deb** (`79f69fa`), **postinst plugin registration** (`34c33ea`), **marine-lume .deb for HaLOS** (`f0467a8`), **Skiff → Pi Signal K runbook** (`1c90e90`); earlier at `9334f18`: **D48 gap 2 contention on Pi** (`9334f18`), **plain serve loopback default & OPERATIONS.md** (`9e95173`, A18), **Pi docs use halos.local** (`fd80db8`), **nuts.services HTTP bearer auth** (`f8d95ec`, A17, D51 ACCEPTED), **gap 4 closed on Pi** (`ffe648a`), **q6-004 pruning** (`f4422f6`, A15), **OTLP split commit queues** (`377eebe`, A16, D50), **live Ask tool calls & prompt fix** (`cd6a323`, `6ff0376`, B17); earlier at `51080e9`: **zero-tail recovery** (`51080e9`, A13b), **WAL checkpoint fix** (`38f7f12`, A14), **append-only DocStore** (`ad7a1d0`, A13), **OTLP reload & group commit** (`e8aa41f`, A10), **pgwire frame cap** (`9891f31`, A12), **HTTP bearer opt-in** (`b46482f`, A11), **hardening & D51** (`f754c0d`, `c70d617`, A9), **otlp-soak** (`2c53d3f`, A7), **PR #4 review** (`6e27791`, `e004349`, A8), **contention harness** (`3c5ab9d`, A6), **Pi gap 4 measured** (`a47ff21`), **CI dashboard SQL build** (`fa37d06`); earlier at `3633d9a`: HaLOS container .debs, Q6 bench PASS, Ollama HaLOS app, Grub image, library search, plugin TLS, M6 items 1-3; earlier: M2 item 3 on Pi, D46 pgwire TLS, release pipeline)
 
-Integration branch `plan/lume-ti` is at `9334f18`. **PR #4** (`plan/lume-ti` to `main` on public GitHub DeepBlueDynamics/lume) is open; CI is green through `9334f18`. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46 at `8e87a11`; `cargo test --features ti` was 55 at `39c0096` (not recounted since). Plugin `npm test` 39/39 (at `a5be3f8` / `c769d23`) and `cargo test` `ti_http` 8/8 at `e09bb87`.
+Integration branch `plan/lume-ti` is at `d58a0a5`. **PR #4** (`plan/lume-ti` to `main` on public GitHub DeepBlueDynamics/lume) is open; CI is green through `d58a0a5`. **`ti-contracts` is frozen** (`96ac45d`). Root tests: 46 at `8e87a11`; `cargo test --features ti` was 55 at `39c0096` (not recounted since). Plugin `npm test` 39/39 (at `a5be3f8` / `c769d23`) and `cargo test` `ti_http` 8/8 at `e09bb87`.
 Workspace members: `ti-contracts`, `ti-core`, `ti-store`, `ti-sql`, `ti-ingest`, `ti-bench`, `ti-geo`, `ti-sync`. Signal K plugin: `plugins/signalk-lume-ti/`. Next free decision: **D54** (D51 HTTP bearer auth & loopback default ACCEPTED, D52 append-only DocStore, D53 WAL checkpoints; earlier D50 OTLP, D49 D48 follow-ups). D45 (binary size) is merged and recorded in [decisions/D45-binary-size.md](decisions/D45-binary-size.md). D46 (pgwire TLS, Option 2) is merged (`45ae6ff`, Artificial Shark, `ti/pg-tls` `66e2bbb`). D47 (open-shard flush) is in [spec/11](spec/11-risks-decisions.md). All measured numbers: [docs/performance-comparisons.md](../docs/performance-comparisons.md).
 Setup and workflow: [SETUP.md](SETUP.md).
 
-## Handoff (2026-10-08, lead session)
+## Handoff (2026-10-09, lead session)
 
-`plan/lume-ti` is at `9334f18` and pushed. PR #4 is open; CI is green through `9334f18`.
+`plan/lume-ti` is at `d58a0a5` and pushed. PR #4 is open; CI is green through `d58a0a5`.
 
 **Done since `78c913d`:**
 - **Self-telemetry:** `6e84992`, then its own store and table `telemetry_lume` (`ed02ff4`).
@@ -55,6 +55,11 @@ Setup and workflow: [SETUP.md](SETUP.md).
 - **A18 plain serve loopback default & docs/OPERATIONS.md:** `9e95173`: plain `lume serve` defaults to `127.0.0.1` (the user's decision on 2026-10-08); network exposure documented in `docs/OPERATIONS.md`.
 - **D48 gap 2 contention test on the Pi:** measured on the Pi at `f4422f6` (`9334f18`). 10-minute back-to-back Q4 and Q8 query load against 90-day store while Signal K, InfluxDB, Grafana, OpenCPN and live ingest ran. Signal K gap p95 change was at most +2.7% against a 10% target (median +0.26%), latency was about 0%, and the drop rate didn't rise (6.65/s unloaded vs 6.44/s under load). The OpenCPN observation is pending from the user.
 - **Pi naming:** docs refer to the Pi as `halos.local`, not its current IP (`fd80db8`).
+- **Skiff → Pi Signal K feed runbook & token helper:** `docs/SKIFF-FEED.md` runbook and `scripts/skiff-token.ps1` helper (`1c90e90`, `353a999`, `8fc75fe`) to request readwrite device access from Signal K, store the token in a user-only file (mode 600, never printed to console), and stream Skiff boat telemetry into Signal K on `halos.local`.
+- **HaLOS marine-lume .deb package:** `marine-lume` Debian package for HaLOS Pi (`f0467a8`, `d5c616c`) installs the `signalk-lume-ti` plugin and bundled `linux-arm64/lume` binary into `/var/lib/container-apps/marine-signalk-server-container/data/data/lume-plugin/signalk-lume-ti`, enables the plugin with safe loopback defaults (`127.0.0.1:5863`, Ask off until key file configured), and restarts Signal K; `apt remove` disables plugin and keeps store, `apt purge` deletes store and config. Built via `scripts/build-halos-debs.sh --lume-bin` and tested in `scripts/test/build-halos-debs.test.sh`.
+- **Plugin registration in postinst/postrm:** `marine-lume` registers `signalk-lume-ti` with Signal K in `postinst` by atomically adding `"signalk-lume-ti": "file:lume-plugin/signalk-lume-ti"` under `dependencies` in `data/package.json` and symlinking `data/node_modules/signalk-lume-ti -> ../lume-plugin/signalk-lume-ti` (1000:1000) before restarting Signal K; `postrm` remove/purge unregisters both before restart; rewrote control Description plainly (`34c33ea`, `6360e19`).
+- **Release pipeline publishes marine-lume deb:** `.github/workflows/release.yml` builds and publishes `marine-lume_<version>_arm64.deb` with `SHA256SUMS` alongside the standalone binary on GitHub Releases; `docs/HALOS.md` documents installation (`79f69fa`, `36014a6`).
+- **deploy/halos LF in gitattributes:** `.gitattributes` enforces `eol=lf` for `deploy/halos/**` so Windows checkouts/builds preserve LF line endings in Debian maintainer scripts and control files (`d58a0a5`).
 
 **What runs on the Pi (2026-10-08):**
 - reachable as `halos.local` (mDNS); firstrun.sh also set 192.168.68.61 static on wlan0, but scripts and docs use the name, not the IP;
@@ -75,7 +80,7 @@ Setup and workflow: [SETUP.md](SETUP.md).
 **Agents:**
 - Codex (Inland Tarantula, `.lanes/w4`): A15 (q6-004) merged (`f4422f6`, closing D48 gap 4 at `ffe648a`).
 - Grok 4.7 (Burning Gerbil, `.lanes/w5`): A10+A13 soak profile (`ef68b89`) and A16 OTLP commit queues (`377eebe`) merged.
-- Antigravity (Panicky Parrot, `.lanes/w3`): B17 Ask tool calls streaming merged (`cd6a323`, `6ff0376`). Working on `docs/status-a17`.
+- Antigravity (Panicky Parrot, `.lanes/w3`): HaLOS `marine-lume` package (`f0467a8`, `34c33ea`), release pipeline (`79f69fa`), and STATUS refresh through `d58a0a5` (`docs/status-0109`).
 
 ## Next phase (approved 2026-10-08)
 
@@ -104,7 +109,8 @@ The plan is [next-phase-2026-10-08.md](next-phase-2026-10-08.md). Pane names are
   - **Done:** B15 `ti/status-refresh`: refresh `plan/STATUS.md` "Next phase" and Handoff sections through `fa37d06` (`631f5cd`, corrections `5f54592`).
   - **Done:** B16 `ti/status-refresh-2`: refresh `plan/STATUS.md` through `51080e9` (`0430f11`, `a3d25a2`).
   - **Done:** B17 `ti/ask-tool-calls`, merged as `cd6a323` / `6ff0376`: live Ask tool calls (`lume chat --events`, NDJSON stream with keepalive) and corrected match()/sections system prompt; disconnect stops chat (`6ff0376`).
-  - **Now:** `docs/status-a17`: refresh `plan/STATUS.md` through `9334f18` (A17, A18, D48 gap 2 contention on Pi).
+  - **Done:** B18 `ti/halos-deb` & `ti/halos-deb-register`: packaged `marine-lume` arm64 Debian package for HaLOS Pi (`f0467a8`, `34c33ea`), registering plugin with Signal K in `postinst` and cleaning up on `postrm` remove/purge, tested 6/6; release workflow publishes `.deb` with `SHA256SUMS` (`79f69fa`); `.gitattributes` keeps LF (`d58a0a5`).
+  - **Now:** Standby.
 - **Pi (2026-10-08):**
   - reachable as `halos.local` (mDNS); firstrun.sh also set 192.168.68.61 static on wlan0, but scripts and docs use the name, not the IP;
   - deploy key added;
@@ -218,6 +224,11 @@ Commit messages, the decisions log and older docs use the former names. Re-check
 
 | Commit | What |
 |---|---|
+| `d58a0a5` | gitattributes: keep `deploy/halos` LF so Windows-built .debs have working maintainer scripts |
+| `79f69fa` | **release pipeline publishes marine-lume deb** (`36014a6`): release workflow builds and attaches `marine-lume` arm64 `.deb` with `SHA256SUMS`; `docs/HALOS.md` install instructions |
+| `34c33ea` | **plugin registration in postinst/postrm** (`6360e19`): `marine-lume` registers plugin with Signal K (`package.json` dep + `node_modules` link) and unregisters on remove/purge; control description reworded |
+| `f0467a8` | **marine-lume .deb for HaLOS** (`d5c616c`): plugin + arm64 binary into Signal K data dir, safe loopback defaults, remove keeps history, purge deletes it |
+| `1c90e90` | **Skiff → Pi Signal K feed** (`353a999`, `8fc75fe`): `docs/SKIFF-FEED.md` runbook and `scripts/skiff-token.ps1` token helper (readwrite access request, user-only token file, never printed) |
 | `9334f18` | bench: D48 gap 2 contention on the Pi at `f4422f6`; Signal K gap p95 +2.7% max, latency ~0%, no drop increase; OpenCPN observation pending |
 | `9e95173` | **A18 plain serve loopback default** (`e34c7ed`): plain `lume serve` defaults to `127.0.0.1` (the user's decision on 2026-10-08); `docs/OPERATIONS.md` network exposure (D51) |
 | `fd80db8` | docs: refer to the Pi as `halos.local`, not its current IP |
