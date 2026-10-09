@@ -106,16 +106,18 @@ ssh_opts=()
 [ -n "${LUME_DEPLOY_SSH_CONFIG:-}" ] && ssh_opts=(-F "$LUME_DEPLOY_SSH_CONFIG")
 scp -q "${ssh_opts[@]}" "$out/$image_tar" "$out/$deb" "$pi:/tmp/"
 # shellcheck disable=SC2029 # the file names are expanded locally on purpose
-ssh "${ssh_opts[@]}" "$pi" "set -e
+ssh "${ssh_opts[@]}" "$pi" "set -eo pipefail
     sudo -n docker load -i /tmp/$image_tar
     sudo -n apt-get install -y --reinstall /tmp/$deb 2>&1 | tail -5
     rm -f /tmp/$image_tar /tmp/$deb
+    installed=\$(dpkg-query -W -f '\${Version}' marine-lume-container)
+    [ \"\$installed\" = ${version}-1 ] || { echo \"marine-lume-container is \$installed, expected ${version}-1\" >&2; exit 1; }
     sudo -n systemctl enable marine-lume-container.service
     sudo -n systemctl restart marine-lume-container.service
     for i in \$(seq 1 45); do
         curl -fs -m 3 -o /dev/null http://127.0.0.1:5863/ti/status && break
         sleep 4
     done
-    echo \"service: \$(systemctl is-active marine-lume-container.service)\"
-    sudo -n docker ps --filter name=^lume\$ --format '{{.Names}} {{.Status}}'
+    echo \"package: marine-lume-container \$installed, service: \$(systemctl is-active marine-lume-container.service)\"
+    sudo -n docker ps --filter name=^lume\$ --format '{{.Names}} {{.Image}} {{.Status}}'
     curl -fsS -m 5 -o /dev/null -w 'query server: HTTP %{http_code}\n' http://127.0.0.1:5863/ti/status"
