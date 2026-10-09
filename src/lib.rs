@@ -39,6 +39,7 @@ pub mod crawl;
 pub mod crawl_list;
 pub mod document_extract;
 pub mod search;
+pub mod resident_index;
 #[cfg(feature = "ti")]
 pub mod ti_text;
 #[cfg(feature = "ti")]

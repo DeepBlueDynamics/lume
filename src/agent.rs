@@ -310,7 +310,7 @@ fn execute_tool_by_name(name: &str, args: serde_json::Value, default_db: &str) -
             let graph = args.get("graph").and_then(|v| v.as_f64()).unwrap_or(0.4);
             let shivvr_url = args.get("shivvr_url").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-            let index = crate::search::LoadedIndex::open(db)?;
+            let index = crate::resident_index::open(db)?;
             let mut opts = crate::search::SearchOptions {
                 limit,
                 spell_check,
@@ -797,6 +797,7 @@ fn handle_connection_with_auth(
                 let err_resp = format!(
                     "HTTP/1.1 400 Bad Request\r\n\
                      Content-Type: application/json\r\n\
+                     Connection: close\r\n\
                      {cors}\r\n{}",
                     json!({
                         "jsonrpc": "2.0",
@@ -824,6 +825,8 @@ fn handle_connection_with_auth(
         let response_json = handle_mcp_request(rpc_req, _ti);
         if response_json.is_null() {
             let response = format!("HTTP/1.1 204 No Content\r\n\
+                            Connection: close\r\n\
+                            Content-Length: 0\r\n\
                             {cors}\r\n");
             stream.write_all(response.as_bytes())?;
         } else {
@@ -831,6 +834,7 @@ fn handle_connection_with_auth(
             let response = format!(
                 "HTTP/1.1 200 OK\r\n\
                  Content-Type: application/json\r\n\
+                 Connection: close\r\n\
                  {cors}\
                  Access-Control-Allow-Headers: *\r\n\
                  Access-Control-Allow-Methods: *\r\n\
@@ -1748,6 +1752,21 @@ mod http_limits_tests {
     }
 
     #[test]
+    fn mcp_notification_and_parse_error_advertise_close() {
+        for (body, status) in [
+            (r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#, "204"),
+            ("invalid-json", "400"),
+        ] {
+            let response = request(
+                format!("POST /mcp HTTP/1.1\r\nContent-Length: {}\r\n\r\n{body}", body.len()).as_bytes(),
+                true,
+            );
+            assert!(response.starts_with(&format!("HTTP/1.1 {status}")));
+            assert!(response.contains("\r\nConnection: close\r\n"));
+        }
+    }
+
+    #[test]
     fn valid_mcp_still_works() {
         let body = r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#;
         let response = request(
@@ -1760,5 +1779,6 @@ mod http_limits_tests {
         );
         assert!(response.starts_with("HTTP/1.1 200"));
         assert!(response.contains("tools"));
+        assert!(response.contains("\r\nConnection: close\r\n"));
     }
 }
