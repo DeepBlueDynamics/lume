@@ -55,7 +55,11 @@ inconsistent ranks and incomplete latency coverage are rejected.
 
 Results are written to bench/results/2026-10-09-luxir-vs-lume.json; that file
 is only a benchmark result once actual engine runs exist. Build metadata and
-per-query quality metrics are preserved in it.
+per-query quality metrics are preserved in it. A matching `.invalid.json`
+marker excludes an interrupted or contaminated run from scoring and records
+its reason. The runner clears that marker only after a successful complete
+rerun, including throughput. Use `--modes default` to rerun graph mode without
+replacing the separately completed BM25 row.
 
 ## Fair execution and current Lume limitation
 

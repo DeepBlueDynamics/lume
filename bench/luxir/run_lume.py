@@ -161,14 +161,15 @@ def request(url, db, query, graph, token, client=None):
             raise ValueError("cannot obtain 100 document hits within section cap")
 
 
-def benchmark(root, dataset, variant, url, db, token):
+def benchmark(root, dataset, variant, url, db, token, modes=("bm25", "default")):
     runs = root / "runs"
     runs.mkdir(exist_ok=True)
     with (root / dataset / "queries.tsv").open(encoding="utf-8") as source:
         queries = list(csv.reader(source, delimiter="\t"))
     headers = {"Authorization": "Bearer " + token} if token else {}
     client = JsonClient(url, headers, close_after_response=True)
-    for mode, graph in (("bm25", 0), ("default", .4)):
+    for mode in modes:
+        graph = {"bm25": 0, "default": .4}[mode]
         name = "lume-" + variant + "-" + mode + "-" + dataset
         samples, results = {}, {}
         for pass_no in range(4):
@@ -212,6 +213,7 @@ def benchmark(root, dataset, variant, url, db, token):
         print(name, json.dumps(row), flush=True)
         if any(item["errors"] for item in measured):
             raise ValueError("throughput errors; run is not a clean comparison")
+        (runs / (name + ".invalid.json")).unlink(missing_ok=True)
     client.close()
 
 
@@ -225,6 +227,7 @@ def main():
     p.add_argument("--url", default="http://lume-engine:5863/mcp")
     p.add_argument("--db")
     p.add_argument("--token-file", type=Path)
+    p.add_argument("--modes", nargs="+", choices=["bm25", "default"], default=["bm25", "default"])
     args = p.parse_args()
     if args.stage == "fetch":
         fetch(args.root)
@@ -237,7 +240,7 @@ def main():
     else:
         token = args.token_file.read_text().strip() if args.token_file else ""
         benchmark(args.root, args.dataset, args.variant, args.url,
-                  args.db or str(args.root / args.dataset / "lume-index"), token)
+                  args.db or str(args.root / args.dataset / "lume-index"), token, args.modes)
 
 
 if __name__ == "__main__":

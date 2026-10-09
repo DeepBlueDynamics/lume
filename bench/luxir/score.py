@@ -94,10 +94,15 @@ def read_latency(path, expected):
 def summarize(root):
     root = Path(root)
     rows = []
+    invalid_runs = []
     for dataset in DATASETS:
         qrels = read_qrels(root / dataset / "qrels.tsv")
         for path in sorted((root / "runs").glob("*-" + dataset + ".trec")):
             name = path.stem
+            invalid = path.with_suffix(".invalid.json")
+            if invalid.exists():
+                invalid_runs.append({"run": name, **json.loads(invalid.read_text())})
+                continue
             engine_mode = name[:-(len(dataset) + 1)]
             engine = engine_mode.split("-")[0]
             metrics, per_query = evaluate(qrels, read_run(path))
@@ -118,7 +123,7 @@ def summarize(root):
                                    "mrr": "first positive qrel, depth 10",
                                    "aggregation": "macro average across every test qid; missing retrieval is zero",
                                    "latency": "linear interpolation over per-query medians from 3 timed passes"},
-            "results": rows}
+            "results": rows, "invalid_runs": invalid_runs}
 
 
 def table(report):

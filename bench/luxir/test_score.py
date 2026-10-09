@@ -58,6 +58,20 @@ class ScoreTests(unittest.TestCase):
             self.assertTrue(all(row["ndcg_10"] == 1 for row in report["results"]))
             self.assertIn("not run", score.table(report))
 
+    def test_invalid_timing_runs_are_excluded_with_reason(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "runs").mkdir()
+            for dataset in score.DATASETS:
+                (root / dataset).mkdir()
+                (root / dataset / "qrels.tsv").write_text("q\ta\t1\n")
+            name = "lume-released-default-scifact"
+            (root / "runs" / (name + ".trec")).write_text("q Q0 a 1 2 test\n")
+            (root / "runs" / (name + ".invalid.json")).write_text('{"reason":"overlapping build"}')
+            report = score.summarize(root)
+            self.assertEqual(report["results"], [])
+            self.assertEqual(report["invalid_runs"], [{"run": name, "reason": "overlapping build"}])
+
     def test_incomplete_latency_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "lat.jsonl"
