@@ -310,7 +310,7 @@ fn execute_tool_by_name(name: &str, args: serde_json::Value, default_db: &str) -
             let graph = args.get("graph").and_then(|v| v.as_f64()).unwrap_or(0.4);
             let shivvr_url = args.get("shivvr_url").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-            let index = crate::search::LoadedIndex::open(db)?;
+            let index = crate::resident_index::open(db)?;
             let mut opts = crate::search::SearchOptions {
                 limit,
                 spell_check,
