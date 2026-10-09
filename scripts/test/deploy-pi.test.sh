@@ -241,7 +241,8 @@ exec /usr/sbin/sshd -D -e
 EOF
 
 cat << 'EOF' > "${CONTEXT_DIR}/Dockerfile"
-FROM debian:bookworm-slim
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
 
 RUN apt-get update -qq && apt-get install -y -qq \
     openssh-server \
@@ -292,7 +293,10 @@ CMD ["/entrypoint.sh"]
 EOF
 
 echo "Building throwaway Debian sshd image: ${IMAGE_NAME}..."
-docker build -t "$IMAGE_NAME" "$CONTEXT_DIR" >/dev/null
+# AWS public ECR mirrors Docker official images; Docker Hub rate-limits CI
+# runners (429 on debian:bookworm-slim). Override with DEPLOY_TEST_BASE_IMAGE.
+docker build --build-arg "BASE_IMAGE=${DEPLOY_TEST_BASE_IMAGE:-public.ecr.aws/docker/library/debian:bookworm-slim}" \
+    -t "$IMAGE_NAME" "$CONTEXT_DIR" >/dev/null
 
 echo "Starting container published on 127.0.0.1: ${CONTAINER_NAME}..."
 docker run -d --name "$CONTAINER_NAME" -p 127.0.0.1::22 "$IMAGE_NAME" >/dev/null
