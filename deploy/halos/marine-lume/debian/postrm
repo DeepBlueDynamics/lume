@@ -5,7 +5,8 @@ set -e
 SK_DATA="/var/lib/container-apps/marine-signalk-server-container/data/data"
 PLUGIN_DEST="$SK_DATA/lume-plugin/signalk-lume-ti"
 CONFIG_FILE="$SK_DATA/plugin-config-data/signalk-lume-ti.json"
-STORE_DIR="$SK_DATA/lume-ti"
+# The plugin keeps its store under its Signal K data dir (app.getDataDirPath()).
+STORE_DIR="$SK_DATA/plugin-config-data/signalk-lume-ti/lume-ti"
 
 restart_signalk() {
     if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
