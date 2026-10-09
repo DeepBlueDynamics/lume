@@ -96,6 +96,56 @@ EOF
             fi
         }
 
+        # Register plugin with Signal K so it is loaded on startup:
+        # 1. Add "signalk-lume-ti": "file:lume-plugin/signalk-lume-ti" under dependencies in package.json
+        mkdir -p "$SK_DATA"
+        chown 1000:1000 "$SK_DATA" 2>/dev/null || true
+        chmod 755 "$SK_DATA" 2>/dev/null || true
+
+        python3 -c "
+import json, os, sys
+sk_data = sys.argv[1]
+p = os.path.join(sk_data, 'package.json')
+doc = {}
+if os.path.exists(p):
+    try:
+        with open(p, 'r', encoding='utf-8') as f:
+            doc = json.load(f)
+    except Exception:
+        doc = {}
+deps = doc.setdefault('dependencies', {})
+deps['signalk-lume-ti'] = 'file:lume-plugin/signalk-lume-ti'
+tmp = p + '.tmp'
+with open(tmp, 'w', encoding='utf-8') as f:
+    json.dump(doc, f, indent=2)
+    f.write('\n')
+os.replace(tmp, p)
+try:
+    os.chown(p, 1000, 1000)
+    os.chmod(p, 0o644)
+except Exception:
+    pass
+" "$SK_DATA" 2>/dev/null || {
+            if [ ! -f "$SK_DATA/package.json" ]; then
+                cat << 'EOF' > "$SK_DATA/package.json"
+{
+  "dependencies": {
+    "signalk-lume-ti": "file:lume-plugin/signalk-lume-ti"
+  }
+}
+EOF
+                chown 1000:1000 "$SK_DATA/package.json" 2>/dev/null || true
+                chmod 644 "$SK_DATA/package.json" 2>/dev/null || true
+            fi
+        }
+
+        # 2. Symlink data/node_modules/signalk-lume-ti -> ../lume-plugin/signalk-lume-ti
+        mkdir -p "$SK_DATA/node_modules"
+        chown 1000:1000 "$SK_DATA/node_modules" 2>/dev/null || true
+        chmod 755 "$SK_DATA/node_modules" 2>/dev/null || true
+        ln -sfn ../lume-plugin/signalk-lume-ti "$SK_DATA/node_modules/signalk-lume-ti"
+        chown -h 1000:1000 "$SK_DATA/node_modules/signalk-lume-ti" 2>/dev/null || true
+
         # Restart Signal K container
         if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
             echo "Restarting marine-signalk-server-container..."
