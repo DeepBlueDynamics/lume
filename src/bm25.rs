@@ -69,6 +69,16 @@ where
 /// rewarding multi-term coverage. 0.5 is a deliberately gentle setting.
 const COORD_FLOOR: f64 = 0.5;
 
+/// Returns the effective coordination floor multiplier, configurable via
+/// the `LUME_COORD_FLOOR` environment variable. Defaults to `0.5` (unchanged).
+/// Setting `LUME_COORD_FLOOR=1.0` disables coordination down-weighting.
+pub fn coord_floor() -> f64 {
+    std::env::var("LUME_COORD_FLOOR")
+        .ok()
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(COORD_FLOOR)
+}
+
 /// Common English function words and question words that carry little
 /// discriminative value for retrieval. Filtered out of the *query* (never the
 /// index) so content terms drive ranking. Without this, a query like
@@ -719,7 +729,8 @@ impl Bm25Index {
             // three terms keeps ~2/3 of its score. For single-term queries this
             // is always 1.0, so ordinary lookups are unaffected.
             let coverage = matched_terms.len() as f64 / num_distinct as f64;
-            let coord = COORD_FLOOR + (1.0 - COORD_FLOOR) * coverage;
+            let floor = coord_floor();
+            let coord = floor + (1.0 - floor) * coverage;
             total_score *= coord;
 
             if total_score > 0.0 {
@@ -910,5 +921,48 @@ These changes include blebbing, cell shrinkage, nuclear fragmentation, and chrom
         assert_eq!(fallback_md[0].line_number, default_md[0].line_number);
 
         std::env::remove_var("LUME_TITLE_FALLBACK");
+    }
+    #[test]
+    fn test_coordination_factor_env_override() {
+        let doc1 = Section {
+            title: "Alpha Document".to_string(),
+            body: "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon phi chi psi omega".to_string(),
+            line_number: 1,
+            filename: None,
+            entities: vec![],
+        };
+        let doc2 = Section {
+            title: "Beta Document".to_string(),
+            body: "beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon phi chi psi omega".to_string(),
+            line_number: 2,
+            filename: None,
+            entities: vec![],
+        };
+        let index = Bm25Index::build(vec![doc1, doc2], None);
+        let params = Bm25Params::default();
+
+        // Query with two terms where doc2 only matches one: "alpha beta"
+        // Under default COORD_FLOOR (0.5), doc2 matches 1/2 distinct terms:
+        // coverage = 0.5, coord = 0.5 + 0.5 * 0.5 = 0.75
+        std::env::remove_var("LUME_COORD_FLOOR");
+        assert_eq!(coord_floor(), 0.5);
+        let hits_default = index.search("alpha beta", SearchVariant::Classic, &params, None);
+        let hit_doc2_default = hits_default.iter().find(|h| h.section_index == 1).unwrap();
+        let default_score = hit_doc2_default.score;
+
+        // With LUME_COORD_FLOOR=1.0: coord = 1.0 + 0 * coverage = 1.0 (no penalty)
+        std::env::set_var("LUME_COORD_FLOOR", "1.0");
+        assert_eq!(coord_floor(), 1.0);
+        let hits_no_penalty = index.search("alpha beta", SearchVariant::Classic, &params, None);
+        let hit_doc2_no_penalty = hits_no_penalty.iter().find(|h| h.section_index == 1).unwrap();
+        let no_penalty_score = hit_doc2_no_penalty.score;
+
+        // With no penalty, score is exactly unpenalized (default_score / 0.75)
+        assert!(no_penalty_score > default_score);
+        let expected_ratio = 1.0 / 0.75;
+        let actual_ratio = no_penalty_score / default_score;
+        assert!((actual_ratio - expected_ratio).abs() < 1e-4);
+
+        std::env::remove_var("LUME_COORD_FLOOR");
     }
 }
