@@ -53,7 +53,7 @@ to end before TREC-COVID. Phase 1 is lexical: Lume alpha=0, graph=0 and
 graph=0.4; record all deviations from defaults. Hybrid alpha=0.5 with Shivvr
 is phase 2, after phase 1.
 
-Source inspection at 7183552 found that MCP `lume_search` calls
+Source inspection at 7183552 (also confirmed by the lead at release tag v0.12.2, 5d88268) found that MCP `lume_search` calls
 `LoadedIndex::open` per request (src/agent.rs), which deserializes the index
 JSON files every time (src/search.rs). A long-running process therefore
 does not provide a resident-index comparison. Lume latency/throughput

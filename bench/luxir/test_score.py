@@ -23,6 +23,16 @@ class ScoreTests(unittest.TestCase):
         result, _ = score.evaluate({"q": {"a": 1}}, {"q": docs})
         self.assertEqual(result, {"ndcg_10": 0, "recall_100": 0, "mrr_10": 0})
 
+    def test_negative_upstream_judgment_has_zero_gain(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "qrels.tsv"
+            path.write_text("q\tx\t-1\nq\ta\t1\n")
+            qrels = score.read_qrels(path)
+            self.assertEqual(qrels["q"]["x"], 0)
+            metrics, _ = score.evaluate(qrels, {"q": ["x", "a"]})
+            self.assertEqual(metrics["recall_100"], 1)
+            self.assertEqual(metrics["mrr_10"], .5)
+
     def test_percentiles(self):
         self.assertEqual(score.percentile([1, 2, 3, 4], .5), 2.5)
         self.assertAlmostEqual(score.percentile([1, 2, 3, 4], .95), 3.85)

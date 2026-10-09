@@ -14,9 +14,9 @@ def read_qrels(path):
     with Path(path).open(encoding="utf-8") as stream:
         for qid, docid, grade in csv.reader(stream, delimiter="\t"):
             grade = int(grade)
-            if grade < 0 or docid in result.setdefault(qid, {}):
-                raise ValueError("negative or duplicate qrel")
-            result[qid][docid] = grade
+            if docid in result.setdefault(qid, {}):
+                raise ValueError("duplicate qrel")
+            result[qid][docid] = max(0, grade)  # -1 means unjudged in TREC-COVID
     return result
 
 
@@ -103,7 +103,10 @@ def summarize(root):
             row = {"run": name, "dataset": dataset, "queries": len(qrels),
                    **metrics, **read_latency(path.with_suffix(".lat.jsonl"), qrels),
                    "per_query": per_query}
-            build_path = root / "runs" / (engine + "-" + dataset + ".build.json")
+            variant_engine = engine_mode.rsplit("-", 1)[0]
+            build_path = root / "runs" / (variant_engine + "-" + dataset + ".build.json")
+            if not build_path.exists():
+                build_path = root / "runs" / (engine + "-" + dataset + ".build.json")
             row["build"] = json.loads(build_path.read_text(encoding="utf-8")) if build_path.exists() else None
             throughput_path = path.with_suffix(".throughput.json")
             row["throughput"] = json.loads(throughput_path.read_text(encoding="utf-8")) if throughput_path.exists() else None
