@@ -115,8 +115,8 @@ A detailed source-level audit was conducted to analyze why Luxir achieves **0.67
    Lume defaults `title_weight: 2.0` and `body_weight: 1.0`. However, `parse_markdown` only extracts titles from lines beginning with Markdown headers (`#`). In BEIR plain text, all documents receive the literal title `"Introduction"`. As a result, `title_score` is 0.0 for all queries, and title terms in the body only receive body weight (1.0) rather than the intended 2.0 weight.
 3. **Coordination Factor Penalty** (`src/bm25.rs#L695-L697`):
    Lume penalizes documents that do not match all query terms via `total_score *= coord`. For long scientific hypothesis queries (12–18 words), documents matching 8 core domain keywords are heavily discounted if they miss 2 peripheral terms.
-4. **Tokenizer Splitting on Hyphenated Medical Terms** (`src/lib.rs#L647`):
-   Lume splits strictly on non-ASCII alphanumeric characters, fragmenting terms like `SARS-CoV-2` and `IL-6` into generic pieces. Luxir uses Unicode Standard Annex #29 (`unicode_word`) segmentation.
+4. **Hyphen Representation & Tokenizer Boundary Divergence** (`src/lib.rs#L595-L669`):
+   Lume's `fold_text` skips hyphens, joining hyphenated compounds into single unhyphenated tokens (`SARS-CoV-2` -> `["sarscov2"]`). Fix F4 changes this representation to `"sars-cov-2"`, with little expected relevance impact. The substantive tokenizer difference from Luxir's UAX#29 (`unicode_word`) lies in non-ASCII characters beyond Lume's Latin fold table, apostrophe/possessive handling, and numeric boundaries.
 
 ---
 

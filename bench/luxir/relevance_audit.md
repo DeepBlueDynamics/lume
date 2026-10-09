@@ -12,9 +12,13 @@ Both engines evaluated identical test queries and document texts (`title + "\n\n
 - **Luxir** (`src/luxir/analysis/Analyzer.cpp`, `deps/uni-algo`):
   - Uses `unicode_word`, implementing **Unicode Standard Annex #29 (UAX#29)** word boundaries.
   - Correctly segments multi-lingual text, preserves numbers joined with letters, handles apostrophes within words without splitting, and treats punctuation according to Unicode word break properties.
-- **Lume** (`src/lib.rs#L642-L669`):
+- **Lume** (`src/lib.rs#L595-L669`):
   ```rust
-  // src/lib.rs:646-663
+  // src/lib.rs: fold_text skips hyphens:
+  if is_hyphen(c) {
+      continue;
+  }
+  // followed by tokenization splitting on non-alphanumeric chars:
   for fc in folded {
       if fc.ch.is_ascii_alphanumeric() {
           // append to current token
@@ -23,8 +27,9 @@ Both engines evaluated identical test queries and document texts (`title + "\n\n
       }
   }
   ```
-  - Splits strictly on any non-ASCII alphanumeric byte (`!fc.ch.is_ascii_alphanumeric()`).
-  - **SciFact Impact**: Biomedical literature is saturated with chemical and genetic names (e.g., `IL-6`, `p53`, `SARS-CoV-2`, `1,25-dihydroxyvitamin`). Lume fragments `SARS-CoV-2` into three separate tokens `["sars", "cov", "2"]`, losing compound identity and inflating term frequencies for generic single digits.
+  - Because `fold_text` skips hyphens entirely, Lume joins hyphenated alphanumeric sequences into a single unhyphenated token (e.g., `SARS-CoV-2` -> `["sarscov2"]`, `IL-6` -> `["il6"]`), rather than splitting them into separate words.
+  - While this already keeps compound names as a single token, F4 only changes the representation (`"sarscov2"` -> `"sars-cov-2"`), so little relevance impact is expected from hyphen preservation alone.
+  - The true tokenizer differences from Luxir's UAX#29 segmentation lie elsewhere: Lume treats any non-ASCII character beyond its custom Latin fold table as a delimiter, and the two engines treat apostrophes (Luxir strips English possessives and preserves contractions within words) and numeric boundaries differently.
 
 ---
 
@@ -124,7 +129,7 @@ Both engines evaluated identical test queries and document texts (`title + "\n\n
 | **1** | **Absence of Stemming** | `src/bm25.rs` (missing) | Lume has no stemmer. Queries with inflected terms (`biomaterials`, `regulated`, `mutations`) fail to match singular/stemmed forms in abstracts. Luxir uses KStem. | **+0.018 to +0.022** |
 | **2** | **"Introduction" Title Weighting Mismatch** | `src/bm25.rs#L235`, `src/bm25.rs#L139` | Unmarked BEIR titles default to `"Introduction"`. `title_weight: 2.0` is wasted; title terms in the body only receive `1.0` weight. | **+0.008 to +0.012** |
 | **3** | **Coordination Factor on Long Claims** | `src/bm25.rs#L695-L697` | Multi-term scientific claims are penalized if they match a subset of query terms, suppressing relevant passages that omit peripheral words. | **+0.005 to +0.008** |
-| **4** | **Naive ASCII Tokenizer on Chemical Names** | `src/lib.rs#L647` | Splitting on all non-alphanumeric chars fragments hyphenated genes, drugs, and chemicals (`SARS-CoV-2` -> `["sars", "cov", "2"]`). | **+0.003 to +0.005** |
+| **4** | **Hyphen Form & Non-Latin Tokenizer Mismatch** | `src/lib.rs#L595-L669` | Lume joins hyphenated compounds into unhyphenated tokens (`"sarscov2"`). F4 normalizes to `"sars-cov-2"`, but minimal gain is expected. Broader tokenizer divergence stems from non-Latin Unicode characters, apostrophe handling, and number boundaries. | **+0.000 to +0.002** |
 
 ---
 
@@ -145,5 +150,5 @@ These four ablations can be implemented independently by Tarantula and verified 
 - **Cost**: 1 line of code.
 
 ### Ablation 4: Hyphen-Preserving Tokenizer
-- **Change**: In `src/lib.rs#tokenize`, treat internal hyphens (`-`) flanked by alphanumeric characters as token-internal characters rather than delimiters.
-- **Cost**: 5 lines of code.
+- **Change**: In `src/lib.rs#tokenize`, preserve internal hyphens (`-`) flanked by alphanumeric characters as token-internal characters (`"sars-cov-2"`) instead of deleting hyphens during folding (`"sarscov2"`).
+- **Cost**: 10 lines of code. Minimal relevance delta expected since Lume already treats hyphenated terms as single joined tokens.
