@@ -2243,11 +2243,7 @@ fn handle_search(args: &[String]) -> Result<(), String> {
         SearchMode::LexicalOnly
     };
 
-    let (bm25_params, bm25_variant) = if alpha > 0.0 {
-        (Bm25Params::from_env(), SearchVariant::from_env())
-    } else {
-        (Bm25Params::default(), SearchVariant::Classic)
-    };
+    let (bm25_params, bm25_variant) = (Bm25Params::from_env(), SearchVariant::from_env());
 
     let blend_mode = if std::env::var("LUME_BLEND_NORM")
         .map(|v| v == "1" || v == "true")
@@ -2473,7 +2469,7 @@ fn run_eval_pass(
     threshold: f64,
     spell_check: bool,
 ) -> lume::eval::EvalAggregate {
-    let params = Bm25Params::default();
+    let params = Bm25Params::from_env();
     let skg_params = lume::graph_search::SkgBoostParams {
         beta,
         use_relatedness,
@@ -2693,7 +2689,7 @@ fn retrieve_union(
     candidates: usize,
 ) -> Vec<lume::stream::Candidate> {
     use std::collections::HashMap;
-    let params = Bm25Params::default();
+    let params = Bm25Params::from_env();
     let mut union: HashMap<usize, (f64, Vec<usize>)> = HashMap::new();
     let mut order: Vec<usize> = Vec::new();
     for (qi, q) in queries.iter().enumerate() {

@@ -588,10 +588,7 @@ pub fn search(
     }
 
     // 4. Lexical BM25 path
-    let (lexical_params, lexical_variant) = match opts.mode {
-        SearchMode::HybridOrFallback => (Bm25Params::default(), SearchVariant::Classic),
-        _ => (opts.bm25_params.clone(), opts.bm25_variant),
-    };
+    let (lexical_params, lexical_variant) = (opts.bm25_params.clone(), opts.bm25_variant);
     let mut bm25_hits = index.bm25.search(
         &effective_query,
         lexical_variant,
@@ -1142,5 +1139,85 @@ mod tests {
         ));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_search_path_honors_explicit_bm25_params() {
+        let bm25 = build_test_bm25();
+        let state = IndexState {
+            target_dir: "/dummy/target".to_string(),
+            db_dir: ".dummy-db".to_string(),
+            semantic_enabled: false,
+            ollama_entities: false,
+            ollama_model: "test".to_string(),
+            ollama_url: "http://localhost:11434".to_string(),
+            tag_dict_path: None,
+            semantic_session_id: None,
+            cached_files: HashMap::new(),
+            stemmed: false,
+            keep_hyphens: false,
+        };
+        let index = LoadedIndex {
+            state: Some(state),
+            bm25,
+            spelling: None,
+            entity_graph: None,
+            tagger: None,
+            cache_dir: None,
+        };
+
+        // 1. Lexical search with default params (coord_floor = 0.5)
+        let default_opts = SearchOptions {
+            mode: SearchMode::LexicalOnly,
+            graph_beta: 0.0,
+            ..Default::default()
+        };
+        let default_res = search(&index, "captain treasure", &default_opts).unwrap();
+        assert!(!default_res.hits.is_empty());
+        let default_score = default_res.hits[0].score;
+
+        // 2. Lexical search with explicit coord_floor = 1.0 (no penalty)
+        let custom_params = Bm25Params {
+            coord_floor: 1.0,
+            ..Default::default()
+        };
+        let custom_opts = SearchOptions {
+            mode: SearchMode::LexicalOnly,
+            graph_beta: 0.0,
+            bm25_params: custom_params,
+            ..Default::default()
+        };
+        let custom_res = search(&index, "captain treasure", &custom_opts).unwrap();
+        assert!(!custom_res.hits.is_empty());
+        let custom_score = custom_res.hits[0].score;
+
+        assert!(custom_score > default_score);
+        let ratio = custom_score / default_score;
+        assert!((ratio - (1.0 / 0.75)).abs() < 1e-4);
+
+        // 3. HybridOrFallback mode (falls back to lexical due to None semantic_session_id)
+        // With default params, score must be identical to lexical default
+        let fb_default_opts = SearchOptions {
+            mode: SearchMode::HybridOrFallback,
+            alpha: 0.5,
+            graph_beta: 0.0,
+            ..Default::default()
+        };
+        let fb_default_res = search(&index, "captain treasure", &fb_default_opts).unwrap();
+        assert_eq!(fb_default_res.hits[0].score, default_score);
+
+        // With explicit custom params in HybridOrFallback mode, score must match custom_score
+        let fb_custom_opts = SearchOptions {
+            mode: SearchMode::HybridOrFallback,
+            alpha: 0.5,
+            graph_beta: 0.0,
+            bm25_params: Bm25Params {
+                coord_floor: 1.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let fb_custom_res = search(&index, "captain treasure", &fb_custom_opts).unwrap();
+        assert_eq!(fb_custom_res.hits[0].score, custom_score);
     }
 }
