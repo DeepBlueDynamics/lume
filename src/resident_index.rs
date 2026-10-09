@@ -1,5 +1,6 @@
 //! One resident ordinary search index, refreshed on index/dictionary metadata changes.
 //! In-flight searches own an Arc snapshot; loading a new snapshot cannot mutate them.
+//! `lume index` rewrites trigger reloads; rewrites with equal mtime and length are not detected.
 use crate::search::LoadedIndex;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
