@@ -37,15 +37,23 @@ Node 18+ and Signal K 2.31+ are required. 32-bit ARM and musl Linux are not
 supported. Each bundled binary's exact glibc requirement is recorded in
 `bin/manifest.json`; the packaging ceiling is 2.39.
 
-On HaLOS, install **Lume TI** from Signal K's App Store after a release has
-been published there, then enable it in **Server → Plugin Config**.
-For a local release tarball, open a shell inside the running Signal K
-container, as its usual user, and run:
+On HaLOS, install the `marine-lume` package and follow
+[Install Lume on HaLOS](../../docs/HALOS.md). The package enables the plugin
+and restarts Signal K. Change settings later in **Server → Plugin Config**.
+
+For a local release tarball on another Signal K install, follow
+[Install on other 64-bit Linux Signal K servers](../../docs/HALOS.md).
+Inside the running Signal K container, as its usual user:
 
 ```bash
 cd ~/.signalk
-npm install --save --ignore-scripts /path/to/signalk-lume-ti-0.12.0.tgz
+npm install /path/to/signalk-lume-ti-0.12.2.tgz
 ```
+
+Leave that `.tgz` in place. npm records it as a `file:` dependency.
+`--ignore-scripts` is optional: this package has no install script.
+Restart Signal K, enable **Lume TI** in **Server → Plugin Config**, and
+approve the device in **Security → Access Requests** before you expect data.
 
 Alternatively, deploy the plugin and arm64 binary directly from your workstation using `scripts/deploy-pi.sh <ssh-host>` or `scripts/provision-pi.sh <ssh-host>`.
 
