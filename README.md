@@ -239,6 +239,7 @@ graph LR
 |---|---|---|
 | `lume index <dir>` | Index text, markdown, code and PDFs | `--db`, `-s` semantic, `-o` LLM entities, `--tag-dict`, `-f` force, `--ollama-model` |
 | `lume search <query>` | Lexical, hybrid or graph-boosted search | `--db`, `-l` limit (10), `-a` alpha (0.5), `-g` graph (0.4), `-c` spell check, `--scoring` |
+| `lume sql` | Read-only SQL over an ordinary index | `--db`, `--format`, `repl`. [Querying with SQL](docs/SQL.md) |
 | `lume eval <qna.json>` | Retrieval quality metrics | `--db`, `-k`, `-g`, `--scoring`, `-t`, `-n`, `--compare` |
 | `lume agent <question>` | Autonomous tool-calling research loop | Ollama model and URL |
 | `lume summarize <file>` | Graph-guided document summary | `--ollama-model` |
@@ -331,6 +332,8 @@ lume serve --ti-store <store> [--bind <IP>] [--otlp] [--pg 5864]
 # Stream live Signal K deltas into the store with supervised HTTP, OTLP and pgwire
 lume ti ingest --signalk ws://127.0.0.1:3000 --store <store> --serve --otlp --pg 5864
 ```
+
+The statements, which table to use, and what is pushed down are in [Querying Lume with SQL](docs/SQL.md). Copy-paste examples are in [SQL examples](docs/SQL-EXAMPLES.md).
 
 `lume serve --ti-store` adds five MCP tools for agents:
 - `ti_resolve`: plain words → the right column;
@@ -441,7 +444,7 @@ python lib/lume_extractor.py qna my_doc.txt output_qna.json --model gemma4:31b-c
 
 - Lume TI: a column-mapped reader for any time-series Parquet, fleet sync to shore, and Pi 5 benchmarks.
 - Specs from documents: extract operating limits from manuals and datasheets in the document index and monitor telemetry against them.
-- `lume sql`: the same DataFusion engine over any ordinary Lume index (`sections`, `entities`, `entity_edges`).
+- [`lume sql`](docs/SQL.md): the same DataFusion engine over any ordinary Lume index (`sections`, `entities`, `entity_edges`). Examples are in [docs/SQL-EXAMPLES.md](docs/SQL-EXAMPLES.md).
 - On-the-fly fine-tuning of open embedding models, so the semantic space adapts to your corpus.
 
 ## License
