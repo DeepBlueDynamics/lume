@@ -223,7 +223,9 @@ fn collect_with(
         {
             continue;
         }
-        let path = entry.path();
+        // Canonical paths are for containment only; preserve the caller's spelling
+        // in reports and warnings (Windows extended paths and macOS /private differ).
+        let path = root.join("generations").join(name);
         let metadata = match fs::symlink_metadata(&path) {
             Ok(value) => value,
             Err(error) => {
