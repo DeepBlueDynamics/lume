@@ -414,9 +414,9 @@ Setup for every search number here: Docker with 8 CPU and 8 GiB, indexes on Linu
 
 On SciFact that is 286 ms to 5.7 ms. On TREC-COVID that is 7,892 ms to 99 ms. At this released speed Luxir is about 16× faster on SciFact and about 80× faster on TREC-COVID.
 
-### Upcoming, not released
+### On main, not yet released
 
-PR #8, not in v0.12.3. Stemming plus a coordination floor of 1.0 is the planned default for new indexes. nDCG@10:
+Merged as PR #8 after v0.12.3; it ships in the next release. Stemming plus a coordination floor of 1.0 is the default for new indexes; existing indexes keep their recorded mode until reindexed (`lume index -f`). nDCG@10:
 
 | | SciFact | TREC-COVID | NFCorpus (held out) |
 |---|---:|---:|---:|
@@ -429,6 +429,10 @@ NFCorpus (3.6k documents, 323 queries) was not used to choose the change. Luxir 
 ### In progress, not released
 
 Integer term ids, Step 1 on branch `perf/search-hot-path`. Unreleased, measured on branch. With the new defaults, TREC-COVID p50 is 10.07 ms and SciFact p50 is 2.60 ms. Rankings on that branch stayed byte-identical.
+
+### Vector inversion
+
+GTR-T5 vectors can be inverted back to text through Shivvr's `/invert` (about 0.88 self-similarity round-trip). The steered generator uses this to hill-climb toward a target.
 
 ## Development
 

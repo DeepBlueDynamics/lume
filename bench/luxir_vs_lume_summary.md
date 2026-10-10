@@ -17,7 +17,7 @@ BEIR SciFact: 5,183 documents, 300 queries. TREC-COVID: 171,332 documents, 50 qu
 
 ## Quality
 
-nDCG@10. "Before" is Lume with stemming off and the old coordination penalty. "After" is stemming plus coordination floor 1.0. That change is not in v0.12.3. It is the planned default for new indexes (PR #8; the scoreboard names v0.12.4). Existing indexes keep their recorded mode until they are reindexed.
+nDCG@10. "Before" is Lume with stemming off and the old coordination penalty. "After" is stemming plus coordination floor 1.0. That change is not in v0.12.3. It is the default for new indexes on main (merged as PR #8) and ships in the next release (v0.12.4). Existing indexes keep their recorded mode until they are reindexed.
 
 | nDCG@10 | SciFact | TREC-COVID | NFCorpus (held out) |
 |---|---:|---:|---:|
