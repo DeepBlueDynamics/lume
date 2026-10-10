@@ -96,12 +96,24 @@ fn published_v4_snapshot_matches_legacy_and_resident_reload() {
             .entities,
         ["Lagoon"]
     );
-    let graph: lume::semantic_mesh::EntityGraph =
+    let overlaid_graph: lume::semantic_mesh::EntityGraph =
         lume::index_binary::snapshot::component(&root, "entity_graph.json").unwrap();
-    assert!(graph.nodes.iter().any(|node| node.id == "lagoon"));
+    assert!(overlaid_graph.nodes.iter().any(|node| node.id == "lagoon"));
+    let original = lume::search::search(&before, "bilge", &options).unwrap();
+    let mut updated = lume::search::search(&overlaid, "bilge", &options).unwrap();
+    assert_eq!(updated.hits[0].entities, ["Lagoon"]);
     assert_eq!(
-        serde_json::to_value(lume::search::search(&before, "bilge", &options).unwrap()).unwrap(),
-        serde_json::to_value(lume::search::search(&overlaid, "bilge", &options).unwrap()).unwrap()
+        updated.hits[0].score.to_bits(),
+        original.hits[0].score.to_bits()
+    );
+    assert_eq!(
+        updated.hits[0].bm25_score.to_bits(),
+        original.hits[0].bm25_score.to_bits()
+    );
+    updated.hits[0].entities.clear();
+    assert_eq!(
+        serde_json::to_value(original).unwrap(),
+        serde_json::to_value(updated).unwrap()
     );
     lume::index_binary::overlays::publish(&root, vec![replacement(&[])], |_| Ok(())).unwrap();
     let emptied = cache.open(&root).unwrap();
