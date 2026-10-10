@@ -355,6 +355,12 @@ struct TermPosting {
     body_tf: usize,
 }
 
+struct SearchRun<'a> {
+    verbose: bool,
+    limit: Option<usize>,
+    allow: Option<&'a MiniRoaring>,
+}
+
 type BoundsKey = [u64; 6];
 type BoundsCell = std::sync::Arc<std::sync::OnceLock<Option<f64>>>;
 type ProfileBounds = HashMap<u32, BoundsCell>;
@@ -869,7 +875,17 @@ impl Bm25Index {
         params: &Bm25Params,
         tagger: Option<&Tagger>,
     ) -> Vec<SearchHit> {
-        self.search_impl(query, variant, params, tagger, true, None)
+        self.search_impl(
+            query,
+            variant,
+            params,
+            tagger,
+            SearchRun {
+                verbose: true,
+                limit: None,
+                allow: None,
+            },
+        )
     }
 
     /// `search` without stderr diagnostics, for in-process callers (Lume TI `match()`).
@@ -880,7 +896,17 @@ impl Bm25Index {
         params: &Bm25Params,
         tagger: Option<&Tagger>,
     ) -> Vec<SearchHit> {
-        self.search_impl(query, variant, params, tagger, false, None)
+        self.search_impl(
+            query,
+            variant,
+            params,
+            tagger,
+            SearchRun {
+                verbose: false,
+                limit: None,
+                allow: None,
+            },
+        )
     }
 
     /// Bounded lexical ranking. Call only when no later stage can reorder hits.
@@ -892,7 +918,7 @@ impl Bm25Index {
         tagger: Option<&Tagger>,
         limit: usize,
     ) -> Vec<SearchHit> {
-        self.search_impl(query, variant, params, tagger, true, Some(limit))
+        self.search_top_k_filtered(query, variant, params, tagger, limit, None)
     }
 
     /// Exact term-MaxScore early termination, never an approximate shortlist.
@@ -1076,21 +1102,15 @@ impl Bm25Index {
         Some((hits, stats))
     }
 
-    fn search_impl(
+    fn prepare_candidates(
         &self,
         query: &str,
-        variant: SearchVariant,
-        params: &Bm25Params,
         tagger: Option<&Tagger>,
+        allow: Option<&MiniRoaring>,
         verbose: bool,
-        limit: Option<usize>,
-    ) -> Vec<SearchHit> {
+    ) -> (Vec<crate::Token>, MiniRoaring, Vec<u128>) {
         macro_rules! diag {
-            ($($arg:tt)*) => {
-                if verbose {
-                    eprintln!($($arg)*);
-                }
-            };
+            ($($arg:tt)*) => { if verbose { eprintln!($($arg)*); } };
         }
         let parsed = parse_query(query);
 
@@ -1108,7 +1128,7 @@ impl Bm25Index {
             if !parsed.not_terms.is_empty() {
                 diag!("[NOT] Query contains only excluded terms; returning 0 results");
             }
-            return Vec::new();
+            return (query_tokens, MiniRoaring::new(), Vec::new());
         }
 
         // Excluded tokens: go through the same tokenize, stem and stopword path as normal terms.
@@ -1127,8 +1147,6 @@ impl Bm25Index {
                 }
             }
         }
-
-        let start_pruning = std::time::Instant::now();
 
         // 1. Gather all candidates using union of query term roaring bitmaps
         let mut candidate_set = MiniRoaring::new();
@@ -1151,8 +1169,9 @@ impl Bm25Index {
             }
         }
 
-        let candidate_ids = candidate_set.iter();
-        let num_candidates_roaring = candidate_ids.len();
+        if let Some(allow) = allow {
+            candidate_set = candidate_set.intersect(allow);
+        }
 
         // 2. Further prune using Gödel tag signatures if query has tagged entities
         let mut query_tag_primes = Vec::new();
@@ -1174,6 +1193,96 @@ impl Bm25Index {
             }
         }
 
+        (query_tokens, candidate_set, query_tag_primes)
+    }
+
+    fn candidate_rejection(&self, doc: u32, primes: &[u128]) -> Option<RejectReason> {
+        let doc = doc as usize;
+        let Some(section) = self.sections.get(doc) else {
+            return Some(RejectReason::MissingSection);
+        };
+        if section.title.is_empty() && section.body.is_empty() {
+            return Some(RejectReason::EmptyText);
+        }
+        if self.title_lens[doc] == 0 && self.body_lens[doc] == 0 {
+            return Some(RejectReason::FieldNotRankable);
+        }
+        if primes
+            .iter()
+            .any(|&prime| !self.prime_filters[doc].test_tag_prime(prime))
+        {
+            return Some(RejectReason::TagSignatureMismatch);
+        }
+        None
+    }
+
+    /// Exhaustive eligible candidates, independent of top-k and MaxScore.
+    /// The allow bitmap is intersected after positive union and NOT subtraction.
+    pub fn candidates(
+        &self,
+        query: &str,
+        tagger: Option<&Tagger>,
+        allow: Option<&MiniRoaring>,
+    ) -> MiniRoaring {
+        let (_, candidates, primes) = self.prepare_candidates(query, tagger, allow, false);
+        let mut result = MiniRoaring::new();
+        for doc in candidates.iter() {
+            if self.candidate_rejection(doc, &primes).is_none() {
+                result.insert(doc);
+            }
+        }
+        result
+    }
+
+    /// Filter before scoring; IDF and average lengths remain whole-corpus values.
+    pub fn search_top_k_filtered(
+        &self,
+        query: &str,
+        variant: SearchVariant,
+        params: &Bm25Params,
+        tagger: Option<&Tagger>,
+        limit: usize,
+        allow: Option<&MiniRoaring>,
+    ) -> Vec<SearchHit> {
+        self.search_impl(
+            query,
+            variant,
+            params,
+            tagger,
+            SearchRun {
+                verbose: true,
+                limit: Some(limit),
+                allow,
+            },
+        )
+    }
+
+    fn search_impl(
+        &self,
+        query: &str,
+        variant: SearchVariant,
+        params: &Bm25Params,
+        tagger: Option<&Tagger>,
+        run: SearchRun<'_>,
+    ) -> Vec<SearchHit> {
+        let verbose = run.verbose;
+        let limit = run.limit;
+        macro_rules! diag {
+            ($($arg:tt)*) => {
+                if verbose {
+                    eprintln!($($arg)*);
+                }
+            };
+        }
+        let start_pruning = std::time::Instant::now();
+        let (query_tokens, candidate_set, query_tag_primes) =
+            self.prepare_candidates(query, tagger, run.allow, verbose);
+        if query_tokens.is_empty() || self.num_docs == 0 {
+            return Vec::new();
+        }
+        let candidate_ids = candidate_set.iter();
+        let num_candidates_roaring = candidate_ids.len();
+
         let mut rejected_missing = 0;
         let mut rejected_empty = 0;
         let mut rejected_tag_mismatch = 0;
@@ -1185,59 +1294,22 @@ impl Bm25Index {
         let mut pruned_candidates = Vec::with_capacity(num_candidates_roaring);
 
         for doc_id in candidate_ids {
-            let doc_idx = doc_id as usize;
-            if doc_idx >= self.sections.len() {
-                rejected_missing += 1;
-                candidate_details.push(RankDebug {
-                    section_id: doc_id,
-                    score: None,
-                    rejected: Some(RejectReason::MissingSection),
-                });
-                continue;
-            }
-
-            let sec = &self.sections[doc_idx];
-            if sec.title.is_empty() && sec.body.is_empty() {
-                rejected_empty += 1;
-                candidate_details.push(RankDebug {
-                    section_id: doc_id,
-                    score: None,
-                    rejected: Some(RejectReason::EmptyText),
-                });
-                continue;
-            }
-
-            if self.title_lens[doc_idx] == 0 && self.body_lens[doc_idx] == 0 {
-                rejected_not_rankable += 1;
-                candidate_details.push(RankDebug {
-                    section_id: doc_id,
-                    score: None,
-                    rejected: Some(RejectReason::FieldNotRankable),
-                });
-                continue;
-            }
-
-            let pf = &self.prime_filters[doc_idx];
-
-            // Tag signature verification: Candidate must contain all query tag outputs if present
-            let mut tag_match = true;
-            for &prime in &query_tag_primes {
-                if !pf.test_tag_prime(prime) {
-                    tag_match = false;
-                    break;
+            if let Some(reason) = self.candidate_rejection(doc_id, &query_tag_primes) {
+                match reason {
+                    RejectReason::MissingSection => rejected_missing += 1,
+                    RejectReason::EmptyText => rejected_empty += 1,
+                    RejectReason::FieldNotRankable => rejected_not_rankable += 1,
+                    RejectReason::TagSignatureMismatch => rejected_tag_mismatch += 1,
+                    _ => unreachable!("candidate eligibility does not score"),
                 }
-            }
-            if !tag_match {
-                rejected_tag_mismatch += 1;
                 candidate_details.push(RankDebug {
                     section_id: doc_id,
                     score: None,
-                    rejected: Some(RejectReason::TagSignatureMismatch),
+                    rejected: Some(reason),
                 });
-                continue;
+            } else {
+                pruned_candidates.push(doc_id);
             }
-
-            pruned_candidates.push(doc_id);
         }
 
         let pruning_elapsed = start_pruning.elapsed();
@@ -2156,6 +2228,86 @@ These changes include blebbing, cell shrinkage, nuclear fragmentation, and chrom
 #[cfg(test)]
 mod integer_scoring_tests {
     use super::*;
+
+    #[test]
+    fn filtered_top_k_preserves_global_scores_and_exhaustive_candidates() {
+        let sections = (0..320)
+            .map(|doc| Section {
+                title: if doc % 7 == 0 {
+                    "anchor bilge".into()
+                } else {
+                    "anchor".into()
+                },
+                body: format!(
+                    "{} {}",
+                    "bilge ".repeat(doc % 11 + 1),
+                    if doc % 5 == 0 { "wind" } else { "pump" }
+                ),
+                line_number: doc + 1,
+                filename: None,
+                entities: Vec::new(),
+            })
+            .collect();
+        let index = Bm25Index::build_with_options(sections, None, Bm25BuildOptions::default());
+        let mut allow = MiniRoaring::new();
+        for doc in (0..320).step_by(3) {
+            allow.insert(doc);
+        }
+        // Out-of-range IDs cannot leak through candidate retrieval.
+        allow.insert(65536);
+        let candidates = index.candidates("anchor bilge NOT wind", None, Some(&allow));
+        assert!(
+            index.interned.get().is_none(),
+            "facets must not initialize scoring"
+        );
+        assert!(!candidates.contains(65536));
+        assert!(index.candidates("NOT anchor", None, None).is_empty());
+        assert!(index
+            .candidates("anchor", None, Some(&MiniRoaring::new()))
+            .is_empty());
+        for variant in [
+            SearchVariant::Classic,
+            SearchVariant::Plus,
+            SearchVariant::L,
+        ] {
+            for floor in [0.5, 1.0] {
+                let params = Bm25Params {
+                    coord_floor: floor,
+                    ..Default::default()
+                };
+                let all = index.search_quiet("anchor bilge NOT wind", variant, &params, None);
+                let expected: Vec<_> = all
+                    .iter()
+                    .filter(|hit| allow.contains(hit.section_index as u32))
+                    .collect();
+                let mut expected_ids: Vec<_> = expected
+                    .iter()
+                    .map(|hit| hit.section_index as u32)
+                    .collect();
+                expected_ids.sort_unstable();
+                assert_eq!(candidates.iter(), expected_ids);
+                for limit in [0, 1, 3, 31, usize::MAX] {
+                    let actual = index.search_top_k_filtered(
+                        "anchor bilge NOT wind",
+                        variant,
+                        &params,
+                        None,
+                        limit,
+                        Some(&allow),
+                    );
+                    assert_eq!(actual.len(), expected.len().min(limit));
+                    for (actual, expected) in actual.iter().zip(&expected) {
+                        assert_eq!(actual.section_index, expected.section_index);
+                        assert_eq!(actual.score.to_bits(), expected.score.to_bits());
+                    }
+                    assert_eq!(
+                        index.candidates("anchor bilge NOT wind", None, Some(&allow)),
+                        candidates
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn maxscore_prunes_without_changing_score_bits() {
