@@ -52,7 +52,9 @@ impl DocsIndex {
 
 fn stamp(root: &Path) -> Option<Stamp> {
     // Old indexes have no publication manifest. Their BM25 file is the fallback marker.
-    let marker = if root.join("manifest.json").is_file() {
+    let marker = if root.join("index.json").exists() {
+        root.join("index.json")
+    } else if root.join("manifest.json").is_file() {
         root.join("manifest.json")
     } else {
         root.join("bm25.json")
@@ -65,7 +67,7 @@ fn stamp(root: &Path) -> Option<Stamp> {
 }
 
 pub(crate) fn register(session: &ti_sql::SqlSession, root: &Path) -> Result<(), String> {
-    if !root.join("bm25.json").exists() {
+    if !root.join("bm25.json").exists() && !root.join("index.json").exists() {
         let index = crate::LoadedIndex::from_parts(crate::bm25::Bm25Index::build(vec![], None));
         return crate::sql::register_index(session, std::sync::Arc::new(index))
             .map_err(|e| e.to_string());

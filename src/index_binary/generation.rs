@@ -1,0 +1,269 @@
+//! Immutable ordinary-index generation files and one atomic publication pointer.
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::fs::{self, File, OpenOptions};
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
+
+pub const POINTER: &str = "index.json";
+pub const FORMAT_VERSION: u32 = 4;
+pub const CORE_FILES: &[&str] = &[
+    "terms.tbl",
+    "term-text.bin",
+    "sections.tbl",
+    "text.bin",
+    "profiles.bin",
+    "forward-title.bin",
+    "forward-body.bin",
+    "postings.bin",
+    "bm25-aux.json",
+    "build-state.json",
+];
+const OPTIONAL_FILES: &[&str] = &[
+    "spelling.json",
+    "entity_graph.json",
+    "meta.json",
+    "local-vectors.json",
+];
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Seal {
+    pub bytes: u64,
+    pub sha256: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Manifest {
+    pub format_version: u32,
+    pub generation: String,
+    pub sections: u32,
+    pub source_files: u32,
+    pub corpus_fingerprint: [u64; 2],
+    #[serde(deserialize_with = "unique_seals")]
+    pub segments: BTreeMap<String, Seal>,
+}
+
+fn unique_seals<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<BTreeMap<String, Seal>, D::Error> {
+    struct Unique;
+    impl<'de> serde::de::Visitor<'de> for Unique {
+        type Value = BTreeMap<String, Seal>;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("a segment map without duplicate names")
+        }
+        fn visit_map<M: serde::de::MapAccess<'de>>(
+            self,
+            mut map: M,
+        ) -> Result<Self::Value, M::Error> {
+            let mut result = BTreeMap::new();
+            while let Some((name, seal)) = map.next_entry::<String, Seal>()? {
+                if result.insert(name.clone(), seal).is_some() {
+                    return Err(serde::de::Error::custom(format!(
+                        "Duplicate index segment {name}"
+                    )));
+                }
+            }
+            Ok(result)
+        }
+    }
+    deserializer.deserialize_map(Unique)
+}
+
+impl Manifest {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.format_version != FORMAT_VERSION || !valid_generation(&self.generation) {
+            return Err("Unsupported or invalid ordinary-index generation".into());
+        }
+        if CORE_FILES
+            .iter()
+            .any(|name| !self.segments.contains_key(*name))
+        {
+            return Err("Ordinary-index generation is missing a core segment".into());
+        }
+        for (name, seal) in &self.segments {
+            if !CORE_FILES.contains(&name.as_str()) && !OPTIONAL_FILES.contains(&name.as_str()) {
+                return Err(format!("Unknown ordinary-index segment {name}"));
+            }
+            if seal.sha256.len() != 64
+                || !seal
+                    .sha256
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            {
+                return Err(format!("Invalid ordinary-index seal for {name}"));
+            }
+            usize::try_from(seal.bytes).map_err(|_| "Segment length exceeds usize")?;
+        }
+        Ok(())
+    }
+}
+
+fn valid_generation(value: &str) -> bool {
+    value.len() == 36
+        && value.bytes().enumerate().all(|(i, byte)| {
+            if [8, 13, 18, 23].contains(&i) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_hexdigit()
+            }
+        })
+}
+
+pub fn sha256(bytes: &[u8]) -> String {
+    let digest = ring::digest::digest(&ring::digest::SHA256, bytes);
+    let mut result = String::with_capacity(64);
+    for byte in digest.as_ref() {
+        use std::fmt::Write;
+        write!(&mut result, "{byte:02x}").unwrap();
+    }
+    result
+}
+
+fn sync_directory(path: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        File::open(path)
+            .and_then(|file| file.sync_all())
+            .map_err(|e| format!("Cannot sync index directory {}: {e}", path.display()))?;
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PublishStep {
+    CreatedGeneration,
+    SyncedSegment,
+    SyncedGeneration,
+    PublishedPointer,
+}
+
+pub fn publish(
+    root: &Path,
+    mut manifest: Manifest,
+    segments: &BTreeMap<String, Vec<u8>>,
+    mut checkpoint: impl FnMut(PublishStep) -> Result<(), String>,
+) -> Result<Manifest, String> {
+    if !valid_generation(&manifest.generation) {
+        return Err("Invalid generation name".into());
+    }
+    manifest.segments = segments
+        .iter()
+        .map(|(name, bytes)| {
+            (
+                name.clone(),
+                Seal {
+                    bytes: bytes.len() as u64,
+                    sha256: sha256(bytes),
+                },
+            )
+        })
+        .collect();
+    manifest.validate()?;
+    let generations = root.join("generations");
+    fs::create_dir_all(&generations)
+        .map_err(|e| format!("Cannot create index generations: {e}"))?;
+    let directory = generations.join(&manifest.generation);
+    fs::create_dir(&directory)
+        .map_err(|e| format!("Cannot create immutable index generation: {e}"))?;
+    checkpoint(PublishStep::CreatedGeneration)?;
+    for (name, bytes) in segments {
+        let path = directory.join(name);
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&path)
+            .map_err(|e| format!("Cannot create index segment {name}: {e}"))?;
+        {
+            let _span = crate::index_timing::FileSpan::new("v4.publish.write", &path);
+            file.write_all(bytes)
+                .map_err(|e| format!("Cannot write index segment {name}: {e}"))?;
+        }
+        {
+            let _span = crate::index_timing::FileSpan::new("v4.publish.fsync", &path);
+            file.sync_all()
+                .map_err(|e| format!("Cannot sync index segment {name}: {e}"))?;
+        }
+        checkpoint(PublishStep::SyncedSegment)?;
+    }
+    sync_directory(&directory)?;
+    sync_directory(&generations)?;
+    checkpoint(PublishStep::SyncedGeneration)?;
+    crate::search::save_json(&root.join(POINTER), &manifest)?;
+    checkpoint(PublishStep::PublishedPointer)?;
+    Ok(manifest)
+}
+
+pub fn read_manifest(root: &Path) -> Result<Manifest, String> {
+    let path = root.join(POINTER);
+    let file = File::open(&path).map_err(|e| format!("Cannot open ordinary-index pointer: {e}"))?;
+    // The pointer is small metadata, never a corpus-sized JSON file.
+    let mut bytes = Vec::new();
+    file.take(1024 * 1024 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("Cannot read ordinary-index pointer: {e}"))?;
+    if bytes.len() > 1024 * 1024 {
+        return Err("Ordinary-index pointer exceeds 1 MiB".into());
+    }
+    let manifest: Manifest = serde_json::from_slice(&bytes)
+        .map_err(|e| format!("Invalid ordinary-index pointer: {e}"))?;
+    manifest.validate()?;
+    Ok(manifest)
+}
+
+pub fn generation_directory(root: &Path, manifest: &Manifest) -> Result<PathBuf, String> {
+    manifest.validate()?;
+    let root = fs::canonicalize(root).map_err(|e| format!("Cannot resolve index root: {e}"))?;
+    let directory = fs::canonicalize(root.join("generations").join(&manifest.generation))
+        .map_err(|e| format!("Cannot resolve index generation: {e}"))?;
+    if !directory.starts_with(&root) {
+        return Err("Index generation escapes root".into());
+    }
+    Ok(directory)
+}
+
+pub fn read_segments(
+    root: &Path,
+    manifest: &Manifest,
+) -> Result<BTreeMap<String, Vec<u8>>, String> {
+    let directory = generation_directory(root, manifest)?;
+    let mut result = BTreeMap::new();
+    for (name, seal) in &manifest.segments {
+        let path = directory.join(name);
+        let metadata = fs::symlink_metadata(&path)
+            .map_err(|e| format!("Cannot inspect index segment {name}: {e}"))?;
+        if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() != seal.bytes
+        {
+            return Err(format!(
+                "Invalid ordinary-index segment length or type: {name}"
+            ));
+        }
+        let capacity = usize::try_from(seal.bytes).map_err(|_| "Index segment exceeds usize")?;
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(capacity)
+            .map_err(|_| format!("Cannot allocate index segment {name}"))?;
+        let read_span = crate::index_timing::FileSpan::new("v4.open.read", &path);
+        let file =
+            File::open(&path).map_err(|e| format!("Cannot open index segment {name}: {e}"))?;
+        file.take(
+            seal.bytes
+                .checked_add(1)
+                .ok_or("Index segment length overflow")?,
+        )
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("Cannot read index segment {name}: {e}"))?;
+        drop(read_span);
+        let checksum_span = crate::index_timing::FileSpan::new("v4.open.checksum", &path);
+        if bytes.len() as u64 != seal.bytes || sha256(&bytes) != seal.sha256 {
+            return Err(format!("Ordinary-index seal mismatch: {name}"));
+        }
+        drop(checksum_span);
+        result.insert(name.clone(), bytes);
+    }
+    Ok(result)
+}

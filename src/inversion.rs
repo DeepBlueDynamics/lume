@@ -134,7 +134,7 @@ pub fn execute_steered_inversion(
                     120,
                     Some(tagger),
                     &index.entity_posting_lists,
-                    &index.posting_lists,
+                    &index.candidate_posting_lists(),
                     &extracted_tags,
                 );
                 steered_text = Some(simulated);

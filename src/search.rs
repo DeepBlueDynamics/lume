@@ -93,11 +93,11 @@ pub struct IndexState {
 }
 
 pub fn check_state_compatibility(state: &IndexState) -> Result<(), String> {
-    if state.format_version > CURRENT_FORMAT_VERSION {
+    if state.format_version > crate::index_binary::generation::FORMAT_VERSION {
         return Err(format!(
             "Index format version {} is newer than supported version {}; rebuild with a newer lume or reindex with 'lume index -f'.",
             state.format_version,
-            CURRENT_FORMAT_VERSION
+            crate::index_binary::generation::FORMAT_VERSION
         ));
     }
     if state.keep_hyphens {
@@ -165,6 +165,9 @@ impl LoadedIndex {
     ) -> Result<Self, String> {
         let _timing = crate::index_timing::Span::new("open.total");
         let db_path = db_dir.as_ref();
+        if crate::index_binary::snapshot::present(db_path) {
+            return crate::index_binary::snapshot::open(db_path, checks);
+        }
         let state_path = db_path.join("state.json");
         if !state_path.exists() {
             return Err(format!(
