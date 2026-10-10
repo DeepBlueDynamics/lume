@@ -177,7 +177,7 @@ fn indexed_manual_cross_joins_small_durable_telemetry_store_and_cli() {
     let index = LoadedIndex::from_parts(lume::bm25::Bm25Index::build(sections, None));
     lume::search::save_json(&index_root.join("bm25.json"), &index.bm25).unwrap();
     let state = lume::search::IndexState {
-        format_version: lume::search::CURRENT_FORMAT_VERSION,
+        format_version: lume::search::FORMAT_VERSION_STEMMED,
         target_dir: "manual".into(),
         db_dir: index_root.display().to_string(),
         semantic_enabled: false,
@@ -648,10 +648,13 @@ fn metadata_columns_pushdown_and_facets_equivalence() {
         "year >= 2020 must be reported Exact"
     );
 
-    let explain_reply = runtime
-        .block_on(engine.query("EXPLAIN SELECT id FROM sections WHERE year >= 2020", 500))
+    let plan_str = runtime
+        .block_on(
+            engine
+                .session
+                .explain("SELECT id FROM sections WHERE year >= 2020"),
+        )
         .unwrap();
-    let plan_str = explain_reply["rows"][0]["plan"].as_str().unwrap();
     assert!(
         !plan_str.contains("FilterExec"),
         "FilterExec should not be present when year >= 2020 is pushed down as Exact: {plan_str}"
@@ -710,4 +713,23 @@ fn metadata_columns_pushdown_and_facets_equivalence() {
     let sql_array_has = "SELECT count(*) AS n FROM sections WHERE array_has(tags, 'dna')";
     let reply_array_has = runtime.block_on(engine.query(sql_array_has, 500)).unwrap();
     assert_eq!(reply_array_has["rows"][0]["n"].as_u64().unwrap(), 2); // sec0 and sec1
+}
+
+#[test]
+fn test_plain_index_writes_format_version_2_and_loads() {
+    let _lock = RESIDENT_TEST_LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let index_dir = fixture.index();
+    let state_raw = std::fs::read_to_string(index_dir.join("state.json")).unwrap();
+    let state: Value = serde_json::from_str(&state_raw).unwrap();
+    assert_eq!(
+        state["format_version"], 2,
+        "plain index must have format_version 2"
+    );
+    assert!(
+        !index_dir.join("meta.json").exists(),
+        "meta.json must not exist for plain index"
+    );
+    let loaded = LoadedIndex::open(&index_dir).unwrap();
+    assert!(loaded.meta.is_none());
 }

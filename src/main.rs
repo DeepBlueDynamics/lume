@@ -9,7 +9,7 @@ use lume::bm25::{Bm25Index, Bm25Params, SearchVariant, Section};
 use lume::search::{
     check_state_compatibility, correct_query, format_cli_output, load_json, load_tagger_csv,
     save_json, search, BlendMode, IndexState, LoadedIndex, SearchMode, SearchOptions,
-    CURRENT_FORMAT_VERSION,
+    CURRENT_FORMAT_VERSION, FORMAT_VERSION_META, FORMAT_VERSION_STEMMED, FORMAT_VERSION_UNSTEMMED,
 };
 use lume::semantic_mesh::EntityGraph;
 use lume::spelling::SpellIndex;
@@ -2144,11 +2144,11 @@ fn run_indexing(
         "init",
     );
     let format_version = if current_meta.is_some() {
-        3
+        FORMAT_VERSION_META
     } else if stemmed {
-        CURRENT_FORMAT_VERSION.min(2)
+        FORMAT_VERSION_STEMMED
     } else {
-        1
+        FORMAT_VERSION_UNSTEMMED
     };
     let keep_hyphens = false;
     let early_flush_start = Instant::now();

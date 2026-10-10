@@ -63,6 +63,9 @@ impl Default for SearchOptions {
     }
 }
 
+pub const FORMAT_VERSION_UNSTEMMED: u32 = 1;
+pub const FORMAT_VERSION_STEMMED: u32 = 2;
+pub const FORMAT_VERSION_META: u32 = 3;
 pub const CURRENT_FORMAT_VERSION: u32 = 3;
 
 fn default_format_version() -> u32 {
@@ -1054,7 +1057,7 @@ mod tests {
     fn test_lexical_only_with_nonexistent_target_dir() {
         let bm25 = build_test_bm25();
         let state = IndexState {
-            format_version: CURRENT_FORMAT_VERSION,
+            format_version: FORMAT_VERSION_STEMMED,
             target_dir: "/nonexistent/directory/that/does/not/exist/987654321".to_string(),
             db_dir: ".dummy-db".to_string(),
             semantic_enabled: false,
@@ -1094,7 +1097,7 @@ mod tests {
     fn test_hybrid_fallback_on_missing_session() {
         let bm25 = build_test_bm25();
         let state = IndexState {
-            format_version: CURRENT_FORMAT_VERSION,
+            format_version: FORMAT_VERSION_STEMMED,
             target_dir: "/dummy/target".to_string(),
             db_dir: ".dummy-db".to_string(),
             semantic_enabled: false,
@@ -1138,7 +1141,7 @@ mod tests {
     fn test_hybrid_strict_fails_on_missing_session() {
         let bm25 = build_test_bm25();
         let state = IndexState {
-            format_version: CURRENT_FORMAT_VERSION,
+            format_version: FORMAT_VERSION_STEMMED,
             target_dir: "/dummy/target".to_string(),
             db_dir: ".dummy-db".to_string(),
             semantic_enabled: false,
@@ -1313,7 +1316,7 @@ mod tests {
 
         // 3. Now test a stemmed index
         let state_stemmed = IndexState {
-            format_version: CURRENT_FORMAT_VERSION,
+            format_version: FORMAT_VERSION_STEMMED,
             stemmed: true,
             ..state
         };
@@ -1446,7 +1449,7 @@ mod tests {
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         let state = IndexState {
-            format_version: CURRENT_FORMAT_VERSION,
+            format_version: FORMAT_VERSION_STEMMED,
             target_dir: "/dummy".to_string(),
             db_dir: temp_dir.display().to_string(),
             semantic_enabled: false,
@@ -1489,7 +1492,7 @@ mod tests {
     fn test_search_path_honors_explicit_bm25_params() {
         let bm25 = build_test_bm25();
         let state = IndexState {
-            format_version: CURRENT_FORMAT_VERSION,
+            format_version: FORMAT_VERSION_STEMMED,
             target_dir: "/dummy/target".to_string(),
             db_dir: ".dummy-db".to_string(),
             semantic_enabled: false,

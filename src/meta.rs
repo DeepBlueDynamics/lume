@@ -1818,7 +1818,7 @@ authors:
   - Bob Jones
 ---
 # Section 1
-Line 11 content here.
+This is a sufficiently long body content that exceeds one hundred characters in total length so that the markdown section parser does not filter it out as a short snippet or table of contents artifact.
 "#;
 
         let (fields, blanked) = extract_and_blank_frontmatter(md);
