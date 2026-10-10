@@ -4,7 +4,7 @@ use crate::bm25::SearchHit;
 use crate::hybrid::HybridHit;
 
 pub(crate) fn enabled(mode: Option<&str>) -> bool {
-    matches!(mode, Some("rrf" | "normalized-v2"))
+    matches!(mode, Some("rrf" | "normalized-v2" | "vector"))
 }
 
 pub(crate) fn fuse(
@@ -18,10 +18,15 @@ pub(crate) fn fuse(
     let mut ids: Vec<usize> = lexical.keys().chain(semantic.keys()).copied().collect();
     ids.sort_unstable();
     ids.dedup();
+    if mode == "vector" {
+        ids.retain(|id| semantic.contains_key(id));
+    }
     let lexical_range = range(ids.iter().map(|id| lexical.get(id).copied().unwrap_or(0.0)));
     let semantic_range = range(semantic.values().copied());
     let mut hits: Vec<_> = ids.into_iter().map(|id| {
-        let score = if mode == "normalized-v2" {
+        let score = if mode == "vector" {
+            semantic[&id]
+        } else if mode == "normalized-v2" {
             scale(lexical.get(&id).copied().unwrap_or(0.0), lexical_range)
                 + alpha * semantic.get(&id).map_or(0.0, |score| scale(*score, semantic_range))
         } else {
@@ -81,6 +86,14 @@ mod tests {
         assert_eq!(hits[1].hybrid_score, 1.0);
         assert_eq!(hits[2].hybrid_score, 0.5);
         assert_eq!(scale(0.4, (0.4, 0.4)), 0.0);
+    }
+    #[test]
+    fn vector_only_excludes_lexical_only_candidates() {
+        let lexical = vec![SearchHit { section_index: 0, score: 100.0 }];
+        let semantic = HashMap::from([(1, 0.8), (2, 0.8)]);
+        let hits = fuse(&lexical, &semantic, "vector", 60.0, 1.0);
+        assert_eq!(hits.iter().map(|hit| hit.section_index).collect::<Vec<_>>(), vec![1, 2]);
+        assert_eq!(hits[0].hybrid_score, 0.8);
     }
     #[test]
     fn legacy_modes_do_not_enable_experimental_fusion() {
