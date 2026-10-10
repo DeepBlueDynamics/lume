@@ -8,7 +8,9 @@ import urllib.error
 
 import run_luxir
 from run_luxir import (
+    DATASETS,
     LuxirAdmin,
+    cli_parser,
     embed_identified,
     embed_request,
     embedding_cache_path,
@@ -126,6 +128,45 @@ class RunLuxirTests(unittest.TestCase):
         self.assertEqual(
             trec_tag("hybrid", "embeddinggemma-2", "luxir-hybrid-embgemma2-scifact"),
             "luxir-hybrid-embgemma2-scifact"
+        )
+
+    def test_nfcorpus_choice_and_cache_names(self):
+        self.assertEqual(DATASETS, ("scifact", "trec-covid", "nfcorpus"))
+        parser = cli_parser()
+        held_out = parser.parse_args([
+            "--dataset", "nfcorpus", "--mode", "hybrid", "--embed-model", "embeddinggemma-2"
+        ])
+        self.assertEqual(held_out.dataset, "nfcorpus")
+        self.assertEqual(held_out.embed_model, "embeddinggemma-2")
+        self.assertEqual(held_out.embed_dims, 768)
+        self.assertEqual(
+            parser.parse_args(["--dataset", "scifact", "--mode", "hybrid"]).dataset, "scifact"
+        )
+        self.assertEqual(
+            parser.parse_args(["--dataset", "trec-covid", "--mode", "bm25"]).dataset, "trec-covid"
+        )
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--dataset", "fiqa", "--mode", "hybrid"])
+        root = Path("/workspace/lume/.lanes/data/luxir-bench")
+        self.assertEqual(
+            embedding_cache_path(root, "embeddinggemma-2", 768, "nfcorpus", "docs"),
+            root / "embeddings" / "embeddinggemma-2-768-nfcorpus-docs.jsonl"
+        )
+        self.assertEqual(
+            embedding_cache_path(root, "embeddinggemma-2", 768, "nfcorpus", "queries"),
+            root / "embeddings" / "embeddinggemma-2-768-nfcorpus-queries.jsonl"
+        )
+        self.assertEqual(hybrid_collection_name("scifact", "gtr-t5-base"), "scifact_hybrid")
+        self.assertEqual(hybrid_run_name("trec-covid", "gtr-t5-base"), "luxir-hybrid-trec-covid")
+        self.assertEqual(
+            hybrid_collection_name("nfcorpus", "embeddinggemma-2"), "nfcorpus_hybrid_embgemma2"
+        )
+        self.assertEqual(
+            hybrid_run_name("nfcorpus", "embeddinggemma-2"), "luxir-hybrid-embgemma2-nfcorpus"
+        )
+        self.assertEqual(
+            trec_tag("hybrid", "embeddinggemma-2", "luxir-hybrid-embgemma2-nfcorpus"),
+            "luxir-hybrid-embgemma2-nfcorpus"
         )
 
     def test_cache_path_jsonl(self):

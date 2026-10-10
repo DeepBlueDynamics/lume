@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run Luxir benchmark for BEIR datasets (SciFact, TREC-COVID).
+"""Run Luxir benchmark for BEIR datasets (SciFact, TREC-COVID, NFCorpus).
 
 Uses shared http_runner.py (JsonClient, throughput) over Docker bridge network.
 Produces:
@@ -32,6 +32,7 @@ from http_runner import JsonClient, throughput
 
 
 EMBED_BATCH = 64
+DATASETS = ("scifact", "trec-covid", "nfcorpus")
 
 
 def http_post(url, data=None, timeout=60, retries=3):
@@ -500,9 +501,9 @@ def run_throughput_suite(endpoint, collection, mode, queries, query_vecs, second
     return row
 
 
-def main():
+def cli_parser():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dataset", required=True, choices=["scifact", "trec-covid"])
+    parser.add_argument("--dataset", required=True, choices=DATASETS)
     parser.add_argument("--mode", required=True, choices=["bm25", "hybrid"])
     parser.add_argument("--root", type=Path, default=Path("/workspace/lume/.lanes/data/luxir-bench"))
     parser.add_argument("--endpoint", default="http://luxir-bench:9400")
@@ -515,7 +516,11 @@ def main():
     parser.add_argument("--skip-throughput", action="store_true", help="Skip throughput suite")
     parser.add_argument("--batch-size", type=int, default=500)
     parser.add_argument("--throughput-duration", type=float, default=60.0)
-    args = parser.parse_args()
+    return parser
+
+
+def main():
+    args = cli_parser().parse_args()
 
     admin = LuxirAdmin(endpoint=args.endpoint, embed_endpoint=args.embed_endpoint)
     dataset_dir = args.root / args.dataset
