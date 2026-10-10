@@ -1,0 +1,70 @@
+{
+  "source": "58ec10e",
+  "binary_sha256": "dd260aaffb57410b5a1cf8e3f840533bc97487efeba7890b9672e906804e3fea",
+  "toolchain": "rustc 1.96.1",
+  "profile": "release thin LTO CGU1 features ti",
+  "lib_tests_twice": 85,
+  "ranking_parity": true,
+  "measurements": [
+    {
+      "label": "maxscore-off",
+      "dataset": "scifact",
+      "ranking_parity": true,
+      "run_sha256": "de34417eb2d1d3d1a64e4aedaf82c1523718eff69d8226394cc0525accb56a9f",
+      "p50_ms": 2.4711504811421037,
+      "p95_ms": 3.387466710410081,
+      "p99_ms": 3.709704756620339,
+      "qps8": 543.7706619318895,
+      "qps16": 543.8960591528412,
+      "errors": [
+        0,
+        0
+      ]
+    },
+    {
+      "label": "maxscore-off",
+      "dataset": "trec-covid",
+      "ranking_parity": true,
+      "run_sha256": "ba1b0cd03f615d4077274abfb807231c7f0cf59984d8137e0f5a479b80d7cdbd",
+      "p50_ms": 8.05302249500528,
+      "p95_ms": 9.641900332644582,
+      "p99_ms": 9.871613927534781,
+      "qps8": 460.07127974308105,
+      "qps16": 452.9601424094909,
+      "errors": [
+        0,
+        0
+      ]
+    },
+    {
+      "label": "maxscore-f3-f2",
+      "dataset": "scifact",
+      "ranking_parity": true,
+      "run_sha256": "8f7e3d5379cf5ebbefd33bdd69369649f7b2e77120afcfd06dbc4ebdda5a42b4",
+      "p50_ms": 2.577253006165847,
+      "p95_ms": 3.361972962738947,
+      "p99_ms": 3.5973872721660882,
+      "qps8": 553.1149157717217,
+      "qps16": 541.0717444229134,
+      "errors": [
+        0,
+        0
+      ]
+    },
+    {
+      "label": "maxscore-f3-f2",
+      "dataset": "trec-covid",
+      "ranking_parity": true,
+      "run_sha256": "3b3beb724bc9821c115cf9424b07c9ff7626a7581c7fdbbc7aed51c6312fe21a",
+      "p50_ms": 8.160675992257893,
+      "p95_ms": 10.622517979936674,
+      "p99_ms": 14.690547965583383,
+      "qps8": 529.419377630207,
+      "qps16": 540.2744385615139,
+      "errors": [
+        0,
+        0
+      ]
+    }
+  ]
+}
