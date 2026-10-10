@@ -2,26 +2,36 @@
 
 # Lume
 
-**Documents and time-series telemetry in one store, searchable and queryable together, in one fast Rust binary.**
-
-An open source project from [DeepBlue Dynamics](https://deepbluedynamics.com), which builds open source agentic tooling for the marine electronics market.
+**One store for the numbers and the words.**
 
 [![CI](https://github.com/DeepBlueDynamics/lume/actions/workflows/ci.yml/badge.svg)](https://github.com/DeepBlueDynamics/lume/actions/workflows/ci.yml)
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-stable-orange.svg?logo=rust)](https://www.rust-lang.org/)
 [![MCP](https://img.shields.io/badge/MCP-server-6E56CF.svg)](#mcp-server)
 
-[Quick start](#quick-start) · [Lume TI: documents + time series](#lume-ti-telemetry-index) · [Features](#features) · [CLI](#cli-reference) · [Performance](#performance) · [Development](#development)
+[Quick start](#quick-start) · [Lume TI](#lume-ti-telemetry-index) · [Performance](#performance)
 
 </div>
 
 
 ---
 
-Lume keeps two kinds of data side by side and queries across both:
+A boat at sea has no internet. It has a logbook, a shelf of manuals, a year
+of sensor telemetry — and the questions that matter cross all three at once:
+what was the engine doing every time that alarm fired this month? Every
+tool you've used answers a third of that question and hands you three tabs.
+Lume answers the whole thing.
 
-- **Documents.** It indexes documents, code and crawled web pages and makes them searchable in milliseconds, combining BM25, dense semantic embeddings and an index-native **Semantic Knowledge Graph**. The same engine powers an agent loop, a graph-guided summarizer, cited answers and an MCP server, so AI agents can use your corpus as memory.
-- **Time series.** [**Lume TI**](#lume-ti-telemetry-index) is a bitmap-indexed SQL engine for sensor telemetry. It reads [Signal K](https://signalk.org/) out of the box, and its engine works on any *(entity, metric, time, value)* data. Numbers, states, positions and the notes, logbook and alerts that describe them share one store, so one query can ask *"what was the boat doing during every alarm this month?"*. It runs on the boat's Raspberry Pi with no internet connection.
+Lume keeps documents and time-series telemetry in one store, searchable and
+queryable together, in one fast Rust binary. Documents get BM25, dense
+semantic embeddings, and a knowledge graph computed from the index itself.
+Telemetry gets a bitmap-indexed SQL engine that reads Signal K out of the
+box. One query crosses both. Search, the knowledge graph and the telemetry
+SQL run on the boat's Raspberry Pi with no internet connection — because
+that's where boats are.
+
+An open source project from [DeepBlue Dynamics](https://deepbluedynamics.com/),
+which builds open source agentic tooling for the marine electronics market.
 
 The default build has **four runtime dependencies** (`tantivy-fst`, `ureq`, `serde`, `serde_json`). The time-series engine (DataFusion, Arrow, Parquet) sits behind `--features ti`.
 
