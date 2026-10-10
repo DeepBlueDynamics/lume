@@ -9,4 +9,5 @@ pub mod postings;
 pub mod profiles;
 pub mod sections;
 pub mod snapshot;
+pub mod spelling;
 pub mod terms;
