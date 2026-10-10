@@ -1729,13 +1729,17 @@ fn build_meta_for_current_state(
     let mut sorted_paths: Vec<&String> = cached_files.keys().collect();
     sorted_paths.sort();
 
-    let mut file_fields: HashMap<String, (String, HashMap<String, serde_json::Value>)> = HashMap::new();
+    let mut file_fields: HashMap<String, (String, HashMap<String, serde_json::Value>)> =
+        HashMap::new();
     let mut field_depths: HashMap<String, HashMap<String, usize>> = HashMap::new();
 
     // 1. Initialize with frontmatter
     for (path_str, fm_fields) in frontmatter_by_file {
         if cached_files.contains_key(path_str) {
-            file_fields.insert(path_str.clone(), ("frontmatter".to_string(), fm_fields.clone()));
+            file_fields.insert(
+                path_str.clone(),
+                ("frontmatter".to_string(), fm_fields.clone()),
+            );
             let mut depths = HashMap::new();
             for k in fm_fields.keys() {
                 depths.insert(k.clone(), 0);
@@ -1949,7 +1953,8 @@ fn run_indexing(
     }
 
     let prev_meta = lume::meta::MetaIndex::open(&db_path.join("meta.json")).ok();
-    let mut frontmatter_by_file: HashMap<String, HashMap<String, serde_json::Value>> = HashMap::new();
+    let mut frontmatter_by_file: HashMap<String, HashMap<String, serde_json::Value>> =
+        HashMap::new();
     if let Some(ref prev) = prev_meta {
         for (p, entry) in &prev.files {
             if entry.source == "frontmatter" && !entry.fields.is_empty() {
@@ -2186,8 +2191,8 @@ fn run_indexing(
     };
     let mut manifests = Vec::new();
     find_manifests(target_path, db_path, &mut manifests);
-    let schema_override = lume::meta::load_schema_override(&target_path.join("lume.schema.json"))
-        .unwrap_or_default();
+    let schema_override =
+        lume::meta::load_schema_override(&target_path.join("lume.schema.json")).unwrap_or_default();
     let current_meta = build_meta_for_current_state(
         &cached_files,
         &frontmatter_by_file,
@@ -2204,8 +2209,13 @@ fn run_indexing(
     };
     let keep_hyphens = false;
     let early_flush_start = Instant::now();
-    let early_count =
-        flush_searchable_indexes(&cached_files, tagger.as_ref(), &tagger_phrases, db_path, current_meta.as_ref())?;
+    let early_count = flush_searchable_indexes(
+        &cached_files,
+        tagger.as_ref(),
+        &tagger_phrases,
+        db_path,
+        current_meta.as_ref(),
+    )?;
     let early_state = IndexState {
         format_version,
         target_dir: target_dir.to_string(),
@@ -2448,8 +2458,13 @@ fn run_indexing(
     }
 
     let save_start = Instant::now();
-    let section_count =
-        flush_searchable_indexes(&cached_files, tagger.as_ref(), &tagger_phrases, db_path, current_meta.as_ref())?;
+    let section_count = flush_searchable_indexes(
+        &cached_files,
+        tagger.as_ref(),
+        &tagger_phrases,
+        db_path,
+        current_meta.as_ref(),
+    )?;
 
     let state = IndexState {
         format_version,

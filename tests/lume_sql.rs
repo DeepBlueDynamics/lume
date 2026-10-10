@@ -587,15 +587,8 @@ fn metadata_columns_pushdown_and_facets_equivalence() {
         columns,
     };
 
-    let index = LoadedIndex {
-        state: None,
-        bm25,
-        spelling: None,
-        entity_graph: None,
-        tagger: None,
-        cache_dir: None,
-        meta: Some(meta),
-    };
+    let mut index = LoadedIndex::from_parts(bm25);
+    index.meta = Some(meta);
 
     let index_arc = Arc::new(index);
     let runtime = ti_sql::surface_runtime().unwrap();
