@@ -162,6 +162,7 @@ fn cli_overlays_are_searchable_mid_run_resume_and_compact_exactly() {
         }
     )
     .unwrap()
+    .hits
     .is_empty());
     println!("mid-run search: 16 processed sections, 13 entity matches");
     first.0.kill().unwrap();
