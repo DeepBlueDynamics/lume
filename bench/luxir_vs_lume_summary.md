@@ -69,14 +69,14 @@ TREC-COVID:
 
 Luxir has the richer query language: phrase and proximity, boolean NOT, fuzzy terms, and facets. Lume search has SQL. `lume sql` reads `sections`, `entities`, and `entity_edges`, and `match()` returns a BM25 `score`. Lume also has time series and ARM64, including a Raspberry Pi. The scoreboard's binary sizes are 82 MB for Luxir and 102 MB for Lume (one binary for search and TI SQL).
 
-Boolean NOT and facets through `lume sql` are marked "being verified". The Luxir report shows `match()` combined with `NOT match()` being rejected, and it shows a `GROUP BY` example without a captured result. Do not read those two cells as proven.
+Facets through `lume sql` are verified: `SELECT file, COUNT(*) AS hits, MAX(score) FROM sections WHERE match(body, 'index search') GROUP BY file` runs on v0.12.3, with `match()` pushed down to roaring-bitmap pruning. What Lume search lacks is typed metadata fields to facet on (Luxir has `category`, `year`, tags). Boolean NOT through `lume sql` (`match() AND NOT match()`) is rejected in v0.12.3; support is on branch `search/not`, not merged yet.
 
 | | Luxir | Lume search | Lume TI SQL |
 |---|:---:|:---:|:---:|
 | Phrase / proximity | Yes | Partial | No |
 | Boolean NOT | Yes | No | being verified |
 | Fuzzy terms | Yes | Partial (spell-correct) | No |
-| Facets / aggregations | Yes | No | being verified |
+| Facets / aggregations | Yes | Partial: `lume sql` `GROUP BY` over `file` / `title` / `entities` under `match()` (no typed metadata fields yet) | Yes (SQL) |
 | Hybrid text + vector | Yes | Yes | No |
 | SQL | No | Yes (`lume sql`: `sections` / `entities` / `entity_edges`, `match()` with `score`) | Yes |
 | Time series | Partial | No | Yes |
