@@ -59,6 +59,10 @@ impl Fixture {
         let mut cmd = command();
         if binary {
             cmd.env("LUME_INDEX_FORMAT", "4");
+        } else if !db.join("index.json").exists() {
+            // Pin fresh JSON comparison indexes; existing v4 updates still exercise
+            // format detection with no environment override.
+            cmd.env("LUME_INDEX_FORMAT", "json");
         }
         cmd.arg("index")
             .arg(self.source())

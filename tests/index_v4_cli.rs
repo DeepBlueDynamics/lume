@@ -46,9 +46,7 @@ fn command() -> Command {
 }
 fn index(source: &Path, db: &Path, v4: bool, extra: &[&str]) -> Output {
     let mut cmd = command();
-    if v4 {
-        cmd.env("LUME_INDEX_FORMAT", "4");
-    }
+    cmd.env("LUME_INDEX_FORMAT", if v4 { "4" } else { "json" });
     cmd.arg("index")
         .arg("-f")
         .arg(source)
@@ -169,4 +167,46 @@ fn cli_v4_publish_search_sql_mcp_and_reindex_with_json_neighbor() {
         .to_lowercase()
         .contains("anchor"));
     success(&search(&json));
+    // Reuse the same server process across publications and collection.
+    let mcp = |query: &str| -> String {
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(15)))
+            .unwrap();
+        let body = serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"lume_search","arguments":{"db":v4,"query":query,"alpha":0,"graph":0}}}).to_string();
+        write!(stream, "POST /mcp HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+        let mut reply = String::new();
+        stream.read_to_string(&mut reply).unwrap();
+        assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
+        let rpc: serde_json::Value =
+            serde_json::from_str(reply.split_once("\r\n\r\n").unwrap().1).unwrap();
+        assert!(rpc.get("error").is_none(), "{rpc}");
+        rpc["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let rebuilt = mcp("anchor");
+    assert!(rebuilt.contains("anchor"), "{rebuilt}");
+    assert_eq!(
+        mcp("bilge pump"),
+        String::from_utf8(search(&v4).stdout).unwrap()
+    );
+    std::fs::write(
+        source.join("manual.txt"),
+        "Engine\n\nThe engine drives the boat.",
+    )
+    .unwrap();
+    success(&index(&source, &v4, true, &[]));
+    let before_gc = mcp("engine");
+    assert!(before_gc.contains("engine"), "{before_gc}");
+    let cleaned = command()
+        .args(["index", "gc", "--db"])
+        .arg(&v4)
+        .args(["--gc-grace-secs", "0"])
+        .output()
+        .unwrap();
+    success(&cleaned);
+    assert!(!v4.join("generations").join(old.generation).exists());
+    assert_eq!(mcp("engine"), before_gc);
 }

@@ -21,7 +21,10 @@ impl Fixture {
         Self { root }
     }
     fn index(&self) -> PathBuf {
-        let index = self.root.join("index");
+        self.index_format("json")
+    }
+    fn index_format(&self, format: &str) -> PathBuf {
+        let index = self.root.join(format!("index-{format}"));
         let output = Command::new(env!("CARGO_BIN_EXE_lume"))
             .args([
                 "index",
@@ -29,6 +32,7 @@ impl Fixture {
                 "--db",
             ])
             .arg(&index)
+            .env("LUME_INDEX_FORMAT", format)
             .output()
             .unwrap();
         assert!(
@@ -48,109 +52,111 @@ impl Drop for Fixture {
 fn monte_cristo_ten_queries_equal_lexical_search_hits_and_order() {
     let _guard = RESIDENT_TEST_LOCK.lock().unwrap();
     let fixture = Fixture::new();
-    let root = fixture.index();
-    let index = LoadedIndex::open(&root).unwrap();
-    let runtime = ti_sql::surface_runtime().unwrap();
-    let engine = runtime.block_on(lume::sql::open(&root)).unwrap();
-    let golden: Value = serde_json::from_str(include_str!("golden/lume_sql.json")).unwrap();
-    for query in golden["queries"].as_array().unwrap() {
-        let query = query.as_str().unwrap();
-        let hits = search(
-            &index,
-            query,
-            &lume::sql::lexical_options(index.bm25.sections.len()),
-        )
-        .unwrap()
-        .hits;
-        assert!(!hits.is_empty(), "empty golden query {query}");
-        let sql = format!(
-            "SELECT count(*) AS n FROM sections WHERE match(body, '{}')",
-            query.replace('\'', "''")
-        );
-        let reply = runtime.block_on(engine.query(&sql, 500)).unwrap();
+    for format in ["json", "4"] {
+        let root = fixture.index_format(format);
+        let index = LoadedIndex::open(&root).unwrap();
+        let runtime = ti_sql::surface_runtime().unwrap();
+        let engine = runtime.block_on(lume::sql::open(&root)).unwrap();
+        let golden: Value = serde_json::from_str(include_str!("golden/lume_sql.json")).unwrap();
+        for query in golden["queries"].as_array().unwrap() {
+            let query = query.as_str().unwrap();
+            let hits = search(
+                &index,
+                query,
+                &lume::sql::lexical_options(index.bm25.sections.len()),
+            )
+            .unwrap()
+            .hits;
+            assert!(!hits.is_empty(), "empty golden query {query}");
+            let sql = format!(
+                "SELECT count(*) AS n FROM sections WHERE match(body, '{}')",
+                query.replace('\'', "''")
+            );
+            let reply = runtime.block_on(engine.query(&sql, 500)).unwrap();
+            assert_eq!(
+                reply["rows"][0]["n"].as_u64().unwrap(),
+                hits.len() as u64,
+                "{query}"
+            );
+            let sql = format!("SELECT id, score FROM sections WHERE match(body, '{}') ORDER BY score DESC, id LIMIT 10", query.replace('\'', "''"));
+            let reply = runtime.block_on(engine.query(&sql, 500)).unwrap();
+            let mut expected: Vec<_> = hits.iter().collect();
+            expected.sort_by(|a, b| {
+                b.score
+                    .total_cmp(&a.score)
+                    .then(a.section_index.cmp(&b.section_index))
+            });
+            assert_eq!(
+                reply["rows"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|r| r["id"].as_u64().unwrap())
+                    .collect::<Vec<_>>(),
+                expected
+                    .iter()
+                    .take(10)
+                    .map(|h| h.section_index as u64)
+                    .collect::<Vec<_>>(),
+                "{query}"
+            );
+            for (row, hit) in reply["rows"].as_array().unwrap().iter().zip(expected) {
+                assert!((row["score"].as_f64().unwrap() - hit.score).abs() < 1e-9);
+            }
+        }
+        let reply = runtime
+            .block_on(engine.query("SELECT count(*) AS n FROM sections", 500))
+            .unwrap();
         assert_eq!(
             reply["rows"][0]["n"].as_u64().unwrap(),
-            hits.len() as u64,
-            "{query}"
+            index.bm25.sections.len() as u64
         );
-        let sql = format!("SELECT id, score FROM sections WHERE match(body, '{}') ORDER BY score DESC, id LIMIT 10", query.replace('\'', "''"));
-        let reply = runtime.block_on(engine.query(&sql, 500)).unwrap();
-        let mut expected: Vec<_> = hits.iter().collect();
-        expected.sort_by(|a, b| {
-            b.score
-                .total_cmp(&a.score)
-                .then(a.section_index.cmp(&b.section_index))
-        });
-        assert_eq!(
-            reply["rows"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|r| r["id"].as_u64().unwrap())
-                .collect::<Vec<_>>(),
-            expected
-                .iter()
-                .take(10)
-                .map(|h| h.section_index as u64)
-                .collect::<Vec<_>>(),
-            "{query}"
-        );
-        for (row, hit) in reply["rows"].as_array().unwrap().iter().zip(expected) {
-            assert!((row["score"].as_f64().unwrap() - hit.score).abs() < 1e-9);
+        assert!(runtime
+            .block_on(engine.query("SELECT score FROM sections LIMIT 1", 500))
+            .unwrap()["rows"][0]["score"]
+            .is_null());
+        for sql in [
+            "DELETE FROM sections",
+            "CREATE TABLE bad(x INT)",
+            "INSERT INTO sections VALUES (1)",
+            "DROP TABLE sections",
+            "SELECT 1; SELECT 2",
+        ] {
+            assert!(runtime.block_on(engine.query(sql, 500)).is_err(), "{sql}");
         }
-    }
-    let reply = runtime
-        .block_on(engine.query("SELECT count(*) AS n FROM sections", 500))
-        .unwrap();
-    assert_eq!(
-        reply["rows"][0]["n"].as_u64().unwrap(),
-        index.bm25.sections.len() as u64
-    );
-    assert!(runtime
-        .block_on(engine.query("SELECT score FROM sections LIMIT 1", 500))
-        .unwrap()["rows"][0]["score"]
-        .is_null());
-    for sql in [
-        "DELETE FROM sections",
-        "CREATE TABLE bad(x INT)",
-        "INSERT INTO sections VALUES (1)",
-        "DROP TABLE sections",
-        "SELECT 1; SELECT 2",
-    ] {
-        assert!(runtime.block_on(engine.query(sql, 500)).is_err(), "{sql}");
-    }
-    let reply: Value = serde_json::from_str(
-        &lume::sql::call(
-            json!({"sql":"SELECT count(*) AS n FROM sections","db":root}),
-            "unused",
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    for key in [
-        "rows",
-        "columns",
-        "row_count",
-        "truncated",
-        "elapsed_ms",
-        "pushdown",
-        "units",
-        "hint",
-    ] {
-        assert!(reply.get(key).is_some(), "{key}");
-    }
-    assert!(lume::sql::call(json!({"sql":"SELECT 1","max_rows":0}), "unused").is_err());
-    for sql in [
-        "SELECT * FROM generate_series(1, 700)",
-        "SELECT repeat('é', 40000) AS big",
-    ] {
         let reply: Value = serde_json::from_str(
-            &lume::sql::call(json!({"sql":sql,"db":root,"max_rows":999}), "unused").unwrap(),
+            &lume::sql::call(
+                json!({"sql":"SELECT count(*) AS n FROM sections","db":root}),
+                "unused",
+            )
+            .unwrap(),
         )
         .unwrap();
-        assert_eq!(reply["truncated"], true);
-        assert!(reply["row_count"].as_u64().unwrap() <= 500);
-        assert!(serde_json::to_vec(&reply).unwrap().len() <= 65536);
+        for key in [
+            "rows",
+            "columns",
+            "row_count",
+            "truncated",
+            "elapsed_ms",
+            "pushdown",
+            "units",
+            "hint",
+        ] {
+            assert!(reply.get(key).is_some(), "{key}");
+        }
+        assert!(lume::sql::call(json!({"sql":"SELECT 1","max_rows":0}), "unused").is_err());
+        for sql in [
+            "SELECT * FROM generate_series(1, 700)",
+            "SELECT repeat('é', 40000) AS big",
+        ] {
+            let reply: Value = serde_json::from_str(
+                &lume::sql::call(json!({"sql":sql,"db":root,"max_rows":999}), "unused").unwrap(),
+            )
+            .unwrap();
+            assert_eq!(reply["truncated"], true);
+            assert!(reply["row_count"].as_u64().unwrap() <= 500);
+            assert!(serde_json::to_vec(&reply).unwrap().len() <= 65536);
+        }
     }
 }
 #[test]
@@ -361,85 +367,88 @@ fn entity_graph_tables_and_argument_shapes() {
 fn monte_cristo_match_and_not_match() {
     let _guard = RESIDENT_TEST_LOCK.lock().unwrap();
     let fixture = Fixture::new();
-    let root = fixture.index();
-    let runtime = ti_sql::surface_runtime().unwrap();
-    let engine = runtime.block_on(lume::sql::open(&root)).unwrap();
+    for format in ["json", "4"] {
+        let root = fixture.index_format(format);
+        let runtime = ti_sql::surface_runtime().unwrap();
+        let engine = runtime.block_on(lume::sql::open(&root)).unwrap();
 
-    let sql_pos =
-        "SELECT id, score FROM sections WHERE match(body, 'dantes') ORDER BY score DESC, id";
-    let reply_pos = runtime.block_on(engine.query(sql_pos, 500)).unwrap();
-    let rows_pos = reply_pos["rows"].as_array().unwrap();
-    let count_pos = rows_pos.len();
-    assert!(count_pos > 0);
+        let sql_pos =
+            "SELECT id, score FROM sections WHERE match(body, 'dantes') ORDER BY score DESC, id";
+        let reply_pos = runtime.block_on(engine.query(sql_pos, 500)).unwrap();
+        let rows_pos = reply_pos["rows"].as_array().unwrap();
+        let count_pos = rows_pos.len();
+        assert!(count_pos > 0);
 
-    let pos_scores: std::collections::BTreeMap<u64, f64> = rows_pos
-        .iter()
-        .map(|r| (r["id"].as_u64().unwrap(), r["score"].as_f64().unwrap()))
-        .collect();
+        let pos_scores: std::collections::BTreeMap<u64, f64> = rows_pos
+            .iter()
+            .map(|r| (r["id"].as_u64().unwrap(), r["score"].as_f64().unwrap()))
+            .collect();
 
-    let sql_not = "SELECT id, score FROM sections WHERE match(body, 'dantes') AND NOT match(body, 'prison') ORDER BY score DESC, id";
-    let reply_not = runtime.block_on(engine.query(sql_not, 500)).unwrap();
-    let rows_not = reply_not["rows"].as_array().unwrap();
-    let count_not = rows_not.len();
+        let sql_not = "SELECT id, score FROM sections WHERE match(body, 'dantes') AND NOT match(body, 'prison') ORDER BY score DESC, id";
+        let reply_not = runtime.block_on(engine.query(sql_not, 500)).unwrap();
+        let rows_not = reply_not["rows"].as_array().unwrap();
+        let count_not = rows_not.len();
 
-    assert!(
-        count_not < count_pos,
-        "NOT match() should exclude sections containing negated term"
-    );
-    assert!(count_not > 0, "should still have hits for positive term");
-
-    // Edge case 3: scores of remaining rows must equal scores from positive match alone
-    for r in rows_not {
-        let id = r["id"].as_u64().unwrap();
-        let score = r["score"].as_f64().unwrap();
-        let original_score = pos_scores
-            .get(&id)
-            .expect("row must exist in positive hits");
         assert!(
-            (score - original_score).abs() < 1e-9,
-            "score for id {id} changed: {score} vs {original_score}"
+            count_not < count_pos,
+            "NOT match() should exclude sections containing negated term"
         );
-    }
+        assert!(count_not > 0, "should still have hits for positive term");
 
-    // Edge case 1: WHERE NOT match(body, 'x') with no positive match
-    // Returns every section except matches, with score IS NULL
-    let sql_prison = "SELECT count(*) AS n FROM sections WHERE match(body, 'prison')";
-    let reply_prison = runtime.block_on(engine.query(sql_prison, 500)).unwrap();
-    let count_prison = reply_prison["rows"][0]["n"].as_u64().unwrap();
+        // Edge case 3: scores of remaining rows must equal scores from positive match alone
+        for r in rows_not {
+            let id = r["id"].as_u64().unwrap();
+            let score = r["score"].as_f64().unwrap();
+            let original_score = pos_scores
+                .get(&id)
+                .expect("row must exist in positive hits");
+            assert!(
+                (score - original_score).abs() < 1e-9,
+                "score for id {id} changed: {score} vs {original_score}"
+            );
+        }
 
-    let sql_total = "SELECT count(*) AS n FROM sections";
-    let reply_total = runtime.block_on(engine.query(sql_total, 500)).unwrap();
-    let count_total = reply_total["rows"][0]["n"].as_u64().unwrap();
+        // Edge case 1: WHERE NOT match(body, 'x') with no positive match
+        // Returns every section except matches, with score IS NULL
+        let sql_prison = "SELECT count(*) AS n FROM sections WHERE match(body, 'prison')";
+        let reply_prison = runtime.block_on(engine.query(sql_prison, 500)).unwrap();
+        let count_prison = reply_prison["rows"][0]["n"].as_u64().unwrap();
 
-    let sql_only_not = "SELECT count(*) AS n FROM sections WHERE NOT match(body, 'prison')";
-    let reply_only_not = runtime.block_on(engine.query(sql_only_not, 500)).unwrap();
-    let count_only_not = reply_only_not["rows"][0]["n"].as_u64().unwrap();
-    assert_eq!(
-        count_only_not,
-        count_total - count_prison,
-        "NOT match() without positive match should return all non-matching sections"
-    );
+        let sql_total = "SELECT count(*) AS n FROM sections";
+        let reply_total = runtime.block_on(engine.query(sql_total, 500)).unwrap();
+        let count_total = reply_total["rows"][0]["n"].as_u64().unwrap();
 
-    let sql_only_not_score = "SELECT score FROM sections WHERE NOT match(body, 'prison') LIMIT 1";
-    let reply_only_not_score = runtime
-        .block_on(engine.query(sql_only_not_score, 500))
-        .unwrap();
-    assert!(
-        reply_only_not_score["rows"][0]["score"].is_null(),
-        "score must be NULL when there is no positive match"
-    );
+        let sql_only_not = "SELECT count(*) AS n FROM sections WHERE NOT match(body, 'prison')";
+        let reply_only_not = runtime.block_on(engine.query(sql_only_not, 500)).unwrap();
+        let count_only_not = reply_only_not["rows"][0]["n"].as_u64().unwrap();
+        assert_eq!(
+            count_only_not,
+            count_total - count_prison,
+            "NOT match() without positive match should return all non-matching sections"
+        );
 
-    // Edge case 2: match() under OR is not a top-level conjunct and must error clearly
-    for bad_sql in [
-        "SELECT id FROM sections WHERE match(body, 'dantes') OR NOT match(body, 'prison')",
-        "SELECT id FROM sections WHERE match(body, 'dantes') OR match(body, 'prison')",
-    ] {
-        let err = runtime.block_on(engine.query(bad_sql, 500)).unwrap_err();
+        let sql_only_not_score =
+            "SELECT score FROM sections WHERE NOT match(body, 'prison') LIMIT 1";
+        let reply_only_not_score = runtime
+            .block_on(engine.query(sql_only_not_score, 500))
+            .unwrap();
         assert!(
-            err.to_string()
-                .contains("match() is only supported as a top-level AND filter"),
-            "expected clear error message for OR query '{bad_sql}', got: {err}"
+            reply_only_not_score["rows"][0]["score"].is_null(),
+            "score must be NULL when there is no positive match"
         );
+
+        // Edge case 2: match() under OR is not a top-level conjunct and must error clearly
+        for bad_sql in [
+            "SELECT id FROM sections WHERE match(body, 'dantes') OR NOT match(body, 'prison')",
+            "SELECT id FROM sections WHERE match(body, 'dantes') OR match(body, 'prison')",
+        ] {
+            let err = runtime.block_on(engine.query(bad_sql, 500)).unwrap_err();
+            assert!(
+                err.to_string()
+                    .contains("match() is only supported as a top-level AND filter"),
+                "expected clear error message for OR query '{bad_sql}', got: {err}"
+            );
+        }
     }
 }
 
@@ -447,61 +456,63 @@ fn monte_cristo_match_and_not_match() {
 fn monte_cristo_lume_sql_reuses_resident_index() {
     let _guard = RESIDENT_TEST_LOCK.lock().unwrap();
     let fixture = Fixture::new();
-    let root = fixture.index();
-    let runtime = ti_sql::surface_runtime().unwrap();
+    for format in ["json", "4"] {
+        let root = fixture.index_format(format);
+        let runtime = ti_sql::surface_runtime().unwrap();
 
-    let engine1 = runtime.block_on(lume::sql::open(&root)).unwrap();
-    let cached1 = lume::resident_index::open(&root).unwrap();
+        let engine1 = runtime.block_on(lume::sql::open(&root)).unwrap();
+        let cached1 = lume::resident_index::open(&root).unwrap();
 
-    let reply1 = runtime
-        .block_on(engine1.query("SELECT count(*) AS n FROM sections", 500))
-        .unwrap();
-    assert!(reply1["rows"][0]["n"].as_u64().unwrap() > 0);
+        let reply1 = runtime
+            .block_on(engine1.query("SELECT count(*) AS n FROM sections", 500))
+            .unwrap();
+        assert!(reply1["rows"][0]["n"].as_u64().unwrap() > 0);
 
-    let engine2 = runtime.block_on(lume::sql::open(&root)).unwrap();
-    let cached2 = lume::resident_index::open(&root).unwrap();
-    assert!(
-        Arc::ptr_eq(&cached1, &cached2),
-        "engine open must reuse the in-memory resident index"
-    );
+        let engine2 = runtime.block_on(lume::sql::open(&root)).unwrap();
+        let cached2 = lume::resident_index::open(&root).unwrap();
+        assert!(
+            Arc::ptr_eq(&cached1, &cached2),
+            "engine open must reuse the in-memory resident index"
+        );
 
-    let reply2 = runtime
-        .block_on(engine2.query("SELECT count(*) AS n FROM sections", 500))
-        .unwrap();
-    assert_eq!(reply2["rows"], reply1["rows"]);
+        let reply2 = runtime
+            .block_on(engine2.query("SELECT count(*) AS n FROM sections", 500))
+            .unwrap();
+        assert_eq!(reply2["rows"], reply1["rows"]);
 
-    // MCP call interface
-    let reply_mcp1: Value = serde_json::from_str(
-        &lume::sql::call(
-            json!({"sql": "SELECT count(*) AS n FROM sections", "db": root}),
-            "unused",
+        // MCP call interface
+        let reply_mcp1: Value = serde_json::from_str(
+            &lume::sql::call(
+                json!({"sql": "SELECT count(*) AS n FROM sections", "db": root}),
+                "unused",
+            )
+            .unwrap(),
         )
-        .unwrap(),
-    )
-    .unwrap();
-    assert_eq!(reply_mcp1["rows"], reply1["rows"]);
+        .unwrap();
+        assert_eq!(reply_mcp1["rows"], reply1["rows"]);
 
-    let cached3 = lume::resident_index::open(&root).unwrap();
-    assert!(
-        Arc::ptr_eq(&cached1, &cached3),
-        "MCP call must reuse the in-memory resident index"
-    );
+        let cached3 = lume::resident_index::open(&root).unwrap();
+        assert!(
+            Arc::ptr_eq(&cached1, &cached3),
+            "MCP call must reuse the in-memory resident index"
+        );
 
-    let reply_mcp2: Value = serde_json::from_str(
-        &lume::sql::call(
-            json!({"sql": "SELECT count(*) AS n FROM sections", "db": root}),
-            "unused",
+        let reply_mcp2: Value = serde_json::from_str(
+            &lume::sql::call(
+                json!({"sql": "SELECT count(*) AS n FROM sections", "db": root}),
+                "unused",
+            )
+            .unwrap(),
         )
-        .unwrap(),
-    )
-    .unwrap();
-    assert_eq!(reply_mcp2["rows"], reply1["rows"]);
+        .unwrap();
+        assert_eq!(reply_mcp2["rows"], reply1["rows"]);
 
-    let cached4 = lume::resident_index::open(&root).unwrap();
-    assert!(
-        Arc::ptr_eq(&cached1, &cached4),
-        "Subsequent MCP call must reuse the in-memory resident index"
-    );
+        let cached4 = lume::resident_index::open(&root).unwrap();
+        assert!(
+            Arc::ptr_eq(&cached1, &cached4),
+            "Subsequent MCP call must reuse the in-memory resident index"
+        );
+    }
 }
 
 #[test]
@@ -765,4 +776,129 @@ fn test_plain_index_writes_format_version_2_and_loads() {
     );
     let loaded = LoadedIndex::open(&index_dir).unwrap();
     assert!(loaded.meta.is_none());
+}
+
+#[test]
+fn disk_json_v4_sql_mcp_entities_metadata_facets_and_exact_scores() {
+    let _guard = RESIDENT_TEST_LOCK.lock().unwrap();
+    let fixture = Fixture::new();
+    let source = fixture.root.join("matrix-docs");
+    std::fs::create_dir(&source).unwrap();
+    for (name, text) in [
+        ("a.md", "---\ncategory: safety\nyear: 2025\ntags: [boat, pump]\n---\n# Bilge\nBilge pump removes water. Inspect the hose, float switch and battery before departure."),
+        ("b.md", "---\ncategory: engine\nyear: 2020\ntags: [boat, engine]\n---\n# Engine\nEngine pump circulates cooling water. Inspect oil, coolant, belt and filter before departure."),
+        ("c.md", "---\ncategory: safety\nyear: 2015\ntags: [boat]\n---\n# Anchor\nAnchor holds the boat. Check chain, rode and windlass before lowering the anchor."),
+    ] { std::fs::write(source.join(name), text).unwrap(); }
+    let runtime = ti_sql::surface_runtime().unwrap();
+    let mut roots = Vec::new();
+    for format in ["json", "4"] {
+        let root = fixture.root.join(format!("matrix-{format}"));
+        let output = Command::new(env!("CARGO_BIN_EXE_lume"))
+            .arg("index")
+            .arg(&source)
+            .arg("--db")
+            .arg(&root)
+            .env("LUME_INDEX_FORMAT", format)
+            .env("LUME_STEM", "1")
+            .env_remove("LUME_EMBED_MODEL")
+            .env_remove("LUME_EMBED_DIMENSIONS")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let mut loaded = LoadedIndex::open(&root).unwrap();
+        for section in &mut loaded.bm25.sections {
+            section.entities = if section.body.contains("pump") {
+                vec!["Lagoon".into(), "Pump".into()]
+            } else {
+                vec!["Lagoon".into(), "Anchor".into()]
+            };
+        }
+        loaded.bm25.refresh_entities(None);
+        let graph = lume::semantic_mesh::EntityGraph::build(
+            &loaded.bm25.entity_posting_lists,
+            &loaded.bm25.entity_kinds,
+            &loaded.bm25.entity_labels,
+            0.1,
+            loaded.bm25.sections.len(),
+        );
+        assert!(!graph.edges.is_empty());
+        if format == "4" {
+            let mut state = lume::index_binary::snapshot::restore_state(&root).unwrap();
+            for (_, sections) in state.cached_files.values_mut() {
+                for section in sections {
+                    section.entities = if section.body.contains("pump") {
+                        vec!["Lagoon".into(), "Pump".into()]
+                    } else {
+                        vec!["Lagoon".into(), "Anchor".into()]
+                    };
+                }
+            }
+            lume::index_binary::snapshot::publish(
+                &root,
+                &state,
+                loaded.bm25.clone(),
+                loaded.spelling.as_ref().unwrap(),
+                &graph,
+                loaded.meta.as_ref(),
+            )
+            .unwrap();
+        } else {
+            lume::search::save_json(&root.join("bm25.json"), &loaded.bm25).unwrap();
+            lume::search::save_json(&root.join("entity_graph.json"), &graph).unwrap();
+        }
+        roots.push(root);
+    }
+    let engines: Vec<_> = roots
+        .iter()
+        .map(|root| runtime.block_on(lume::sql::open(root)).unwrap())
+        .collect();
+    for sql in [
+        "SELECT id,file,title,line,body FROM sections ORDER BY id",
+        "SELECT entity,doc_count FROM entities ORDER BY entity",
+        "SELECT a,b,jaccard,relatedness FROM entity_edges ORDER BY a,b",
+        "SELECT id,score FROM sections WHERE match(body,'pump') ORDER BY score DESC,id",
+        "SELECT id,score FROM sections WHERE match(body,'pump') AND NOT match(body,'engine') ORDER BY score DESC,id",
+        "SELECT id,score FROM sections WHERE NOT match(body,'pump') ORDER BY id",
+        "SELECT category,count(*) AS n FROM sections WHERE match(body,'water') GROUP BY category ORDER BY category",
+        "SELECT id,year FROM sections WHERE year >= 2020 ORDER BY id",
+        "SELECT tag,count(*) AS n FROM (SELECT unnest(tags) AS tag FROM sections WHERE match(body,'pump')) GROUP BY tag ORDER BY tag",
+    ] {
+        let replies: Vec<_> = engines.iter().map(|engine| runtime.block_on(engine.query(sql, 500)).unwrap()).collect();
+        assert_eq!(replies[0]["rows"], replies[1]["rows"], "{sql}");
+        assert_eq!(replies[0]["columns"], replies[1]["columns"], "{sql}");
+        for (root, expected) in roots.iter().zip(&replies) {
+            let mcp: Value = serde_json::from_str(&lume::sql::call(json!({"db":root,"sql":sql}), "unused").unwrap()).unwrap();
+            assert_eq!(mcp["rows"], expected["rows"], "{sql}");
+            let cli = Command::new(env!("CARGO_BIN_EXE_lume")).args(["sql","--db"]).arg(root)
+                .args([sql,"--format","json"]).output().unwrap();
+            assert!(cli.status.success(), "{}", String::from_utf8_lossy(&cli.stderr));
+            let cli: Value = serde_json::from_slice(&cli.stdout).unwrap();
+            assert_eq!(cli["rows"], expected["rows"], "{sql}");
+        }
+        for (left, right) in replies[0]["rows"].as_array().unwrap().iter().zip(replies[1]["rows"].as_array().unwrap()) {
+            if let Some(score) = left["score"].as_f64() {
+                assert_eq!(score.to_bits(), right["score"].as_f64().unwrap().to_bits());
+            }
+        }
+    }
+    let loaded: Vec<_> = roots
+        .iter()
+        .map(|root| LoadedIndex::open(root).unwrap())
+        .collect();
+    let options = lume::search::SearchOptions {
+        mode: lume::search::SearchMode::LexicalOnly,
+        graph_beta: 0.0,
+        facets: vec![lume::meta::FacetRequest::Field("category".into())],
+        ..Default::default()
+    };
+    let replies: Vec<_> = loaded
+        .iter()
+        .map(|index| serde_json::to_value(search(index, "water", &options).unwrap()).unwrap())
+        .collect();
+    assert_eq!(replies[0], replies[1]);
+    assert!(replies[0]["facets"]["category"].is_object());
 }
