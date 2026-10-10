@@ -374,6 +374,7 @@ struct InternedIndex {
 
 impl InternedIndex {
     fn build(index: &Bm25Index) -> Self {
+        let _timing = crate::index_timing::Span::new("open.bm25_reconstruct_postings");
         let mut result = Self {
             vocabulary: HashMap::new(),
             postings: Vec::new(),
@@ -665,6 +666,9 @@ impl Bm25Index {
         tagger: Option<&Tagger>,
         options: Bm25BuildOptions,
     ) -> Self {
+        let _timing = crate::index_timing::Span::new("index.bm25_total");
+        let timing = crate::index_timing::enabled();
+        let mut tokenize_time = std::time::Duration::ZERO;
         let mut tag_prime_map = HashMap::new();
         if let Some(t) = tagger {
             let mut unique_tags = std::collections::BTreeSet::new();
@@ -704,8 +708,12 @@ impl Bm25Index {
 
         for (doc_idx, sec) in sections.iter().enumerate() {
             let doc_id = doc_idx as u32;
+            let tokenize_start = timing.then(std::time::Instant::now);
             let t_toks = tokenize_with_options(&sec.title, stem, false);
             let b_toks = tokenize_with_options(&sec.body, stem, false);
+            if let Some(start) = tokenize_start {
+                tokenize_time += start.elapsed();
+            }
 
             title_lens.push(t_toks.len());
             body_lens.push(b_toks.len());
@@ -831,6 +839,9 @@ impl Bm25Index {
             prime_filters.push(pf);
         }
 
+        if timing {
+            crate::index_timing::emit("index.tokenize", None, tokenize_time);
+        }
         let avg_title_len = if num_docs > 0 {
             total_title_len as f64 / num_docs as f64
         } else {

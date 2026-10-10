@@ -163,6 +163,7 @@ impl LoadedIndex {
         db_dir: impl AsRef<Path>,
         checks: OpenEnvChecks,
     ) -> Result<Self, String> {
+        let _timing = crate::index_timing::Span::new("open.total");
         let db_path = db_dir.as_ref();
         let state_path = db_path.join("state.json");
         if !state_path.exists() {
@@ -337,7 +338,9 @@ pub fn save_json<T: Serialize>(path: &Path, val: &T) -> Result<(), String> {
     let written = (|| {
         let file = File::create(&tmp_path)
             .map_err(|e| format!("Failed to create file {}: {}", tmp_path.display(), e))?;
-        let mut writer = io::BufWriter::new(file);
+        let timing = crate::index_timing::enabled();
+        let started = timing.then(std::time::Instant::now);
+        let mut writer = io::BufWriter::new(crate::index_timing::TimedIo::new(file, timing));
         serde_json::to_writer_pretty(&mut writer, val)
             .map_err(|e| format!("Failed to write JSON to {}: {}", path.display(), e))?;
         writer
@@ -346,8 +349,16 @@ pub fn save_json<T: Serialize>(path: &Path, val: &T) -> Result<(), String> {
         let file = writer
             .into_inner()
             .map_err(|e| format!("Failed to flush {}: {}", tmp_path.display(), e))?;
+        if let Some(started) = started {
+            crate::index_timing::emit("json.serialize", Some(path), started.elapsed().saturating_sub(file.elapsed));
+            crate::index_timing::emit("json.write", Some(path), file.elapsed);
+        }
+        let sync = timing.then(std::time::Instant::now);
         file.sync_all()
             .map_err(|e| format!("Failed to sync {}: {}", tmp_path.display(), e))?;
+        if let Some(sync) = sync {
+            crate::index_timing::emit("json.sync", Some(path), sync.elapsed());
+        }
         drop(file);
         std::fs::rename(&tmp_path, path).map_err(|e| {
             format!(
@@ -380,9 +391,16 @@ pub fn save_json<T: Serialize>(path: &Path, val: &T) -> Result<(), String> {
 pub fn load_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, String> {
     let file =
         File::open(path).map_err(|e| format!("Failed to open file {}: {}", path.display(), e))?;
-    let reader = io::BufReader::new(file);
-    let val = serde_json::from_reader(reader)
+    let timing = crate::index_timing::enabled();
+    let started = timing.then(std::time::Instant::now);
+    let mut reader = io::BufReader::new(crate::index_timing::TimedIo::new(file, timing));
+    let val = serde_json::from_reader(&mut reader)
         .map_err(|e| format!("Failed to parse JSON from {}: {}", path.display(), e))?;
+    if let Some(started) = started {
+        let read = reader.get_ref().elapsed;
+        crate::index_timing::emit("open.read", Some(path), read);
+        crate::index_timing::emit("open.parse_reconstruct", Some(path), started.elapsed().saturating_sub(read));
+    }
     Ok(val)
 }
 

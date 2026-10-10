@@ -1813,11 +1813,15 @@ fn flush_searchable_indexes(
     db_path: &Path,
     meta: Option<&lume::meta::MetaIndex>,
 ) -> Result<usize, String> {
+    let _timing = lume::index_timing::Span::new("index.flush_total");
     let all_sections = collect_all_sections(cached_files);
     let count = all_sections.len();
     let bm25 = Bm25Index::build(all_sections, tagger);
     let corpus_terms: Vec<Vec<u8>> = bm25.posting_lists.keys().cloned().collect();
-    let spelling = SpellIndex::build(tagger_phrases, &corpus_terms);
+    let spelling = {
+        let _timing = lume::index_timing::Span::new("index.spelling");
+        SpellIndex::build(tagger_phrases, &corpus_terms)
+    };
     let entity_graph = EntityGraph::build(
         &bm25.entity_posting_lists,
         &bm25.entity_kinds,
@@ -1884,6 +1888,7 @@ fn run_indexing(
     chunk_range: Option<(usize, usize)>,
     embed_imports: &lume::local_vectors::ImportPaths,
 ) -> Result<(), String> {
+    let _timing = lume::index_timing::Span::new("index.total");
     let total_start = Instant::now();
     let target_path = Path::new(target_dir);
     if !target_path.exists() {
