@@ -1,9 +1,4 @@
-_eq!(
-        stderr.lines().filter(|line| line.contains("\"phase\":\"index.bm25_total\"")).count(),
-        1,
-        "ordinary indexing must build BM25 once: {stderr}"
-    );
-    assertuse std::process::Command;
+use std::process::Command;
 
 #[test]
 fn timing_is_opt_in_stderr_only_and_preserves_search_output() {
@@ -42,6 +37,14 @@ fn timing_is_opt_in_stderr_only_and_preserves_search_output() {
     ] {
         assert!(stderr.contains(phase), "{stderr}");
     }
+    assert_eq!(
+        stderr
+            .lines()
+            .filter(|line| line.contains("\"phase\":\"index.bm25_total\""))
+            .count(),
+        1,
+        "ordinary indexing must build BM25 once: {stderr}"
+    );
     assert!(!String::from_utf8_lossy(&built.stdout).contains("LUME_TIMING"));
     let search = |timing: &str| {
         Command::new(binary)
