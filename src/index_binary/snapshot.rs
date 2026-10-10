@@ -144,12 +144,38 @@ pub fn restore_state(root: &Path) -> Result<IndexState, String> {
 pub fn publish(
     root: &Path,
     state: &IndexState,
-    mut bm25: Bm25Index,
+    bm25: Bm25Index,
     spelling: &crate::spelling::SpellIndex,
     graph: &crate::semantic_mesh::EntityGraph,
     meta: Option<&crate::meta::MetaIndex>,
 ) -> Result<generation::Manifest, String> {
     let build = BuildState::from_legacy(state, &bm25.sections)?;
+    publish_prepared(root, build, bm25, spelling, graph, meta)
+}
+
+/// The index command transfers ownership so cached source bodies can be freed
+/// once their ranges have been validated, before compact rows are allocated.
+pub fn publish_owned(
+    root: &Path,
+    state: IndexState,
+    bm25: Bm25Index,
+    spelling: &crate::spelling::SpellIndex,
+    graph: &crate::semantic_mesh::EntityGraph,
+    meta: Option<&crate::meta::MetaIndex>,
+) -> Result<generation::Manifest, String> {
+    let build = BuildState::from_legacy(&state, &bm25.sections)?;
+    drop(state);
+    publish_prepared(root, build, bm25, spelling, graph, meta)
+}
+
+fn publish_prepared(
+    root: &Path,
+    build: BuildState,
+    mut bm25: Bm25Index,
+    spelling: &crate::spelling::SpellIndex,
+    graph: &crate::semantic_mesh::EntityGraph,
+    meta: Option<&crate::meta::MetaIndex>,
+) -> Result<generation::Manifest, String> {
     let fingerprint = crate::hybrid::index_fingerprint(&bm25.sections);
     crate::index_timing::memory_checkpoint("v4.memory.publish_start");
     let mut segments = bm25.v4_segments()?;

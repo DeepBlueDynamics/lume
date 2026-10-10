@@ -47,8 +47,15 @@ fn published_v4_snapshot_matches_legacy_and_resident_reload() {
         index.sections.len(),
     );
     let before = LoadedIndex::from_parts(index.clone());
-    lume::index_binary::snapshot::publish(&root, &state, index.clone(), &spelling, &graph, None)
-        .unwrap();
+    let borrowed = lume::index_binary::snapshot::publish(
+        &root,
+        &state,
+        index.clone(),
+        &spelling,
+        &graph,
+        None,
+    )
+    .unwrap();
     assert!(!root.join("bm25.json").exists() && !root.join("state.json").exists());
     let after = LoadedIndex::open_with_checks(&root, OpenEnvChecks::default()).unwrap();
     let options = SearchOptions {
@@ -71,7 +78,19 @@ fn published_v4_snapshot_matches_legacy_and_resident_reload() {
     let first = cache.open(&root).unwrap();
     let second = cache.open(&root).unwrap();
     assert!(std::sync::Arc::ptr_eq(&first, &second));
-    lume::index_binary::snapshot::publish(&root, &state, index, &spelling, &graph, None).unwrap();
+    let owned = lume::index_binary::snapshot::publish_owned(
+        &root,
+        state.clone(),
+        index,
+        &spelling,
+        &graph,
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        lume::index_binary::generation::read_segments(&root, &borrowed).unwrap(),
+        lume::index_binary::generation::read_segments(&root, &owned).unwrap()
+    );
     let refreshed = cache.open(&root).unwrap();
     assert!(!std::sync::Arc::ptr_eq(&first, &refreshed));
     // A corrupt pointer fails closed even if legacy files exist.
