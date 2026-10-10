@@ -12,6 +12,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--root", type=Path, required=True)
 parser.add_argument("--binary", type=Path, required=True)
 parser.add_argument("--step", required=True)
+parser.add_argument("--baseline-step", help="Compare directly against a completed hot timing step")
 args = parser.parse_args()
 token = (args.root / "http-token.txt").read_text().strip()
 url = "http://127.0.0.1:5863/mcp"
@@ -23,6 +24,8 @@ for profile in ("off", "f3-f2"):
         if profile == "f3-f2":
             db = "/indexes/hot-path/" + dataset + "/stemmed"
             baseline = "lume-f3-f2-r2-bm25-" + dataset + ".trec"
+        if args.baseline_step:
+            baseline = f"lume-{args.baseline_step}-{profile}-bm25-{dataset}.trec"
         env = dict(os.environ, LUME_COORD_FLOOR="0.5" if profile == "off" else "1.0")
         log_path = args.root / "runs" / (label + "-" + dataset + ".server.log")
         with log_path.open("wb") as logging:
