@@ -158,9 +158,8 @@ class AgentRuntimeTests(unittest.TestCase):
             question["hidden"] = {"oracle_sql": "HIDDEN_ORACLE_SENTINEL",
                                   "expected": "HIDDEN_EXPECTED_SENTINEL",
                                   "grading": "HIDDEN_GRADING_SENTINEL"}
-        scratch = runner.ROOT / ".test-tmp"
-        scratch.mkdir(exist_ok=True)
-        with tempfile.TemporaryDirectory(dir=scratch) as temporary:
+        # Honor TMPDIR, including read-only source mounts in the Rust gate image.
+        with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             question_file = root / "questions.json"
             question_file.write_text(json.dumps(fixture))
