@@ -1,12 +1,14 @@
 # SQL examples
 
-Each block is one statement, what it answers, and the shape of the result. Numbers below are the shape, not a captured run. Replace `<index>` with an ordinary `lume index` directory and `<store>` with a TI store before running the verify line.
+Each block is one statement, what it answers, and the output of a real run. Document examples 1–4 are lume v0.12.3 on the repo `.lume-index` (a PDF), 2026-10-10, with the term `energy`. Telemetry and docs examples are a HaLOS Pi, v0.12.3, 2026-10-10. The Pi runs went through `POST /ti/query`, the same engine as `lume ti query`, and the same call the SQL console makes.
 
-JSON results use the object in [SQL.md](SQL.md): `columns`, `rows`, `row_count`, `truncated`, `elapsed_ms`, `pushdown`, `units`, `hint`. A row is one object whose keys are the select list. Timestamps are strings. `score` is a JSON number, or null when the statement has no `match()`.
+JSON results use the object in [SQL.md](SQL.md): `columns`, `rows`, `row_count`, `truncated`, `elapsed_ms`, `pushdown`, `units`, `hint`. `pushdown` tells you whether a filter was pushed down, for example `2 scans; conjunct classes: {"Exact"}`. A row is one object whose keys are the select list. Timestamps are strings. `score` is a JSON number, or null when the statement has no `match()`.
 
-The binary must be built with `--features ti`.
+The binary must be built with `--features ti`. Paths in the captured rows were shortened with `…` in the notes below.
 
 ## Documents
+
+Captured with `lume sql --db .lume-index --format json` on lume v0.12.3.
 
 ### Top hits, with score
 
@@ -15,14 +17,14 @@ The ten sections BM25 ranks highest for the words, best score first. Equal score
 ```sql
 SELECT file, title, line, score
 FROM sections
-WHERE match(body, 'anchor')
+WHERE match(body, 'energy')
 ORDER BY score DESC, id
 LIMIT 10
 ```
 
-Shape: up to 10 rows. `file` text or null, `title` text, `line` integer, `score` number. `truncated` is false at this limit.
+Expected output, lume v0.12.3, repo `.lume-index`, 2026-10-10. Columns `file`, `title`, `line`, `score`. Scores are BM25 floats. The top row was `…Sidis.pdf | Page 21 | 21 | 1.649`.
 
-<!-- verify: lume sql --db <index> --format json "SELECT file, title, line, score FROM sections WHERE match(body, 'anchor') ORDER BY score DESC, id LIMIT 10" -->
+<!-- verify: lume sql --db <index> --format json "SELECT file, title, line, score FROM sections WHERE match(body, 'energy') ORDER BY score DESC, id LIMIT 10" -->
 
 ### How many sections per file
 
@@ -31,30 +33,30 @@ A facet: which files contain the words, and how many matching sections each has.
 ```sql
 SELECT file, count(*) AS n
 FROM sections
-WHERE match(body, 'anchor')
+WHERE match(body, 'energy')
 GROUP BY file
 ORDER BY n DESC, file
 ```
 
-Shape: one row per file that matched. `file` text or null, `n` integer. Ordered by `n` descending.
+Expected output, same run. Columns `file`, `n`. One row: `…Sidis.pdf | 62`.
 
-<!-- verify: lume sql --db <index> --format json "SELECT file, count(*) AS n FROM sections WHERE match(body, 'anchor') GROUP BY file ORDER BY n DESC, file" -->
+<!-- verify: lume sql --db <index> --format json "SELECT file, count(*) AS n FROM sections WHERE match(body, 'energy') GROUP BY file ORDER BY n DESC, file" -->
 
 ### How many sections match
 
 ```sql
 SELECT count(*) AS n
 FROM sections
-WHERE match(body, 'anchor')
+WHERE match(body, 'energy')
 ```
 
-Shape: one row, `n` integer. This count is the number of BM25 hits, not a scan of the whole index (`tests/lume_sql.rs`).
+Expected output, same run. One row, `n` = 62. This count is the number of BM25 hits (`tests/lume_sql.rs`).
 
-<!-- verify: lume sql --db <index> --format json "SELECT count(*) AS n FROM sections WHERE match(body, 'anchor')" -->
+<!-- verify: lume sql --db <index> --format json "SELECT count(*) AS n FROM sections WHERE match(body, 'energy')" -->
 
 ### Entities and the edges between them
 
-Which entities share an edge, and how related they are. `sections` has no entity column (`src/sql.rs`), so this does not join sections. It joins `entities` to `entity_edges` on the entity id. The tables exist only when the index has an entity graph. Without one, the query errors because `entities` is not registered.
+Which entities share an edge, and how related they are. `sections` has no entity column (`src/sql.rs`), so this does not join sections. It joins `entities` to `entity_edges` on the entity id. The repo `.lume-index` has `entity_graph.json` with empty `nodes` and `edges`, so the tables exist and the join matches nothing. If that file is missing, the tables are not registered and the query errors (`tests/lume_sql.rs`).
 
 ```sql
 SELECT e.entity, e.doc_count, x.b AS linked, x.relatedness
@@ -64,11 +66,19 @@ ORDER BY x.relatedness DESC, e.entity
 LIMIT 20
 ```
 
-Shape: up to 20 rows. `entity` and `linked` text, `doc_count` integer, `relatedness` number.
+Expected output, same run. Columns `entity`, `doc_count`, `linked`, `relatedness`. 0 rows.
 
 <!-- verify: lume sql --db <index> --format json "SELECT e.entity, e.doc_count, x.b AS linked, x.relatedness FROM entities e JOIN entity_edges x ON e.entity = x.a ORDER BY x.relatedness DESC, e.entity LIMIT 20" -->
 
 ## Telemetry
+
+Captured on a HaLOS Pi, v0.12.3, 2026-10-10, with:
+
+```bash
+curl -s -H 'Accept: application/json' -H 'Content-Type: application/json' -X POST http://127.0.0.1:5863/ti/query -d '{"sql":"<sql>"}'
+```
+
+`lume ti query "<sql>" --store <store> --json` is the same statement. Each example has both.
 
 ### Speed over ground, last 10 minutes
 
@@ -81,7 +91,11 @@ WHERE ts >= now() - INTERVAL '10 minutes'
 ORDER BY ts
 ```
 
-Shape: `ts` timestamp string, `sog` number or null, ordered by time. Empty `rows` if the boat sent nothing in that window, or if this store has no mean column under that path. The explicit peak is `"navigation.speedOverGround@max"`.
+```bash
+curl -s -H 'Accept: application/json' -H 'Content-Type: application/json' -X POST http://127.0.0.1:5863/ti/query -d "{\"sql\":\"SELECT ts, \\\"navigation.speedOverGround\\\" AS sog FROM telemetry WHERE ts >= now() - INTERVAL '10 minutes' ORDER BY ts\"}"
+```
+
+Expected output, HaLOS Pi, v0.12.3, 2026-10-10. 55 rows. Columns `ts`, `sog`. One row was `{"ts":"2026-10-10T02:32:40Z","sog":3.334}`. The bare column `navigation.speedOverGround` is accepted.
 
 <!-- verify: lume ti query "SELECT ts, \"navigation.speedOverGround\" AS sog FROM telemetry WHERE ts >= now() - INTERVAL '10 minutes' ORDER BY ts" --store <store> --json -->
 
@@ -98,7 +112,11 @@ GROUP BY minute
 ORDER BY minute
 ```
 
-Shape: one row per minute that had buckets. `minute` timestamp string, `max_sog` number or null, ordered by `minute`.
+```bash
+curl -s -H 'Accept: application/json' -H 'Content-Type: application/json' -X POST http://127.0.0.1:5863/ti/query -d "{\"sql\":\"SELECT date_bin(INTERVAL '1 minute', ts) AS minute, max(\\\"navigation.speedOverGround@max\\\") AS max_sog FROM telemetry WHERE ts >= now() - INTERVAL '10 minutes' GROUP BY minute ORDER BY minute\"}"
+```
+
+Expected output, same Pi run. 10 rows. Columns `minute`, `max_sog`. One row was `{"minute":"2026-10-10T02:32:00Z","max_sog":3.49}`.
 
 <!-- verify: lume ti query "SELECT date_bin(INTERVAL '1 minute', ts) AS minute, max(\"navigation.speedOverGround@max\") AS max_sog FROM telemetry WHERE ts >= now() - INTERVAL '10 minutes' GROUP BY minute ORDER BY minute" --store <store> --json -->
 
@@ -112,24 +130,48 @@ GROUP BY vessel
 ORDER BY vessel
 ```
 
-Shape: one row per vessel with buckets in the window. `vessel` text (a URN), `max_sog` number or null.
+```bash
+curl -s -H 'Accept: application/json' -H 'Content-Type: application/json' -X POST http://127.0.0.1:5863/ti/query -d "{\"sql\":\"SELECT vessel, max(\\\"navigation.speedOverGround@max\\\") AS max_sog FROM telemetry WHERE ts >= now() - INTERVAL '10 minutes' GROUP BY vessel ORDER BY vessel\"}"
+```
+
+Expected output, same Pi run. 1 row. Columns `vessel`, `max_sog`. The row was `{"vessel":"vessels.urn:mrn:signalk:uuid:0eb191d0-…","max_sog":3.75}`.
 
 <!-- verify: lume ti query "SELECT vessel, max(\"navigation.speedOverGround@max\") AS max_sog FROM telemetry WHERE ts >= now() - INTERVAL '10 minutes' GROUP BY vessel ORDER BY vessel" --store <store> --json -->
 
 ### Which source wrote the speed
 
-Buckets in the last 10 minutes whose speed source list contains `<source>`. `"path$source" = 'ref'` is rewritten to `array_has` (`crates/ti-sql/src/rewrite.rs`). Replace `<source>` with a source ref from this boat, such as the `$source` on a live Signal K delta.
+`"<path>$source"` is a list of source refs, not a single string. Read one value before you filter:
+
+```sql
+SELECT "navigation.speedOverGround$source"
+FROM telemetry
+LIMIT 1
+```
+
+```bash
+curl -s -H 'Accept: application/json' -H 'Content-Type: application/json' -X POST http://127.0.0.1:5863/ti/query -d "{\"sql\":\"SELECT \\\"navigation.speedOverGround\$source\\\" FROM telemetry LIMIT 1\"}"
+```
+
+On the Pi a value was `["n2k-sample-data.160"]`. `$source` paths are also rows in `paths`.
+
+`array_has` tests membership in that list. `"path$source" = 'ref'` is rewritten to the same call (`crates/ti-sql/src/rewrite.rs`).
 
 ```sql
 SELECT count(*) AS n
 FROM telemetry
-WHERE array_has("navigation.speedOverGround$source", '<source>')
+WHERE array_has("navigation.speedOverGround$source", 'n2k-sample-data.160')
   AND ts >= now() - INTERVAL '10 minutes'
 ```
 
-Shape: one row, `n` integer. Zero is a real answer when that source ref is absent. An unknown column means this store has no `$source` field for that path.
+```bash
+curl -s -H 'Accept: application/json' -H 'Content-Type: application/json' -X POST http://127.0.0.1:5863/ti/query -d "{\"sql\":\"SELECT count(*) AS n FROM telemetry WHERE array_has(\\\"navigation.speedOverGround\$source\\\", 'n2k-sample-data.160') AND ts >= now() - INTERVAL '10 minutes'\"}"
+```
 
-<!-- verify: lume ti query "SELECT count(*) AS n FROM telemetry WHERE array_has(\"navigation.speedOverGround\$source\", '<source>') AND ts >= now() - INTERVAL '10 minutes'" --store <store> --json -->
+Expected output, same Pi run. One row, `n` = 54. `pushdown` was `2 scans; conjunct classes: {"Exact"}`.
+
+<!-- verify: lume ti query "SELECT \"navigation.speedOverGround\$source\" FROM telemetry LIMIT 1" --store <store> --json -->
+
+<!-- verify: lume ti query "SELECT count(*) AS n FROM telemetry WHERE array_has(\"navigation.speedOverGround\$source\", 'n2k-sample-data.160') AND ts >= now() - INTERVAL '10 minutes'" --store <store> --json -->
 
 ### Paths in this store
 
@@ -141,7 +183,11 @@ FROM paths
 ORDER BY path
 ```
 
-Shape: one row per stored field. `path` text, `agg` text or null, `type` text (`presence`, `set`, `bsi`, `count`, or `geo`), `units` text or null. A large store can hit the 500-row cap; `truncated` is then true.
+```bash
+curl -s -H 'Accept: application/json' -H 'Content-Type: application/json' -X POST http://127.0.0.1:5863/ti/query -d '{"sql":"SELECT path, agg, type, units FROM paths ORDER BY path"}'
+```
+
+Expected output, same Pi run. Columns `path`, `agg`, `type`, `units`. One row was `{"path":"electrical.batteries.1.batteryType","agg":null,"type":"set","units":null}`. `$source` paths are in this list too. A large store can hit the 500-row cap.
 
 <!-- verify: lume ti query "SELECT path, agg, type, units FROM paths ORDER BY path" --store <store> --json -->
 
@@ -154,20 +200,28 @@ SELECT max(ts) AS latest_ts
 FROM telemetry
 ```
 
-Shape: one row. `latest_ts` is a timestamp string, or null when `telemetry` has no rows.
+```bash
+curl -s -H 'Accept: application/json' -H 'Content-Type: application/json' -X POST http://127.0.0.1:5863/ti/query -d '{"sql":"SELECT max(ts) AS latest_ts FROM telemetry"}'
+```
+
+Expected output, same Pi run. One row, `latest_ts` = `2026-10-10T02:41:40Z`.
 
 <!-- verify: lume ti query "SELECT max(ts) AS latest_ts FROM telemetry" --store <store> --json -->
 
 ### How fresh Lume's own counters are
 
-Same question for `telemetry_lume`. That table is registered only after the first self-telemetry write (`crates/ti-sql/src/engine.rs`). Before that, this errors because the table was not found. That error is expected on a store that has never recorded it.
+Same question for `telemetry_lume`. On this Pi the table was already there.
 
 ```sql
 SELECT max(ts) AS latest_ts
 FROM telemetry_lume
 ```
 
-Shape, once the table exists: one row, `latest_ts` timestamp string or null.
+```bash
+curl -s -H 'Accept: application/json' -H 'Content-Type: application/json' -X POST http://127.0.0.1:5863/ti/query -d '{"sql":"SELECT max(ts) AS latest_ts FROM telemetry_lume"}'
+```
+
+Expected output, same Pi run. One row, `latest_ts` = `2026-10-10T02:42:10Z`. Until the first self-telemetry write the table is not registered (`crates/ti-sql/src/engine.rs`).
 
 <!-- verify: lume ti query "SELECT max(ts) AS latest_ts FROM telemetry_lume" --store <store> --json -->
 
@@ -175,7 +229,7 @@ Shape, once the table exists: one row, `latest_ts` timestamp string or null.
 
 ### Notes and logbook in a time window
 
-Documents whose body matches, limited to notes and logbook, with `ts_start` in January 2026. Change the timestamps to a window this store actually covers. `match(body, ...)` is the bitmap. `kind` and `ts_start` are applied after those rows are loaded (`crates/ti-sql/src/docs.rs`).
+Documents whose body matches, limited to notes and logbook, with `ts_start` in January 2026. `match(body, ...)` is the bitmap. `kind` and `ts_start` are applied after those rows are loaded (`crates/ti-sql/src/docs.rs`).
 
 ```sql
 SELECT kind, title, ts_start, ts_end, score
@@ -188,7 +242,11 @@ ORDER BY score DESC
 LIMIT 20
 ```
 
-Shape: up to 20 rows. `kind` and `title` text, `ts_start` timestamp string, `ts_end` timestamp string or null, `score` number. Empty `rows` when nothing in that window matches. `kind` values stored by ingest are `notes`, `logbook`, and `alerts`.
+```bash
+curl -s -H 'Accept: application/json' -H 'Content-Type: application/json' -X POST http://127.0.0.1:5863/ti/query -d '{"sql":"SELECT kind, title, ts_start, ts_end, score FROM docs WHERE match(body, '\''anchor'\'') AND kind IN ('\''notes'\'', '\''logbook'\'') AND ts_start >= TIMESTAMP '\''2026-01-01 00:00:00'\'' AND ts_start < TIMESTAMP '\''2026-02-01 00:00:00'\'' ORDER BY score DESC LIMIT 20"}'
+```
+
+Expected output, same Pi run. The statement runs. Columns `kind`, `title`, `ts_start`, `ts_end`, `score`. 0 rows in that window. `kind` values stored by ingest are `notes`, `logbook`, and `alerts`.
 
 <!-- verify: lume ti query "SELECT kind, title, ts_start, ts_end, score FROM docs WHERE match(body, 'anchor') AND kind IN ('notes', 'logbook') AND ts_start >= TIMESTAMP '2026-01-01 00:00:00' AND ts_start < TIMESTAMP '2026-02-01 00:00:00' ORDER BY score DESC LIMIT 20" --store <store> --json -->
 
@@ -196,7 +254,7 @@ Shape: up to 20 rows. `kind` and `title` text, `ts_start` timestamp string, `ts_
 
 ### Tokens per agent per hour
 
-How many tokens each agent added in each hour. The column is the one the agents dashboard uses (`bench/grafana/lume-agents-dashboard.json`). `telemetry_agents` exists only after OTLP metrics have been stored. Before that, this errors because the table was not found. If the token path was never ingested, the column is unknown and this errors too.
+How many tokens each agent added in each hour. The column is the one the agents dashboard uses (`bench/grafana/lume-agents-dashboard.json`). This Pi has no `telemetry_agents` store.
 
 ```sql
 SELECT date_bin(INTERVAL '1 hour', ts) AS hour,
@@ -207,15 +265,23 @@ GROUP BY hour, vessel
 ORDER BY hour, agent
 ```
 
-Shape: one row per agent per hour. `hour` timestamp string, `agent` text, `tokens` number. `date_bin` with `max` and `min` of a numeric column is the bitmap aggregate (`crates/ti-sql/src/aggregate.rs`). The subtraction sits on top of those two values. `lume ti explain` prints whether that aggregate was chosen or fell back to reading rows.
+```bash
+curl -s -H 'Accept: application/json' -H 'Content-Type: application/json' -X POST http://127.0.0.1:5863/ti/query -d "{\"sql\":\"SELECT date_bin(INTERVAL '1 hour', ts) AS hour, vessel AS agent, max(\\\"claude_code.token.usage@last\\\") - min(\\\"claude_code.token.usage@last\\\") AS tokens FROM telemetry_agents GROUP BY hour, vessel ORDER BY hour, agent\"}"
+```
+
+Expected output, same Pi run. The query errors:
+
+```text
+table 'datafusion.public.telemetry_agents' not found; available tables: telemetry, docs, paths, vessels, shards, telemetry_lume
+```
+
+Once OTLP metrics have created the table, the shape is one row per agent per hour: `hour` timestamp string, `agent` text, `tokens` number. `date_bin` with `max` and `min` of a numeric column is the bitmap aggregate (`crates/ti-sql/src/aggregate.rs`). The subtraction sits on top of those two values.
 
 <!-- verify: lume ti query "SELECT date_bin(INTERVAL '1 hour', ts) AS hour, vessel AS agent, max(\"claude_code.token.usage@last\") - min(\"claude_code.token.usage@last\") AS tokens FROM telemetry_agents GROUP BY hour, vessel ORDER BY hour, agent" --store <store> --json -->
 
 ## Grafana
 
-### Tokens panel over pgwire
-
-This is the Tokens Over Time panel in `bench/grafana/lume-agents-dashboard.json`. Grafana rewrites `$__timeGroupAlias` and `$__timeFilter` before it sends the statement. Lume does not understand those macros. The verify line is the same statement with `date_bin` and no time macro, which is what you run in `psql` or `lume ti query`. Point Grafana at the pgwire port (`lume serve --ti-store <store> --pg 5864`, database and user as provisioned).
+The Tokens Over Time panel in `bench/grafana/lume-agents-dashboard.json` is the statement above with Grafana macros. Grafana rewrites `$__timeGroupAlias` and `$__timeFilter` before it sends the text. Lume does not understand those macros. Expanded, it is the same query as the agent example, so it is not repeated here. On this Pi it fails with the same missing-table error. Point Grafana at pgwire (`lume serve --ti-store <store> --pg 5864`) only after `telemetry_agents` exists.
 
 ```sql
 SELECT
@@ -227,7 +293,3 @@ WHERE $__timeFilter(ts)
 GROUP BY 1, 2
 ORDER BY 1
 ```
-
-Shape of the runnable form: `hour` timestamp string, `metric` text, `tokens` number, one row per agent per hour. Same absence rules as the agent example above.
-
-<!-- verify: lume ti query "SELECT date_bin(INTERVAL '1 hour', ts) AS hour, vessel AS metric, max(\"claude_code.token.usage@last\") - min(\"claude_code.token.usage@last\") AS tokens FROM telemetry_agents GROUP BY hour, vessel ORDER BY hour" --store <store> --json -->

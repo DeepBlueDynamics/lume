@@ -34,7 +34,7 @@ From `src/sql.rs`.
 
 `id` is the section's position in the index, the same number search returns as `section_index`. `line` is the source line number. `score` is filled only when the statement filters with `match()`. Without `match()`, `score` is null. Several `match()` filters keep the score from the first one.
 
-`sections` has no entity column. There is nothing to join `sections` to `entities` on. `entities` joins to `entity_edges` on `entity = a` (or `b`). If the index has no entity graph, those two tables are not registered and selecting from them errors (`tests/lume_sql.rs`).
+`sections` has no entity column. There is nothing to join `sections` to `entities` on. `entities` joins to `entity_edges` on `entity = a` (or `b`). The tables are registered only when the index has an entity graph (`src/sql.rs`). The repo `.lume-index` has that file with empty `nodes` and `edges`, so the join runs and returns no rows. If the file is missing, selecting from `entities` errors (`tests/lume_sql.rs`).
 
 ### `match()`
 
@@ -47,7 +47,7 @@ Anything else is not pushed down. A filter DataFusion can apply after the scan, 
 ### Limits
 
 - Read-only. `INSERT`, `UPDATE`, `DELETE`, and DDL error. One statement only.
-- Results stop at 500 rows or 64 KiB, whichever comes first. The JSON then has `truncated` true and `hint` set to `Aggregate results or narrow the time range.` The object also has `columns`, `rows`, `row_count`, `elapsed_ms`, `pushdown`, and `units` (`crates/ti-sql/src/engine.rs`).
+- Results stop at 500 rows or 64 KiB, whichever comes first. The JSON then has `truncated` true and `hint` set to `Aggregate results or narrow the time range.` The object also has `columns`, `rows`, `row_count`, `elapsed_ms`, `pushdown`, and `units` (`crates/ti-sql/src/engine.rs`). `pushdown` says how many scans ran and which filters were pushed down. A fully pushed-down filter looks like `2 scans; conjunct classes: {"Exact"}`. `Inexact` and `Unsupported` show up in that same set when a conjunct was not exact.
 - `lume ti query --docs-index <index>` registers these same tables beside telemetry. Sections have no vessel and no timestamp. A join to `telemetry` is whatever relationship you write (`plan/design/lume-sql.md`).
 
 ## Telemetry: `lume ti query`
@@ -66,6 +66,12 @@ The same statement is available three other ways:
 - HTTP, from `lume serve --ti-store <store>` (loopback port 5863 unless you change it): `POST /ti/query` with a JSON body `{"sql":"..."}`. Send `Accept: application/json` and `Content-Type: application/json` to get JSON. Without that Accept header the body is Arrow IPC, with `X-TI-Row-Count` and `X-TI-Truncated` (`src/ti_http.rs`).
 - pgwire, for Grafana and `psql`: `lume serve --ti-store <store> --pg 5864`, or the plugin's PostgreSQL switch. Read-only.
 - MCP tools on that server: `ti_query`, `ti_schema`, `ti_explain`, `ti_status`, `ti_resolve`.
+
+The plugin's SQL console uses that HTTP call:
+
+```bash
+curl -s -H 'Accept: application/json' -H 'Content-Type: application/json' -X POST http://127.0.0.1:5863/ti/query -d '{"sql":"SELECT max(ts) AS latest_ts FROM telemetry"}'
+```
 
 Dotted column names are quoted: `"navigation.speedOverGround@max"`.
 
@@ -92,13 +98,13 @@ Signal K paths become columns named `path@mean`, `path@min`, `path@max`, `path@l
 Two more tables appear only after they have data (`crates/ti-sql/src/engine.rs`):
 
 - `telemetry_lume`, from `<store>/stores/lume`, after the first self-telemetry write. It is Lume's own counters, not the boat. Until that directory has a `catalog`, the table is not registered and a query says it was not found.
-- `telemetry_agents`, from `<store>/stores/agents`, after the first OTLP metrics. Token totals use paths such as `claude_code.token.usage@last` (`bench/grafana/lume-agents-dashboard.json`).
+- `telemetry_agents`, from `<store>/stores/agents`, after the first OTLP metrics. Token totals use paths such as `claude_code.token.usage@last` (`bench/grafana/lume-agents-dashboard.json`). On a HaLOS Pi that had not ingested agent metrics, v0.12.3 answered: `table 'datafusion.public.telemetry_agents' not found; available tables: telemetry, docs, paths, vessels, shards, telemetry_lume`.
 
 Extra configured stores become `telemetry_<name>` (`crates/ti-sql/src/store.rs`, `table_name_for_store`). The high-resolution navigation store in the README is `telemetry_hr`.
 
 ### What is pushed down
 
-Pushed down means the filter or aggregate runs on the bitmaps. The engine does not read every bucket.
+Pushed down means the filter or aggregate runs on the bitmaps. The engine does not read every bucket. The JSON `pushdown` field is the check: `2 scans; conjunct classes: {"Exact"}` means every conjunct of that scan was exact (`crates/ti-sql/src/engine.rs` formats the class names with Debug, so the name is quoted). A HaLOS Pi run of the source-list count in [SQL-EXAMPLES.md](SQL-EXAMPLES.md) returned that field.
 
 These are exact (`crates/ti-sql/src/classifier.rs`, `aggregate.rs`):
 
