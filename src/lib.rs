@@ -840,23 +840,14 @@ pub fn parse_csv_line(line: &str) -> Vec<String> {
     out
 }
 
-/// UUID v4 string (RFC 4122). Uses `/dev/urandom` when available, falls
-/// back to a high-resolution timestamp otherwise.
+/// UUID v4 string (RFC 4122), using the operating system's secure randomness.
+/// Panics if the operating system cannot provide random bytes.
 pub fn uuid_v4() -> String {
-    use std::io::Read;
+    use ring::rand::{SecureRandom, SystemRandom};
     let mut buf = [0u8; 16];
-    if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
-        let _ = f.read_exact(&mut buf);
-    } else {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let lo = (nanos as u64).to_le_bytes();
-        let hi = ((nanos >> 64) as u64).to_le_bytes();
-        buf[..8].copy_from_slice(&lo);
-        buf[8..].copy_from_slice(&hi);
-    }
+    SystemRandom::new()
+        .fill(&mut buf)
+        .expect("Cannot generate UUID v4: operating system randomness unavailable");
     buf[6] = (buf[6] & 0x0F) | 0x40;
     buf[8] = (buf[8] & 0x3F) | 0x80;
     format!(
@@ -872,6 +863,25 @@ pub fn uuid_v4() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn uuid_v4_ids_are_unique_and_have_rfc4122_bits() {
+        let mut seen = std::collections::HashSet::with_capacity(10_000);
+        for _ in 0..10_000 {
+            let id = uuid_v4();
+            assert_eq!(id.len(), 36);
+            for (i, byte) in id.bytes().enumerate() {
+                if [8, 13, 18, 23].contains(&i) {
+                    assert_eq!(byte, b'-');
+                } else {
+                    assert!(byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
+                }
+            }
+            assert_eq!(id.as_bytes()[14], b'4');
+            assert!(b"89ab".contains(&id.as_bytes()[19]));
+            assert!(seen.insert(id), "duplicate UUID v4");
+        }
+    }
 
     fn sample() -> Tagger {
         Tagger::build(vec![
