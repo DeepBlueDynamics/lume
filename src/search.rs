@@ -318,6 +318,30 @@ pub struct SearchResults {
     pub warnings: Vec<String>,
 }
 
+/// Renames `from` over `to`. On Windows, replacing a file fails with
+/// "access denied" while another process (an antivirus or indexing scan, or
+/// a reader) briefly holds the destination open, so retry for up to about
+/// one second before giving up. Elsewhere this is a single atomic rename.
+fn replace_file(from: &Path, to: &Path) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        let mut attempt = 0;
+        loop {
+            match std::fs::rename(from, to) {
+                Err(e) if e.kind() == io::ErrorKind::PermissionDenied && attempt < 40 => {
+                    attempt += 1;
+                    std::thread::sleep(std::time::Duration::from_millis(25));
+                }
+                result => return result,
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        std::fs::rename(from, to)
+    }
+}
+
 pub fn save_json<T: Serialize>(path: &Path, val: &T) -> Result<(), String> {
     let parent = path
         .parent()
@@ -367,7 +391,7 @@ pub fn save_json<T: Serialize>(path: &Path, val: &T) -> Result<(), String> {
             crate::index_timing::emit("json.sync", Some(path), sync.elapsed());
         }
         drop(file);
-        std::fs::rename(&tmp_path, path).map_err(|e| {
+        replace_file(&tmp_path, path).map_err(|e| {
             format!(
                 "Failed to rename {} to {}: {}",
                 tmp_path.display(),
