@@ -1,6 +1,58 @@
 # Changelog
 
-## Unreleased
+## 0.13.1 — 2026-10-10
+
+### Performance
+- **SIMD MiniRoaring kernels with runtime dispatch** (#15). Bitmap containers use AVX2 on x86_64 when the CPU supports it, with a scalar fallback. On aarch64, NEON is used for popcount and fused AND+popcount, and AND/OR/ANDNOT stay scalar because the compiler already vectorizes them there. All `unsafe` code is confined to `src/fast_retrieval/simd.rs`, and differential tests check it against the scalar reference at every container edge size.
+  - x86_64 microbench (rustc 1.96, 10,000 × 8 KiB containers): AND 2.36×, popcount 2.32×, AND+popcount 3.18×.
+  - Hot TREC-COVID, x86_64 (same setup as 0.13.0): p50 6.27 → **5.88 ms** (−6%) and p99 11.77 → **11.23 ms** (−5%). Throughput is unchanged within noise, and SciFact is flat. Rankings are byte-identical.
+  - Raspberry Pi 5 (Cortex-A76): popcount 1.20× and AND+popcount 1.32×; AND, OR and ANDNOT stay at scalar speed by design. SciFact rankings are byte-identical on the Pi (300 queries).
+
+### Docs
+- The README Performance section now includes the v0.13.0 results (search speed, hybrid on identical vectors, facets, index build).
+- `docs/HALOS.md` now points at the v0.13.0 HaLOS package. For 0.13.1, change the version in its download lines.
+
+## 0.13.0 — 2026-10-10
+
+### Performance highlights
+Hot-server numbers come from a separate driver container, with the engine capped at 8 CPU / 8 GiB, built with rustc 1.96 release (thin LTO). Search results are byte-identical to the previous build on SciFact and TREC-COVID unless a row says otherwise.
+
+| Default profile (stemming + coordination floor 1.0) | before¹ | 0.13.0 |
+|---|---:|---:|
+| TREC-COVID hot query p50 | 111.6 ms | **6.27 ms** (≈18× faster) |
+| TREC-COVID hot query p99 | 231.0 ms | **11.77 ms** |
+| TREC-COVID throughput (8 concurrent) | 60 QPS | **609 QPS** |
+| SciFact hot query p50 | 9.05 ms | **2.19 ms** |
+| TREC-COVID fresh index build (171k files) | 90.4 s² | **56.0 s** (−38%), peak RSS 2.70 → 2.43 GB |
+
+¹ The 0.12.x search path with the resident index reused across requests. In 0.12.2 and earlier, every request also reloaded the index, which made TREC-COVID p50 7,892 ms.
+² The pre-0.13 index build path, on the same corpus and machine.
+
+Hybrid quality on SciFact with **identical EmbeddingGemma 2 vectors** for both engines, nDCG@10: Lume `LUME_BLEND=normalized-v2` scores **0.853**, Luxir hybrid (RRF) 0.779, and dense-only 0.845. α was tuned on SciFact. On **held-out NFCorpus** with α fixed in advance: Lume 0.373 against Luxir 0.370, which is a tie.
+
+### Search speed
+- **Exact MaxScore pruning, integer term ids and a bounded top-k heap**: these cut the BM25 hot path from 111.6 to 6.77 ms p50 on TREC-COVID, with rankings byte-identical at every step (#12).
+- **Candidate/allow bitmap API** (`candidates()`, `search_top_k_filtered()`): exhaustive candidate sets and filter-before-scoring, used by facets and NOT (#12).
+- Plain searches skip candidate collection and facet work entirely when no facets are requested (#13).
+
+### Facets and typed metadata (#13, docs/FACETS.md)
+- **Metadata input**: a `lume.meta.jsonl` manifest, or a restricted YAML frontmatter subset that is blanked in place so line numbers are preserved. Types are keyword, keyword_list, integer, float and date. An optional `lume.schema.json` overrides the types.
+- **Filters**: `field:value`, `-field:value`, and numeric or date ranges, applied *before* scoring.
+- **Facets**: `--facet` counts are taken over the **full** candidate set using bitmap popcount, so they don't depend on `-l`. Buckets are ordered by count descending, then value ascending.
+- **SQL**: metadata fields appear as `sections` columns with filter pushdown. `GROUP BY` returns the same buckets as native facets.
+- **Index format**: `format_version` 3 is written only when metadata exists, together with `meta.json`. Plain indexes stay at version 2 (stemmed) or 1.
+
+### Hybrid search (#14, docs/HYBRID.md)
+- **Resident local vectors**: `lume index --embed-model … --embed-dimensions …` stores section vectors next to the index. Vectors can come from Shivvr `/embed` (with explicit `document`/`query` tasks) or be imported without any service calls via `--embed-docs` and `--embed-queries`. Model, dimensions, IDs, coverage and vector values are validated on import. Search uses exact cosine scoring.
+- **Opt-in fusion modes**: `LUME_BLEND=rrf` (`LUME_RRF_K`, default 60), `normalized-v2` (min-max scaling of both BM25 and cosine) and `vector`. `LUME_LOCAL_VECTOR_DEPTH` takes a count or `all` (default 100). Existing defaults are unchanged.
+- **No per-query corpus walk**: hybrid caches are fingerprinted from the loaded index snapshot instead of stat-ing every corpus file on every query. That walk had cost about 7 s per query on a 5k-file corpus on a network filesystem.
+- **Explicit Shivvr URL**: the configured URL now reaches ingest, session, query, inversion and cleanup calls. Caches record the server URL and refuse a mismatch.
+- `/embed` input is bounded to 256 texts per request and 32 KiB per text. Oversize input is rejected before any network call.
+
+### Indexing (#16)
+- **One BM25 build per index**: ordinary indexing used to re-tokenize everything and rebuild BM25 at each of four periodic flushes. It now builds and publishes once, giving the 38% faster TREC-COVID build above with an identical stored index. Periodic searchable flushes remain only for slow Ollama entity extraction.
+- **Scan checkpoints**: an interrupted scan writes `index-scan-checkpoint.json`. The previously published index stays loadable and unchanged, and resume restores frontmatter.
+- **`LUME_TIMING=1`**: opt-in JSON timing records on stderr for each index and cold-open phase (walk, read, parse, tokenize, BM25, spelling, serialize, write, sync, and per-file parse). It's silent when unset, and search output is unchanged.
 
 ### Search & ranking
 - **Boolean NOT support (`-term` and `NOT term`)**:

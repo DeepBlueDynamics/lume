@@ -1,5 +1,7 @@
+pub mod simd;
+
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
 
 // ─── MiniRoaring Bitmap ──────────────────────────────────────────────────
 
@@ -75,7 +77,10 @@ impl MiniRoaring {
         let key = (id >> 16) as u16;
         let value = (id & 0xFFFF) as u16;
 
-        let container = self.containers.entry(key).or_insert_with(|| Container::Array(Vec::new()));
+        let container = self
+            .containers
+            .entry(key)
+            .or_insert_with(|| Container::Array(Vec::new()));
 
         match container {
             Container::Array(ref mut arr) => {
@@ -168,18 +173,7 @@ impl MiniRoaring {
                 let intersection = match (self_c, other_c) {
                     (Container::Array(a), Container::Array(b)) => {
                         let mut res = Vec::new();
-                        let (mut i, mut j) = (0, 0);
-                        while i < a.len() && j < b.len() {
-                            if a[i] == b[j] {
-                                res.push(a[i]);
-                                i += 1;
-                                j += 1;
-                            } else if a[i] < b[j] {
-                                i += 1;
-                            } else {
-                                j += 1;
-                            }
-                        }
+                        simd::array_intersect(&mut res, a, b);
                         if !res.is_empty() {
                             Some(Container::Array(res))
                         } else {
@@ -188,21 +182,14 @@ impl MiniRoaring {
                     }
                     (Container::Bitmap(a), Container::Bitmap(b)) => {
                         let mut bitmap = Box::new([0u64; 1024]);
-                        let mut empty = true;
-                        for i in 0..1024 {
-                            bitmap[i] = a[i] & b[i];
-                            if bitmap[i] != 0 {
-                                empty = false;
-                            }
-                        }
-                        if !empty {
+                        if simd::bitmap_and(&mut bitmap, a, b) {
                             Some(Container::Bitmap(bitmap))
                         } else {
                             None
                         }
                     }
-                    (Container::Array(arr), Container::Bitmap(bitmap)) |
-                    (Container::Bitmap(bitmap), Container::Array(arr)) => {
+                    (Container::Array(arr), Container::Bitmap(bitmap))
+                    | (Container::Bitmap(bitmap), Container::Array(arr)) => {
                         let mut res = Vec::new();
                         for &v in arr {
                             let idx = (v >> 6) as usize;
@@ -265,13 +252,11 @@ impl MiniRoaring {
                     }
                     (Container::Bitmap(a), Container::Bitmap(b)) => {
                         let mut bitmap = Box::new([0u64; 1024]);
-                        for i in 0..1024 {
-                            bitmap[i] = a[i] | b[i];
-                        }
+                        simd::bitmap_or(&mut bitmap, a, b);
                         Container::Bitmap(bitmap)
                     }
-                    (Container::Array(arr), Container::Bitmap(bitmap)) |
-                    (Container::Bitmap(bitmap), Container::Array(arr)) => {
+                    (Container::Array(arr), Container::Bitmap(bitmap))
+                    | (Container::Bitmap(bitmap), Container::Array(arr)) => {
                         let mut new_bitmap = bitmap.clone();
                         for &v in arr {
                             let idx = (v >> 6) as usize;
@@ -317,14 +302,7 @@ impl MiniRoaring {
                     }
                     (Container::Bitmap(a), Container::Bitmap(b)) => {
                         let mut bitmap = Box::new([0u64; 1024]);
-                        let mut empty = true;
-                        for i in 0..1024 {
-                            bitmap[i] = a[i] & !b[i];
-                            if bitmap[i] != 0 {
-                                empty = false;
-                            }
-                        }
-                        if !empty {
+                        if simd::bitmap_andnot(&mut bitmap, a, b) {
                             Some(Container::Bitmap(bitmap))
                         } else {
                             None
@@ -421,9 +399,7 @@ impl MiniRoaring {
             match container {
                 Container::Array(arr) => count += arr.len(),
                 Container::Bitmap(bitmap) => {
-                    for &word in bitmap.iter() {
-                        count += word.count_ones() as usize;
-                    }
+                    count += simd::bitmap_popcount(bitmap);
                 }
             }
         }
@@ -436,28 +412,8 @@ impl MiniRoaring {
         for (key, self_c) in &self.containers {
             if let Some(other_c) = other.containers.get(key) {
                 count += match (self_c, other_c) {
-                    (Container::Array(a), Container::Array(b)) => {
-                        let (mut i, mut j, mut c) = (0, 0, 0);
-                        while i < a.len() && j < b.len() {
-                            match a[i].cmp(&b[j]) {
-                                std::cmp::Ordering::Equal => {
-                                    c += 1;
-                                    i += 1;
-                                    j += 1;
-                                }
-                                std::cmp::Ordering::Less => i += 1,
-                                std::cmp::Ordering::Greater => j += 1,
-                            }
-                        }
-                        c
-                    }
-                    (Container::Bitmap(a), Container::Bitmap(b)) => {
-                        let mut c = 0;
-                        for i in 0..1024 {
-                            c += (a[i] & b[i]).count_ones() as usize;
-                        }
-                        c
-                    }
+                    (Container::Array(a), Container::Array(b)) => simd::array_intersect_count(a, b),
+                    (Container::Bitmap(a), Container::Bitmap(b)) => simd::bitmap_and_popcount(a, b),
                     (Container::Array(arr), Container::Bitmap(bitmap))
                     | (Container::Bitmap(bitmap), Container::Array(arr)) => arr
                         .iter()
@@ -486,9 +442,15 @@ impl MiniRoaring {
 
 /// Helper to check if a number is prime.
 pub fn is_prime(n: u64) -> bool {
-    if n <= 1 { return false; }
-    if n <= 3 { return true; }
-    if n.is_multiple_of(2) || n.is_multiple_of(3) { return false; }
+    if n <= 1 {
+        return false;
+    }
+    if n <= 3 {
+        return true;
+    }
+    if n.is_multiple_of(2) || n.is_multiple_of(3) {
+        return false;
+    }
     let mut i = 5;
     while i * i <= n {
         if n.is_multiple_of(i) || n.is_multiple_of(i + 2) {
@@ -762,13 +724,13 @@ mod tests {
     #[test]
     fn test_prime_filter() {
         let mut filter = PrimeFilter::new();
-        
+
         filter.add_term(b"apple");
         filter.add_term(b"banana");
-        
+
         assert!(filter.test_term(b"apple"));
         assert!(filter.test_term(b"banana"));
-        
+
         filter.add_tag_prime(2);
         filter.add_tag_prime(3);
         assert!(filter.test_tag_prime(2));
@@ -784,7 +746,11 @@ mod tests {
         // Verify all added terms still evaluate to true
         for i in 0..1000 {
             let term = format!("term_{}", i);
-            assert!(overflow_filter.test_term(term.as_bytes()), "Term term_{} had false negative after overflow!", i);
+            assert!(
+                overflow_filter.test_term(term.as_bytes()),
+                "Term term_{} had false negative after overflow!",
+                i
+            );
         }
     }
 

@@ -2,26 +2,36 @@
 
 # Lume
 
-**Documents and time-series telemetry in one store, searchable and queryable together, in one fast Rust binary.**
-
-An open source project from [DeepBlue Dynamics](https://deepbluedynamics.com), which builds open source agentic tooling for the marine electronics market.
+**One store for the numbers and the words.**
 
 [![CI](https://github.com/DeepBlueDynamics/lume/actions/workflows/ci.yml/badge.svg)](https://github.com/DeepBlueDynamics/lume/actions/workflows/ci.yml)
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-stable-orange.svg?logo=rust)](https://www.rust-lang.org/)
 [![MCP](https://img.shields.io/badge/MCP-server-6E56CF.svg)](#mcp-server)
 
-[Quick start](#quick-start) · [Lume TI: documents + time series](#lume-ti-telemetry-index) · [Features](#features) · [CLI](#cli-reference) · [Performance](#performance) · [Development](#development)
+[Quick start](#quick-start) · [Lume TI](#lume-ti-telemetry-index) · [Performance](#performance)
 
 </div>
 
 
 ---
 
-Lume keeps two kinds of data side by side and queries across both:
+A boat at sea has no internet. It has a logbook, a shelf of manuals, a year
+of sensor telemetry — and the questions that matter cross all three at once:
+what was the engine doing every time that alarm fired this month? Every
+tool you've used answers a third of that question and hands you three tabs.
+Lume answers the whole thing.
 
-- **Documents.** It indexes documents, code and crawled web pages and makes them searchable in milliseconds, combining BM25, dense semantic embeddings and an index-native **Semantic Knowledge Graph**. The same engine powers an agent loop, a graph-guided summarizer, cited answers and an MCP server, so AI agents can use your corpus as memory.
-- **Time series.** [**Lume TI**](#lume-ti-telemetry-index) is a bitmap-indexed SQL engine for sensor telemetry. It reads [Signal K](https://signalk.org/) out of the box, and its engine works on any *(entity, metric, time, value)* data. Numbers, states, positions and the notes, logbook and alerts that describe them share one store, so one query can ask *"what was the boat doing during every alarm this month?"*. It runs on the boat's Raspberry Pi with no internet connection.
+Lume keeps documents and time-series telemetry in one store, searchable and
+queryable together, in one fast Rust binary. Documents get BM25, dense
+semantic embeddings, and a knowledge graph computed from the index itself.
+Telemetry gets a bitmap-indexed SQL engine that reads Signal K out of the
+box. One query crosses both. Search, the knowledge graph and the telemetry
+SQL run on the boat's Raspberry Pi with no internet connection — because
+that's where boats are.
+
+An open source project from [DeepBlue Dynamics](https://deepbluedynamics.com/),
+which builds open source agentic tooling for the marine electronics market.
 
 The default build has **four runtime dependencies** (`tantivy-fst`, `ureq`, `serde`, `serde_json`). The time-series engine (DataFusion, Arrow, Parquet) sits behind `--features ti`.
 
@@ -441,9 +451,9 @@ Setup for every search number here: Docker with 8 CPU and 8 GiB, indexes on Linu
 
 On SciFact that is 286 ms to 5.7 ms. On TREC-COVID that is 7,892 ms to 99 ms. At this released speed Luxir is about 16× faster on SciFact and about 80× faster on TREC-COVID.
 
-### On main, not yet released
+### In v0.13.0
 
-Merged as PR #8 after v0.12.3; it ships in the next release. Stemming plus a coordination floor of 1.0 is the default for new indexes; existing indexes keep their recorded mode until reindexed (`lume index -f`). nDCG@10:
+Stemming plus a coordination floor of 1.0 is in v0.13.0. It is the default for new indexes; existing indexes keep their recorded mode until reindexed (`lume index -f`). nDCG@10:
 
 | | SciFact | TREC-COVID | NFCorpus (held out) |
 |---|---:|---:|---:|
@@ -453,9 +463,24 @@ Merged as PR #8 after v0.12.3; it ships in the next release. Stemming plus a coo
 
 NFCorpus (3.6k documents, 323 queries) was not used to choose the change. Luxir is still ahead there (0.321 vs 0.314). On the sets that were tuned, Lume is ahead on TREC-COVID (0.632 vs 0.605) and close on SciFact (0.677 vs 0.679).
 
-### In progress, not released
+### Hybrid search
 
-Integer term ids, Step 1 on branch `perf/search-hot-path`. Unreleased, measured on branch. With the new defaults, TREC-COVID p50 is 10.07 ms and SciFact p50 is 2.60 ms. Rankings on that branch stayed byte-identical.
+Local-vector hybrid search is in v0.13.0 and documented in [docs/HYBRID.md](docs/HYBRID.md). Both engines use the same EmbeddingGemma 2 vectors, 768 dimensions. Lume loads that cache and makes no Shivvr calls. nDCG@10:
+
+| | SciFact | NFCorpus (held out) |
+|---|---:|---:|
+| Lume normalized-v2, alpha 2.0, depth 100 | 0.853 | 0.373 |
+| Luxir hybrid, RRF | 0.779 | 0.370 |
+
+Alpha 2.0 was chosen on SciFact. There Lume leads by 0.074. Dense-only on those same vectors scores 0.845, and this is the SciFact blend that beats dense-only. NFCorpus was not used to choose alpha. Held out, it is a tie (0.373 vs 0.370). Recall@100 and MRR@10 stay within 0.001 to 0.003: Lume 0.343 and 0.576, Luxir 0.344 and 0.577.
+
+### Facets and index build
+
+Typed metadata, filters, and facets are in v0.13.0 and documented in [docs/FACETS.md](docs/FACETS.md). TREC-COVID p50 on the facets build is 6.27 ms, measured after facet work stopped running on queries that do not ask for facets.
+
+In v0.13.0 the TREC-COVID index build drops from 90.4 s to 56.0 s with one BM25 build and flush instead of four. Peak RSS on that pair of runs drops from 2.70 GB to 2.43 GB.
+
+With byte-identical rankings, v0.13.0 hot-server speed on the default profile is TREC-COVID p50 111.6 ms to 6.27 ms, p99 231.0 ms to 11.77 ms, and 60 to 609 QPS. SciFact p50 is 9.05 ms to 2.19 ms. The starting points are the resident 0.12.x path in the v0.13.0 release notes, not the v0.12.3 table above.
 
 ### Vector inversion
 

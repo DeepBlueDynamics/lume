@@ -344,7 +344,7 @@ pub fn save_json<T: Serialize>(path: &Path, val: &T) -> Result<(), String> {
         let timing = crate::index_timing::enabled();
         let started = timing.then(std::time::Instant::now);
         let mut writer = io::BufWriter::new(crate::index_timing::TimedIo::new(file, timing));
-        serde_json::to_writer_pretty(&mut writer, val)
+        serde_json::to_writer(&mut writer, val)
             .map_err(|e| format!("Failed to write JSON to {}: {}", path.display(), e))?;
         writer
             .flush()
@@ -1419,6 +1419,85 @@ mod tests {
             .map(|entry| entry.unwrap().file_name())
             .collect();
         assert_eq!(names, vec![std::ffi::OsString::from("bm25.json")]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_save_json_compact_roundtrip_and_legacy_pretty_compatibility() {
+        let dir = std::env::temp_dir().join(format!(
+            "lume-compact-json-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let compact_path = dir.join("compact_state.json");
+        let test_state = IndexState {
+            format_version: 1,
+            target_dir: "/dummy/target".to_string(),
+            db_dir: "/dummy/db".to_string(),
+            semantic_enabled: true,
+            ollama_entities: false,
+            ollama_model: "test_model".to_string(),
+            ollama_url: "http://localhost:11434".to_string(),
+            tag_dict_path: Some("/dummy/tags.csv".to_string()),
+            semantic_session_id: Some("session-123".to_string()),
+            cached_files: HashMap::new(),
+            stemmed: true,
+            keep_hyphens: false,
+        };
+
+        // 1. Verify save_json outputs compact JSON (no indentation newlines)
+        save_json(&compact_path, &test_state).unwrap();
+        let raw_bytes = std::fs::read(&compact_path).unwrap();
+        let raw_str = std::str::from_utf8(&raw_bytes).unwrap();
+        assert!(
+            !raw_str.contains("\n  "),
+            "compact json must not contain indentation spaces"
+        );
+        assert!(
+            !raw_str.contains('\n'),
+            "compact json must be written on a single line"
+        );
+
+        // 2. Verify compact output round-trips via load_json
+        let loaded_compact: IndexState = load_json(&compact_path).unwrap();
+        assert_eq!(loaded_compact.format_version, test_state.format_version);
+        assert_eq!(loaded_compact.target_dir, test_state.target_dir);
+        assert_eq!(loaded_compact.db_dir, test_state.db_dir);
+        assert_eq!(loaded_compact.semantic_enabled, test_state.semantic_enabled);
+        assert_eq!(loaded_compact.ollama_model, test_state.ollama_model);
+        assert_eq!(loaded_compact.stemmed, test_state.stemmed);
+        assert_eq!(loaded_compact.keep_hyphens, test_state.keep_hyphens);
+        assert_eq!(
+            loaded_compact.semantic_session_id,
+            test_state.semantic_session_id
+        );
+
+        // 3. Verify an existing pretty-printed JSON file still loads cleanly via load_json
+        let pretty_path = dir.join("pretty_state.json");
+        let pretty_str = serde_json::to_string_pretty(&test_state).unwrap();
+        assert!(
+            pretty_str.contains('\n'),
+            "pretty json must contain newlines"
+        );
+        std::fs::write(&pretty_path, &pretty_str).unwrap();
+
+        let loaded_pretty: IndexState = load_json(&pretty_path).unwrap();
+        assert_eq!(loaded_pretty.format_version, test_state.format_version);
+        assert_eq!(loaded_pretty.target_dir, test_state.target_dir);
+        assert_eq!(loaded_pretty.db_dir, test_state.db_dir);
+        assert_eq!(loaded_pretty.semantic_enabled, test_state.semantic_enabled);
+        assert_eq!(loaded_pretty.ollama_model, test_state.ollama_model);
+        assert_eq!(loaded_pretty.stemmed, test_state.stemmed);
+        assert_eq!(loaded_pretty.keep_hyphens, test_state.keep_hyphens);
+        assert_eq!(
+            loaded_pretty.semantic_session_id,
+            test_state.semantic_session_id
+        );
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 

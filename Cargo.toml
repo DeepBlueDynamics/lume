@@ -10,7 +10,7 @@ ti = ["pdf", "dep:ti-contracts", "dep:ti-core", "dep:ti-store", "dep:ti-sql", "d
 
 [package]
 name = "lume"
-version = "0.12.3"
+version = "0.13.1"
 edition = "2021"
 description = "Lume: A high-performance, zero-dependency, FST-backed tagger and on-demand BM25 hybrid search engine."
 license = "BSD-3-Clause"
