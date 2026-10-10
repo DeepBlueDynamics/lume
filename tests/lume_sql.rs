@@ -50,7 +50,7 @@ impl Drop for Fixture {
 }
 #[test]
 fn monte_cristo_ten_queries_equal_lexical_search_hits_and_order() {
-    let _guard = RESIDENT_TEST_LOCK.lock().unwrap();
+    let _guard = RESIDENT_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     for format in ["json", "4"] {
         let root = fixture.index_format(format);
@@ -365,7 +365,7 @@ fn entity_graph_tables_and_argument_shapes() {
 
 #[test]
 fn monte_cristo_match_and_not_match() {
-    let _guard = RESIDENT_TEST_LOCK.lock().unwrap();
+    let _guard = RESIDENT_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     for format in ["json", "4"] {
         let root = fixture.index_format(format);
@@ -454,7 +454,7 @@ fn monte_cristo_match_and_not_match() {
 
 #[test]
 fn monte_cristo_lume_sql_reuses_resident_index() {
-    let _guard = RESIDENT_TEST_LOCK.lock().unwrap();
+    let _guard = RESIDENT_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     for format in ["json", "4"] {
         let root = fixture.index_format(format);
@@ -761,7 +761,7 @@ fn metadata_columns_pushdown_and_facets_equivalence() {
 
 #[test]
 fn test_plain_index_writes_format_version_2_and_loads() {
-    let _lock = RESIDENT_TEST_LOCK.lock().unwrap();
+    let _lock = RESIDENT_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let index_dir = fixture.index();
     let state_raw = std::fs::read_to_string(index_dir.join("state.json")).unwrap();
@@ -780,7 +780,7 @@ fn test_plain_index_writes_format_version_2_and_loads() {
 
 #[test]
 fn disk_json_v4_sql_mcp_entities_metadata_facets_and_exact_scores() {
-    let _guard = RESIDENT_TEST_LOCK.lock().unwrap();
+    let _guard = RESIDENT_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let fixture = Fixture::new();
     let source = fixture.root.join("matrix-docs");
     std::fs::create_dir(&source).unwrap();
@@ -788,9 +788,13 @@ fn disk_json_v4_sql_mcp_entities_metadata_facets_and_exact_scores() {
         ("a.md", "---\ncategory: safety\nyear: 2025\ntags: [boat, pump]\n---\n# Bilge\nBilge pump removes water. Inspect the hose, float switch and battery before departure."),
         ("b.md", "---\ncategory: engine\nyear: 2020\ntags: [boat, engine]\n---\n# Engine\nEngine pump circulates cooling water. Inspect oil, coolant, belt and filter before departure."),
         ("c.md", "---\ncategory: safety\nyear: 2015\ntags: [boat]\n---\n# Anchor\nAnchor holds the boat. Check chain, rode and windlass before lowering the anchor."),
-    ] { std::fs::write(source.join(name), text).unwrap(); }
+    ] {
+        let text = format!("{text}\nKeep this equipment maintained and record the inspection in the vessel log. Verify the operating instructions and isolate electrical power before any repair.\n");
+        std::fs::write(source.join(name), text).unwrap();
+    }
     let runtime = ti_sql::surface_runtime().unwrap();
     let mut roots = Vec::new();
+    let mut graphs = Vec::new();
     for format in ["json", "4"] {
         let root = fixture.root.join(format!("matrix-{format}"));
         let output = Command::new(env!("CARGO_BIN_EXE_lume"))
@@ -810,11 +814,20 @@ fn disk_json_v4_sql_mcp_entities_metadata_facets_and_exact_scores() {
             String::from_utf8_lossy(&output.stderr)
         );
         let mut loaded = LoadedIndex::open(&root).unwrap();
+        eprintln!(
+            "matrix format={format}, sections={}",
+            loaded.bm25.sections.len()
+        );
+        assert_eq!(
+            loaded.bm25.sections.len(),
+            3,
+            "{format}: fixture extraction"
+        );
         for section in &mut loaded.bm25.sections {
             section.entities = if section.body.contains("pump") {
                 vec!["Lagoon".into(), "Pump".into()]
             } else {
-                vec!["Lagoon".into(), "Anchor".into()]
+                vec!["Anchor".into(), "Chain".into()]
             };
         }
         loaded.bm25.refresh_entities(None);
@@ -825,7 +838,8 @@ fn disk_json_v4_sql_mcp_entities_metadata_facets_and_exact_scores() {
             0.1,
             loaded.bm25.sections.len(),
         );
-        assert!(!graph.edges.is_empty());
+        assert!(!graph.edges.is_empty(), "{format}: graph must have edges");
+        graphs.push(serde_json::to_value(&graph.edges).unwrap());
         if format == "4" {
             let mut state = lume::index_binary::snapshot::restore_state(&root).unwrap();
             for (_, sections) in state.cached_files.values_mut() {
@@ -833,7 +847,7 @@ fn disk_json_v4_sql_mcp_entities_metadata_facets_and_exact_scores() {
                     section.entities = if section.body.contains("pump") {
                         vec!["Lagoon".into(), "Pump".into()]
                     } else {
-                        vec!["Lagoon".into(), "Anchor".into()]
+                        vec!["Anchor".into(), "Chain".into()]
                     };
                 }
             }
@@ -852,6 +866,7 @@ fn disk_json_v4_sql_mcp_entities_metadata_facets_and_exact_scores() {
         }
         roots.push(root);
     }
+    assert_eq!(graphs[0], graphs[1], "JSON-v4 graph edges");
     let engines: Vec<_> = roots
         .iter()
         .map(|root| runtime.block_on(lume::sql::open(root)).unwrap())
