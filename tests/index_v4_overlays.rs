@@ -3,14 +3,27 @@ use lume::index_binary::{generation, overlays};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+fn exclusive_root(mut next_id: impl FnMut() -> String) -> PathBuf {
+    for _ in 0..128 {
+        let root = std::env::temp_dir().join(format!("lume-overlays-{}", next_id()));
+        match std::fs::create_dir(&root) {
+            Ok(()) => return root,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => panic!("Cannot create fixture root {}: {error}", root.display()),
+        }
+    }
+    panic!("Cannot allocate an exclusive overlay fixture root after 128 attempts");
+}
+
 struct Fixture {
     root: PathBuf,
     sections: Vec<Section>,
 }
 impl Fixture {
     fn new(count: usize) -> Self {
-        let root = std::env::temp_dir().join(format!("lume-overlays-{}", lume::uuid_v4()));
-        std::fs::create_dir_all(&root).unwrap();
+        Self::with_root(count, exclusive_root(lume::uuid_v4))
+    }
+    fn with_root(count: usize, root: PathBuf) -> Self {
         let sections = (0..count)
             .map(|i| Section {
                 title: format!("Section {i}"),
@@ -169,4 +182,39 @@ fn invalid_duplicate_and_out_of_range_records_do_not_change_head() {
         .unwrap()
         .entity_overlay
         .is_none());
+}
+
+#[test]
+fn colliding_fixture_candidates_never_share_directory_ownership() {
+    let first_id = lume::uuid_v4();
+    let first = Fixture::with_root(1, exclusive_root(|| first_id.clone()));
+    let mut second_id = first_id.clone();
+    let last = if first_id.ends_with('0') { "1" } else { "0" };
+    second_id.replace_range(35..36, last);
+    let mut candidates = [first_id, second_id].into_iter();
+    let second = Fixture::with_root(
+        1,
+        exclusive_root(|| candidates.next().expect("collision should retry once")),
+    );
+    assert_ne!(first.root, second.root);
+    drop(second);
+    overlays::publish(&first.root, vec![first.record(0, &["Pump"])], |_| Ok(()))
+        .unwrap();
+    assert_eq!(first.replay()[0].entities, ["Pump"]);
+}
+
+#[test]
+fn overlay_filesystem_errors_identify_operation_and_path() {
+    let fixture = Fixture::new(1);
+    let manifest = generation::read_manifest(&fixture.root).unwrap();
+    let directory = generation::generation_directory(&fixture.root, &manifest)
+        .unwrap()
+        .join("overlays");
+    std::fs::write(&directory, b"not a directory").unwrap();
+    let error = overlays::publish(&fixture.root, vec![fixture.record(0, &["Pump"])], |_| {
+        Ok(())
+    })
+    .unwrap_err();
+    assert!(error.contains("Cannot create entity overlay directory"), "{error}");
+    assert!(error.contains(&directory.display().to_string()), "{error}");
 }
