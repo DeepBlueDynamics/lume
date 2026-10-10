@@ -253,7 +253,7 @@ mod neon {
             vst1q_u64(d_ptr.add(i), v);
             any = vorrq_u64(any, v);
         }
-        vgetq_lane_u64(any, 0) != 0 || vgetq_lane_u64(any, 1) != 0
+        vmaxvq_u32(vreinterpretq_u32_u64(any)) != 0
     }
 
     pub unsafe fn bitmap_or(dst: &mut [u64; 1024], a: &[u64; 1024], b: &[u64; 1024]) {
@@ -283,7 +283,7 @@ mod neon {
             vst1q_u64(d_ptr.add(i), v);
             any = vorrq_u64(any, v);
         }
-        vgetq_lane_u64(any, 0) != 0 || vgetq_lane_u64(any, 1) != 0
+        vmaxvq_u32(vreinterpretq_u32_u64(any)) != 0
     }
 
     pub unsafe fn bitmap_popcount(a: &[u64; 1024]) -> usize {
