@@ -1929,8 +1929,11 @@ fn run_indexing(
         );
     }
     let mut files = Vec::new();
-    scan_directory(target_path, target_path, db_path, &ignores, &mut files)
-        .map_err(|e| format!("Failed to scan directory: {}", e))?;
+    {
+        let _walk_timing = lume::index_timing::Span::new("index.walk");
+        scan_directory(target_path, target_path, db_path, &ignores, &mut files)
+            .map_err(|e| format!("Failed to scan directory: {}", e))?;
+    }
     let scan_duration = scan_start.elapsed();
     let total_files = files.len();
     println!(
@@ -1974,6 +1977,9 @@ fn run_indexing(
     let mut files_skipped_binary = 0usize;
     let mut files_skipped_documents = 0usize;
     let mut units_skipped_documents = 0usize;
+    let mut read_timing = lume::index_timing::Aggregate::new("index.read");
+    let mut parse_timing = lume::index_timing::Aggregate::new("index.parse_sections");
+    let mut document_timing = lume::index_timing::Aggregate::new("index.document_extract");
 
     for (file_num, file_path) in files.iter().enumerate() {
         let file_progress = format!("[file {}/{}]", file_num + 1, total_files);
@@ -2010,10 +2016,12 @@ fn run_indexing(
             let mut sections = if ext == "pdf" || ext == "epub" {
                 println!("[⚙️] {} Processing document: {}", file_progress, path_str);
                 let script = find_extractor_script();
-                match lume::document_extract::extract(
-                    file_path,
-                    if ext == "pdf" { Some(&script) } else { None },
-                ) {
+                match document_timing.measure(|| {
+                    lume::document_extract::extract(
+                        file_path,
+                        if ext == "pdf" { Some(&script) } else { None },
+                    )
+                }) {
                     Ok(report) => {
                         units_skipped_documents += report.skipped_units;
                         if report.skipped_units > 0 {
@@ -2037,7 +2045,7 @@ fn run_indexing(
                     }
                 }
             } else {
-                let content = match read_text_tolerant(file_path)? {
+                let content = match read_timing.measure(|| read_text_tolerant(file_path))? {
                     Some(c) => c,
                     None => {
                         println!(
@@ -2048,34 +2056,36 @@ fn run_indexing(
                         continue;
                     }
                 };
-                if ext == "html" || ext == "htm" {
-                    let (_title, cleaned) = lume::crawl::clean_html_to_markdown(&content);
-                    let chunks = chunk_text_file(file_path, &cleaned);
-                    println!(
-                        "[⚙️] {} Processing HTML file (cleaned): {} (parsed into {} chunks)",
-                        file_progress,
-                        path_str,
-                        chunks.len()
-                    );
-                    chunks
-                } else {
-                    if ext == "md" {
-                        let (fm, _) = lume::meta::extract_and_blank_frontmatter(&content);
-                        if !fm.is_empty() {
-                            frontmatter_by_file.insert(path_str.clone(), fm);
-                        } else {
-                            frontmatter_by_file.remove(&path_str);
+                parse_timing.measure(|| {
+                    if ext == "html" || ext == "htm" {
+                        let (_title, cleaned) = lume::crawl::clean_html_to_markdown(&content);
+                        let chunks = chunk_text_file(file_path, &cleaned);
+                        println!(
+                            "[⚙️] {} Processing HTML file (cleaned): {} (parsed into {} chunks)",
+                            file_progress,
+                            path_str,
+                            chunks.len()
+                        );
+                        chunks
+                    } else {
+                        if ext == "md" {
+                            let (fm, _) = lume::meta::extract_and_blank_frontmatter(&content);
+                            if !fm.is_empty() {
+                                frontmatter_by_file.insert(path_str.clone(), fm);
+                            } else {
+                                frontmatter_by_file.remove(&path_str);
+                            }
                         }
+                        let chunks = chunk_text_file(file_path, &content);
+                        println!(
+                            "[⚙️] {} Processing text file: {} (parsed into {} chunks)",
+                            file_progress,
+                            path_str,
+                            chunks.len()
+                        );
+                        chunks
                     }
-                    let chunks = chunk_text_file(file_path, &content);
-                    println!(
-                        "[⚙️] {} Processing text file: {} (parsed into {} chunks)",
-                        file_progress,
-                        path_str,
-                        chunks.len()
-                    );
-                    chunks
-                }
+                })
             };
 
             let parse_duration = file_start.elapsed();
@@ -2117,6 +2127,10 @@ fn run_indexing(
             }
         }
     }
+
+    drop(read_timing);
+    drop(parse_timing);
+    drop(document_timing);
 
     let cached_paths: Vec<String> = cached_files.keys().cloned().collect();
     for path_str in cached_paths {

@@ -669,14 +669,15 @@ impl Bm25Index {
         let _timing = crate::index_timing::Span::new("index.bm25_total");
         let timing = crate::index_timing::enabled();
         let mut tokenize_time = std::time::Duration::ZERO;
+        let mut tagging = crate::index_timing::Aggregate::new("index.tagging");
         let mut tag_prime_map = HashMap::new();
         if let Some(t) = tagger {
             let mut unique_tags = std::collections::BTreeSet::new();
             for sec in &sections {
-                for tag in t.tag(&sec.title) {
+                for tag in tagging.measure(|| t.tag(&sec.title)) {
                     unique_tags.insert(tag.output.clone());
                 }
-                for tag in t.tag(&sec.body) {
+                for tag in tagging.measure(|| t.tag(&sec.body)) {
                     unique_tags.insert(tag.output.clone());
                 }
             }
@@ -758,7 +759,7 @@ impl Bm25Index {
             }
 
             if let Some(t) = tagger {
-                let title_tags = t.tag(&sec.title);
+                let title_tags = tagging.measure(|| t.tag(&sec.title));
                 for tag in title_tags {
                     if let Some(&prime) = tag_prime_map.get(&tag.output) {
                         pf.add_tag_prime(prime);
@@ -789,7 +790,7 @@ impl Bm25Index {
                         }
                     }
                 }
-                let body_tags = t.tag(&sec.body);
+                let body_tags = tagging.measure(|| t.tag(&sec.body));
                 for tag in body_tags {
                     if let Some(&prime) = tag_prime_map.get(&tag.output) {
                         pf.add_tag_prime(prime);

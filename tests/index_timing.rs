@@ -25,6 +25,10 @@ fn timing_is_opt_in_stderr_only_and_preserves_search_output() {
     );
     let stderr = String::from_utf8_lossy(&built.stderr);
     for phase in [
+        "index.walk",
+        "index.read",
+        "index.parse_sections",
+        "index.tagging",
         "index.tokenize",
         "index.bm25_total",
         "index.spelling",

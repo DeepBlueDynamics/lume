@@ -36,6 +36,37 @@ impl Drop for Span {
     }
 }
 
+/// Aggregate repeated operations without emitting one diagnostic per file.
+pub struct Aggregate {
+    phase: &'static str,
+    enabled: bool,
+    elapsed: Duration,
+}
+impl Aggregate {
+    pub fn new(phase: &'static str) -> Self {
+        Self {
+            phase,
+            enabled: enabled(),
+            elapsed: Duration::ZERO,
+        }
+    }
+    pub fn measure<R>(&mut self, operation: impl FnOnce() -> R) -> R {
+        let start = self.enabled.then(Instant::now);
+        let result = operation();
+        if let Some(start) = start {
+            self.elapsed += start.elapsed();
+        }
+        result
+    }
+}
+impl Drop for Aggregate {
+    fn drop(&mut self) {
+        if self.enabled {
+            emit(self.phase, None, self.elapsed);
+        }
+    }
+}
+
 /// Time actual underlying I/O, leaving the existing BufReader/BufWriter in place.
 pub struct TimedIo<T> {
     pub inner: T,
