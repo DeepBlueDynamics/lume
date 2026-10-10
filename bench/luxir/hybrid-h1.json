@@ -1,0 +1,209 @@
+{
+  "model": "GTR-T5",
+  "dimensions": 768,
+  "binary_source": "58ec10e",
+  "build": {
+    "seconds_including_embedding": 1541.8810678289738,
+    "returncode": 0,
+    "semantic_session_present": true,
+    "embedded_chunks": 8417,
+    "errors": [],
+    "model": "GTR-T5",
+    "dimensions": 768,
+    "db": "/indexes/hybrid-h1/scifact",
+    "endpoint_workaround": "SHIVVR_BASE_URL; option shivvr_url is ignored (H2 fix queued)"
+  },
+  "metrics": [
+    {
+      "run": "lume-h1-mult-a3-first-hybrid-scifact",
+      "ndcg_10": 0.6934062290809669,
+      "recall_100": 0.9075555555555556,
+      "mrr_10": 0.6580383597883599,
+      "r_cap_100": 0.9075555555555556,
+      "shivvr_calls": 300,
+      "upstream_errors": 0
+    },
+    {
+      "run": "lume-h1-mult-a3-cached-hybrid-scifact",
+      "ndcg_10": 0.6934062290809669,
+      "recall_100": 0.9075555555555556,
+      "mrr_10": 0.6580383597883599,
+      "r_cap_100": 0.9075555555555556,
+      "shivvr_calls": 0,
+      "upstream_errors": 0
+    },
+    {
+      "run": "lume-h1-mult-a5-first-hybrid-scifact",
+      "ndcg_10": 0.6996612518768983,
+      "recall_100": 0.9153333333333334,
+      "mrr_10": 0.662681216931217,
+      "r_cap_100": 0.9153333333333334,
+      "shivvr_calls": 0,
+      "upstream_errors": 0
+    },
+    {
+      "run": "lume-h1-mult-a5-cached-hybrid-scifact",
+      "ndcg_10": 0.6996612518768983,
+      "recall_100": 0.9153333333333334,
+      "mrr_10": 0.662681216931217,
+      "r_cap_100": 0.9153333333333334,
+      "shivvr_calls": 0,
+      "upstream_errors": 0
+    },
+    {
+      "run": "lume-h1-mult-a7-first-hybrid-scifact",
+      "ndcg_10": 0.7038002481167447,
+      "recall_100": 0.9186666666666667,
+      "mrr_10": 0.6655357142857145,
+      "r_cap_100": 0.9186666666666667,
+      "shivvr_calls": 0,
+      "upstream_errors": 0
+    },
+    {
+      "run": "lume-h1-mult-a7-cached-hybrid-scifact",
+      "ndcg_10": 0.7038002481167447,
+      "recall_100": 0.9186666666666667,
+      "mrr_10": 0.6655357142857145,
+      "r_cap_100": 0.9186666666666667,
+      "shivvr_calls": 0,
+      "upstream_errors": 0
+    },
+    {
+      "run": "lume-h1-norm-a3-first-hybrid-scifact",
+      "ndcg_10": 0.69764106410537,
+      "recall_100": 0.9286666666666668,
+      "mrr_10": 0.6623584656084657,
+      "r_cap_100": 0.9286666666666668,
+      "shivvr_calls": 300,
+      "upstream_errors": 1
+    },
+    {
+      "run": "lume-h1-norm-a3-cached-hybrid-scifact",
+      "ndcg_10": 0.69764106410537,
+      "recall_100": 0.9286666666666668,
+      "mrr_10": 0.6623584656084657,
+      "r_cap_100": 0.9286666666666668,
+      "shivvr_calls": 1,
+      "upstream_errors": 0
+    },
+    {
+      "run": "lume-h1-norm-a5-first-hybrid-scifact",
+      "ndcg_10": 0.7056707290067211,
+      "recall_100": 0.9336666666666668,
+      "mrr_10": 0.6706044973544975,
+      "r_cap_100": 0.9336666666666668,
+      "shivvr_calls": 0,
+      "upstream_errors": 0
+    },
+    {
+      "run": "lume-h1-norm-a5-cached-hybrid-scifact",
+      "ndcg_10": 0.7056707290067211,
+      "recall_100": 0.9336666666666668,
+      "mrr_10": 0.6706044973544975,
+      "r_cap_100": 0.9336666666666668,
+      "shivvr_calls": 0,
+      "upstream_errors": 0
+    },
+    {
+      "run": "lume-h1-norm-a7-first-hybrid-scifact",
+      "ndcg_10": 0.7096794151536735,
+      "recall_100": 0.9353333333333335,
+      "mrr_10": 0.6739761904761908,
+      "r_cap_100": 0.9353333333333335,
+      "shivvr_calls": 0,
+      "upstream_errors": 0
+    },
+    {
+      "run": "lume-h1-norm-a7-cached-hybrid-scifact",
+      "ndcg_10": 0.7096794151536735,
+      "recall_100": 0.9353333333333335,
+      "mrr_10": 0.6739761904761908,
+      "r_cap_100": 0.9353333333333335,
+      "shivvr_calls": 0,
+      "upstream_errors": 0
+    }
+  ],
+  "cached_comparison": [
+    {
+      "label": "mult",
+      "alpha": 0.3,
+      "byte_identical": false,
+      "differing_rows": 2,
+      "examples": [
+        {
+          "first": "1146 Q0 22414304 100 8.4202 lume",
+          "cached": "1146 Q0 7852582 100 8.4202 lume"
+        },
+        {
+          "first": "914 Q0 2158516 100 5.1069 lume",
+          "cached": "914 Q0 17402386 100 5.1069 lume"
+        }
+      ]
+    },
+    {
+      "label": "mult",
+      "alpha": 0.5,
+      "byte_identical": false,
+      "differing_rows": 1,
+      "examples": [
+        {
+          "first": "72 Q0 5836 100 3.9270 lume",
+          "cached": "72 Q0 8317408 100 3.9270 lume"
+        }
+      ]
+    },
+    {
+      "label": "mult",
+      "alpha": 0.7,
+      "byte_identical": true,
+      "differing_rows": 0,
+      "examples": []
+    },
+    {
+      "label": "norm",
+      "alpha": 0.3,
+      "byte_identical": false,
+      "differing_rows": 101,
+      "examples": [
+        {
+          "first": "72 Q0 5836 100 0.3928 lume",
+          "cached": "72 Q0 8317408 100 0.3928 lume"
+        },
+        {
+          "first": "770 Q0 15476777 1 42.5664 lume",
+          "cached": "770 Q0 15476777 1 1.1939 lume"
+        },
+        {
+          "first": "770 Q0 2492146 2 36.3945 lume",
+          "cached": "770 Q0 2492146 2 1.0163 lume"
+        }
+      ]
+    },
+    {
+      "label": "norm",
+      "alpha": 0.5,
+      "byte_identical": true,
+      "differing_rows": 0,
+      "examples": []
+    },
+    {
+      "label": "norm",
+      "alpha": 0.7,
+      "byte_identical": false,
+      "differing_rows": 1,
+      "examples": [
+        {
+          "first": "49 Q0 11011905 100 0.1539 lume",
+          "cached": "49 Q0 29098525 100 0.1539 lume"
+        }
+      ]
+    }
+  ],
+  "limits": [
+    "Same embedding model, not identical vector/chunk inputs; H3 shared vectors required for strict vector parity.",
+    "Quality only; no end-to-end latency/QPS claim.",
+    "Proxy counts are completion-time observations; late completions can be assigned to the wrong query.",
+    "One norm first-pass upstream 502; successful cached request for q770; no proof of a 502 retry in Lume.",
+    "Some equal-score rank100 swaps; norm a3 q770 score scale changes between passes. Aggregate metrics unchanged."
+  ]
+}
