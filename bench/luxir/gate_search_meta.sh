@@ -2,10 +2,11 @@
 set -euo pipefail
 cd /workspace/lume/.lanes/meta
 export CARGO_INCREMENTAL=0
-export CARGO_TARGET_DIR=/workspace/lume/.build-cache/target
-export CARGO_TARGET_TMPDIR=/tmp/cargo-tmp
-export TMPDIR=/tmp
-mkdir -p "$CARGO_TARGET_TMPDIR"
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/tmp/target}"
+export CARGO_TARGET_TMPDIR="${CARGO_TARGET_TMPDIR:-/tmp/cargo-tmp}"
+export TMPDIR="${TMPDIR:-/tmp}"
+export PYTHONDONTWRITEBYTECODE=1
+mkdir -p "$CARGO_TARGET_DIR" "$CARGO_TARGET_TMPDIR"
 trap 'cargo clean' EXIT
 
 if ! command -v node >/dev/null 2>&1; then
