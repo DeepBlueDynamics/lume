@@ -15,7 +15,6 @@ mod library_tests;
 mod pg_extended_tests;
 #[path = "support/pg.rs"]
 mod pg_tests;
-use library_tests::rebuild_manual;
 static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 struct Server {
     child: Child,
