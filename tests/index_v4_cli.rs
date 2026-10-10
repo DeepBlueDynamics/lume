@@ -97,7 +97,10 @@ fn cli_v4_publish_search_sql_mcp_and_reindex_with_json_neighbor() {
         assert!(text.lines().next().unwrap().contains(path));
         text.replacen(path, "<DB>", 1)
     };
-    assert_eq!(normalized(&binary_reply, &v4), normalized(&json_reply, &json));
+    assert_eq!(
+        normalized(&binary_reply, &v4),
+        normalized(&json_reply, &json)
+    );
     let sql = command()
         .args(["sql", "--db"])
         .arg(&v4)
