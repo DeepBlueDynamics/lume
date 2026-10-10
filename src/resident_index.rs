@@ -39,6 +39,7 @@ fn fingerprint(root: &Path, dictionary: Option<&Path>) -> Result<Vec<FileStamp>,
         "spelling.json",
         "entity_graph.json",
         "meta.json",
+        crate::local_vectors::FILE,
     ]
     .into_iter()
     .map(|file| stamp(root.join(file)))

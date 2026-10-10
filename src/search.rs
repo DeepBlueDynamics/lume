@@ -117,6 +117,7 @@ pub struct LoadedIndex {
     pub tagger: Option<Tagger>,
     pub cache_dir: Option<PathBuf>,
     pub meta: Option<crate::meta::MetaIndex>,
+    pub local_vectors: Option<crate::local_vectors::LocalVectors>,
     /// Fingerprint of this immutable index snapshot, not the live source tree.
     pub corpus_fingerprint: OnceLock<(u64, u64)>,
 }
@@ -227,7 +228,20 @@ impl LoadedIndex {
         };
 
         let corpus_fingerprint = OnceLock::from(crate::hybrid::index_fingerprint(&bm25.sections));
+        let local_vectors = crate::local_vectors::LocalVectors::open(db_path, &bm25.sections)?;
+        if let Ok(model) = std::env::var("LUME_EMBED_MODEL") {
+            if local_vectors.as_ref().is_none_or(|vectors| vectors.profile.model != model) {
+                return Err("Requested embedding model does not match the local-vector index; reindex with --embed-model".to_string());
+            }
+        }
+        if let Ok(dimensions) = std::env::var("LUME_EMBED_DIMENSIONS") {
+            let dimensions = dimensions.parse::<usize>().map_err(|_| "Invalid --embed-dimensions")?;
+            if local_vectors.as_ref().is_some_and(|vectors| vectors.profile.dimensions != dimensions) {
+                return Err("Requested embedding dimensions do not match the local-vector index".to_string());
+            }
+        }
         Ok(Self {
+            local_vectors,
             corpus_fingerprint,
             state: Some(state),
             bm25,
@@ -242,6 +256,7 @@ impl LoadedIndex {
     pub fn from_parts(bm25: Bm25Index) -> Self {
         let corpus_fingerprint = OnceLock::from(crate::hybrid::index_fingerprint(&bm25.sections));
         Self {
+            local_vectors: None,
             corpus_fingerprint,
             state: None,
             bm25,
@@ -685,14 +700,15 @@ pub fn search(
             .state
             .as_ref()
             .and_then(|s| s.semantic_session_id.as_ref())
-            .is_some();
+            .is_some()
+            || index.local_vectors.is_some();
 
         if !has_session {
             if opts.mode == SearchMode::HybridStrict {
                 return Err("Semantic search unavailable for this index (no semantic session — index with -s).".to_string());
             }
             warnings.push("[⚠️] Semantic search unavailable for this index (no semantic session — index with -s); falling back to lexical BM25.".to_string());
-        } else if token_opt.is_none() {
+        } else if token_opt.is_none() && index.local_vectors.is_none() {
             if opts.mode == SearchMode::HybridStrict {
                 return Err("Semantic search unavailable (no NUTS_SERVICES_TOKEN and shivvr endpoint is not local).".to_string());
             }
@@ -704,7 +720,7 @@ pub fn search(
                 .as_ref()
                 .map(|s| s.target_dir.as_str())
                 .unwrap_or("");
-            let hybrid_res = crate::hybrid::execute_hybrid_search(
+            let hybrid_res = crate::hybrid::execute_hybrid_search_with_local(
                 &index.bm25,
                 index.tagger.as_ref(),
                 target_dir,
@@ -722,6 +738,7 @@ pub fn search(
                 opts.shivvr_url.as_deref(),
                 token_opt.as_deref(),
                 opts.query_inversion,
+                index.local_vectors.as_ref(),
             );
 
             match hybrid_res {
@@ -1173,6 +1190,7 @@ mod tests {
             cache_dir: None,
             meta: None,
             corpus_fingerprint: OnceLock::new(),
+            local_vectors: None,
         };
 
         let opts = SearchOptions {
@@ -1214,6 +1232,7 @@ mod tests {
             cache_dir: None,
             meta: None,
             corpus_fingerprint: OnceLock::new(),
+            local_vectors: None,
         };
 
         let opts = SearchOptions {
@@ -1259,6 +1278,7 @@ mod tests {
             cache_dir: None,
             meta: None,
             corpus_fingerprint: OnceLock::new(),
+            local_vectors: None,
         };
 
         let opts = SearchOptions {
@@ -1611,6 +1631,7 @@ mod tests {
             cache_dir: None,
             meta: None,
             corpus_fingerprint: OnceLock::new(),
+            local_vectors: None,
         };
 
         // 1. Lexical search with default params (coord_floor = 1.0, unpenalized)
@@ -1738,6 +1759,7 @@ mod tests {
             cache_dir: None,
             meta: None,
             corpus_fingerprint: OnceLock::new(),
+            local_vectors: None,
         };
 
         let opts = SearchOptions {

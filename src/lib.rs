@@ -36,6 +36,7 @@ pub mod http_auth;
 pub mod hybrid;
 pub mod meta;
 pub mod inversion;
+pub mod local_vectors;
 pub mod nuts_auth;
 pub mod regex;
 pub mod resident_index;

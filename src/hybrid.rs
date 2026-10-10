@@ -1216,11 +1216,37 @@ pub fn execute_hybrid_search(
     auth_token: Option<&str>,
     query_inversion: bool,
 ) -> Result<HybridSearchResult, String> {
+    execute_hybrid_search_with_local(
+        index, tagger, target_file, corpus_fingerprint, query, skg_scores, beta, alpha,
+        cache_dir, params, variant, blend_mode, shivvr_url, auth_token, query_inversion, None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn execute_hybrid_search_with_local(
+    index: &Bm25Index,
+    tagger: Option<&Tagger>,
+    target_file: &str,
+    corpus_fingerprint: (u64, u64),
+    query: &str,
+    skg_scores: &HashMap<usize, f64>,
+    beta: f64,
+    alpha: f64,
+    cache_dir: Option<&Path>,
+    params: &Bm25Params,
+    variant: SearchVariant,
+    blend_mode: crate::search::BlendMode,
+    shivvr_url: Option<&str>,
+    auth_token: Option<&str>,
+    query_inversion: bool,
+    local_vectors: Option<&crate::local_vectors::LocalVectors>,
+) -> Result<HybridSearchResult, String> {
     let base = resolve_shivvr_base_url(shivvr_url);
     let token = match auth_token {
         Some(tok) => tok.to_string(),
         None => match load_nuts_token_at(&base) {
             Some(tok) => tok,
+            None if local_vectors.is_some() => String::new(),
             None => {
                 return Err("NUTS_SERVICES_TOKEN not set for hybrid semantic search.".to_string())
             }
@@ -1229,8 +1255,14 @@ pub fn execute_hybrid_search(
 
     let (corpus_size, corpus_mtime) = corpus_fingerprint;
 
-    let mut semantic_cache =
-        load_semantic_cache_with_dir(target_file, corpus_size, corpus_mtime, cache_dir);
+    let mut semantic_cache = if local_vectors.is_some() {
+        SemanticQueryCache {
+            server_url: None, corpus_path: target_file.to_string(),
+            corpus_size, corpus_mtime, queries: HashMap::new(),
+        }
+    } else {
+        load_semantic_cache_with_dir(target_file, corpus_size, corpus_mtime, cache_dir)
+    };
     if semantic_cache
         .server_url
         .as_deref()
@@ -1252,7 +1284,7 @@ pub fn execute_hybrid_search(
         || env::var("LUME_QUERY_INVERSION")
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(false);
-    if inversion_enabled {
+    if inversion_enabled && local_vectors.is_none() {
         if let Ok(query_vec) = embed_text_at(query, &token, &base) {
             if let Ok(inv) = crate::inversion::invert_vector_at(&query_vec, Some(48), &token, &base)
             {
@@ -1265,7 +1297,13 @@ pub fn execute_hybrid_search(
         }
     }
 
-    let mut semantic_results = if let Some(cached_res) = semantic_cache.queries.get(&query_key) {
+    let mut semantic_results = if let Some(local) = local_vectors {
+        let (results, cached) = local.search(
+            query, &base, if token.is_empty() { None } else { Some(&token) }, 100,
+        )?;
+        is_cached = cached;
+        results
+    } else if let Some(cached_res) = semantic_cache.queries.get(&query_key) {
         is_cached = true;
         cached_res.clone()
     } else {
