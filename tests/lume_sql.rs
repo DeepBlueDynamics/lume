@@ -6,6 +6,7 @@ use ti_contracts::{
     BucketRecord, Catalog, FieldKind, FieldSpec, FieldValue, ShardSink, VesselSpec,
 };
 static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static RESIDENT_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 struct Fixture {
     root: PathBuf,
 }
@@ -45,6 +46,7 @@ impl Drop for Fixture {
 }
 #[test]
 fn monte_cristo_ten_queries_equal_lexical_search_hits_and_order() {
+    let _guard = RESIDENT_TEST_LOCK.lock().unwrap();
     let fixture = Fixture::new();
     let root = fixture.index();
     let index = LoadedIndex::open(&root).unwrap();
@@ -357,6 +359,7 @@ fn entity_graph_tables_and_argument_shapes() {
 
 #[test]
 fn monte_cristo_match_and_not_match() {
+    let _guard = RESIDENT_TEST_LOCK.lock().unwrap();
     let fixture = Fixture::new();
     let root = fixture.index();
     let runtime = ti_sql::surface_runtime().unwrap();
@@ -440,6 +443,7 @@ fn monte_cristo_match_and_not_match() {
 
 #[test]
 fn monte_cristo_lume_sql_reuses_resident_index() {
+    let _guard = RESIDENT_TEST_LOCK.lock().unwrap();
     let fixture = Fixture::new();
     let root = fixture.index();
     let runtime = ti_sql::surface_runtime().unwrap();
