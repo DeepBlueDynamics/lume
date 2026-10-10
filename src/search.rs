@@ -476,20 +476,76 @@ pub fn search(
         warnings.push("Notice: this index was built without stemming; run 'lume index -f' to reindex with default stemming.".to_string());
     }
 
+    // 0. Extract field filters before spell correction and NOT parsing
+    let (text_query, filters) = if let Some(ref meta) = index.meta {
+        crate::meta::extract_filters(query, Some(meta))
+    } else {
+        (query.to_string(), Vec::new())
+    };
+
+    let allow = if let Some(ref meta) = index.meta {
+        crate::meta::evaluate_filters(meta, &filters)
+    } else {
+        None
+    };
+
+    // Filter-only query: if text_query has no text terms, return filtered sections in id order with score 0
+    if text_query.trim().is_empty() && !filters.is_empty() {
+        let matching_ids: Vec<u32> = allow.map(|bm| bm.iter()).unwrap_or_default();
+        let limit = opts.limit.min(matching_ids.len());
+        let mut hits = Vec::new();
+        for (i, &sec_id) in matching_ids[..limit].iter().enumerate() {
+            if let Some(sec) = index.bm25.sections.get(sec_id as usize) {
+                let snippet = sec.body.lines().take(5).collect::<Vec<_>>().join("\n");
+                hits.push(SearchResultHit {
+                    rank: i + 1,
+                    section_index: sec_id as usize,
+                    score: 0.0,
+                    bm25_score: 0.0,
+                    semantic_score: None,
+                    skg_score: None,
+                    title: sec.title.clone(),
+                    filename: sec.filename.clone(),
+                    line_number: sec.line_number,
+                    body: sec.body.clone(),
+                    snippet,
+                    entities: sec
+                        .entities
+                        .iter()
+                        .filter(|&e| e != "__LUME_PROCESSED__")
+                        .cloned()
+                        .collect(),
+                });
+            }
+        }
+        return Ok(SearchResults {
+            query: query.to_string(),
+            corrected_query: None,
+            executed_mode: SearchMode::LexicalOnly,
+            alpha: opts.alpha,
+            graph_beta: opts.graph_beta,
+            hits,
+            total_sections: index.bm25.sections.len(),
+            skg_seeds: Vec::new(),
+            skg_neighbors: Vec::new(),
+            warnings,
+        });
+    }
+
     // 1. Spell correction
     let (corrected_query_opt, effective_query) = if opts.spell_check {
         if let Some(ref spelling) = index.spelling {
-            let corrected = correct_query(spelling, query);
-            if corrected != query {
+            let corrected = correct_query(spelling, &text_query);
+            if corrected != text_query {
                 (Some(corrected.clone()), corrected)
             } else {
-                (None, query.to_string())
+                (None, text_query.to_string())
             }
         } else {
-            (None, query.to_string())
+            (None, text_query.to_string())
         }
     } else {
-        (None, query.to_string())
+        (None, text_query.to_string())
     };
 
     // 1b. Parse NOT terms and validate excluded terms
@@ -616,6 +672,9 @@ pub fn search(
 
             match hybrid_res {
                 Ok(mut h_results) => {
+                    if let Some(ref allow_bm) = allow {
+                        h_results.hits.retain(|h| allow_bm.contains(h.section_index as u32));
+                    }
                     h_results.hits.truncate(opts.limit);
                     let mut hits = Vec::new();
                     for h in h_results.hits {
@@ -668,20 +727,25 @@ pub fn search(
     // Graph and hybrid stages can reorder lexical hits. Only bound the
     // lexical collector once those stages are absent.
     let mut bm25_hits = if beta == 0.0 || skg_scores.is_empty() {
-        index.bm25.search_top_k(
+        index.bm25.search_top_k_filtered(
             &effective_query,
             lexical_variant,
             &lexical_params,
             index.tagger.as_ref(),
             opts.limit,
+            allow.as_ref(),
         )
     } else {
-        index.bm25.search(
+        let mut hits = index.bm25.search(
             &effective_query,
             lexical_variant,
             &lexical_params,
             index.tagger.as_ref(),
-        )
+        );
+        if let Some(ref allow_bm) = allow {
+            hits.retain(|h| allow_bm.contains(h.section_index as u32));
+        }
+        hits
     };
     crate::graph_search::apply_skg_boost(&mut bm25_hits, &skg_scores, beta);
     bm25_hits.truncate(opts.limit);
@@ -1620,5 +1684,100 @@ mod tests {
         assert!(err.contains("reindex"), "expected reindex in error, got: {}", err);
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_search_filters_and_bit_identical_scores() {
+        let sec0 = Section {
+            title: "Cancer Therapy".to_string(),
+            body: "Cancer therapy clinical trial outcomes.".to_string(),
+            line_number: 1,
+            filename: Some("sec0.md".to_string()),
+            entities: Vec::new(),
+        };
+        let sec1 = Section {
+            title: "Genetics Study".to_string(),
+            body: "Cancer mutations and tumor genetics.".to_string(),
+            line_number: 10,
+            filename: Some("sec1.md".to_string()),
+            entities: Vec::new(),
+        };
+        let bm25 = Bm25Index::build(vec![sec0, sec1], None);
+
+        let mut files = HashMap::new();
+        let mut f0 = HashMap::new();
+        f0.insert("category".to_string(), serde_json::json!("biology"));
+        f0.insert("year".to_string(), serde_json::json!(2020));
+        files.insert("sec0.md".to_string(), ("manifest".to_string(), f0));
+
+        let mut f1 = HashMap::new();
+        f1.insert("category".to_string(), serde_json::json!("physics"));
+        f1.insert("year".to_string(), serde_json::json!(2022));
+        files.insert("sec1.md".to_string(), ("manifest".to_string(), f1));
+
+        let meta = crate::meta::build_meta_index(
+            &["sec0.md".to_string(), "sec1.md".to_string()],
+            &files,
+            &HashMap::new(),
+            "gen-filter-test",
+        );
+
+        let index = LoadedIndex {
+            state: None,
+            bm25,
+            spelling: None,
+            entity_graph: None,
+            tagger: None,
+            cache_dir: None,
+            meta,
+        };
+
+        let opts = SearchOptions {
+            mode: SearchMode::LexicalOnly,
+            graph_beta: 0.0,
+            ..Default::default()
+        };
+
+        // 1. Unfiltered query
+        let res_unfiltered = search(&index, "cancer", &opts).unwrap();
+        assert_eq!(res_unfiltered.hits.len(), 2);
+        let score_sec0 = res_unfiltered.hits.iter().find(|h| h.section_index == 0).unwrap().score;
+        let score_sec1 = res_unfiltered.hits.iter().find(|h| h.section_index == 1).unwrap().score;
+
+        // 2. Positive filter: category:biology
+        let res_bio = search(&index, "cancer category:biology", &opts).unwrap();
+        assert_eq!(res_bio.hits.len(), 1);
+        assert_eq!(res_bio.hits[0].section_index, 0);
+        // Assert BIT-IDENTICAL score
+        assert_eq!(res_bio.hits[0].score.to_bits(), score_sec0.to_bits());
+
+        // 3. Negated filter: -category:biology
+        let res_not_bio = search(&index, "cancer -category:biology", &opts).unwrap();
+        assert_eq!(res_not_bio.hits.len(), 1);
+        assert_eq!(res_not_bio.hits[0].section_index, 1);
+        // Assert BIT-IDENTICAL score
+        assert_eq!(res_not_bio.hits[0].score.to_bits(), score_sec1.to_bits());
+
+        // 4. Range filter: year:>=2021
+        let res_range = search(&index, "cancer year:>=2021", &opts).unwrap();
+        assert_eq!(res_range.hits.len(), 1);
+        assert_eq!(res_range.hits[0].section_index, 1);
+        assert_eq!(res_range.hits[0].score.to_bits(), score_sec1.to_bits());
+
+        // 5. Unknown prefix treated as text: foo:bar
+        let res_unknown = search(&index, "cancer foo:bar", &opts).unwrap();
+        assert_eq!(res_unknown.hits.len(), 2);
+
+        // 6. Filter-only query: score must be 0.0
+        let res_filter_only = search(&index, "category:biology", &opts).unwrap();
+        assert_eq!(res_filter_only.hits.len(), 1);
+        assert_eq!(res_filter_only.hits[0].section_index, 0);
+        assert_eq!(res_filter_only.hits[0].score, 0.0);
+
+        // 7. Combining filter with -term exclusion
+        let res_comb = search(&index, "cancer -mutations category:biology", &opts).unwrap();
+        assert_eq!(res_comb.hits.len(), 1);
+        assert_eq!(res_comb.hits[0].section_index, 0);
+        assert_eq!(res_comb.hits[0].score.to_bits(), score_sec0.to_bits());
     }
 }

@@ -1083,7 +1083,9 @@ ENV:
 
 ARGS:
   <QUERY>               Search query string. Supports term exclusion via '-term'
-                        or 'NOT term' (e.g. 'cancer -therapy' or 'vitamin d NOT deficiency').
+                        or 'NOT term' (e.g. 'cancer -therapy' or 'vitamin d NOT deficiency'),
+                        and metadata field filters (e.g. 'category:biology', '-category:tech',
+                        'year:>=2020', 'tags:science,health').
 "#
     );
 }

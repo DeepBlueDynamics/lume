@@ -452,7 +452,7 @@ fn handle_mcp_request(req_val: serde_json::Value, _ti: &TiState) -> serde_json::
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
-                                    "query": { "type": "string", "description": "Search query string" },
+                                    "query": { "type": "string", "description": "Search query string. Supports term exclusions (-term, NOT term) and metadata field filters (e.g. field:value, -field:value, field:>=2020, field:2000..2020, field:a,b)" },
                                     "db": { "type": "string", "description": "Path to the persisted index metadata [default: .lume-index]" },
                                     "spell_check": { "type": "boolean", "description": "Enable spelling correction on search query" },
                                     "limit": { "type": "integer", "description": "Max number of search hits [default: 10]" },

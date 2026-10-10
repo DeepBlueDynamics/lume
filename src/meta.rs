@@ -1097,6 +1097,264 @@ pub fn build_meta_index(
     })
 }
 
+// ─── Query Filter Parser & Evaluator ────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum RangeOp {
+    Gte(f64),
+    Gt(f64),
+    Lte(f64),
+    Lt(f64),
+    Between(f64, f64),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FilterClause {
+    Keyword {
+        field: String,
+        values: Vec<String>,
+        negated: bool,
+    },
+    Range {
+        field: String,
+        op: RangeOp,
+        negated: bool,
+    },
+}
+
+pub fn parse_range_op(raw_val: &str, is_date: bool) -> Option<RangeOp> {
+    let raw = raw_val.trim();
+    if raw.contains("..") {
+        let parts: Vec<&str> = raw.split("..").collect();
+        if parts.len() == 2 {
+            let p0 = parts[0].trim().trim_matches('"').trim_matches('\'');
+            let p1 = parts[1].trim().trim_matches('"').trim_matches('\'');
+            let lo = if is_date {
+                parse_date_to_epoch_ms(p0)? as f64
+            } else {
+                p0.parse::<f64>().ok()?
+            };
+            let hi = if is_date {
+                parse_date_to_epoch_ms(p1)? as f64
+            } else {
+                p1.parse::<f64>().ok()?
+            };
+            return Some(RangeOp::Between(lo, hi));
+        }
+    }
+    if let Some(rest) = raw.strip_prefix(">=") {
+        let val_str = rest.trim().trim_matches('"').trim_matches('\'');
+        let v = if is_date {
+            parse_date_to_epoch_ms(val_str)? as f64
+        } else {
+            val_str.parse::<f64>().ok()?
+        };
+        return Some(RangeOp::Gte(v));
+    }
+    if let Some(rest) = raw.strip_prefix('>') {
+        let val_str = rest.trim().trim_matches('"').trim_matches('\'');
+        let v = if is_date {
+            parse_date_to_epoch_ms(val_str)? as f64
+        } else {
+            val_str.parse::<f64>().ok()?
+        };
+        return Some(RangeOp::Gt(v));
+    }
+    if let Some(rest) = raw.strip_prefix("<=") {
+        let val_str = rest.trim().trim_matches('"').trim_matches('\'');
+        let v = if is_date {
+            parse_date_to_epoch_ms(val_str)? as f64
+        } else {
+            val_str.parse::<f64>().ok()?
+        };
+        return Some(RangeOp::Lte(v));
+    }
+    if let Some(rest) = raw.strip_prefix('<') {
+        let val_str = rest.trim().trim_matches('"').trim_matches('\'');
+        let v = if is_date {
+            parse_date_to_epoch_ms(val_str)? as f64
+        } else {
+            val_str.parse::<f64>().ok()?
+        };
+        return Some(RangeOp::Lt(v));
+    }
+
+    // Exact numeric / date match (e.g. year:2020)
+    let val_str = raw.trim_matches('"').trim_matches('\'');
+    let v = if is_date {
+        parse_date_to_epoch_ms(val_str)? as f64
+    } else {
+        val_str.parse::<f64>().ok()?
+    };
+    Some(RangeOp::Between(v, v))
+}
+
+fn tokenize_query_clauses(query: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut in_quote: Option<char> = None;
+
+    for ch in query.chars() {
+        match ch {
+            '"' | '\'' => {
+                if in_quote == Some(ch) {
+                    in_quote = None;
+                } else if in_quote.is_none() {
+                    in_quote = Some(ch);
+                }
+                current.push(ch);
+            }
+            c if c.is_whitespace() && in_quote.is_none() => {
+                if !current.is_empty() {
+                    tokens.push(current.clone());
+                    current.clear();
+                }
+            }
+            _ => {
+                current.push(ch);
+            }
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    tokens
+}
+
+/// Extracts field filters from the raw query string using the index schema.
+/// Returns (remaining_text_query, extracted_filters).
+pub fn extract_filters(query: &str, meta: Option<&MetaIndex>) -> (String, Vec<FilterClause>) {
+    let meta = match meta {
+        Some(m) if !m.schema.is_empty() => m,
+        _ => return (query.to_string(), Vec::new()),
+    };
+
+    let tokens = tokenize_query_clauses(query);
+    let mut text_tokens = Vec::new();
+    let mut filters = Vec::new();
+
+    for token in tokens {
+        let (negated, rest) = if let Some(stripped) = token.strip_prefix('-') {
+            (true, stripped)
+        } else {
+            (false, token.as_str())
+        };
+
+        if let Some(colon_pos) = rest.find(':') {
+            let field_candidate = &rest[..colon_pos];
+            let val_candidate = &rest[colon_pos + 1..];
+
+            // A name: prefix is a filter only if name is in the index schema.
+            if let Some(ft) = meta.field_type(field_candidate) {
+                let clean_val = val_candidate.trim().trim_matches('"').trim_matches('\'');
+                match ft {
+                    FieldType::Keyword | FieldType::KeywordList => {
+                        let values: Vec<String> = clean_val
+                            .split(',')
+                            .map(|s| s.trim().trim_matches('"').trim_matches('\'').to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect();
+                        if !values.is_empty() {
+                            filters.push(FilterClause::Keyword {
+                                field: field_candidate.to_string(),
+                                values,
+                                negated,
+                            });
+                        }
+                    }
+                    FieldType::Integer | FieldType::Float | FieldType::Date => {
+                        let is_date = ft == FieldType::Date;
+                        if let Some(op) = parse_range_op(val_candidate, is_date) {
+                            filters.push(FilterClause::Range {
+                                field: field_candidate.to_string(),
+                                op,
+                                negated,
+                            });
+                        } else {
+                            text_tokens.push(token);
+                        }
+                    }
+                }
+                continue;
+            }
+        }
+
+        text_tokens.push(token);
+    }
+
+    (text_tokens.join(" "), filters)
+}
+
+/// Evaluates filter clauses against MetaIndex, returning an allow bitmap if any filters exist.
+pub fn evaluate_filters(meta: &MetaIndex, filters: &[FilterClause]) -> Option<MiniRoaring> {
+    if filters.is_empty() {
+        return None;
+    }
+
+    let mut allow: Option<MiniRoaring> = None;
+
+    for clause in filters {
+        match clause {
+            FilterClause::Keyword { field, values, negated } => {
+                let mut union_bm = MiniRoaring::new();
+                for val in values {
+                    if let Some(bm) = meta.keyword_bitmap(field, val) {
+                        union_bm = union_bm.union(bm);
+                    }
+                }
+                if *negated {
+                    if let Some(existing) = allow {
+                        allow = Some(existing.andnot(&union_bm));
+                    } else {
+                        let all_ids: Vec<u32> = (0..meta.num_sections as u32).collect();
+                        let all_bm = MiniRoaring::from_sorted(&all_ids);
+                        allow = Some(all_bm.andnot(&union_bm));
+                    }
+                } else {
+                    if let Some(existing) = allow {
+                        allow = Some(existing.intersect(&union_bm));
+                    } else {
+                        allow = Some(union_bm);
+                    }
+                }
+            }
+            FilterClause::Range { field, op, negated } => {
+                let mut matching_ids = Vec::new();
+                for sec_id in 0..meta.num_sections {
+                    let val_opt = match meta.field_type(field) {
+                        Some(FieldType::Integer) => meta.get_integer(field, sec_id).map(|i| i as f64),
+                        Some(FieldType::Float) => meta.get_float(field, sec_id),
+                        Some(FieldType::Date) => meta.get_date(field, sec_id).map(|i| i as f64),
+                        _ => None,
+                    };
+                    if let Some(v) = val_opt {
+                        let matches = match op {
+                            RangeOp::Gte(x) => v >= *x,
+                            RangeOp::Gt(x) => v > *x,
+                            RangeOp::Lte(x) => v <= *x,
+                            RangeOp::Lt(x) => v < *x,
+                            RangeOp::Between(lo, hi) => v >= *lo && v <= *hi,
+                        };
+                        if if *negated { !matches } else { matches } {
+                            matching_ids.push(sec_id as u32);
+                        }
+                    } else if *negated {
+                        matching_ids.push(sec_id as u32);
+                    }
+                }
+                let range_bm = MiniRoaring::from_sorted(&matching_ids);
+                if let Some(existing) = allow {
+                    allow = Some(existing.intersect(&range_bm));
+                } else {
+                    allow = Some(range_bm);
+                }
+            }
+        }
+    }
+
+    allow
+}
+
 // ─── Unit Tests ─────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -1484,5 +1742,73 @@ Line 11 content here.
         assert_eq!(files[0].file_name().unwrap(), "guide.md");
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_extract_and_evaluate_filters() {
+        let mut files = HashMap::new();
+        let mut f0 = HashMap::new();
+        f0.insert("category".to_string(), serde_json::json!("biology"));
+        f0.insert("tags".to_string(), serde_json::json!(["dna", "health"]));
+        f0.insert("year".to_string(), serde_json::json!(2020));
+        f0.insert("pub".to_string(), serde_json::json!("2020-05-01"));
+        files.insert("doc0.txt".to_string(), ("manifest".to_string(), f0));
+
+        let mut f1 = HashMap::new();
+        f1.insert("category".to_string(), serde_json::json!("physics"));
+        f1.insert("tags".to_string(), serde_json::json!(["quantum", "energy"]));
+        f1.insert("year".to_string(), serde_json::json!(2022));
+        f1.insert("pub".to_string(), serde_json::json!("2022-01-15"));
+        files.insert("doc1.txt".to_string(), ("manifest".to_string(), f1));
+
+        let mut f2 = HashMap::new();
+        f2.insert("category".to_string(), serde_json::json!("biology"));
+        f2.insert("tags".to_string(), serde_json::json!(["cells"]));
+        f2.insert("year".to_string(), serde_json::json!(2018));
+        f2.insert("pub".to_string(), serde_json::json!("2018-10-20"));
+        files.insert("doc2.txt".to_string(), ("manifest".to_string(), f2));
+
+        let sec_files = vec!["doc0.txt".to_string(), "doc1.txt".to_string(), "doc2.txt".to_string()];
+        let meta = build_meta_index(&sec_files, &files, &HashMap::new(), "gen-filters").unwrap();
+
+        // 1. Unknown prefix treated as text
+        let (text, filters) = extract_filters("cancer 3:1 http://foo unknown:bar category:biology", Some(&meta));
+        assert_eq!(text, "cancer 3:1 http://foo unknown:bar");
+        assert_eq!(filters.len(), 1);
+
+        // 2. Keyword filter
+        let allow_bio = evaluate_filters(&meta, &filters).unwrap();
+        assert_eq!(allow_bio.iter(), vec![0, 2]);
+
+        // 3. Negated keyword filter
+        let (text, filters_neg) = extract_filters("-category:biology", Some(&meta));
+        assert!(text.is_empty());
+        let allow_not_bio = evaluate_filters(&meta, &filters_neg).unwrap();
+        assert_eq!(allow_not_bio.iter(), vec![1]);
+
+        // 4. Keyword OR (comma-separated)
+        let (_, filters_or) = extract_filters("tags:dna,quantum", Some(&meta));
+        let allow_or = evaluate_filters(&meta, &filters_or).unwrap();
+        assert_eq!(allow_or.iter(), vec![0, 1]);
+
+        // 5. Numeric ranges (year >= 2020)
+        let (_, filters_gte) = extract_filters("year:>=2020", Some(&meta));
+        let allow_gte = evaluate_filters(&meta, &filters_gte).unwrap();
+        assert_eq!(allow_gte.iter(), vec![0, 1]);
+
+        // 6. Numeric between (year 2018..2020)
+        let (_, filters_between) = extract_filters("year:2018..2020", Some(&meta));
+        let allow_between = evaluate_filters(&meta, &filters_between).unwrap();
+        assert_eq!(allow_between.iter(), vec![0, 2]);
+
+        // 7. Date range (pub >= 2020-01-01)
+        let (_, filters_date) = extract_filters("pub:>=2020-01-01", Some(&meta));
+        let allow_date = evaluate_filters(&meta, &filters_date).unwrap();
+        assert_eq!(allow_date.iter(), vec![0, 1]);
+
+        // 8. Multiple combined filters (AND)
+        let (_, filters_comb) = extract_filters("category:biology year:>=2020", Some(&meta));
+        let allow_comb = evaluate_filters(&meta, &filters_comb).unwrap();
+        assert_eq!(allow_comb.iter(), vec![0]);
     }
 }
