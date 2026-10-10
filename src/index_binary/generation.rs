@@ -178,9 +178,16 @@ pub fn publish(
             .write(true)
             .open(&path)
             .map_err(|e| format!("Cannot create index segment {name}: {e}"))?;
-        file.write_all(bytes)
-            .and_then(|_| file.sync_all())
-            .map_err(|e| format!("Cannot write/sync index segment {name}: {e}"))?;
+        {
+            let _span = crate::index_timing::FileSpan::new("v4.publish.write", &path);
+            file.write_all(bytes)
+                .map_err(|e| format!("Cannot write index segment {name}: {e}"))?;
+        }
+        {
+            let _span = crate::index_timing::FileSpan::new("v4.publish.fsync", &path);
+            file.sync_all()
+                .map_err(|e| format!("Cannot sync index segment {name}: {e}"))?;
+        }
         checkpoint(PublishStep::SyncedSegment)?;
     }
     sync_directory(&directory)?;
@@ -240,6 +247,7 @@ pub fn read_segments(
         bytes
             .try_reserve_exact(capacity)
             .map_err(|_| format!("Cannot allocate index segment {name}"))?;
+        let read_span = crate::index_timing::FileSpan::new("v4.open.read", &path);
         let file =
             File::open(&path).map_err(|e| format!("Cannot open index segment {name}: {e}"))?;
         file.take(
@@ -249,9 +257,12 @@ pub fn read_segments(
         )
         .read_to_end(&mut bytes)
         .map_err(|e| format!("Cannot read index segment {name}: {e}"))?;
+        drop(read_span);
+        let checksum_span = crate::index_timing::FileSpan::new("v4.open.checksum", &path);
         if bytes.len() as u64 != seal.bytes || sha256(&bytes) != seal.sha256 {
             return Err(format!("Ordinary-index seal mismatch: {name}"));
         }
+        drop(checksum_span);
         result.insert(name.clone(), bytes);
     }
     Ok(result)

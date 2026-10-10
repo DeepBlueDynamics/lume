@@ -36,6 +36,29 @@ impl Drop for Span {
     }
 }
 
+/// A named segment operation; records file attribution without changing data.
+pub struct FileSpan<'a> {
+    phase: &'static str,
+    file: &'a Path,
+    start: Option<Instant>,
+}
+impl<'a> FileSpan<'a> {
+    pub fn new(phase: &'static str, file: &'a Path) -> Self {
+        Self {
+            phase,
+            file,
+            start: enabled().then(Instant::now),
+        }
+    }
+}
+impl Drop for FileSpan<'_> {
+    fn drop(&mut self) {
+        if let Some(start) = self.start {
+            emit(self.phase, Some(self.file), start.elapsed());
+        }
+    }
+}
+
 /// Aggregate repeated operations without emitting one diagnostic per file.
 pub struct Aggregate {
     phase: &'static str,

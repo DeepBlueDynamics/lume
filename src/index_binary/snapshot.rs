@@ -14,6 +14,7 @@ pub fn open(root: &Path, checks: OpenEnvChecks) -> Result<LoadedIndex, String> {
     let manifest = generation::read_manifest(root)?;
     let segments = generation::read_segments(root, &manifest)?;
     let bm25 = Bm25Index::from_v4_segments(&segments)?;
+    let build_span = crate::index_timing::Span::new("v4.decode.build_state");
     let build: BuildState = serde_json::from_slice(&segments["build-state.json"])
         .map_err(|e| format!("Invalid v4 build state: {e}"))?;
     build.validate(bm25.sections.len())?;
@@ -22,6 +23,7 @@ pub fn open(root: &Path, checks: OpenEnvChecks) -> Result<LoadedIndex, String> {
     {
         return Err("V4 pointer counts disagree with snapshot".into());
     }
+    drop(build_span);
     let state = build.settings;
     if state.keep_hyphens || bm25.keep_hyphens || state.stemmed != bm25.stemmed {
         return Err("V4 analyzer settings disagree or use unsupported keep_hyphens".into());
@@ -41,14 +43,18 @@ pub fn open(root: &Path, checks: OpenEnvChecks) -> Result<LoadedIndex, String> {
             })
             .transpose()
     };
+    let spelling_span = crate::index_timing::Span::new("v4.decode.spelling");
     let spelling = decode("spelling.json")?
         .map(serde_json::from_value)
         .transpose()
         .map_err(|e| format!("Invalid v4 spelling: {e}"))?;
+    drop(spelling_span);
+    let graph_span = crate::index_timing::Span::new("v4.decode.graph");
     let entity_graph = decode("entity_graph.json")?
         .map(serde_json::from_value)
         .transpose()
         .map_err(|e| format!("Invalid v4 entity graph: {e}"))?;
+    drop(graph_span);
     let directory = generation::generation_directory(root, &manifest)?;
     let meta = if segments.contains_key("meta.json") {
         let value = crate::meta::MetaIndex::open(&directory.join("meta.json"))?;

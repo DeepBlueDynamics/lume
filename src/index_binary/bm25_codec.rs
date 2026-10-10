@@ -18,7 +18,11 @@ struct Auxiliary {
 }
 
 pub fn encode(index: &mut Bm25Index) -> Result<BTreeMap<String, Vec<u8>>, String> {
-    index.compact_for_v4()?;
+    let _encode = crate::index_timing::Span::new("v4.encode.core");
+    {
+        let _compact = crate::index_timing::Span::new("v4.encode.compact");
+        index.compact_for_v4()?;
+    }
     let forward = index
         .compact_forward
         .as_ref()
@@ -104,15 +108,35 @@ pub fn decode(segments: &BTreeMap<String, Vec<u8>>) -> Result<Bm25Index, String>
             .map(Vec::as_slice)
             .ok_or_else(|| format!("Missing v4 segment {name}"))
     };
+    let decode_span = crate::index_timing::Span::new("v4.decode.aux");
     let auxiliary: Auxiliary = serde_json::from_slice(bytes("bm25-aux.json")?)
         .map_err(|e| format!("Invalid v4 BM25 settings: {e}"))?;
+    drop(decode_span);
     let doc_count = auxiliary.num_docs;
-    let dictionary = terms::decode(bytes("terms.tbl")?, bytes("term-text.bin")?, doc_count)?;
-    let section_text = sections::decode(bytes("sections.tbl")?, bytes("text.bin")?)?;
-    let document_profiles = profiles::decode(bytes("profiles.bin")?)?;
-    let title = csr::ForwardCsr::decode(bytes("forward-title.bin")?)?;
-    let body = csr::ForwardCsr::decode(bytes("forward-body.bin")?)?;
-    let flat = postings::PostingsCsr::decode(bytes("postings.bin")?)?;
+    let dictionary = {
+        let _span = crate::index_timing::Span::new("v4.decode.terms");
+        terms::decode(bytes("terms.tbl")?, bytes("term-text.bin")?, doc_count)?
+    };
+    let section_text = {
+        let _span = crate::index_timing::Span::new("v4.decode.sections");
+        sections::decode(bytes("sections.tbl")?, bytes("text.bin")?)?
+    };
+    let document_profiles = {
+        let _span = crate::index_timing::Span::new("v4.decode.profiles");
+        profiles::decode(bytes("profiles.bin")?)?
+    };
+    let title = {
+        let _span = crate::index_timing::Span::new("v4.decode.forward_title");
+        csr::ForwardCsr::decode(bytes("forward-title.bin")?)?
+    };
+    let body = {
+        let _span = crate::index_timing::Span::new("v4.decode.forward_body");
+        csr::ForwardCsr::decode(bytes("forward-body.bin")?)?
+    };
+    let flat = {
+        let _span = crate::index_timing::Span::new("v4.decode.postings");
+        postings::PostingsCsr::decode(bytes("postings.bin")?)?
+    };
     let docs = doc_count as usize;
     if section_text.len() != docs
         || document_profiles.len() != docs
@@ -134,6 +158,7 @@ pub fn decode(segments: &BTreeMap<String, Vec<u8>>) -> Result<Bm25Index, String>
     {
         return Err("Invalid v4 field averages".into());
     }
+    let forward_validation = crate::index_timing::Span::new("v4.validate.forward_masks");
     for (doc, profile) in document_profiles.iter().enumerate() {
         let length = |rows: &csr::ForwardCsr| -> Result<u64, String> {
             rows.row(doc)
@@ -155,6 +180,8 @@ pub fn decode(segments: &BTreeMap<String, Vec<u8>>) -> Result<Bm25Index, String>
             return Err("V4 prime mask does not match forward terms".into());
         }
     }
+    drop(forward_validation);
+    let posting_validation = crate::index_timing::Span::new("v4.validate.postings_and_candidates");
     let mut title_entries = 0_usize;
     let mut body_entries = 0_usize;
     let mut posting_lists = HashMap::new();
@@ -193,6 +220,8 @@ pub fn decode(segments: &BTreeMap<String, Vec<u8>>) -> Result<Bm25Index, String>
             return Err("V4 entity posting exceeds document count".into());
         }
     }
+    drop(posting_validation);
+    let _reconstruct = crate::index_timing::Span::new("v4.reconstruct.maps_profiles");
     let mut title_dfs = HashMap::new();
     let mut body_dfs = HashMap::new();
     let mut vocabulary = HashMap::new();
