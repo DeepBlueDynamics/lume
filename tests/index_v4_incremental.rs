@@ -181,11 +181,11 @@ fn assert_meta_equal(actual: &LoadedIndex, expected: &LoadedIndex) {
 
 #[test]
 fn no_force_creation_and_each_source_update_match_fresh_json_and_v4() {
-    let mut fixture = Fixture::new();
-    let db = fixture.db("v4");
-    success(&fixture.index(&db, true, &[]));
-    fixture.parity(&db, "initial");
     for operation in ["unchanged", "add", "change", "rename", "delete"] {
+        let mut fixture = Fixture::new();
+        let db = fixture.db("v4");
+        success(&fixture.index(&db, true, &[]));
+        fixture.parity(&db, "initial");
         let old = load(&db);
         let old_replies = replies(&old);
         let previous = generation::read_manifest(&db).unwrap();
@@ -201,9 +201,9 @@ fn no_force_creation_and_each_source_update_match_fresh_json_and_v4() {
             "old resident snapshot remains valid"
         );
         fixture.parity(&db, operation);
+        success(&fixture.index(&db, false, &["-f"]));
+        fixture.parity(&db, "forced");
     }
-    success(&fixture.index(&db, false, &["-f"]));
-    fixture.parity(&db, "forced");
 }
 
 #[test]
