@@ -116,7 +116,7 @@ fn oversized_frames_fail_before_body_and_listener_recovers() {
         fatal_and_closed(&mut stream);
     }
     for length in [2 * 1024 * 1024u32, 0x80000000, 0x7fffffff] {
-        for tag in [b'Q', b'P', b'B'] {
+        for tag in *b"QPB" {
             let mut stream = connect(listener.address);
             startup(&mut stream);
             stream.write_all(&[tag]).unwrap();

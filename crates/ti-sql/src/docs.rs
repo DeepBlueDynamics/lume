@@ -48,7 +48,7 @@ pub(crate) fn match_udf() -> ScalarUDF {
         Volatility::Stable,
         Arc::new(|_: &[ColumnarValue]| {
             Err(DataFusionError::Plan(
-                "match(body, 'q') must filter the docs or sections table directly \
+                "match() is only supported as a top-level AND filter on the docs or sections table \
                  (or use match(notes|logbook|alerts, 'q') on telemetry)"
                     .into(),
             ))

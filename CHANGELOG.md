@@ -3,6 +3,16 @@
 ## Unreleased
 
 ### Search & ranking
+- **Boolean NOT support (`-term` and `NOT term`)**:
+  - `lume search` now supports term exclusions via `-term` and `NOT term` (e.g. `cancer -therapy` or `cancer NOT therapy`).
+  - Excluded terms' posting lists are subtracted from the candidate set via `MiniRoaring::andnot` before candidate pruning and BM25 scoring; excluded terms do not contribute to scores.
+  - Excluded terms undergo the identical tokenization, stemming, and stopword pipeline as positive terms; NOT on a stopword is safely ignored with a diagnostic notice.
+  - Hyphenated words within a term (e.g. `covid-19`) are treated as positive terms, not NOT.
+  - Queries with only NOT terms return empty results with a clear notice.
+- **SQL `AND NOT match()` pushdown (`lume sql`)**:
+  - `lume sql` supports exact pushdown for negated full-text filters (`WHERE match(...) AND NOT match(...)` and standalone `WHERE NOT match(...)`).
+  - Negated matches exclude matching section rows without rescoring surviving rows; standalone `NOT match()` returns non-matching rows with `score IS NULL`.
+  - Non-pushed down filters (e.g. under `OR`) fail cleanly with a clear top-level `AND` requirement error.
 - **Default stemming and coordination floor 1.0**: Ranking change: stemming + no coordination penalty by default; reindex to benefit. Note: stemmed indexes write index format_version 2 in `state.json`; older lume binaries (v0.12.3 or earlier) ignore this setting and search stemmed indexes with unstemmed queries, so upgrade lume or reindex.
   - Stemming (Snowball English) is now enabled by default for new indexes (`LUME_STEM=0` opts out). Existing indexes preserve their unstemmed setting in `state.json` (format version 1); searching an unstemmed index prints a notice suggesting `lume index -f` to benefit.
   - The default coordination factor floor is now 1.0 (disabling coordination down-weighting penalties; configurable via `LUME_COORD_FLOOR`).

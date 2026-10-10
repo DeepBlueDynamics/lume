@@ -132,10 +132,12 @@ It prompts for the key with hidden input and sends it to the Pi only over SSH st
 
 `lume search` runs BM25 over the persisted index. When the index was built with `-s` and an embedding endpoint is reachable, it blends dense semantic similarity in as well. Spelling correction (`-c`) repairs misspelled query terms against the index vocabulary.
 
-Lexical retrieval uses English stemming (Snowball) and field-aware BM25 without coordination penalty by default (`LUME_STEM=0` opts out at index time, `LUME_COORD_FLOOR` overrides coordination floor, default `1.0`). If searching an index built before default stemming, Lume prints a notice suggesting `lume index -f` to reindex.
+Lexical retrieval uses English stemming (Snowball) and field-aware BM25 without coordination penalty by default (`LUME_STEM=0` opts out at index time, `LUME_COORD_FLOOR` overrides coordination floor, default `1.0`). If searching an index built before default stemming, Lume prints a notice suggesting `lume index -f` to reindex. Term exclusion via `-term` and `NOT term` is supported (e.g. `cancer -therapy`), subtracting excluded posting lists from candidates via `MiniRoaring::andnot`.
 
 ```bash
 lume search "Edmond Dantes"                 # lexical BM25
+lume search "cancer -therapy"               # term exclusion with -term
+lume search "vitamin d NOT deficiency"      # boolean NOT exclusion
 lume search -c -a 0.5 "Edmund Dantez"       # hybrid with spell correction
 lume search -a 0 -g 0 "run_agent_loop"      # pure lexical, no graph boost
 ```
@@ -185,6 +187,25 @@ Use `--nuts-auth --nuts-allow sailor@example.com,user-17` on plain/TI `serve` or
 `--http-token-file /path/to/token` remains a full-access static alternative, checked in constant time. It may coexist with nuts auth. Configured sync/OTLP tokens override global auth on their own routes. Missing, wrong or unauthorized credentials return empty-body 401. Never put credentials in a URL; use HTTPS through a trusted reverse proxy for remote access. Loopback without either flag retains local access. See [D51](plan/decisions/D51-http-auth.md) for the policy and bounds.
 
 The OTLP bearer protects ingestion routes only on a shared server; it does not authenticate TI or MCP. Standalone `lume ti otlp` exposes only its two ingestion endpoints.
+
+### Plain index SQL (`lume sql`)
+
+`lume sql` runs DataFusion queries directly over any ordinary Lume index (built with `--features ti`). It exposes three tables:
+- `sections`: `(id, file, title, line, body, score)`
+- `entities`: `(entity, doc_count)`
+- `entity_edges`: `(a, b, jaccard, relatedness)`
+
+Full-text `match(body, 'query')` filters push down to lexical BM25 retrieval:
+- **Positive match**: `WHERE match(body, 'query')` (populates `score` with BM25 score).
+- **Conjunction**: `WHERE match(body, 'a') AND match(body, 'b')` (intersects candidate sections).
+- **Negation**: `WHERE match(body, 'a') AND NOT match(body, 'b')` or standalone `WHERE NOT match(body, 'x')` (excludes matching sections; without a positive match, `score` is `NULL`). Excluding rows does not rescore surviving rows.
+- Note: `match()` must be a top-level `AND` filter; disjunctions (`match(...) OR ...`) cannot be pushed down and error cleanly.
+
+```bash
+lume sql --db .lume-index "SELECT id, title, score FROM sections WHERE match(body, 'dantes') ORDER BY score DESC LIMIT 5"
+lume sql --db .lume-index "SELECT id, title, score FROM sections WHERE match(body, 'dantes') AND NOT match(body, 'prison')"
+lume sql --db .lume-index "SELECT count(*) FROM sections WHERE NOT match(body, 'prison')"
+```
 
 ### Text generation
 
@@ -247,6 +268,7 @@ graph LR
 | `lume generate <seed>` | Style-faithful generation | `--steer` |
 | `lume crawl <url>` | Save a page as Markdown | `GRUB_BASE_URL`, `NUTS_SERVICES_TOKEN` |
 | `lume serve` | MCP, TI HTTP, OTLP and pgwire server | `-p`/`--port` (5863), `--ti-store`, `--http-token-file`, `--otlp`, `--otlp-token-file`, `--pg`, `--pg-bind` |
+| `lume sql <query>` | Read-only SQL over plain index (`sections`, `entities`) | `--db`, `--format table\|csv\|json` (needs `--features ti`) |
 | `lume ti otlp` | Standalone OTLP metrics & logs receiver | `--store`, `--bind` (127.0.0.1), `--port` (4318), `--otlp-token-file` |
 | `lume ti <cmd>` | Telemetry SQL: `repl`, `query`, `explain`, `status`, `import-docs`, `ingest`, `otlp`, `verify` | `--store`, `--json`, `--width` (needs `--features ti`) |
 | `lume stream <query>` | NDJSON search dynamics for `viz/` | |

@@ -1054,8 +1054,29 @@ pub fn execute_hybrid_search(
     let lex_elapsed = lex_start.elapsed();
 
     let blend_start = Instant::now();
-    let hybrid_hits = blend_hybrid_scores_with_mode(&bm25_hits, &semantic_results, skg_scores, &hash_to_idx, alpha, beta, blend_mode);
+    let mut hybrid_hits = blend_hybrid_scores_with_mode(&bm25_hits, &semantic_results, skg_scores, &hash_to_idx, alpha, beta, blend_mode);
     let blend_elapsed = blend_start.elapsed();
+
+    // Filter out any hybrid candidates that contain excluded NOT terms.
+    let parsed = crate::bm25::parse_query(query);
+    if !parsed.not_terms.is_empty() {
+        let mut not_postings = Vec::new();
+        for not_term in &parsed.not_terms {
+            for tok in crate::tokenize_with_options(not_term, index.stemmed, false) {
+                if !crate::bm25::is_stopword(&tok.bytes) {
+                    if let Some(list) = index.posting_lists.get(&tok.bytes) {
+                        not_postings.push(list);
+                    }
+                }
+            }
+        }
+        if !not_postings.is_empty() {
+            hybrid_hits.retain(|hit| {
+                let doc_id = hit.section_index as u32;
+                !not_postings.iter().any(|list| list.contains(doc_id))
+            });
+        }
+    }
 
     let mut lexical_top_hits = Vec::new();
     for hit in bm25_hits.iter().take(5) {

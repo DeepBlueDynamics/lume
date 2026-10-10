@@ -247,6 +247,95 @@ impl MiniRoaring {
         Self { containers }
     }
 
+    /// Subtracts another roaring bitmap from this one (set difference: self \ other).
+    pub fn andnot(&self, other: &Self) -> Self {
+        let mut containers = HashMap::new();
+
+        for (key, self_c) in &self.containers {
+            if let Some(other_c) = other.containers.get(key) {
+                let difference = match (self_c, other_c) {
+                    (Container::Array(a), Container::Array(b)) => {
+                        let mut res = Vec::new();
+                        let (mut i, mut j) = (0, 0);
+                        while i < a.len() {
+                            if j >= b.len() || a[i] < b[j] {
+                                res.push(a[i]);
+                                i += 1;
+                            } else if a[i] == b[j] {
+                                i += 1;
+                            } else {
+                                j += 1;
+                            }
+                        }
+                        if !res.is_empty() {
+                            Some(Container::Array(res))
+                        } else {
+                            None
+                        }
+                    }
+                    (Container::Bitmap(a), Container::Bitmap(b)) => {
+                        let mut bitmap = Box::new([0u64; 1024]);
+                        let mut empty = true;
+                        for i in 0..1024 {
+                            bitmap[i] = a[i] & !b[i];
+                            if bitmap[i] != 0 {
+                                empty = false;
+                            }
+                        }
+                        if !empty {
+                            Some(Container::Bitmap(bitmap))
+                        } else {
+                            None
+                        }
+                    }
+                    (Container::Array(arr), Container::Bitmap(bitmap)) => {
+                        let mut res = Vec::new();
+                        for &v in arr {
+                            let idx = (v >> 6) as usize;
+                            let bit = (v & 63) as u64;
+                            if (bitmap[idx] & (1 << bit)) == 0 {
+                                res.push(v);
+                            }
+                        }
+                        if !res.is_empty() {
+                            Some(Container::Array(res))
+                        } else {
+                            None
+                        }
+                    }
+                    (Container::Bitmap(bitmap), Container::Array(arr)) => {
+                        let mut new_bitmap = bitmap.clone();
+                        for &v in arr {
+                            let idx = (v >> 6) as usize;
+                            let bit = (v & 63) as u64;
+                            new_bitmap[idx] &= !(1 << bit);
+                        }
+                        let mut empty = true;
+                        for &word in new_bitmap.iter() {
+                            if word != 0 {
+                                empty = false;
+                                break;
+                            }
+                        }
+                        if !empty {
+                            Some(Container::Bitmap(new_bitmap))
+                        } else {
+                            None
+                        }
+                    }
+                };
+
+                if let Some(c) = difference {
+                    containers.insert(*key, c);
+                }
+            } else {
+                containers.insert(*key, self_c.clone());
+            }
+        }
+
+        Self { containers }
+    }
+
     /// Extract all document IDs in sorted order
     pub fn iter(&self) -> Vec<u32> {
         let mut keys: Vec<&u16> = self.containers.keys().collect();
@@ -518,6 +607,68 @@ mod tests {
         let jaccard = a.jaccard_similarity(&b);
         // intersection / union = 2 / 4 = 0.5
         assert!((jaccard - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_miniroaring_andnot() {
+        let mut a = MiniRoaring::new();
+        a.insert(1);
+        a.insert(2);
+        a.insert(3);
+        a.insert(5);
+
+        let mut b = MiniRoaring::new();
+        b.insert(2);
+        b.insert(3);
+        b.insert(4);
+
+        let diff = a.andnot(&b);
+        assert_eq!(diff.iter(), vec![1, 5]);
+        assert_eq!(diff.len(), 2);
+
+        // a \ a is empty
+        assert!(a.andnot(&a).is_empty());
+
+        // a \ empty is a
+        assert_eq!(a.andnot(&MiniRoaring::new()).iter(), a.iter());
+
+        // empty \ a is empty
+        assert!(MiniRoaring::new().andnot(&a).is_empty());
+
+        // Test across sparse and dense pairings
+        let mut sparse = MiniRoaring::new();
+        for i in 0..500 {
+            sparse.insert(i * 3);
+        }
+        let mut dense = MiniRoaring::new();
+        for i in 0..3000 {
+            dense.insert(i * 2);
+        }
+
+        // sparse \ dense
+        let sd = sparse.andnot(&dense);
+        for &id in &sd.iter() {
+            assert!(sparse.contains(id));
+            assert!(!dense.contains(id));
+        }
+
+        // dense \ sparse
+        let ds = dense.andnot(&sparse);
+        for &id in &ds.iter() {
+            assert!(dense.contains(id));
+            assert!(!sparse.contains(id));
+        }
+
+        // dense \ dense
+        let mut dense2 = MiniRoaring::new();
+        for i in 0..2000 {
+            dense2.insert(i * 4);
+        }
+        let dd = dense.andnot(&dense2);
+        for &id in &dd.iter() {
+            assert!(dense.contains(id));
+            assert!(!dense2.contains(id));
+        }
     }
 
     #[test]

@@ -388,7 +388,13 @@ pub fn best_snippet_with_cap(body: &str, query: &str, max_chars: usize) -> Strin
     }
 
     use std::collections::HashSet;
-    let q_tokens = filter_query_stopwords(tokenize(query));
+    let parsed = crate::bm25::parse_query(query);
+    let pos_query = if parsed.not_terms.is_empty() {
+        query.to_string()
+    } else {
+        parsed.positive_terms.join(" ")
+    };
+    let q_tokens = filter_query_stopwords(tokenize(&pos_query));
     let qset: HashSet<Vec<u8>> = q_tokens.into_iter().map(|t| t.bytes).collect();
 
     let lines: Vec<&str> = body.lines().collect();
@@ -460,6 +466,22 @@ pub fn search(
         (None, query.to_string())
     };
 
+    // 1b. Parse NOT terms and validate excluded terms
+    let parsed_query = crate::bm25::parse_query(&effective_query);
+    for not_term in &parsed_query.not_terms {
+        for tok in crate::tokenize_with_options(not_term, index.bm25.stemmed, false) {
+            if crate::bm25::is_stopword(&tok.bytes) {
+                warnings.push(format!(
+                    "Notice: excluded term '{}' is a stopword and was ignored.",
+                    String::from_utf8_lossy(&tok.bytes)
+                ));
+            }
+        }
+    }
+    if !parsed_query.not_terms.is_empty() && parsed_query.positive_terms.is_empty() {
+        warnings.push("Notice: query contains only excluded terms; returning 0 results.".to_string());
+    }
+
     // 2. SKG graph walk
     let beta = opts.graph_beta;
     let mut skg_seeds = Vec::new();
@@ -473,10 +495,15 @@ pub fn search(
                 use_relatedness: opts.use_relatedness,
                 ..Default::default()
             };
+            let skg_query = if parsed_query.not_terms.is_empty() {
+                effective_query.clone()
+            } else {
+                parsed_query.positive_terms.join(" ")
+            };
             let walk = crate::graph_search::compute_skg_scores(
                 &index.bm25,
                 graph,
-                &effective_query,
+                &skg_query,
                 &skg_params,
             );
             let label = |k: &str| {
@@ -1356,5 +1383,59 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_search_not_warnings_and_filtering() {
+        let sec0 = Section {
+            title: "Therapy Research".to_string(),
+            body: "Cancer therapy clinical trial outcomes.".to_string(),
+            line_number: 1,
+            filename: Some("sec0.md".to_string()),
+            entities: Vec::new(),
+        };
+        let sec1 = Section {
+            title: "Genetics Study".to_string(),
+            body: "Cancer mutations and tumor genetics.".to_string(),
+            line_number: 10,
+            filename: Some("sec1.md".to_string()),
+            entities: Vec::new(),
+        };
+        let bm25 = Bm25Index::build(vec![sec0, sec1], None);
+        let index = LoadedIndex {
+            state: None,
+            bm25,
+            spelling: None,
+            entity_graph: None,
+            tagger: None,
+            cache_dir: None,
+        };
+
+        let opts = SearchOptions {
+            mode: SearchMode::LexicalOnly,
+            graph_beta: 0.0,
+            ..Default::default()
+        };
+
+        // Query with -the (stopword) generates a warning and ignores the exclusion
+        let res_stopword = search(&index, "cancer -the", &opts).unwrap();
+        assert_eq!(res_stopword.hits.len(), 2);
+        assert!(res_stopword
+            .warnings
+            .iter()
+            .any(|w| w.contains("excluded term 'the' is a stopword and was ignored")));
+
+        // Query with -therapy excludes sec0
+        let res_minus = search(&index, "cancer -therapy", &opts).unwrap();
+        assert_eq!(res_minus.hits.len(), 1);
+        assert_eq!(res_minus.hits[0].title, "Genetics Study");
+
+        // Query with only NOT terms returns 0 hits and a warning
+        let res_only_not = search(&index, "-therapy", &opts).unwrap();
+        assert_eq!(res_only_not.hits.len(), 0);
+        assert!(res_only_not
+            .warnings
+            .iter()
+            .any(|w| w.contains("query contains only excluded terms")));
     }
 }
