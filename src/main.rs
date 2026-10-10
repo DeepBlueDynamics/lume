@@ -33,7 +33,20 @@ fn lume_main() {
     let mut shivvr_url = None;
     let mut idx = 1;
     while idx < args.len() {
-        if args[idx] == "--shivvr-url" {
+        if args[idx] == "--embed-model" || args[idx] == "--embed-dimensions" {
+            if idx + 1 >= args.len() {
+                eprintln!("Error: {} requires an argument", args[idx]);
+                std::process::exit(1);
+            }
+            let variable = if args[idx] == "--embed-model" {
+                "LUME_EMBED_MODEL"
+            } else {
+                "LUME_EMBED_DIMENSIONS"
+            };
+            std::env::set_var(variable, &args[idx + 1]);
+            args.remove(idx + 1);
+            args.remove(idx);
+        } else if args[idx] == "--shivvr-url" {
             if idx + 1 < args.len() {
                 shivvr_url = Some(args[idx + 1].clone());
                 args.remove(idx + 1);
@@ -997,6 +1010,8 @@ FLAGS:
   -h, --help           Prints help information
   -V, --version        Prints version information
   --shivvr-url <URL>   Shivvr endpoint URL [default: http://localhost:8085]
+  --embed-model <NAME> Opt in to local section vectors via Shivvr /embed
+  --embed-dimensions N Vector width for the selected model [default: 768]
 
 SUBCOMMANDS:
   index      Index a directory (supports code, text, and PDF files)
@@ -1035,7 +1050,12 @@ USAGE:
 
 FLAGS:
   -h, --help               Prints help information
-  -s, --semantic           Enable dense semantic vector search (requires NUTS token)
+  -s, --semantic           Enable legacy GTR semantic sessions (requires NUTS token)
+  --embed-model <NAME>     Build local section vectors with the selected model
+  --embed-dimensions <N>   Embedding width [default: 768]
+  --embed-docs <JSONL>     Import shared <model>-<dims>-<dataset>-docs.jsonl
+  --embed-queries <JSONL>  Import matching shared query vectors (no service calls)
+  --embed-query-texts TSV  id<TAB>query text for --embed-queries
   -o, --ollama-entities    Enable AI entity extraction via local Gemma on Ollama
   -f, --force              Force re-indexing of all files (ignoring modification times)
 
@@ -1132,6 +1152,7 @@ fn handle_index_init(args: &[String]) -> Result<(), String> {
     let mut db_dir = String::from(".lume-index");
     let mut tag_dict_path: Option<String> = None;
     let mut semantic_enabled = false;
+    let mut embed_imports = lume::local_vectors::ImportPaths::default();
     let mut ollama_entities = false;
     let mut ollama_model = String::from("gpt-4o-mini:latest");
     let mut ollama_url = String::from("http://localhost:11434");
@@ -1145,6 +1166,20 @@ fn handle_index_init(args: &[String]) -> Result<(), String> {
         if arg == "-s" || arg == "--semantic" {
             semantic_enabled = true;
             idx += 1;
+        } else if matches!(
+            arg.as_str(),
+            "--embed-docs" | "--embed-queries" | "--embed-query-texts"
+        ) {
+            let value = args
+                .get(idx + 1)
+                .ok_or_else(|| format!("{arg} requires a path"))?;
+            let destination = match arg.as_str() {
+                "--embed-docs" => &mut embed_imports.documents,
+                "--embed-queries" => &mut embed_imports.queries,
+                _ => &mut embed_imports.query_texts,
+            };
+            *destination = Some(PathBuf::from(value));
+            idx += 2;
         } else if arg == "-o" || arg == "--ollama-entities" {
             ollama_entities = true;
             idx += 1;
@@ -1214,6 +1249,7 @@ fn handle_index_init(args: &[String]) -> Result<(), String> {
         force,
         cached_files,
         chunk_range,
+        &embed_imports,
     )?;
 
     Ok(())
@@ -1281,6 +1317,7 @@ fn handle_index_update(args: &[String]) -> Result<(), String> {
         force,
         state.cached_files,
         chunk_range,
+        &lume::local_vectors::ImportPaths::default(),
     )?;
 
     Ok(())
@@ -1692,13 +1729,17 @@ fn build_meta_for_current_state(
     let mut sorted_paths: Vec<&String> = cached_files.keys().collect();
     sorted_paths.sort();
 
-    let mut file_fields: HashMap<String, (String, HashMap<String, serde_json::Value>)> = HashMap::new();
+    let mut file_fields: HashMap<String, (String, HashMap<String, serde_json::Value>)> =
+        HashMap::new();
     let mut field_depths: HashMap<String, HashMap<String, usize>> = HashMap::new();
 
     // 1. Initialize with frontmatter
     for (path_str, fm_fields) in frontmatter_by_file {
         if cached_files.contains_key(path_str) {
-            file_fields.insert(path_str.clone(), ("frontmatter".to_string(), fm_fields.clone()));
+            file_fields.insert(
+                path_str.clone(),
+                ("frontmatter".to_string(), fm_fields.clone()),
+            );
             let mut depths = HashMap::new();
             for k in fm_fields.keys() {
                 depths.insert(k.clone(), 0);
@@ -1841,6 +1882,7 @@ fn run_indexing(
     force: bool,
     mut cached_files: HashMap<String, (u64, Vec<Section>)>,
     chunk_range: Option<(usize, usize)>,
+    embed_imports: &lume::local_vectors::ImportPaths,
 ) -> Result<(), String> {
     let total_start = Instant::now();
     let target_path = Path::new(target_dir);
@@ -1852,6 +1894,25 @@ fn run_indexing(
     fs::create_dir_all(db_path).map_err(|e| format!("Failed to create db dir: {}", e))?;
     // Session/semantic caches live with the index, not in the process cwd.
     lume::hybrid::set_cache_dir(db_path);
+    let local_profile = match std::env::var("LUME_EMBED_MODEL") {
+        Ok(model) => {
+            let dimensions = std::env::var("LUME_EMBED_DIMENSIONS")
+                .unwrap_or_else(|_| "768".to_string())
+                .parse::<usize>()
+                .map_err(|_| "Invalid --embed-dimensions")?;
+            Some(lume::local_vectors::EmbeddingProfile::new(
+                model, dimensions,
+            )?)
+        }
+        Err(_) => lume::local_vectors::LocalVectors::stored_profile(db_path)?,
+    };
+    if local_profile.is_none()
+        && (embed_imports.documents.is_some()
+            || embed_imports.queries.is_some()
+            || embed_imports.query_texts.is_some())
+    {
+        return Err("Shared vector import requires --embed-model".to_string());
+    }
 
     let scan_start = Instant::now();
     let ignores = load_lumeignore(target_path);
@@ -1892,7 +1953,8 @@ fn run_indexing(
     }
 
     let prev_meta = lume::meta::MetaIndex::open(&db_path.join("meta.json")).ok();
-    let mut frontmatter_by_file: HashMap<String, HashMap<String, serde_json::Value>> = HashMap::new();
+    let mut frontmatter_by_file: HashMap<String, HashMap<String, serde_json::Value>> =
+        HashMap::new();
     if let Some(ref prev) = prev_meta {
         for (p, entry) in &prev.files {
             if entry.source == "frontmatter" && !entry.fields.is_empty() {
@@ -2078,7 +2140,7 @@ fn run_indexing(
     // the dense vectors are available for hybrid search while extraction is
     // still grinding.
     let mut semantic_session_id = None;
-    if semantic_enabled {
+    if semantic_enabled && local_profile.is_none() {
         let semantic_start = Instant::now();
         let shivver_url = lume::hybrid::get_shivvr_base_url();
         println!(
@@ -2086,13 +2148,8 @@ fn run_indexing(
             shivver_url
         );
         if let Some(token) = lume::hybrid::load_nuts_token() {
-            // Fingerprint the corpus with the SAME function the search path uses
-            // (get_corpus_metadata), so the saved session cache actually matches
-            // at query time. Previously index-time used summed section lengths +
-            // mtime 0 while search recomputed from file bytes, so the cache never
-            // matched and every hybrid search silently re-ingested the corpus.
-            let (corpus_size, corpus_mtime) =
-                lume::hybrid::get_corpus_metadata(target_path).unwrap_or((0, 0));
+            // Match the resident snapshot fingerprint without walking source files.
+            let (corpus_size, corpus_mtime) = lume::hybrid::index_fingerprint(&all_sections);
             match lume::hybrid::ensure_semantic_session(
                 target_dir,
                 &all_sections,
@@ -2134,8 +2191,8 @@ fn run_indexing(
     };
     let mut manifests = Vec::new();
     find_manifests(target_path, db_path, &mut manifests);
-    let schema_override = lume::meta::load_schema_override(&target_path.join("lume.schema.json"))
-        .unwrap_or_default();
+    let schema_override =
+        lume::meta::load_schema_override(&target_path.join("lume.schema.json")).unwrap_or_default();
     let current_meta = build_meta_for_current_state(
         &cached_files,
         &frontmatter_by_file,
@@ -2152,8 +2209,13 @@ fn run_indexing(
     };
     let keep_hyphens = false;
     let early_flush_start = Instant::now();
-    let early_count =
-        flush_searchable_indexes(&cached_files, tagger.as_ref(), &tagger_phrases, db_path, current_meta.as_ref())?;
+    let early_count = flush_searchable_indexes(
+        &cached_files,
+        tagger.as_ref(),
+        &tagger_phrases,
+        db_path,
+        current_meta.as_ref(),
+    )?;
     let early_state = IndexState {
         format_version,
         target_dir: target_dir.to_string(),
@@ -2377,9 +2439,32 @@ fn run_indexing(
         }
     }
 
+    if let Some(profile) = local_profile {
+        let sections = collect_all_sections(&cached_files);
+        let base = lume::hybrid::get_shivvr_base_url();
+        let token = lume::hybrid::load_nuts_token();
+        lume::local_vectors::LocalVectors::build(
+            db_path,
+            &sections,
+            profile,
+            embed_imports,
+            &base,
+            token.as_deref(),
+        )?;
+        println!(
+            "[🌐] Local section vectors ready: {} sections",
+            sections.len()
+        );
+    }
+
     let save_start = Instant::now();
-    let section_count =
-        flush_searchable_indexes(&cached_files, tagger.as_ref(), &tagger_phrases, db_path, current_meta.as_ref())?;
+    let section_count = flush_searchable_indexes(
+        &cached_files,
+        tagger.as_ref(),
+        &tagger_phrases,
+        db_path,
+        current_meta.as_ref(),
+    )?;
 
     let state = IndexState {
         format_version,
