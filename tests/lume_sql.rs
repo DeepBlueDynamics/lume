@@ -175,6 +175,7 @@ fn indexed_manual_cross_joins_small_durable_telemetry_store_and_cli() {
     let index = LoadedIndex::from_parts(lume::bm25::Bm25Index::build(sections, None));
     lume::search::save_json(&index_root.join("bm25.json"), &index.bm25).unwrap();
     let state = lume::search::IndexState {
+        format_version: lume::search::CURRENT_FORMAT_VERSION,
         target_dir: "manual".into(),
         db_dir: index_root.display().to_string(),
         semantic_enabled: false,
@@ -184,6 +185,8 @@ fn indexed_manual_cross_joins_small_durable_telemetry_store_and_cli() {
         tag_dict_path: None,
         semantic_session_id: None,
         cached_files: Default::default(),
+        stemmed: true,
+        keep_hyphens: false,
     };
     lume::search::save_json(&index_root.join("state.json"), &state).unwrap();
     let store_root = fixture.root.join("store");

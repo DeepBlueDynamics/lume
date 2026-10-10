@@ -16,6 +16,7 @@ description = "Lume: A high-performance, zero-dependency, FST-backed tagger and 
 license = "BSD-3-Clause"
 
 [dependencies]
+rust-stemmers = "1.2"
 tantivy-fst = "0.5"
 ureq = { version = "2.9", features = ["json"] }
 # D51: RS256 using the existing ring backend; no PEM/ASN1 or new crypto backend.

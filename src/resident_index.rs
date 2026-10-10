@@ -133,6 +133,7 @@ mod tests {
             ));
             std::fs::create_dir_all(&root).unwrap();
             let state = IndexState {
+                format_version: crate::search::CURRENT_FORMAT_VERSION,
                 target_dir: root.to_string_lossy().into_owned(),
                 db_dir: root.to_string_lossy().into_owned(),
                 semantic_enabled: false,
@@ -142,6 +143,8 @@ mod tests {
                 tag_dict_path: None,
                 semantic_session_id: None,
                 cached_files: HashMap::new(),
+                stemmed: true,
+                keep_hyphens: false,
             };
             save_json(&root.join("state.json"), &state).unwrap();
             let fixture = Self(root);

@@ -21,41 +21,39 @@ use std::path::Path;
 use tantivy_fst::raw::{Fst, Node, Output};
 use tantivy_fst::MapBuilder;
 
-pub mod bm25;
-pub mod fast_retrieval;
-pub mod graph_search;
-pub mod semantic_mesh;
-pub mod eval;
-pub mod stream;
-pub mod answer;
-pub mod regex;
-pub mod spelling;
-pub mod inversion;
-pub mod hybrid;
 pub mod agent;
-pub mod http_auth;
-pub mod nuts_auth;
+pub mod answer;
+pub mod bm25;
+#[cfg(feature = "ti")]
+pub mod chat_sql;
 pub mod crawl;
 pub mod crawl_list;
 pub mod document_extract;
-pub mod search;
+pub mod eval;
+pub mod fast_retrieval;
+pub mod graph_search;
+pub mod http_auth;
+pub mod hybrid;
+pub mod inversion;
+pub mod nuts_auth;
+pub mod regex;
 pub mod resident_index;
-#[cfg(feature = "ti")]
-pub mod ti_text;
+pub mod search;
+pub mod semantic_mesh;
+pub mod spelling;
 #[cfg(feature = "ti")]
 pub mod sql;
-#[cfg(feature = "ti")]
-pub mod ti_rules;
-#[cfg(feature = "ti")]
-pub mod ti_parquet;
-#[cfg(feature = "ti")]
-mod ti_mcp;
-#[cfg(feature = "ti")]
-pub mod ti_http;
+pub mod stream;
 #[cfg(feature = "ti")]
 mod ti_docs_index;
 #[cfg(feature = "ti")]
+pub mod ti_http;
+#[cfg(feature = "ti")]
+mod ti_mcp;
+#[cfg(feature = "ti")]
 pub mod ti_otlp;
+#[cfg(feature = "ti")]
+pub mod ti_parquet;
 #[cfg(feature = "ti")]
 pub mod ti_pg;
 #[cfg(feature = "ti")]
@@ -63,8 +61,12 @@ mod ti_pg_auth;
 #[cfg(feature = "ti")]
 pub mod ti_resolve;
 #[cfg(feature = "ti")]
-pub mod chat_sql;
-pub use search::{search, LoadedIndex, SearchOptions, SearchResults, SearchResultHit, SearchMode, BlendMode};
+pub mod ti_rules;
+#[cfg(feature = "ti")]
+pub mod ti_text;
+pub use search::{
+    search, BlendMode, LoadedIndex, SearchMode, SearchOptions, SearchResultHit, SearchResults,
+};
 // pub mod cli;
 
 /// Token separator used inside FST keys. Matches Lucene's
@@ -85,11 +87,7 @@ pub struct Entry {
 }
 
 impl Entry {
-    pub fn new(
-        phrase: impl Into<String>,
-        kind: impl Into<String>,
-        id: impl Into<String>,
-    ) -> Self {
+    pub fn new(phrase: impl Into<String>, kind: impl Into<String>, id: impl Into<String>) -> Self {
         Self {
             phrase: phrase.into(),
             kind: kind.into(),
@@ -227,15 +225,16 @@ impl Tagger {
 
         let mut builder = MapBuilder::memory();
         for (key, idx) in &keyed {
-            builder
-                .insert(key, *idx)
-                .map_err(io::Error::other)?;
+            builder.insert(key, *idx).map_err(io::Error::other)?;
         }
-        let bytes = builder
-            .into_inner()
-            .map_err(io::Error::other)?;
+        let bytes = builder.into_inner().map_err(io::Error::other)?;
         let fst = Fst::new(bytes).map_err(io::Error::other)?;
-        Ok(Self { fst, groups, regex_patterns, phrases })
+        Ok(Self {
+            fst,
+            groups,
+            regex_patterns,
+            phrases,
+        })
     }
 
     /// Access the original loaded dictionary phrases
@@ -353,8 +352,8 @@ impl Tagger {
                     .map(|s| s.trim().eq_ignore_ascii_case("true"))
                     .unwrap_or(false);
 
-                let mut entry = Entry::new(phrase, kind.clone(), uuid_v4())
-                    .with_regex(is_regex_val);
+                let mut entry =
+                    Entry::new(phrase, kind.clone(), uuid_v4()).with_regex(is_regex_val);
                 if let Some(o) = output_override {
                     entry = entry.with_output(o);
                 }
@@ -457,15 +456,7 @@ impl Tagger {
         dedup_identical_tags(resolved)
     }
 
-    fn emit(
-        &self,
-        out: &mut Vec<Tag>,
-        tokens: &[Token],
-        i: usize,
-        j: usize,
-        idx: u64,
-        text: &str,
-    ) {
+    fn emit(&self, out: &mut Vec<Tag>, tokens: &[Token], i: usize, j: usize, idx: u64, text: &str) {
         let start = tokens[i].start;
         let end = tokens[j].end;
         let surface = text[start..end].to_string();
@@ -508,7 +499,15 @@ fn dedup_identical_tags(tags: Vec<Tag>) -> Vec<Tag> {
     let mut seen: std::collections::HashSet<(usize, usize, String, String, String)> =
         std::collections::HashSet::new();
     tags.into_iter()
-        .filter(|t| seen.insert((t.start, t.end, t.output.clone(), t.kind.clone(), t.id.clone())))
+        .filter(|t| {
+            seen.insert((
+                t.start,
+                t.end,
+                t.output.clone(),
+                t.kind.clone(),
+                t.id.clone(),
+            ))
+        })
         .collect()
 }
 
@@ -517,22 +516,24 @@ fn resolve_longest_only(mut tags: Vec<Tag>) -> Vec<Tag> {
         return Vec::new();
     }
     tags.sort_by(|a, b| {
-        a.start.cmp(&b.start).then_with(|| {
-            let len_a = a.end - a.start;
-            let len_b = b.end - b.start;
-            len_b.cmp(&len_a)
-        }).then_with(|| {
-            a.id.cmp(&b.id)
-        })
+        a.start
+            .cmp(&b.start)
+            .then_with(|| {
+                let len_a = a.end - a.start;
+                let len_b = b.end - b.start;
+                len_b.cmp(&len_a)
+            })
+            .then_with(|| a.id.cmp(&b.id))
     });
-    
+
     let mut resolved = Vec::new();
     let mut last_end = 0;
     let mut last_accepted_start = None;
     let mut last_accepted_end = None;
-    
+
     for tag in tags {
-        let is_exact_same_span = Some(tag.start) == last_accepted_start && Some(tag.end) == last_accepted_end;
+        let is_exact_same_span =
+            Some(tag.start) == last_accepted_start && Some(tag.end) == last_accepted_end;
         if tag.start >= last_end || is_exact_same_span {
             last_end = tag.end;
             last_accepted_start = Some(tag.start);
@@ -544,7 +545,9 @@ fn resolve_longest_only(mut tags: Vec<Tag>) -> Vec<Tag> {
 }
 
 fn auto_detect_regex(phrase: &str) -> bool {
-    phrase.chars().any(|c| matches!(c, '[' | ']' | '\\' | '*' | '+' | '?' | '|' | '(' | ')'))
+    phrase
+        .chars()
+        .any(|c| matches!(c, '[' | ']' | '\\' | '*' | '+' | '?' | '|' | '(' | ')'))
 }
 
 fn step<'a>(
@@ -640,12 +643,75 @@ fn fold_text(text: &str) -> Vec<Folded> {
     out
 }
 
-pub fn tokenize(text: &str) -> Vec<Token> {
-    let folded = fold_text(text);
+fn fold_text_with_options(text: &str, keep_hyphens: bool) -> Vec<Folded> {
+    if !keep_hyphens {
+        return fold_text(text);
+    }
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let mut out = Vec::with_capacity(text.len());
+    for (i, &(start, c)) in chars.iter().enumerate() {
+        let end = start + c.len_utf8();
+        if is_hyphen(c) {
+            let prev_alnum = if i > 0 {
+                chars[i - 1].1.is_alphanumeric()
+            } else {
+                false
+            };
+            let next_alnum = if i + 1 < chars.len() {
+                chars[i + 1].1.is_alphanumeric()
+            } else {
+                false
+            };
+            if prev_alnum && next_alnum {
+                out.push(Folded {
+                    ch: b'-',
+                    src_start: start,
+                    src_end: end,
+                });
+            } else {
+                out.push(Folded {
+                    ch: b' ',
+                    src_start: start,
+                    src_end: end,
+                });
+            }
+            continue;
+        }
+        if c.is_ascii_alphanumeric() {
+            out.push(Folded {
+                ch: c.to_ascii_lowercase() as u8,
+                src_start: start,
+                src_end: end,
+            });
+        } else if let Some(folded) = fold_latin(c) {
+            for b in folded.bytes() {
+                out.push(Folded {
+                    ch: b,
+                    src_start: start,
+                    src_end: end,
+                });
+            }
+        } else {
+            // Whitespace / punctuation / unhandled — token separator.
+            out.push(Folded {
+                ch: b' ',
+                src_start: start,
+                src_end: end,
+            });
+        }
+    }
+    out
+}
+
+/// Tokenize text into folded tokens.
+/// If `stem` is true, stems English words using Snowball English stemmer.
+/// If `keep_hyphens` is true, preserves hyphens between alphanumeric characters.
+pub fn tokenize_with_options(text: &str, stem: bool, keep_hyphens: bool) -> Vec<Token> {
+    let folded = fold_text_with_options(text, keep_hyphens);
     let mut tokens = Vec::new();
     let mut cur: Option<Token> = None;
     for fc in folded {
-        if fc.ch.is_ascii_alphanumeric() {
+        if fc.ch.is_ascii_alphanumeric() || (keep_hyphens && fc.ch == b'-' && cur.is_some()) {
             match cur.as_mut() {
                 Some(t) => {
                     t.bytes.push(fc.ch);
@@ -659,14 +725,43 @@ pub fn tokenize(text: &str) -> Vec<Token> {
                     });
                 }
             }
-        } else if let Some(t) = cur.take() {
+        } else if let Some(mut t) = cur.take() {
+            if keep_hyphens {
+                while t.bytes.ends_with(b"-") {
+                    t.bytes.pop();
+                }
+            }
+            if !t.bytes.is_empty() {
+                tokens.push(t);
+            }
+        }
+    }
+    if let Some(mut t) = cur {
+        if keep_hyphens {
+            while t.bytes.ends_with(b"-") {
+                t.bytes.pop();
+            }
+        }
+        if !t.bytes.is_empty() {
             tokens.push(t);
         }
     }
-    if let Some(t) = cur {
-        tokens.push(t);
+    if stem {
+        let stemmer = rust_stemmers::Stemmer::create(rust_stemmers::Algorithm::English);
+        for t in &mut tokens {
+            if let Ok(s) = std::str::from_utf8(&t.bytes) {
+                let stemmed = stemmer.stem(s);
+                if stemmed.as_bytes() != t.bytes.as_slice() {
+                    t.bytes = stemmed.as_bytes().to_vec();
+                }
+            }
+        }
     }
     tokens
+}
+
+pub fn tokenize(text: &str) -> Vec<Token> {
+    tokenize_with_options(text, false, false)
 }
 
 /// Build the canonical FST key bytes for a phrase: folded tokens joined
@@ -881,7 +976,7 @@ mod tests {
         // "SKU-\d{5}" is longer, so it should cleanly win and suppress the static match!
         let tags = tagger.tag("item SKU-12345 and MC-9876 are listed");
         assert_eq!(tags.len(), 2);
-        
+
         assert_eq!(tags[0].surface, "SKU-12345");
         assert_eq!(tags[0].id, "regex_sku");
         assert_eq!(tags[0].kind, "PRODUCT");
@@ -889,5 +984,82 @@ mod tests {
         assert_eq!(tags[1].surface, "MC-9876");
         assert_eq!(tags[1].id, "regex_book");
         assert_eq!(tags[1].kind, "BOOK");
+    }
+
+    #[test]
+    fn test_tokenize_with_stemming() {
+        let text = "connecting connected connections connect";
+        let unstemmed = tokenize_with_options(text, false, false);
+        let unstemmed_terms: Vec<&str> = unstemmed
+            .iter()
+            .map(|t| std::str::from_utf8(&t.bytes).unwrap())
+            .collect();
+        assert_eq!(
+            unstemmed_terms,
+            vec!["connecting", "connected", "connections", "connect"]
+        );
+
+        let stemmed = tokenize_with_options(text, true, false);
+        let stemmed_terms: Vec<&str> = stemmed
+            .iter()
+            .map(|t| std::str::from_utf8(&t.bytes).unwrap())
+            .collect();
+        assert_eq!(
+            stemmed_terms,
+            vec!["connect", "connect", "connect", "connect"]
+        );
+    }
+
+    #[test]
+    fn test_hyphen_internal_tokens() {
+        // Without keep_hyphens (default): hyphens are stripped, producing "sarscov2"
+        let def = tokenize_with_options("SARS-CoV-2", false, false);
+        let def_terms: Vec<&str> = def
+            .iter()
+            .map(|t| std::str::from_utf8(&t.bytes).unwrap())
+            .collect();
+        assert_eq!(def_terms, vec!["sarscov2"]);
+
+        // With keep_hyphens=true: "SARS-CoV-2" becomes single token "sars-cov-2"
+        let kept = tokenize_with_options("SARS-CoV-2", false, true);
+        let kept_terms: Vec<&str> = kept
+            .iter()
+            .map(|t| std::str::from_utf8(&t.bytes).unwrap())
+            .collect();
+        assert_eq!(kept_terms, vec!["sars-cov-2"]);
+
+        // COVID-19 becomes "covid-19"
+        let covid = tokenize_with_options("COVID-19", false, true);
+        let covid_terms: Vec<&str> = covid
+            .iter()
+            .map(|t| std::str::from_utf8(&t.bytes).unwrap())
+            .collect();
+        assert_eq!(covid_terms, vec!["covid-19"]);
+
+        // Leading/trailing/isolated hyphens are discarded; multi-hyphens split into separate tokens
+        let edge = tokenize_with_options(
+            "leading -hyphen and trailing- and isolated - hyphen and multi--hyphen",
+            false,
+            true,
+        );
+        let edge_terms: Vec<&str> = edge
+            .iter()
+            .map(|t| std::str::from_utf8(&t.bytes).unwrap())
+            .collect();
+        assert_eq!(
+            edge_terms,
+            vec![
+                "leading", "hyphen", "and", "trailing", "and", "isolated", "hyphen", "and",
+                "multi", "hyphen"
+            ]
+        );
+
+        // Combination of keep_hyphens and stemming
+        let combined = tokenize_with_options("SARS-CoV-2 connections", true, true);
+        let comb_terms: Vec<&str> = combined
+            .iter()
+            .map(|t| std::str::from_utf8(&t.bytes).unwrap())
+            .collect();
+        assert_eq!(comb_terms, vec!["sars-cov-2", "connect"]);
     }
 }

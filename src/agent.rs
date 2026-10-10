@@ -317,6 +317,7 @@ fn execute_tool_by_name(name: &str, args: serde_json::Value, default_db: &str) -
                 alpha,
                 graph_beta: graph,
                 shivvr_url,
+                bm25_params: crate::bm25::Bm25Params::from_env(),
                 ..Default::default()
             };
             if alpha <= 0.0 {

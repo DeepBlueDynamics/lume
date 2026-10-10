@@ -61,6 +61,7 @@ pub fn lexical_options(limit: usize) -> SearchOptions {
         mode: SearchMode::LexicalOnly,
         alpha: 0.0,
         limit,
+        bm25_params: crate::bm25::Bm25Params::from_env(),
         ..Default::default()
     }
 }
