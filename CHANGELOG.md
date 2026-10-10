@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.13.1 — 2026-10-10
+
+### Performance
+- **SIMD MiniRoaring kernels with runtime dispatch** (#15). Bitmap containers use AVX2 on x86_64 when the CPU supports it, with a scalar fallback. On aarch64, NEON is used for popcount and fused AND+popcount, and AND/OR/ANDNOT stay scalar because the compiler already vectorizes them there. All `unsafe` code is confined to `src/fast_retrieval/simd.rs`, and differential tests check it against the scalar reference at every container edge size.
+  - x86_64 microbench (rustc 1.96, 10,000 × 8 KiB containers): AND 2.36×, popcount 2.32×, AND+popcount 3.18×.
+  - Hot TREC-COVID, x86_64 (same setup as 0.13.0): p50 6.27 → **5.88 ms** (−6%) and p99 11.77 → **11.23 ms** (−5%). Throughput is unchanged within noise, and SciFact is flat. Rankings are byte-identical.
+  - Raspberry Pi 5 (Cortex-A76): popcount 1.20× and AND+popcount 1.32×; AND, OR and ANDNOT stay at scalar speed by design. SciFact rankings are byte-identical on the Pi (300 queries).
+
+### Docs
+- The README Performance section now includes the v0.13.0 results (search speed, hybrid on identical vectors, facets, index build).
+- `docs/HALOS.md` now points at the v0.13.0 HaLOS package. For 0.13.1, change the version in its download lines.
+
 ## 0.13.0 — 2026-10-10
 
 ### Performance highlights
