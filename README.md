@@ -441,9 +441,9 @@ Setup for every search number here: Docker with 8 CPU and 8 GiB, indexes on Linu
 
 On SciFact that is 286 ms to 5.7 ms. On TREC-COVID that is 7,892 ms to 99 ms. At this released speed Luxir is about 16× faster on SciFact and about 80× faster on TREC-COVID.
 
-### On main, not yet released
+### In v0.13.0
 
-Merged as PR #8 after v0.12.3; it ships in the next release. Stemming plus a coordination floor of 1.0 is the default for new indexes; existing indexes keep their recorded mode until reindexed (`lume index -f`). nDCG@10:
+Stemming plus a coordination floor of 1.0 is in v0.13.0. It is the default for new indexes; existing indexes keep their recorded mode until reindexed (`lume index -f`). nDCG@10:
 
 | | SciFact | TREC-COVID | NFCorpus (held out) |
 |---|---:|---:|---:|
@@ -455,7 +455,7 @@ NFCorpus (3.6k documents, 323 queries) was not used to choose the change. Luxir 
 
 ### Hybrid search
 
-Local-vector hybrid search is on main and documented in [docs/HYBRID.md](docs/HYBRID.md). It is not in v0.12.3. Both engines use the same EmbeddingGemma 2 vectors, 768 dimensions. Lume loads that cache and makes no Shivvr calls. nDCG@10:
+Local-vector hybrid search is in v0.13.0 and documented in [docs/HYBRID.md](docs/HYBRID.md). Both engines use the same EmbeddingGemma 2 vectors, 768 dimensions. Lume loads that cache and makes no Shivvr calls. nDCG@10:
 
 | | SciFact | NFCorpus (held out) |
 |---|---:|---:|
@@ -466,11 +466,11 @@ Alpha 2.0 was chosen on SciFact. There Lume leads by 0.074. Dense-only on those 
 
 ### Facets and index build
 
-Typed metadata, filters, and facets are on main and documented in [docs/FACETS.md](docs/FACETS.md). They are not in v0.12.3. TREC-COVID p50 on the facets build is 6.27 ms, measured after facet work stopped running on queries that do not ask for facets.
+Typed metadata, filters, and facets are in v0.13.0 and documented in [docs/FACETS.md](docs/FACETS.md). TREC-COVID p50 on the facets build is 6.27 ms, measured after facet work stopped running on queries that do not ask for facets.
 
-The TREC-COVID index build drops from 90.4 s to 56.0 s with one BM25 build and flush instead of four. Peak RSS on that pair of runs drops from 2.70 GB to 2.43 GB.
+In v0.13.0 the TREC-COVID index build drops from 90.4 s to 56.0 s with one BM25 build and flush instead of four. Peak RSS on that pair of runs drops from 2.70 GB to 2.43 GB.
 
-Integer term ids (Step 1) are on main and not in v0.12.3. With the new defaults, TREC-COVID p50 is 10.07 ms and SciFact p50 is 2.60 ms. Rankings stayed byte-identical.
+With byte-identical rankings, v0.13.0 hot-server speed on the default profile is TREC-COVID p50 111.6 ms to 6.27 ms, p99 231.0 ms to 11.77 ms, and 60 to 609 QPS. SciFact p50 is 9.05 ms to 2.19 ms. The starting points are the resident 0.12.x path in the v0.13.0 release notes, not the v0.12.3 table above.
 
 ### Vector inversion
 
