@@ -51,9 +51,17 @@ struct Node {
 }
 
 fn validate_directory(path: &Path) -> Result<(), String> {
-    let metadata = fs::symlink_metadata(path).map_err(|e| e.to_string())?;
+    let metadata = fs::symlink_metadata(path).map_err(|e| {
+        format!(
+            "Cannot inspect entity overlay directory {}: {e}",
+            path.display()
+        )
+    })?;
     if !metadata.is_dir() || metadata.file_type().is_symlink() {
-        return Err("Invalid entity overlay directory".into());
+        return Err(format!(
+            "Invalid entity overlay directory {}",
+            path.display()
+        ));
     }
     Ok(())
 }
@@ -138,17 +146,24 @@ pub fn publish(
         return Err("Entity overlay node exceeds 64 MiB".into());
     }
     let directory = generation::generation_directory(root, &manifest)?.join("overlays");
-    fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+    fs::create_dir_all(&directory).map_err(|e| {
+        format!(
+            "Cannot create entity overlay directory {}: {e}",
+            directory.display()
+        )
+    })?;
     validate_directory(&directory)?;
     let id = crate::uuid_v4();
     let path = directory.join(format!("{id}.json"));
     let mut file = OpenOptions::new()
         .create_new(true)
         .write(true)
-        .open(path)
-        .map_err(|e| e.to_string())?;
-    file.write_all(&bytes).map_err(|e| e.to_string())?;
-    file.sync_all().map_err(|e| e.to_string())?;
+        .open(&path)
+        .map_err(|e| format!("Cannot create entity overlay node {}: {e}", path.display()))?;
+    file.write_all(&bytes)
+        .map_err(|e| format!("Cannot write entity overlay node {}: {e}", path.display()))?;
+    file.sync_all()
+        .map_err(|e| format!("Cannot sync entity overlay node {}: {e}", path.display()))?;
     drop(file);
     checkpoint(PublishStep::NodeSynced)?;
     generation::sync_directory(&directory)?;
@@ -179,19 +194,23 @@ pub fn read(root: &Path, manifest: &Manifest) -> Result<Vec<Replacement>, String
     while let Some(current) = head {
         current.validate()?;
         let path = directory.join(format!("{}.json", current.node));
-        let metadata = fs::symlink_metadata(&path).map_err(|e| e.to_string())?;
+        let metadata = fs::symlink_metadata(&path)
+            .map_err(|e| format!("Cannot inspect entity overlay node {}: {e}", path.display()))?;
         if !metadata.is_file()
             || metadata.file_type().is_symlink()
             || metadata.len() > MAX_NODE_BYTES
         {
-            return Err("Invalid entity overlay node type or size".into());
+            return Err(format!(
+                "Invalid entity overlay node type or size {}",
+                path.display()
+            ));
         }
         let mut bytes = Vec::new();
-        File::open(path)
-            .map_err(|e| e.to_string())?
+        File::open(&path)
+            .map_err(|e| format!("Cannot open entity overlay node {}: {e}", path.display()))?
             .take(MAX_NODE_BYTES + 1)
             .read_to_end(&mut bytes)
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| format!("Cannot read entity overlay node {}: {e}", path.display()))?;
         if bytes.len() as u64 > MAX_NODE_BYTES || generation::sha256(&bytes) != current.sha256 {
             return Err("Entity overlay node seal mismatch".into());
         }
