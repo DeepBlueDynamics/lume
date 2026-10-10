@@ -197,7 +197,7 @@ mod worker_tests {
     #[test]
     fn task_order_and_errors_are_independent_of_worker_count() {
         for workers in 1..=4 {
-            let tasks: Vec<DecodeTask<'_, usize>> = (0..4)
+            let tasks: Vec<DecodeTask<'_, usize>> = (0..4usize)
                 .map(|n| Box::new(move || Ok(n)) as DecodeTask<'_, usize>)
                 .collect();
             assert_eq!(run_tasks(tasks, workers).unwrap(), [0, 1, 2, 3]);
