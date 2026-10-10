@@ -258,10 +258,7 @@ impl MiniRoaring {
                         let mut res = Vec::new();
                         let (mut i, mut j) = (0, 0);
                         while i < a.len() {
-                            if j >= b.len() {
-                                res.push(a[i]);
-                                i += 1;
-                            } else if a[i] < b[j] {
+                            if j >= b.len() || a[i] < b[j] {
                                 res.push(a[i]);
                                 i += 1;
                             } else if a[i] == b[j] {
