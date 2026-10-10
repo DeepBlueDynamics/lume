@@ -139,6 +139,7 @@ impl PostingsCsr {
                     .map_err(|_| "Cannot allocate postings")?;
             }
             let mut previous = 0_u32;
+            let mut inline = values.iter_mut();
             for index in 0..count {
                 let delta =
                     u32::try_from(reader.varint()?).map_err(|_| "Posting delta exceeds u32")?;
@@ -157,7 +158,7 @@ impl PostingsCsr {
                     return Err("Invalid v4 posting".into());
                 }
                 if count <= INLINE_LIMIT {
-                    values[index] = posting;
+                    *inline.next().ok_or("Inline posting count overflow")? = posting;
                 } else {
                     result.entries.push(posting);
                 }

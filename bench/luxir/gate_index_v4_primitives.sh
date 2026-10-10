@@ -5,6 +5,7 @@ case "$(rustc --version)" in
   "rustc 1.96."*) ;;
   *) echo "Stage 1 gate requires rustc 1.96" >&2; exit 1 ;;
 esac
+rustup component add rustfmt clippy
 export CARGO_INCREMENTAL=0
 export CARGO_TARGET_DIR=/workspace/lume/.build-cache/target
 export TMPDIR=/tmp
