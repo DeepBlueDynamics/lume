@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use crate::bm25::{filter_query_stopwords, Bm25Index, Bm25Params, SearchVariant, Section};
 use crate::semantic_mesh::EntityGraph;
@@ -39,6 +40,7 @@ pub struct SearchOptions {
     pub auth_token: Option<String>,
     pub query_inversion: bool,
     pub max_snippet_chars: usize,
+    pub facets: Vec<crate::meta::FacetRequest>,
 }
 
 impl Default for SearchOptions {
@@ -57,11 +59,15 @@ impl Default for SearchOptions {
             auth_token: None,
             query_inversion: false,
             max_snippet_chars: 6000,
+            facets: Vec::new(),
         }
     }
 }
 
-pub const CURRENT_FORMAT_VERSION: u32 = 2;
+pub const FORMAT_VERSION_UNSTEMMED: u32 = 1;
+pub const FORMAT_VERSION_STEMMED: u32 = 2;
+pub const FORMAT_VERSION_META: u32 = 3;
+pub const CURRENT_FORMAT_VERSION: u32 = 3;
 
 fn default_format_version() -> u32 {
     1
@@ -110,6 +116,24 @@ pub struct LoadedIndex {
     pub entity_graph: Option<EntityGraph>,
     pub tagger: Option<Tagger>,
     pub cache_dir: Option<PathBuf>,
+    pub meta: Option<crate::meta::MetaIndex>,
+    pub local_vectors: Option<crate::local_vectors::LocalVectors>,
+    /// Fingerprint of this immutable index snapshot, not the live source tree.
+    pub corpus_fingerprint: OnceLock<(u64, u64)>,
+}
+
+impl std::fmt::Debug for LoadedIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoadedIndex")
+            .field("state", &self.state)
+            .field("bm25", &self.bm25)
+            .field("spelling", &self.spelling)
+            .field("entity_graph", &self.entity_graph)
+            .field("tagger", &self.tagger.as_ref().map(|_| "<Tagger>"))
+            .field("cache_dir", &self.cache_dir)
+            .field("meta", &self.meta)
+            .finish()
+    }
 }
 
 /// Optional configuration checks when loading an index from disk.
@@ -139,6 +163,7 @@ impl LoadedIndex {
         db_dir: impl AsRef<Path>,
         checks: OpenEnvChecks,
     ) -> Result<Self, String> {
+        let _timing = crate::index_timing::Span::new("open.total");
         let db_path = db_dir.as_ref();
         let state_path = db_path.join("state.json");
         if !state_path.exists() {
@@ -181,24 +206,77 @@ impl LoadedIndex {
             }
         }
 
+        let meta = if state.format_version >= 3 {
+            let meta_path = db_path.join("meta.json");
+            if !meta_path.exists() {
+                return Err(format!(
+                    "Index format version {} requires meta.json at {}, but it was not found; please reindex with 'lume index -f'.",
+                    state.format_version,
+                    meta_path.display()
+                ));
+            }
+            let meta_idx = crate::meta::MetaIndex::open(&meta_path)?;
+            if meta_idx.num_sections != bm25.sections.len() {
+                return Err(format!(
+                    "Index metadata section count mismatch: meta.json has {} sections but bm25.json has {}; please reindex with 'lume index -f'.",
+                    meta_idx.num_sections,
+                    bm25.sections.len()
+                ));
+            }
+            Some(meta_idx)
+        } else {
+            None
+        };
+
+        let corpus_fingerprint = OnceLock::from(crate::hybrid::index_fingerprint(&bm25.sections));
+        let local_vectors = crate::local_vectors::LocalVectors::open(db_path, &bm25.sections)?;
+        if let Ok(model) = std::env::var("LUME_EMBED_MODEL") {
+            if local_vectors
+                .as_ref()
+                .is_none_or(|vectors| vectors.profile.model != model)
+            {
+                return Err("Requested embedding model does not match the local-vector index; reindex with --embed-model".to_string());
+            }
+        }
+        if let Ok(dimensions) = std::env::var("LUME_EMBED_DIMENSIONS") {
+            let dimensions = dimensions
+                .parse::<usize>()
+                .map_err(|_| "Invalid --embed-dimensions")?;
+            if local_vectors
+                .as_ref()
+                .is_some_and(|vectors| vectors.profile.dimensions != dimensions)
+            {
+                return Err(
+                    "Requested embedding dimensions do not match the local-vector index"
+                        .to_string(),
+                );
+            }
+        }
         Ok(Self {
+            local_vectors,
+            corpus_fingerprint,
             state: Some(state),
             bm25,
             spelling,
             entity_graph,
             tagger,
             cache_dir: Some(db_path.to_path_buf()),
+            meta,
         })
     }
 
     pub fn from_parts(bm25: Bm25Index) -> Self {
+        let corpus_fingerprint = OnceLock::from(crate::hybrid::index_fingerprint(&bm25.sections));
         Self {
+            local_vectors: None,
+            corpus_fingerprint,
             state: None,
             bm25,
             spelling: None,
             entity_graph: None,
             tagger: None,
             cache_dir: None,
+            meta: None,
         }
     }
 }
@@ -228,6 +306,10 @@ pub struct SearchResults {
     pub graph_beta: f64,
     pub hits: Vec<SearchResultHit>,
     pub total_sections: usize,
+    #[serde(default)]
+    pub found: usize,
+    #[serde(default)]
+    pub facets: Option<crate::meta::Facets>,
     pub skg_seeds: Vec<String>,
     pub skg_neighbors: Vec<(String, f64)>,
     pub warnings: Vec<String>,
@@ -256,7 +338,9 @@ pub fn save_json<T: Serialize>(path: &Path, val: &T) -> Result<(), String> {
     let written = (|| {
         let file = File::create(&tmp_path)
             .map_err(|e| format!("Failed to create file {}: {}", tmp_path.display(), e))?;
-        let mut writer = io::BufWriter::new(file);
+        let timing = crate::index_timing::enabled();
+        let started = timing.then(std::time::Instant::now);
+        let mut writer = io::BufWriter::new(crate::index_timing::TimedIo::new(file, timing));
         serde_json::to_writer_pretty(&mut writer, val)
             .map_err(|e| format!("Failed to write JSON to {}: {}", path.display(), e))?;
         writer
@@ -265,8 +349,20 @@ pub fn save_json<T: Serialize>(path: &Path, val: &T) -> Result<(), String> {
         let file = writer
             .into_inner()
             .map_err(|e| format!("Failed to flush {}: {}", tmp_path.display(), e))?;
+        if let Some(started) = started {
+            crate::index_timing::emit(
+                "json.serialize",
+                Some(path),
+                started.elapsed().saturating_sub(file.elapsed),
+            );
+            crate::index_timing::emit("json.write", Some(path), file.elapsed);
+        }
+        let sync = timing.then(std::time::Instant::now);
         file.sync_all()
             .map_err(|e| format!("Failed to sync {}: {}", tmp_path.display(), e))?;
+        if let Some(sync) = sync {
+            crate::index_timing::emit("json.sync", Some(path), sync.elapsed());
+        }
         drop(file);
         std::fs::rename(&tmp_path, path).map_err(|e| {
             format!(
@@ -299,9 +395,20 @@ pub fn save_json<T: Serialize>(path: &Path, val: &T) -> Result<(), String> {
 pub fn load_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, String> {
     let file =
         File::open(path).map_err(|e| format!("Failed to open file {}: {}", path.display(), e))?;
-    let reader = io::BufReader::new(file);
-    let val = serde_json::from_reader(reader)
+    let timing = crate::index_timing::enabled();
+    let started = timing.then(std::time::Instant::now);
+    let mut reader = io::BufReader::new(crate::index_timing::TimedIo::new(file, timing));
+    let val = serde_json::from_reader(&mut reader)
         .map_err(|e| format!("Failed to parse JSON from {}: {}", path.display(), e))?;
+    if let Some(started) = started {
+        let read = reader.get_ref().elapsed;
+        crate::index_timing::emit("open.read", Some(path), read);
+        crate::index_timing::emit(
+            "open.parse_reconstruct",
+            Some(path),
+            started.elapsed().saturating_sub(read),
+        );
+    }
     Ok(val)
 }
 
@@ -450,20 +557,97 @@ pub fn search(
         warnings.push("Notice: this index was built without stemming; run 'lume index -f' to reindex with default stemming.".to_string());
     }
 
+    // 0. Extract field filters before spell correction and NOT parsing
+    let (text_query, filters) = if let Some(ref meta) = index.meta {
+        if query.contains(':') {
+            crate::meta::extract_filters(query, Some(meta))
+        } else {
+            (query.to_string(), Vec::new())
+        }
+    } else {
+        (query.to_string(), Vec::new())
+    };
+
+    let allow = if filters.is_empty() {
+        None
+    } else if let Some(ref meta) = index.meta {
+        crate::meta::evaluate_filters(meta, &filters)
+    } else {
+        None
+    };
+
+    // Filter-only query: if text_query has no text terms, return filtered sections in id order with score 0
+    if text_query.trim().is_empty() && !filters.is_empty() {
+        let matching_ids: Vec<u32> = allow.clone().map(|bm| bm.iter()).unwrap_or_default();
+        let found = matching_ids.len();
+        let facets = if !opts.facets.is_empty() {
+            let match_bm = allow.unwrap_or_default();
+            Some(crate::meta::compute_facets(
+                index.meta.as_ref(),
+                &index.bm25,
+                &match_bm,
+                &matching_ids,
+                &opts.facets,
+            ))
+        } else {
+            None
+        };
+        let limit = opts.limit.min(matching_ids.len());
+        let mut hits = Vec::new();
+        for (i, &sec_id) in matching_ids[..limit].iter().enumerate() {
+            if let Some(sec) = index.bm25.sections.get(sec_id as usize) {
+                let snippet = sec.body.lines().take(5).collect::<Vec<_>>().join("\n");
+                hits.push(SearchResultHit {
+                    rank: i + 1,
+                    section_index: sec_id as usize,
+                    score: 0.0,
+                    bm25_score: 0.0,
+                    semantic_score: None,
+                    skg_score: None,
+                    title: sec.title.clone(),
+                    filename: sec.filename.clone(),
+                    line_number: sec.line_number,
+                    body: sec.body.clone(),
+                    snippet,
+                    entities: sec
+                        .entities
+                        .iter()
+                        .filter(|&e| e != "__LUME_PROCESSED__")
+                        .cloned()
+                        .collect(),
+                });
+            }
+        }
+        return Ok(SearchResults {
+            query: query.to_string(),
+            corrected_query: None,
+            executed_mode: SearchMode::LexicalOnly,
+            alpha: opts.alpha,
+            graph_beta: opts.graph_beta,
+            hits,
+            total_sections: index.bm25.sections.len(),
+            found,
+            facets,
+            skg_seeds: Vec::new(),
+            skg_neighbors: Vec::new(),
+            warnings,
+        });
+    }
+
     // 1. Spell correction
     let (corrected_query_opt, effective_query) = if opts.spell_check {
         if let Some(ref spelling) = index.spelling {
-            let corrected = correct_query(spelling, query);
-            if corrected != query {
+            let corrected = correct_query(spelling, &text_query);
+            if corrected != text_query {
                 (Some(corrected.clone()), corrected)
             } else {
-                (None, query.to_string())
+                (None, text_query.to_string())
             }
         } else {
-            (None, query.to_string())
+            (None, text_query.to_string())
         }
     } else {
-        (None, query.to_string())
+        (None, text_query.to_string())
     };
 
     // 1b. Parse NOT terms and validate excluded terms
@@ -544,22 +728,24 @@ pub fn search(
     };
 
     if want_hybrid {
-        let token_opt = opts
-            .auth_token
-            .clone()
-            .or_else(crate::hybrid::load_nuts_token);
+        let token_opt = opts.auth_token.clone().or_else(|| {
+            crate::hybrid::load_nuts_token_at(&crate::hybrid::resolve_shivvr_base_url(
+                opts.shivvr_url.as_deref(),
+            ))
+        });
         let has_session = index
             .state
             .as_ref()
             .and_then(|s| s.semantic_session_id.as_ref())
-            .is_some();
+            .is_some()
+            || index.local_vectors.is_some();
 
         if !has_session {
             if opts.mode == SearchMode::HybridStrict {
                 return Err("Semantic search unavailable for this index (no semantic session — index with -s).".to_string());
             }
             warnings.push("[⚠️] Semantic search unavailable for this index (no semantic session — index with -s); falling back to lexical BM25.".to_string());
-        } else if token_opt.is_none() {
+        } else if token_opt.is_none() && index.local_vectors.is_none() {
             if opts.mode == SearchMode::HybridStrict {
                 return Err("Semantic search unavailable (no NUTS_SERVICES_TOKEN and shivvr endpoint is not local).".to_string());
             }
@@ -571,10 +757,13 @@ pub fn search(
                 .as_ref()
                 .map(|s| s.target_dir.as_str())
                 .unwrap_or("");
-            let hybrid_res = crate::hybrid::execute_hybrid_search(
+            let hybrid_res = crate::hybrid::execute_hybrid_search_with_local(
                 &index.bm25,
                 index.tagger.as_ref(),
                 target_dir,
+                *index
+                    .corpus_fingerprint
+                    .get_or_init(|| crate::hybrid::index_fingerprint(&index.bm25.sections)),
                 &effective_query,
                 &skg_scores,
                 beta,
@@ -586,10 +775,35 @@ pub fn search(
                 opts.shivvr_url.as_deref(),
                 token_opt.as_deref(),
                 opts.query_inversion,
+                index.local_vectors.as_ref(),
             );
 
             match hybrid_res {
                 Ok(mut h_results) => {
+                    if let Some(ref allow_bm) = allow {
+                        h_results
+                            .hits
+                            .retain(|h| allow_bm.contains(h.section_index as u32));
+                    }
+                    let found = h_results.hits.len();
+                    let facets = if !opts.facets.is_empty() {
+                        let mut match_ids: Vec<u32> = h_results
+                            .hits
+                            .iter()
+                            .map(|h| h.section_index as u32)
+                            .collect();
+                        match_ids.sort();
+                        let match_bm = crate::fast_retrieval::MiniRoaring::from_sorted(&match_ids);
+                        Some(crate::meta::compute_facets(
+                            index.meta.as_ref(),
+                            &index.bm25,
+                            &match_bm,
+                            &match_ids,
+                            &opts.facets,
+                        ))
+                    } else {
+                        None
+                    };
                     h_results.hits.truncate(opts.limit);
                     let mut hits = Vec::new();
                     for h in h_results.hits {
@@ -622,6 +836,8 @@ pub fn search(
                         graph_beta: beta,
                         hits,
                         total_sections: index.bm25.sections.len(),
+                        found,
+                        facets,
                         skg_seeds,
                         skg_neighbors,
                         warnings,
@@ -639,26 +855,51 @@ pub fn search(
 
     // 4. Lexical BM25 path
     let (lexical_params, lexical_variant) = (opts.bm25_params.clone(), opts.bm25_variant);
+
     // Graph and hybrid stages can reorder lexical hits. Only bound the
     // lexical collector once those stages are absent.
     let mut bm25_hits = if beta == 0.0 || skg_scores.is_empty() {
-        index.bm25.search_top_k(
+        index.bm25.search_top_k_filtered(
             &effective_query,
             lexical_variant,
             &lexical_params,
             index.tagger.as_ref(),
             opts.limit,
+            allow.as_ref(),
         )
     } else {
-        index.bm25.search(
+        let mut hits = index.bm25.search(
             &effective_query,
             lexical_variant,
             &lexical_params,
             index.tagger.as_ref(),
-        )
+        );
+        if let Some(ref allow_bm) = allow {
+            hits.retain(|h| allow_bm.contains(h.section_index as u32));
+        }
+        hits
     };
     crate::graph_search::apply_skg_boost(&mut bm25_hits, &skg_scores, beta);
     bm25_hits.truncate(opts.limit);
+
+    // Only compute exhaustive candidates/facets if facets were requested.
+    let (found, facets) = if !opts.facets.is_empty() {
+        let candidate_bm =
+            index
+                .bm25
+                .candidates(&effective_query, index.tagger.as_ref(), allow.as_ref());
+        let match_ids = candidate_bm.iter();
+        let computed = crate::meta::compute_facets(
+            index.meta.as_ref(),
+            &index.bm25,
+            &candidate_bm,
+            &match_ids,
+            &opts.facets,
+        );
+        (candidate_bm.len(), Some(computed))
+    } else {
+        (bm25_hits.len(), None)
+    };
 
     let mut hits = Vec::new();
     for (i, hit) in bm25_hits.iter().enumerate() {
@@ -698,6 +939,8 @@ pub fn search(
         graph_beta: beta,
         hits,
         total_sections: index.bm25.sections.len(),
+        found,
+        facets,
         skg_seeds,
         skg_neighbors,
         warnings,
@@ -814,6 +1057,47 @@ pub fn format_cli_output(
         }
     }
 
+    // 6. Facets (if requested)
+    if let Some(ref facets) = results.facets {
+        stdout.push_str("Facets:\n");
+        for (name, facet) in facets {
+            match facet {
+                crate::meta::FacetResult::Field { buckets, missing } => {
+                    stdout.push_str(&format!("  {}:\n", name));
+                    for b in buckets {
+                        stdout.push_str(&format!("    {}: {}\n", b.val, b.count));
+                    }
+                    if *missing > 0 {
+                        stdout.push_str(&format!("    (missing): {}\n", missing));
+                    }
+                }
+                crate::meta::FacetResult::Range {
+                    buckets,
+                    before,
+                    after,
+                    missing,
+                } => {
+                    stdout.push_str(&format!("  {}:\n", name));
+                    if *before > 0 {
+                        stdout.push_str(&format!("    before: {}\n", before));
+                    }
+                    for b in buckets {
+                        stdout.push_str(&format!("    [{}, {}): {}\n", b.from, b.to, b.count));
+                    }
+                    if *after > 0 {
+                        stdout.push_str(&format!("    after: {}\n", after));
+                    }
+                    if *missing > 0 {
+                        stdout.push_str(&format!("    (missing): {}\n", missing));
+                    }
+                }
+                crate::meta::FacetResult::Query { count } => {
+                    stdout.push_str(&format!("  {} (query): {}\n", name, count));
+                }
+            }
+        }
+    }
+
     (stdout, stderr)
 }
 
@@ -842,10 +1126,86 @@ mod tests {
     }
 
     #[test]
+    fn resident_hybrid_search_does_not_walk_the_source_tree() {
+        let dir = std::env::temp_dir().join(format!(
+            "lume-hybrid-no-walk-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let missing_source = dir.join("source-no-longer-mounted");
+        let target = missing_source.to_string_lossy().into_owned();
+        let mut index = LoadedIndex::from_parts(build_test_bm25());
+        index.state = Some(IndexState {
+            format_version: CURRENT_FORMAT_VERSION,
+            target_dir: target.clone(),
+            db_dir: dir.to_string_lossy().into_owned(),
+            semantic_enabled: true,
+            ollama_entities: false,
+            ollama_model: "test".to_string(),
+            ollama_url: "http://localhost:11434".to_string(),
+            tag_dict_path: None,
+            semantic_session_id: Some("cached-session".to_string()),
+            cached_files: HashMap::new(),
+            stemmed: false,
+            keep_hyphens: false,
+        });
+        index.cache_dir = Some(dir.clone());
+        let (size, fingerprint) = *index.corpus_fingerprint.get().unwrap();
+        let cache = crate::hybrid::SemanticQueryCache {
+            server_url: None,
+            corpus_path: target.clone(),
+            corpus_size: size,
+            corpus_mtime: fingerprint,
+            queries: HashMap::from([(
+                "captain".to_string(),
+                vec![crate::hybrid::SearchResult {
+                    chunk_id: "cached-chunk".to_string(),
+                    score: 0.8,
+                    text: "The brave captain".to_string(),
+                    source: Some(crate::hybrid::section_hash(&index.bm25.sections[0])),
+                }],
+            )]),
+        };
+        crate::hybrid::save_semantic_cache_with_dir(&cache, Some(&dir));
+        let opts = SearchOptions {
+            mode: SearchMode::HybridStrict,
+            graph_beta: 0.0,
+            auth_token: Some("test-token".to_string()),
+            ..Default::default()
+        };
+        for _ in 0..2 {
+            let results = search(&index, "captain", &opts).unwrap();
+            assert_eq!(results.executed_mode, SearchMode::HybridStrict);
+            assert_eq!(results.hits[0].title, "Chapter 1");
+            assert!(!missing_source.exists());
+        }
+
+        // A replacement snapshot changes the fingerprint even at equal byte size.
+        let mut replacement = index.bm25.sections.clone();
+        replacement[0].body = replacement[0].body.replace("brave", "stern");
+        let changed = crate::hybrid::index_fingerprint(&replacement);
+        assert_eq!(changed.0, size);
+        assert_ne!(changed.1, fingerprint);
+        assert!(crate::hybrid::load_semantic_cache_with_dir(
+            &target,
+            changed.0,
+            changed.1,
+            Some(&dir)
+        )
+        .queries
+        .is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn test_lexical_only_with_nonexistent_target_dir() {
         let bm25 = build_test_bm25();
         let state = IndexState {
-            format_version: CURRENT_FORMAT_VERSION,
+            format_version: FORMAT_VERSION_STEMMED,
             target_dir: "/nonexistent/directory/that/does/not/exist/987654321".to_string(),
             db_dir: ".dummy-db".to_string(),
             semantic_enabled: false,
@@ -865,6 +1225,9 @@ mod tests {
             entity_graph: None,
             tagger: None,
             cache_dir: None,
+            meta: None,
+            corpus_fingerprint: OnceLock::new(),
+            local_vectors: None,
         };
 
         let opts = SearchOptions {
@@ -884,7 +1247,7 @@ mod tests {
     fn test_hybrid_fallback_on_missing_session() {
         let bm25 = build_test_bm25();
         let state = IndexState {
-            format_version: CURRENT_FORMAT_VERSION,
+            format_version: FORMAT_VERSION_STEMMED,
             target_dir: "/dummy/target".to_string(),
             db_dir: ".dummy-db".to_string(),
             semantic_enabled: false,
@@ -904,6 +1267,9 @@ mod tests {
             entity_graph: None,
             tagger: None,
             cache_dir: None,
+            meta: None,
+            corpus_fingerprint: OnceLock::new(),
+            local_vectors: None,
         };
 
         let opts = SearchOptions {
@@ -927,7 +1293,7 @@ mod tests {
     fn test_hybrid_strict_fails_on_missing_session() {
         let bm25 = build_test_bm25();
         let state = IndexState {
-            format_version: CURRENT_FORMAT_VERSION,
+            format_version: FORMAT_VERSION_STEMMED,
             target_dir: "/dummy/target".to_string(),
             db_dir: ".dummy-db".to_string(),
             semantic_enabled: false,
@@ -947,6 +1313,9 @@ mod tests {
             entity_graph: None,
             tagger: None,
             cache_dir: None,
+            meta: None,
+            corpus_fingerprint: OnceLock::new(),
+            local_vectors: None,
         };
 
         let opts = SearchOptions {
@@ -1101,7 +1470,7 @@ mod tests {
 
         // 3. Now test a stemmed index
         let state_stemmed = IndexState {
-            format_version: CURRENT_FORMAT_VERSION,
+            format_version: FORMAT_VERSION_STEMMED,
             stemmed: true,
             ..state
         };
@@ -1234,7 +1603,7 @@ mod tests {
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         let state = IndexState {
-            format_version: CURRENT_FORMAT_VERSION,
+            format_version: FORMAT_VERSION_STEMMED,
             target_dir: "/dummy".to_string(),
             db_dir: temp_dir.display().to_string(),
             semantic_enabled: false,
@@ -1277,7 +1646,7 @@ mod tests {
     fn test_search_path_honors_explicit_bm25_params() {
         let bm25 = build_test_bm25();
         let state = IndexState {
-            format_version: CURRENT_FORMAT_VERSION,
+            format_version: FORMAT_VERSION_STEMMED,
             target_dir: "/dummy/target".to_string(),
             db_dir: ".dummy-db".to_string(),
             semantic_enabled: false,
@@ -1297,6 +1666,9 @@ mod tests {
             entity_graph: None,
             tagger: None,
             cache_dir: None,
+            meta: None,
+            corpus_fingerprint: OnceLock::new(),
+            local_vectors: None,
         };
 
         // 1. Lexical search with default params (coord_floor = 1.0, unpenalized)
@@ -1422,6 +1794,9 @@ mod tests {
             entity_graph: None,
             tagger: None,
             cache_dir: None,
+            meta: None,
+            corpus_fingerprint: OnceLock::new(),
+            local_vectors: None,
         };
 
         let opts = SearchOptions {
@@ -1450,5 +1825,553 @@ mod tests {
             .warnings
             .iter()
             .any(|w| w.contains("query contains only excluded terms")));
+    }
+
+    #[test]
+    fn test_format_version_2_loads_with_meta_none() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "lume_test_v2_{}_{}",
+            std::process::id(),
+            crate::uuid_v4()
+        ));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let state_json = r#"{
+            "format_version": 2,
+            "target_dir": "/tmp/dummy",
+            "db_dir": ".dummy-db",
+            "semantic_enabled": false,
+            "ollama_entities": false,
+            "ollama_model": "test",
+            "ollama_url": "http://localhost:11434",
+            "tag_dict_path": null,
+            "semantic_session_id": null,
+            "cached_files": {},
+            "stemmed": true,
+            "keep_hyphens": false
+        }"#;
+        std::fs::write(temp_dir.join("state.json"), state_json).unwrap();
+
+        let sec = Section {
+            title: "Sec".to_string(),
+            body: "Body text".to_string(),
+            line_number: 1,
+            filename: Some("sec.md".to_string()),
+            entities: Vec::new(),
+        };
+        let bm25 = Bm25Index::build(vec![sec], None);
+        save_json(&temp_dir.join("bm25.json"), &bm25).unwrap();
+
+        let loaded = LoadedIndex::open(&temp_dir).unwrap();
+        assert!(loaded.meta.is_none());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_format_version_3_missing_meta_json_error() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "lume_test_v3_missing_{}_{}",
+            std::process::id(),
+            crate::uuid_v4()
+        ));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let state_json = r#"{
+            "format_version": 3,
+            "target_dir": "/tmp/dummy",
+            "db_dir": ".dummy-db",
+            "semantic_enabled": false,
+            "ollama_entities": false,
+            "ollama_model": "test",
+            "ollama_url": "http://localhost:11434",
+            "tag_dict_path": null,
+            "semantic_session_id": null,
+            "cached_files": {},
+            "stemmed": true,
+            "keep_hyphens": false
+        }"#;
+        std::fs::write(temp_dir.join("state.json"), state_json).unwrap();
+
+        let sec = Section {
+            title: "Sec".to_string(),
+            body: "Body text".to_string(),
+            line_number: 1,
+            filename: Some("sec.md".to_string()),
+            entities: Vec::new(),
+        };
+        let bm25 = Bm25Index::build(vec![sec], None);
+        save_json(&temp_dir.join("bm25.json"), &bm25).unwrap();
+
+        let err = LoadedIndex::open(&temp_dir)
+            .expect_err("expected error loading index without meta.json");
+        assert!(
+            err.contains("requires meta.json"),
+            "expected requires meta.json, got: {}",
+            err
+        );
+        assert!(
+            err.contains("reindex"),
+            "expected reindex in error, got: {}",
+            err
+        );
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_format_version_3_section_count_mismatch_error() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "lume_test_v3_mismatch_{}_{}",
+            std::process::id(),
+            crate::uuid_v4()
+        ));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let state_json = r#"{
+            "format_version": 3,
+            "target_dir": "/tmp/dummy",
+            "db_dir": ".dummy-db",
+            "semantic_enabled": false,
+            "ollama_entities": false,
+            "ollama_model": "test",
+            "ollama_url": "http://localhost:11434",
+            "tag_dict_path": null,
+            "semantic_session_id": null,
+            "cached_files": {},
+            "stemmed": true,
+            "keep_hyphens": false
+        }"#;
+        std::fs::write(temp_dir.join("state.json"), state_json).unwrap();
+
+        let sec = Section {
+            title: "Sec".to_string(),
+            body: "Body text".to_string(),
+            line_number: 1,
+            filename: Some("sec.md".to_string()),
+            entities: Vec::new(),
+        };
+        let bm25 = Bm25Index::build(vec![sec], None);
+        save_json(&temp_dir.join("bm25.json"), &bm25).unwrap();
+
+        // Write meta.json with num_sections: 5 (mismatch with bm25.sections.len() = 1)
+        let meta_disk = crate::meta::MetaIndexOnDisk {
+            meta_version: 1,
+            num_sections: 5,
+            generation: "gen-1".to_string(),
+            schema: std::collections::HashMap::new(),
+            files: std::collections::HashMap::new(),
+            columns: std::collections::HashMap::new(),
+        };
+        save_json(&temp_dir.join("meta.json"), &meta_disk).unwrap();
+
+        let err = LoadedIndex::open(&temp_dir)
+            .expect_err("expected error loading index with section count mismatch");
+        assert!(
+            err.contains("Index metadata section count mismatch"),
+            "expected section count mismatch, got: {}",
+            err
+        );
+        assert!(
+            err.contains("reindex"),
+            "expected reindex in error, got: {}",
+            err
+        );
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_search_filters_and_bit_identical_scores() {
+        let sec0 = Section {
+            title: "Cancer Therapy".to_string(),
+            body: "Cancer therapy clinical trial outcomes.".to_string(),
+            line_number: 1,
+            filename: Some("sec0.md".to_string()),
+            entities: Vec::new(),
+        };
+        let sec1 = Section {
+            title: "Genetics Study".to_string(),
+            body: "Cancer mutations and tumor genetics.".to_string(),
+            line_number: 10,
+            filename: Some("sec1.md".to_string()),
+            entities: Vec::new(),
+        };
+        let bm25 = Bm25Index::build(vec![sec0, sec1], None);
+
+        let mut files = HashMap::new();
+        let mut f0 = HashMap::new();
+        f0.insert("category".to_string(), serde_json::json!("biology"));
+        f0.insert("year".to_string(), serde_json::json!(2020));
+        files.insert("sec0.md".to_string(), ("manifest".to_string(), f0));
+
+        let mut f1 = HashMap::new();
+        f1.insert("category".to_string(), serde_json::json!("physics"));
+        f1.insert("year".to_string(), serde_json::json!(2022));
+        files.insert("sec1.md".to_string(), ("manifest".to_string(), f1));
+
+        let meta = crate::meta::build_meta_index(
+            &["sec0.md".to_string(), "sec1.md".to_string()],
+            &files,
+            &HashMap::new(),
+            "gen-filter-test",
+        );
+
+        let index = LoadedIndex {
+            state: None,
+            bm25,
+            spelling: None,
+            entity_graph: None,
+            tagger: None,
+            cache_dir: None,
+            meta,
+            corpus_fingerprint: OnceLock::new(),
+            local_vectors: None,
+        };
+
+        let opts = SearchOptions {
+            mode: SearchMode::LexicalOnly,
+            graph_beta: 0.0,
+            ..Default::default()
+        };
+
+        // 1. Unfiltered query
+        let res_unfiltered = search(&index, "cancer", &opts).unwrap();
+        assert_eq!(res_unfiltered.hits.len(), 2);
+        let score_sec0 = res_unfiltered
+            .hits
+            .iter()
+            .find(|h| h.section_index == 0)
+            .unwrap()
+            .score;
+        let score_sec1 = res_unfiltered
+            .hits
+            .iter()
+            .find(|h| h.section_index == 1)
+            .unwrap()
+            .score;
+
+        // 2. Positive filter: category:biology
+        let res_bio = search(&index, "cancer category:biology", &opts).unwrap();
+        assert_eq!(res_bio.hits.len(), 1);
+        assert_eq!(res_bio.hits[0].section_index, 0);
+        // Assert BIT-IDENTICAL score
+        assert_eq!(res_bio.hits[0].score.to_bits(), score_sec0.to_bits());
+
+        // 3. Negated filter: -category:biology
+        let res_not_bio = search(&index, "cancer -category:biology", &opts).unwrap();
+        assert_eq!(res_not_bio.hits.len(), 1);
+        assert_eq!(res_not_bio.hits[0].section_index, 1);
+        // Assert BIT-IDENTICAL score
+        assert_eq!(res_not_bio.hits[0].score.to_bits(), score_sec1.to_bits());
+
+        // 4. Range filter: year:>=2021
+        let res_range = search(&index, "cancer year:>=2021", &opts).unwrap();
+        assert_eq!(res_range.hits.len(), 1);
+        assert_eq!(res_range.hits[0].section_index, 1);
+        assert_eq!(res_range.hits[0].score.to_bits(), score_sec1.to_bits());
+
+        // 5. Unknown prefix treated as text: foo:bar
+        let res_unknown = search(&index, "cancer foo:bar", &opts).unwrap();
+        assert_eq!(res_unknown.hits.len(), 2);
+
+        // 6. Filter-only query: score must be 0.0
+        let res_filter_only = search(&index, "category:biology", &opts).unwrap();
+        assert_eq!(res_filter_only.hits.len(), 1);
+        assert_eq!(res_filter_only.hits[0].section_index, 0);
+        assert_eq!(res_filter_only.hits[0].score, 0.0);
+
+        // 7. Combining filter with -term exclusion
+        let res_comb = search(&index, "cancer -mutations category:biology", &opts).unwrap();
+        assert_eq!(res_comb.hits.len(), 1);
+        assert_eq!(res_comb.hits[0].section_index, 0);
+        assert_eq!(res_comb.hits[0].score.to_bits(), score_sec0.to_bits());
+    }
+
+    #[test]
+    fn test_facets_invariance_and_oracle() {
+        let sec0 = Section {
+            title: "Sec 0".into(),
+            body: "cancer biology dna genetics".into(),
+            line_number: 1,
+            filename: Some("d0.txt".into()),
+            entities: vec![],
+        };
+        let sec1 = Section {
+            title: "Sec 1".into(),
+            body: "cancer therapy dna clinical".into(),
+            line_number: 1,
+            filename: Some("d1.txt".into()),
+            entities: vec![],
+        };
+        let sec2 = Section {
+            title: "Sec 2".into(),
+            body: "astronomy stars telescope".into(),
+            line_number: 1,
+            filename: Some("d2.txt".into()),
+            entities: vec![],
+        };
+        let sec3 = Section {
+            title: "Sec 3".into(),
+            body: "cancer overview epidemiology".into(),
+            line_number: 1,
+            filename: Some("d3.txt".into()),
+            entities: vec![],
+        };
+        let bm25 = Bm25Index::build(vec![sec0, sec1, sec2, sec3], None);
+
+        let mut schema = HashMap::new();
+        schema.insert("category".into(), crate::meta::FieldType::Keyword);
+        schema.insert("tags".into(), crate::meta::FieldType::KeywordList);
+        schema.insert("year".into(), crate::meta::FieldType::Integer);
+
+        let mut columns = HashMap::new();
+        columns.insert(
+            "category".into(),
+            crate::meta::Column::Keyword {
+                dict: vec!["biology".into(), "medicine".into()],
+                ords: vec![Some(0), Some(1), None, None],
+                bitmaps: vec![
+                    crate::fast_retrieval::MiniRoaring::from_sorted(&[0]),
+                    crate::fast_retrieval::MiniRoaring::from_sorted(&[1]),
+                ],
+            },
+        );
+        columns.insert(
+            "tags".into(),
+            crate::meta::Column::KeywordList {
+                dict: vec!["dna".into(), "rna".into(), "general".into()],
+                offsets: vec![0, 2, 3, 3, 4],
+                ords: vec![0, 1, 0, 2],
+                bitmaps: vec![
+                    crate::fast_retrieval::MiniRoaring::from_sorted(&[0, 1]),
+                    crate::fast_retrieval::MiniRoaring::from_sorted(&[0]),
+                    crate::fast_retrieval::MiniRoaring::from_sorted(&[3]),
+                ],
+            },
+        );
+        columns.insert(
+            "year".into(),
+            crate::meta::Column::Integer {
+                present_runs: vec![[0, 3]],
+                values: vec![Some(2015), Some(2025), Some(2022), None],
+            },
+        );
+
+        let meta = crate::meta::MetaIndex {
+            meta_version: 1,
+            num_sections: 4,
+            generation: "gen1".into(),
+            schema,
+            files: HashMap::new(),
+            columns,
+        };
+
+        let index = LoadedIndex {
+            state: None,
+            bm25,
+            spelling: None,
+            entity_graph: None,
+            tagger: None,
+            cache_dir: None,
+            meta: Some(meta),
+            corpus_fingerprint: OnceLock::new(),
+            local_vectors: None,
+        };
+
+        let facet_reqs = vec![
+            crate::meta::FacetRequest::Field("category".into()),
+            crate::meta::FacetRequest::Field("tags".into()),
+            crate::meta::FacetRequest::Range {
+                field: "year".into(),
+                start: 2020.0,
+                end: 2030.0,
+                gap: 5.0,
+            },
+            crate::meta::FacetRequest::Query {
+                name: "therapy".into(),
+                query: "therapy".into(),
+            },
+        ];
+
+        // 1. Run search with -l 1
+        let opts_l1 = SearchOptions {
+            limit: 1,
+            mode: SearchMode::LexicalOnly,
+            graph_beta: 0.0,
+            facets: facet_reqs.clone(),
+            ..Default::default()
+        };
+        let res_l1 = search(&index, "cancer", &opts_l1).unwrap();
+
+        // 2. Run search with -l 1000
+        let opts_l1000 = SearchOptions {
+            limit: 1000,
+            mode: SearchMode::LexicalOnly,
+            graph_beta: 0.0,
+            facets: facet_reqs.clone(),
+            ..Default::default()
+        };
+        let res_l1000 = search(&index, "cancer", &opts_l1000).unwrap();
+
+        // Check limit invariance
+        assert_eq!(res_l1.hits.len(), 1);
+        assert_eq!(res_l1000.hits.len(), 3);
+        assert_eq!(res_l1.found, 3);
+        assert_eq!(res_l1000.found, 3);
+        assert_eq!(res_l1.facets, res_l1000.facets);
+
+        // Check brute-force equivalence
+        let facets = res_l1.facets.unwrap();
+        // Category: sec0 is biology, sec1 is medicine, sec3 is missing
+        if let Some(crate::meta::FacetResult::Field { buckets, missing }) = facets.get("category") {
+            assert_eq!(*missing, 1);
+            let bio = buckets.iter().find(|b| b.val == "biology").unwrap();
+            assert_eq!(bio.count, 1);
+            let med = buckets.iter().find(|b| b.val == "medicine").unwrap();
+            assert_eq!(med.count, 1);
+        } else {
+            panic!("Expected field facet category");
+        }
+
+        // Tags multi-valued sum >= found
+        if let Some(crate::meta::FacetResult::Field { buckets, missing }) = facets.get("tags") {
+            assert_eq!(*missing, 0);
+            let sum: usize = buckets.iter().map(|b| b.count).sum();
+            assert!(sum >= res_l1.found);
+            let dna = buckets.iter().find(|b| b.val == "dna").unwrap();
+            assert_eq!(dna.count, 2);
+        } else {
+            panic!("Expected field facet tags");
+        }
+
+        // Year range: [2020, 2025), [2025, 2030)
+        // Matching hits: sec0 (2015 -> before), sec1 (2025 -> bucket 1), sec3 (missing)
+        if let Some(crate::meta::FacetResult::Range {
+            buckets,
+            before,
+            after,
+            missing,
+        }) = facets.get("year")
+        {
+            assert_eq!(*before, 1);
+            assert_eq!(*after, 0);
+            assert_eq!(*missing, 1);
+            assert_eq!(buckets[0].count, 0);
+            assert_eq!(buckets[1].count, 1);
+        } else {
+            panic!("Expected range facet year");
+        }
+
+        // Query facet: therapy
+        if let Some(crate::meta::FacetResult::Query { count }) = facets.get("therapy") {
+            assert_eq!(*count, 1);
+        } else {
+            panic!("Expected query facet therapy");
+        }
+    }
+
+    #[test]
+    fn test_filter_before_scoring_exact_parity() {
+        let sections = vec![
+            Section {
+                title: "Cancer biology".into(),
+                body: "Cancer cells divide rapidly in biology tissue".into(),
+                line_number: 1,
+                filename: Some("doc1.txt".into()),
+                entities: Vec::new(),
+            },
+            Section {
+                title: "Cancer treatment".into(),
+                body: "Cancer therapy and medicine advances".into(),
+                line_number: 2,
+                filename: Some("doc2.txt".into()),
+                entities: Vec::new(),
+            },
+            Section {
+                title: "Physics of radiation".into(),
+                body: "Radiation physics and photon beams".into(),
+                line_number: 3,
+                filename: Some("doc3.txt".into()),
+                entities: Vec::new(),
+            },
+            Section {
+                title: "Cancer study".into(),
+                body: "Cancer research across multiple domains".into(),
+                line_number: 4,
+                filename: Some("doc4.txt".into()),
+                entities: Vec::new(),
+            },
+        ];
+        let bm25 = Bm25Index::build(sections, None);
+
+        let mut schema = HashMap::new();
+        schema.insert("category".into(), crate::meta::FieldType::Keyword);
+
+        let mut columns = HashMap::new();
+        columns.insert(
+            "category".into(),
+            crate::meta::Column::Keyword {
+                dict: vec!["biology".into(), "medicine".into(), "physics".into()],
+                ords: vec![Some(0), Some(1), Some(2), None],
+                bitmaps: vec![
+                    crate::fast_retrieval::MiniRoaring::from_sorted(&[0]),
+                    crate::fast_retrieval::MiniRoaring::from_sorted(&[1]),
+                    crate::fast_retrieval::MiniRoaring::from_sorted(&[2]),
+                ],
+            },
+        );
+
+        let meta = crate::meta::MetaIndex {
+            meta_version: 1,
+            num_sections: 4,
+            generation: "gen-fbs".into(),
+            schema,
+            files: HashMap::new(),
+            columns,
+        };
+
+        let index = LoadedIndex {
+            state: None,
+            bm25,
+            spelling: None,
+            entity_graph: None,
+            tagger: None,
+            cache_dir: None,
+            meta: Some(meta),
+            corpus_fingerprint: OnceLock::new(),
+            local_vectors: None,
+        };
+
+        let opts = SearchOptions {
+            limit: 10,
+            mode: SearchMode::LexicalOnly,
+            graph_beta: 0.0,
+            ..Default::default()
+        };
+
+        // Search with filter category:biology
+        let res = search(&index, "cancer category:biology", &opts).unwrap();
+        assert_eq!(res.hits.len(), 1);
+        assert_eq!(res.found, 1);
+        assert_eq!(res.hits[0].section_index, 0);
+
+        // Compare score with unfiltered cancer search hit for doc 0
+        let res_unfiltered = search(&index, "cancer", &opts).unwrap();
+        let doc0_unfiltered = res_unfiltered
+            .hits
+            .iter()
+            .find(|h| h.section_index == 0)
+            .unwrap();
+        assert_eq!(res.hits[0].score.to_bits(), doc0_unfiltered.score.to_bits());
+
+        // Negative filter -category:biology
+        let res_neg = search(&index, "cancer -category:biology", &opts).unwrap();
+        assert_eq!(res_neg.hits.len(), 2);
+        assert_eq!(res_neg.found, 2);
+        assert!(!res_neg.hits.iter().any(|h| h.section_index == 0));
     }
 }

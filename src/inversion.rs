@@ -1,7 +1,7 @@
-use serde::{Deserialize, Serialize};
 use crate::bm25::Bm25Index;
-use crate::Tagger;
 use crate::semantic_mesh::MarkovChain;
+use crate::Tagger;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Debug)]
 pub struct InvertRequest {
@@ -32,6 +32,20 @@ pub fn invert_vector(
     max_length: Option<usize>,
     token: &str,
 ) -> Result<InvertResponse, String> {
+    invert_vector_at(
+        embedding,
+        max_length,
+        token,
+        &crate::hybrid::get_shivvr_base_url(),
+    )
+}
+
+pub(crate) fn invert_vector_at(
+    embedding: &[f64],
+    max_length: Option<usize>,
+    token: &str,
+    base: &str,
+) -> Result<InvertResponse, String> {
     if embedding.len() != 768 {
         return Err(format!(
             "Invalid embedding dimension. Expected 768, got {}",
@@ -43,7 +57,7 @@ pub fn invert_vector(
         return Err("NUTS_SERVICES_TOKEN is empty or not set.".to_string());
     }
 
-    let url = format!("{}/invert", crate::hybrid::get_shivvr_base_url());
+    let url = format!("{}/invert", base);
     let auth_header = format!("Bearer {}", token);
 
     let payload = InvertRequest {
@@ -56,17 +70,20 @@ pub fn invert_vector(
         .set("Content-Type", "application/json")
         .send_json(&payload)
     {
-        Ok(res) => {
-            match res.into_json::<InvertResponse>() {
-                Ok(resp) => Ok(resp),
-                Err(e) => Err(format!("Failed to parse inversion response JSON: {}", e)),
-            }
-        }
+        Ok(res) => match res.into_json::<InvertResponse>() {
+            Ok(resp) => Ok(resp),
+            Err(e) => Err(format!("Failed to parse inversion response JSON: {}", e)),
+        },
         Err(ureq::Error::Status(code, res)) => {
-            let body = res.into_string().unwrap_or_else(|_| "Unknown error body".to_string());
+            let body = res
+                .into_string()
+                .unwrap_or_else(|_| "Unknown error body".to_string());
             Err(format!("Server returned error status {}: {}", code, body))
         }
-        Err(e) => Err(crate::hybrid::format_shivvr_error(&url, format!("Network request failed: {}", e))),
+        Err(e) => Err(crate::hybrid::format_shivvr_error(
+            &url,
+            format!("Network request failed: {}", e),
+        )),
     }
 }
 
@@ -106,7 +123,8 @@ pub fn execute_steered_inversion(
             let bodies: Vec<&str> = index.sections.iter().map(|s| s.body.as_str()).collect();
             if !bodies.is_empty() {
                 let chain = MarkovChain::build(&bodies);
-                let first_word = resp.text
+                let first_word = resp
+                    .text
                     .split_whitespace()
                     .next()
                     .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()));
@@ -141,8 +159,10 @@ impl InversionResult {
     pub fn to_markdown(&self, steer_target_path: Option<&str>) -> String {
         let mut markdown = String::new();
         markdown.push_str("# 🔄 Shivvr Neural Vector Inversion Results\n\n");
-        markdown.push_str("Successfully reconstructed high-dimensional GTR-T5 vector back to text.\n\n");
-        
+        markdown.push_str(
+            "Successfully reconstructed high-dimensional GTR-T5 vector back to text.\n\n",
+        );
+
         markdown.push_str("## 📄 Reconstructed Text\n");
         markdown.push_str(&format!("> \"{}\"\n\n", self.reconstructed_text));
 
@@ -159,11 +179,20 @@ impl InversionResult {
 
         markdown.push_str("## 📊 Fidelity Statistics\n");
         markdown.push_str(&format!("- **Cosine Similarity**: `{:.4}`\n", similarity));
-        markdown.push_str(&format!("- **Confidence Level**: {} — {}\n\n", conf_color, conf_label));
+        markdown.push_str(&format!(
+            "- **Confidence Level**: {} — {}\n\n",
+            conf_color, conf_label
+        ));
 
         if let Some(target_path) = steer_target_path {
-            markdown.push_str(&format!("## 🧠 Steered Synthesis (Target: `{}`)\n\n", target_path));
-            markdown.push_str(&format!("Active FST themes identified: {:?}\n\n", self.extracted_tags));
+            markdown.push_str(&format!(
+                "## 🧠 Steered Synthesis (Target: `{}`)\n\n",
+                target_path
+            ));
+            markdown.push_str(&format!(
+                "Active FST themes identified: {:?}\n\n",
+                self.extracted_tags
+            ));
 
             if let Some(ref simulated) = self.steered_text {
                 markdown.push_str("### 📝 Synthesized Local Text\n");
@@ -178,13 +207,18 @@ impl InversionResult {
                             for (tag, weight) in register {
                                 trace_strs.push(format!("`{}` ({:.2})", tag, weight));
                             }
-                            markdown.push_str(&format!("- **Token #{:3}**: {}\n", token_idx, trace_strs.join(", ")));
+                            markdown.push_str(&format!(
+                                "- **Token #{:3}**: {}\n",
+                                token_idx,
+                                trace_strs.join(", ")
+                            ));
                             last_printed_token = *token_idx;
                         }
                     }
                 }
             } else {
-                markdown.push_str("_No text found in target document to train local Markov chain._\n");
+                markdown
+                    .push_str("_No text found in target document to train local Markov chain._\n");
             }
         }
 
@@ -198,7 +232,10 @@ impl InversionResult {
         elapsed: std::time::Duration,
         index_elapsed: Option<std::time::Duration>,
     ) {
-        println!("\x1B[32mSuccessfully inverted vector in {:.2?}!\x1B[0m", elapsed);
+        println!(
+            "\x1B[32mSuccessfully inverted vector in {:.2?}!\x1B[0m",
+            elapsed
+        );
         println!();
         println!("────────────────────────────────────────────────────────────────────────");
         println!("\x1B[1;33mRECONSTRUCTED TEXT:\x1B[0m");
@@ -227,14 +264,21 @@ impl InversionResult {
             if let Some(idx_el) = index_elapsed {
                 println!("\x1B[32mIndexed local corpus in {:.2?}\x1B[0m", idx_el);
             }
-            println!("\x1B[1;32mFST Tagging identified active themes in reconstructed text:\x1B[0m {:?}", self.extracted_tags);
+            println!(
+                "\x1B[1;32mFST Tagging identified active themes in reconstructed text:\x1B[0m {:?}",
+                self.extracted_tags
+            );
 
             if let Some(ref simulated) = self.steered_text {
                 println!();
-                println!("────────────────────────────────────────────────────────────────────────");
+                println!(
+                    "────────────────────────────────────────────────────────────────────────"
+                );
                 println!("\x1B[1;35mSTEERED STOCHASTIC SYNTHESIS:\x1B[0m");
                 println!("  \"{}\"", simulated);
-                println!("────────────────────────────────────────────────────────────────────────");
+                println!(
+                    "────────────────────────────────────────────────────────────────────────"
+                );
                 println!();
             }
         }
@@ -254,10 +298,7 @@ mod tests {
         let mut embedding = vec![0.0; 768];
         embedding[0] = 1.0;
 
-        let urls_to_try = [
-            "http://host.docker.internal:8085",
-            "http://localhost:8085",
-        ];
+        let urls_to_try = ["http://host.docker.internal:8085", "http://localhost:8085"];
 
         let mut success = false;
         let mut error_msg = String::new();
@@ -281,8 +322,10 @@ mod tests {
         std::env::remove_var("SHIVVR_BASE_URL");
 
         if !success {
-            println!("Skipping inversion assertion because remote server is unreachable: {}", error_msg);
+            println!(
+                "Skipping inversion assertion because remote server is unreachable: {}",
+                error_msg
+            );
         }
     }
 }
-

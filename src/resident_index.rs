@@ -38,6 +38,8 @@ fn fingerprint(root: &Path, dictionary: Option<&Path>) -> Result<Vec<FileStamp>,
         "bm25.json",
         "spelling.json",
         "entity_graph.json",
+        "meta.json",
+        crate::local_vectors::FILE,
     ]
     .into_iter()
     .map(|file| stamp(root.join(file)))
@@ -133,7 +135,7 @@ mod tests {
             ));
             std::fs::create_dir_all(&root).unwrap();
             let state = IndexState {
-                format_version: crate::search::CURRENT_FORMAT_VERSION,
+                format_version: crate::search::FORMAT_VERSION_STEMMED,
                 target_dir: root.to_string_lossy().into_owned(),
                 db_dir: root.to_string_lossy().into_owned(),
                 semantic_enabled: false,

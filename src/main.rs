@@ -9,7 +9,7 @@ use lume::bm25::{Bm25Index, Bm25Params, SearchVariant, Section};
 use lume::search::{
     check_state_compatibility, correct_query, format_cli_output, load_json, load_tagger_csv,
     save_json, search, BlendMode, IndexState, LoadedIndex, SearchMode, SearchOptions,
-    CURRENT_FORMAT_VERSION,
+    FORMAT_VERSION_META, FORMAT_VERSION_STEMMED, FORMAT_VERSION_UNSTEMMED,
 };
 use lume::semantic_mesh::EntityGraph;
 use lume::spelling::SpellIndex;
@@ -33,7 +33,20 @@ fn lume_main() {
     let mut shivvr_url = None;
     let mut idx = 1;
     while idx < args.len() {
-        if args[idx] == "--shivvr-url" {
+        if args[idx] == "--embed-model" || args[idx] == "--embed-dimensions" {
+            if idx + 1 >= args.len() {
+                eprintln!("Error: {} requires an argument", args[idx]);
+                std::process::exit(1);
+            }
+            let variable = if args[idx] == "--embed-model" {
+                "LUME_EMBED_MODEL"
+            } else {
+                "LUME_EMBED_DIMENSIONS"
+            };
+            std::env::set_var(variable, &args[idx + 1]);
+            args.remove(idx + 1);
+            args.remove(idx);
+        } else if args[idx] == "--shivvr-url" {
             if idx + 1 < args.len() {
                 shivvr_url = Some(args[idx + 1].clone());
                 args.remove(idx + 1);
@@ -997,6 +1010,8 @@ FLAGS:
   -h, --help           Prints help information
   -V, --version        Prints version information
   --shivvr-url <URL>   Shivvr endpoint URL [default: http://localhost:8085]
+  --embed-model <NAME> Opt in to local section vectors via Shivvr /embed
+  --embed-dimensions N Vector width for the selected model [default: 768]
 
 SUBCOMMANDS:
   index      Index a directory (supports code, text, and PDF files)
@@ -1035,7 +1050,12 @@ USAGE:
 
 FLAGS:
   -h, --help               Prints help information
-  -s, --semantic           Enable dense semantic vector search (requires NUTS token)
+  -s, --semantic           Enable legacy GTR semantic sessions (requires NUTS token)
+  --embed-model <NAME>     Build local section vectors with the selected model
+  --embed-dimensions <N>   Embedding width [default: 768]
+  --embed-docs <JSONL>     Import shared <model>-<dims>-<dataset>-docs.jsonl
+  --embed-queries <JSONL>  Import matching shared query vectors (no service calls)
+  --embed-query-texts TSV  id<TAB>query text for --embed-queries
   -o, --ollama-entities    Enable AI entity extraction via local Gemma on Ollama
   -f, --force              Force re-indexing of all files (ignoring modification times)
 
@@ -1076,6 +1096,8 @@ OPTIONS:
   -g, --graph <VAL>     SKG entity-graph boost weight; 0 disables [default: 0.4, env GRAPH_ALPHA]
   --scoring <MODE>      SKG edge weighting: 'relatedness' (significance, default) or 'jaccard' (overlap)
   --shivvr-url <URL>    Shivvr endpoint URL [default: http://localhost:8085]
+  --facet <SPEC>        Field facet ('tags') or range facet ('year:range(2000,2030,5)')
+  --facet-query <SPEC>  Named query facet ('name=query', e.g. 'cancer=cancer')
 
 ENV:
   LUME_QUERY_INVERSION  Set to 1 to print the query's embedding inversion (debug; costs an extra round-trip)
@@ -1083,7 +1105,9 @@ ENV:
 
 ARGS:
   <QUERY>               Search query string. Supports term exclusion via '-term'
-                        or 'NOT term' (e.g. 'cancer -therapy' or 'vitamin d NOT deficiency').
+                        or 'NOT term' (e.g. 'cancer -therapy' or 'vitamin d NOT deficiency'),
+                        and metadata field filters (e.g. 'category:biology', '-category:tech',
+                        'year:>=2020', 'tags:science,health').
 "#
     );
 }
@@ -1128,6 +1152,7 @@ fn handle_index_init(args: &[String]) -> Result<(), String> {
     let mut db_dir = String::from(".lume-index");
     let mut tag_dict_path: Option<String> = None;
     let mut semantic_enabled = false;
+    let mut embed_imports = lume::local_vectors::ImportPaths::default();
     let mut ollama_entities = false;
     let mut ollama_model = String::from("gpt-4o-mini:latest");
     let mut ollama_url = String::from("http://localhost:11434");
@@ -1141,6 +1166,20 @@ fn handle_index_init(args: &[String]) -> Result<(), String> {
         if arg == "-s" || arg == "--semantic" {
             semantic_enabled = true;
             idx += 1;
+        } else if matches!(
+            arg.as_str(),
+            "--embed-docs" | "--embed-queries" | "--embed-query-texts"
+        ) {
+            let value = args
+                .get(idx + 1)
+                .ok_or_else(|| format!("{arg} requires a path"))?;
+            let destination = match arg.as_str() {
+                "--embed-docs" => &mut embed_imports.documents,
+                "--embed-queries" => &mut embed_imports.queries,
+                _ => &mut embed_imports.query_texts,
+            };
+            *destination = Some(PathBuf::from(value));
+            idx += 2;
         } else if arg == "-o" || arg == "--ollama-entities" {
             ollama_entities = true;
             idx += 1;
@@ -1210,6 +1249,7 @@ fn handle_index_init(args: &[String]) -> Result<(), String> {
         force,
         cached_files,
         chunk_range,
+        &embed_imports,
     )?;
 
     Ok(())
@@ -1277,6 +1317,7 @@ fn handle_index_update(args: &[String]) -> Result<(), String> {
         force,
         state.cached_files,
         chunk_range,
+        &lume::local_vectors::ImportPaths::default(),
     )?;
 
     Ok(())
@@ -1338,6 +1379,11 @@ fn scan_directory(
         } else if path.is_file() {
             if is_ignored(&path, root, ignores) {
                 continue;
+            }
+            if let Some(file_name) = path.file_name().and_then(|f| f.to_str()) {
+                if file_name == "lume.meta.jsonl" || file_name == "lume.schema.json" {
+                    continue;
+                }
             }
             if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                 let ext_lower = ext.to_lowercase();
@@ -1450,7 +1496,8 @@ fn chunk_text_file_with_options(path: &Path, content: &str, use_fallback: bool) 
     let filename_str = path.to_string_lossy().to_string();
 
     if extension.to_lowercase() == "md" {
-        let raw_sections = lume::bm25::parse_markdown_with_options(content, use_fallback);
+        let (_fm, stripped) = lume::meta::extract_and_blank_frontmatter(content);
+        let raw_sections = lume::bm25::parse_markdown_with_options(&stripped, use_fallback);
         let mut sections = Vec::new();
         for sec in raw_sections {
             // Split each chapter into retrieval-sized windows (~TARGET_LINES,
@@ -1635,17 +1682,146 @@ fn collect_all_sections(cached_files: &HashMap<String, (u64, Vec<Section>)>) -> 
     all_sections
 }
 
+fn find_manifests(dir: &Path, db_dir: &Path, manifests: &mut Vec<lume::meta::DiscoveredManifest>) {
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if name == ".git"
+                || name == "target"
+                || name == ".venv"
+                || name == ".lume-index"
+                || path == db_dir
+            {
+                continue;
+            }
+            find_manifests(&path, db_dir, manifests);
+        } else if path.is_file() {
+            if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+                if file_name == "lume.meta.jsonl" {
+                    if let Ok(rows) = lume::meta::read_manifest(&path) {
+                        let manifest_dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
+                        let depth = manifest_dir.components().count();
+                        manifests.push(lume::meta::DiscoveredManifest {
+                            path,
+                            dir: manifest_dir,
+                            depth,
+                            rows,
+                        });
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn build_meta_for_current_state(
+    cached_files: &HashMap<String, (u64, Vec<Section>)>,
+    frontmatter_by_file: &HashMap<String, HashMap<String, serde_json::Value>>,
+    manifests: &[lume::meta::DiscoveredManifest],
+    schema_override: &HashMap<String, lume::meta::FieldType>,
+    generation: &str,
+) -> Option<lume::meta::MetaIndex> {
+    let mut sorted_paths: Vec<&String> = cached_files.keys().collect();
+    sorted_paths.sort();
+
+    let mut file_fields: HashMap<String, (String, HashMap<String, serde_json::Value>)> =
+        HashMap::new();
+    let mut field_depths: HashMap<String, HashMap<String, usize>> = HashMap::new();
+
+    // 1. Initialize with frontmatter
+    for (path_str, fm_fields) in frontmatter_by_file {
+        if cached_files.contains_key(path_str) {
+            file_fields.insert(
+                path_str.clone(),
+                ("frontmatter".to_string(), fm_fields.clone()),
+            );
+            let mut depths = HashMap::new();
+            for k in fm_fields.keys() {
+                depths.insert(k.clone(), 0);
+            }
+            field_depths.insert(path_str.clone(), depths);
+        }
+    }
+
+    // 2. Sort manifests by depth ascending so deeper manifests evaluate later
+    let mut sorted_manifests: Vec<&lume::meta::DiscoveredManifest> = manifests.iter().collect();
+    sorted_manifests.sort_by_key(|m| m.depth);
+
+    let mut unmatched_rows = 0usize;
+
+    for manifest in sorted_manifests {
+        for row in &manifest.rows {
+            let row_rel = lume::meta::normalize_rel_path(&row.path);
+            let resolved_path = manifest.dir.join(&row_rel);
+            let resolved_norm = lume::meta::normalize_rel_path(&resolved_path.to_string_lossy());
+
+            let mut matched_cached_path = None;
+            for cached_path in cached_files.keys() {
+                let cached_norm = lume::meta::normalize_rel_path(cached_path);
+                if cached_norm == resolved_norm {
+                    matched_cached_path = Some(cached_path.clone());
+                    break;
+                }
+            }
+
+            if let Some(target_file) = matched_cached_path {
+                let entry = file_fields
+                    .entry(target_file.clone())
+                    .or_insert_with(|| ("manifest".to_string(), HashMap::new()));
+                let depths = field_depths.entry(target_file).or_default();
+
+                for (k, v) in &row.fields {
+                    let prev_depth = depths.get(k).copied().unwrap_or(0);
+                    if manifest.depth >= prev_depth || !depths.contains_key(k) {
+                        entry.1.insert(k.clone(), v.clone());
+                        depths.insert(k.clone(), manifest.depth);
+                    }
+                }
+            } else {
+                unmatched_rows += 1;
+            }
+        }
+    }
+
+    if unmatched_rows > 0 {
+        eprintln!(
+            "[⚠️] Metadata manifest: {} unmatched file rows",
+            unmatched_rows
+        );
+    }
+
+    let mut section_files = Vec::new();
+    for p in sorted_paths {
+        let sec_count = cached_files[p].1.len();
+        for _ in 0..sec_count {
+            section_files.push(p.clone());
+        }
+    }
+
+    lume::meta::build_meta_index(&section_files, &file_fields, schema_override, generation)
+}
+
 fn flush_searchable_indexes(
     cached_files: &HashMap<String, (u64, Vec<Section>)>,
     tagger: Option<&Tagger>,
     tagger_phrases: &[String],
     db_path: &Path,
+    meta: Option<&lume::meta::MetaIndex>,
 ) -> Result<usize, String> {
+    let _timing = lume::index_timing::Span::new("index.flush_total");
     let all_sections = collect_all_sections(cached_files);
     let count = all_sections.len();
     let bm25 = Bm25Index::build(all_sections, tagger);
     let corpus_terms: Vec<Vec<u8>> = bm25.posting_lists.keys().cloned().collect();
-    let spelling = SpellIndex::build(tagger_phrases, &corpus_terms);
+    let spelling = {
+        let _timing = lume::index_timing::Span::new("index.spelling");
+        SpellIndex::build(tagger_phrases, &corpus_terms)
+    };
     let entity_graph = EntityGraph::build(
         &bm25.entity_posting_lists,
         &bm25.entity_kinds,
@@ -1656,14 +1832,76 @@ fn flush_searchable_indexes(
     save_json(&db_path.join("bm25.json"), &bm25)?;
     save_json(&db_path.join("spelling.json"), &spelling)?;
     save_json(&db_path.join("entity_graph.json"), &entity_graph)?;
+
+    let generation = lume::uuid_v4();
+    if let Some(meta_idx) = meta {
+        let mut m = meta_idx.clone();
+        m.generation = generation.clone();
+        m.save(&db_path.join("meta.json"))?;
+    } else {
+        let meta_file = db_path.join("meta.json");
+        if meta_file.exists() {
+            let _ = fs::remove_file(&meta_file);
+        }
+    }
+
     // Publish only after every searchable table has been written.
     save_json(
         &db_path.join("manifest.json"),
         &serde_json::json!({
-            "generation": lume::uuid_v4(), "sections": count,
+            "generation": generation, "sections": count,
         }),
     )?;
     Ok(count)
+}
+
+/// A scan checkpoint is deliberately outside the published index generation.
+/// In particular, state.json must keep describing the old searchable tables
+/// until the new scan and optional vector work have completed.
+#[derive(serde::Deserialize)]
+struct ScanCheckpoint {
+    version: u32,
+    target_dir: String,
+    published_manifest: Option<serde_json::Value>,
+    cached_files: HashMap<String, (u64, Vec<Section>)>,
+    frontmatter_by_file: HashMap<String, HashMap<String, serde_json::Value>>,
+}
+
+fn published_manifest(db_path: &Path) -> Result<Option<serde_json::Value>, String> {
+    let path = db_path.join("manifest.json");
+    if path.exists() {
+        load_json(&path).map(Some)
+    } else {
+        Ok(None)
+    }
+}
+
+fn save_scan_checkpoint(
+    db_path: &Path,
+    target_dir: &str,
+    manifest: &Option<serde_json::Value>,
+    cached_files: &HashMap<String, (u64, Vec<Section>)>,
+    frontmatter_by_file: &HashMap<String, HashMap<String, serde_json::Value>>,
+) -> Result<(), String> {
+    #[derive(serde::Serialize)]
+    struct BorrowedCheckpoint<'a> {
+        version: u32,
+        target_dir: &'a str,
+        published_manifest: &'a Option<serde_json::Value>,
+        cached_files: &'a HashMap<String, (u64, Vec<Section>)>,
+        frontmatter_by_file: &'a HashMap<String, HashMap<String, serde_json::Value>>,
+    }
+    let _timing = lume::index_timing::Span::new("index.scan_checkpoint");
+    save_json(
+        &db_path.join("index-scan-checkpoint.json"),
+        &BorrowedCheckpoint {
+            version: 1,
+            target_dir,
+            published_manifest: manifest,
+            cached_files,
+            frontmatter_by_file,
+        },
+    )
 }
 
 /// Minimum time between mid-run searchable-index flushes.
@@ -1697,7 +1935,9 @@ fn run_indexing(
     force: bool,
     mut cached_files: HashMap<String, (u64, Vec<Section>)>,
     chunk_range: Option<(usize, usize)>,
+    embed_imports: &lume::local_vectors::ImportPaths,
 ) -> Result<(), String> {
+    let _timing = lume::index_timing::Span::new("index.total");
     let total_start = Instant::now();
     let target_path = Path::new(target_dir);
     if !target_path.exists() {
@@ -1708,6 +1948,25 @@ fn run_indexing(
     fs::create_dir_all(db_path).map_err(|e| format!("Failed to create db dir: {}", e))?;
     // Session/semantic caches live with the index, not in the process cwd.
     lume::hybrid::set_cache_dir(db_path);
+    let local_profile = match std::env::var("LUME_EMBED_MODEL") {
+        Ok(model) => {
+            let dimensions = std::env::var("LUME_EMBED_DIMENSIONS")
+                .unwrap_or_else(|_| "768".to_string())
+                .parse::<usize>()
+                .map_err(|_| "Invalid --embed-dimensions")?;
+            Some(lume::local_vectors::EmbeddingProfile::new(
+                model, dimensions,
+            )?)
+        }
+        Err(_) => lume::local_vectors::LocalVectors::stored_profile(db_path)?,
+    };
+    if local_profile.is_none()
+        && (embed_imports.documents.is_some()
+            || embed_imports.queries.is_some()
+            || embed_imports.query_texts.is_some())
+    {
+        return Err("Shared vector import requires --embed-model".to_string());
+    }
 
     let scan_start = Instant::now();
     let ignores = load_lumeignore(target_path);
@@ -1719,8 +1978,11 @@ fn run_indexing(
         );
     }
     let mut files = Vec::new();
-    scan_directory(target_path, target_path, db_path, &ignores, &mut files)
-        .map_err(|e| format!("Failed to scan directory: {}", e))?;
+    {
+        let _walk_timing = lume::index_timing::Span::new("index.walk");
+        scan_directory(target_path, target_path, db_path, &ignores, &mut files)
+            .map_err(|e| format!("Failed to scan directory: {}", e))?;
+    }
     let scan_duration = scan_start.elapsed();
     let total_files = files.len();
     println!(
@@ -1747,12 +2009,46 @@ fn run_indexing(
         }
     }
 
+    let prev_meta = lume::meta::MetaIndex::open(&db_path.join("meta.json")).ok();
+    let mut frontmatter_by_file: HashMap<String, HashMap<String, serde_json::Value>> =
+        HashMap::new();
+    if let Some(ref prev) = prev_meta {
+        for (p, entry) in &prev.files {
+            if entry.source == "frontmatter" && !entry.fields.is_empty() {
+                frontmatter_by_file.insert(p.clone(), entry.fields.clone());
+            }
+        }
+    }
+
+    let scan_manifest = published_manifest(db_path)?;
+    if !force && !ollama_entities {
+        let checkpoint_path = db_path.join("index-scan-checkpoint.json");
+        if checkpoint_path.exists() {
+            match load_json::<ScanCheckpoint>(&checkpoint_path) {
+                Ok(checkpoint)
+                    if checkpoint.version == 1
+                        && checkpoint.target_dir == target_dir
+                        && checkpoint.published_manifest == scan_manifest =>
+                {
+                    cached_files = checkpoint.cached_files;
+                    frontmatter_by_file = checkpoint.frontmatter_by_file;
+                    println!("[💾] Resuming unpublished source scan checkpoint");
+                }
+                Ok(_) => eprintln!("[⚠️] Ignoring stale source scan checkpoint"),
+                Err(error) => eprintln!("[⚠️] Ignoring unreadable source scan checkpoint: {error}"),
+            }
+        }
+    }
+
     let mut processed_paths = std::collections::HashSet::new();
     let mut last_flush = Instant::now();
     let mut files_indexed = 0usize;
     let mut files_skipped_binary = 0usize;
     let mut files_skipped_documents = 0usize;
     let mut units_skipped_documents = 0usize;
+    let mut read_timing = lume::index_timing::Aggregate::new("index.read");
+    let mut parse_timing = lume::index_timing::Aggregate::new("index.parse_sections");
+    let mut document_timing = lume::index_timing::Aggregate::new("index.document_extract");
 
     for (file_num, file_path) in files.iter().enumerate() {
         let file_progress = format!("[file {}/{}]", file_num + 1, total_files);
@@ -1789,10 +2085,12 @@ fn run_indexing(
             let mut sections = if ext == "pdf" || ext == "epub" {
                 println!("[⚙️] {} Processing document: {}", file_progress, path_str);
                 let script = find_extractor_script();
-                match lume::document_extract::extract(
-                    file_path,
-                    if ext == "pdf" { Some(&script) } else { None },
-                ) {
+                match document_timing.measure(|| {
+                    lume::document_extract::extract(
+                        file_path,
+                        if ext == "pdf" { Some(&script) } else { None },
+                    )
+                }) {
                     Ok(report) => {
                         units_skipped_documents += report.skipped_units;
                         if report.skipped_units > 0 {
@@ -1816,7 +2114,7 @@ fn run_indexing(
                     }
                 }
             } else {
-                let content = match read_text_tolerant(file_path)? {
+                let content = match read_timing.measure(|| read_text_tolerant(file_path))? {
                     Some(c) => c,
                     None => {
                         println!(
@@ -1827,26 +2125,36 @@ fn run_indexing(
                         continue;
                     }
                 };
-                if ext == "html" || ext == "htm" {
-                    let (_title, cleaned) = lume::crawl::clean_html_to_markdown(&content);
-                    let chunks = chunk_text_file(file_path, &cleaned);
-                    println!(
-                        "[⚙️] {} Processing HTML file (cleaned): {} (parsed into {} chunks)",
-                        file_progress,
-                        path_str,
-                        chunks.len()
-                    );
-                    chunks
-                } else {
-                    let chunks = chunk_text_file(file_path, &content);
-                    println!(
-                        "[⚙️] {} Processing text file: {} (parsed into {} chunks)",
-                        file_progress,
-                        path_str,
-                        chunks.len()
-                    );
-                    chunks
-                }
+                parse_timing.measure(|| {
+                    if ext == "html" || ext == "htm" {
+                        let (_title, cleaned) = lume::crawl::clean_html_to_markdown(&content);
+                        let chunks = chunk_text_file(file_path, &cleaned);
+                        println!(
+                            "[⚙️] {} Processing HTML file (cleaned): {} (parsed into {} chunks)",
+                            file_progress,
+                            path_str,
+                            chunks.len()
+                        );
+                        chunks
+                    } else {
+                        if ext == "md" {
+                            let (fm, _) = lume::meta::extract_and_blank_frontmatter(&content);
+                            if !fm.is_empty() {
+                                frontmatter_by_file.insert(path_str.clone(), fm);
+                            } else {
+                                frontmatter_by_file.remove(&path_str);
+                            }
+                        }
+                        let chunks = chunk_text_file(file_path, &content);
+                        println!(
+                            "[⚙️] {} Processing text file: {} (parsed into {} chunks)",
+                            file_progress,
+                            path_str,
+                            chunks.len()
+                        );
+                        chunks
+                    }
+                })
             };
 
             let parse_duration = file_start.elapsed();
@@ -1871,28 +2179,47 @@ fn run_indexing(
             files_indexed += 1;
 
             if last_flush.elapsed() >= FLUSH_INTERVAL {
-                match flush_searchable_indexes(
-                    &cached_files,
-                    tagger.as_ref(),
-                    &tagger_phrases,
+                // Only slow Ollama extraction needs periodic searchable flushes.
+                // Ordinary scans checkpoint progress without publishing partial
+                // tables or rebuilding the entire BM25 index every 30 seconds.
+                if ollama_entities {
+                    match flush_searchable_indexes(
+                        &cached_files,
+                        tagger.as_ref(),
+                        &tagger_phrases,
+                        db_path,
+                        None,
+                    ) {
+                        Ok(n) => println!(
+                            "[💾] {} Searchable index flushed mid-run ({} sections)",
+                            file_progress, n
+                        ),
+                        Err(e) => eprintln!("[⚠️] Mid-run index flush failed: {}", e),
+                    }
+                } else if let Err(error) = save_scan_checkpoint(
                     db_path,
+                    target_dir,
+                    &scan_manifest,
+                    &cached_files,
+                    &frontmatter_by_file,
                 ) {
-                    Ok(n) => println!(
-                        "[💾] {} Searchable index flushed mid-run ({} sections)",
-                        file_progress, n
-                    ),
-                    Err(e) => eprintln!("[⚠️] Mid-run index flush failed: {}", e),
+                    eprintln!("[⚠️] Source scan checkpoint failed: {error}");
                 }
                 last_flush = Instant::now();
             }
         }
     }
 
+    drop(read_timing);
+    drop(parse_timing);
+    drop(document_timing);
+
     let cached_paths: Vec<String> = cached_files.keys().cloned().collect();
     for path_str in cached_paths {
         if !processed_paths.contains(&path_str) {
             println!("[🗑️] Removing deleted file from index cache: {}", path_str);
             cached_files.remove(&path_str);
+            frontmatter_by_file.remove(&path_str);
         }
     }
 
@@ -1902,6 +2229,16 @@ fn run_indexing(
             files_skipped_documents, units_skipped_documents
         );
     }
+    if !ollama_entities {
+        save_scan_checkpoint(
+            db_path,
+            target_dir,
+            &scan_manifest,
+            &cached_files,
+            &frontmatter_by_file,
+        )?;
+    }
+
     let all_sections = collect_all_sections(&cached_files);
 
     println!(
@@ -1914,7 +2251,7 @@ fn run_indexing(
     // the dense vectors are available for hybrid search while extraction is
     // still grinding.
     let mut semantic_session_id = None;
-    if semantic_enabled {
+    if semantic_enabled && local_profile.is_none() {
         let semantic_start = Instant::now();
         let shivver_url = lume::hybrid::get_shivvr_base_url();
         println!(
@@ -1922,13 +2259,8 @@ fn run_indexing(
             shivver_url
         );
         if let Some(token) = lume::hybrid::load_nuts_token() {
-            // Fingerprint the corpus with the SAME function the search path uses
-            // (get_corpus_metadata), so the saved session cache actually matches
-            // at query time. Previously index-time used summed section lengths +
-            // mtime 0 while search recomputed from file bytes, so the cache never
-            // matched and every hybrid search silently re-ingested the corpus.
-            let (corpus_size, corpus_mtime) =
-                lume::hybrid::get_corpus_metadata(target_path).unwrap_or((0, 0));
+            // Match the resident snapshot fingerprint without walking source files.
+            let (corpus_size, corpus_mtime) = lume::hybrid::index_fingerprint(&all_sections);
             match lume::hybrid::ensure_semantic_session(
                 target_dir,
                 &all_sections,
@@ -1953,8 +2285,8 @@ fn run_indexing(
         }
     }
 
-    // Make the db searchable (and the semantic session visible to the search
-    // gate) before the slow extraction pass begins.
+    // Determine the analyzer and metadata before publishing searchable tables.
+    // The slow Ollama pass publishes early; ordinary scans publish only at the end.
     let stemmed = if !force && db_path.join("state.json").exists() {
         if let Ok(prev_state) = load_json::<IndexState>(&db_path.join("state.json")) {
             prev_state.stemmed
@@ -1968,33 +2300,59 @@ fn run_indexing(
             .map(|v| v != "0" && v.to_lowercase() != "false")
             .unwrap_or(true)
     };
-    let format_version = if stemmed { CURRENT_FORMAT_VERSION } else { 1 };
-    let keep_hyphens = false;
-    let early_flush_start = Instant::now();
-    let early_count =
-        flush_searchable_indexes(&cached_files, tagger.as_ref(), &tagger_phrases, db_path)?;
-    let early_state = IndexState {
-        format_version,
-        target_dir: target_dir.to_string(),
-        db_dir: db_dir.to_string(),
-        semantic_enabled,
-        ollama_entities,
-        ollama_model: ollama_model.clone(),
-        ollama_url: ollama_url.clone(),
-        tag_dict_path: tag_dict_path.clone(),
-        semantic_session_id: semantic_session_id.clone(),
-        cached_files: cached_files.clone(),
-        stemmed,
-        keep_hyphens,
-    };
-    save_json(&db_path.join("state.json"), &early_state)?;
-    println!(
-        "[💾] Index searchable: {} sections written to {} in {:?}",
-        early_count,
-        db_dir,
-        early_flush_start.elapsed()
+    let mut manifests = Vec::new();
+    find_manifests(target_path, db_path, &mut manifests);
+    let schema_override =
+        lume::meta::load_schema_override(&target_path.join("lume.schema.json")).unwrap_or_default();
+    let current_meta = build_meta_for_current_state(
+        &cached_files,
+        &frontmatter_by_file,
+        &manifests,
+        &schema_override,
+        "init",
     );
-    last_flush = Instant::now();
+    let format_version = if current_meta.is_some() {
+        FORMAT_VERSION_META
+    } else if stemmed {
+        FORMAT_VERSION_STEMMED
+    } else {
+        FORMAT_VERSION_UNSTEMMED
+    };
+    let keep_hyphens = false;
+    // Publish early only for the slow Ollama pass. Ordinary indexing builds
+    // searchable tables once, after all source/vector work succeeds.
+    if ollama_entities {
+        let early_flush_start = Instant::now();
+        let early_count = flush_searchable_indexes(
+            &cached_files,
+            tagger.as_ref(),
+            &tagger_phrases,
+            db_path,
+            current_meta.as_ref(),
+        )?;
+        let early_state = IndexState {
+            format_version,
+            target_dir: target_dir.to_string(),
+            db_dir: db_dir.to_string(),
+            semantic_enabled,
+            ollama_entities,
+            ollama_model: ollama_model.clone(),
+            ollama_url: ollama_url.clone(),
+            tag_dict_path: tag_dict_path.clone(),
+            semantic_session_id: semantic_session_id.clone(),
+            cached_files: cached_files.clone(),
+            stemmed,
+            keep_hyphens,
+        };
+        save_json(&db_path.join("state.json"), &early_state)?;
+        println!(
+            "[💾] Index searchable: {} sections written to {} in {:?}",
+            early_count,
+            db_dir,
+            early_flush_start.elapsed()
+        );
+        last_flush = Instant::now();
+    }
 
     // ── Pass 3: corpus-wide entity extraction ──
     // One worklist across every file keeps all workers busy even when the
@@ -2156,6 +2514,7 @@ fn run_indexing(
                                     tagger.as_ref(),
                                     &tagger_phrases,
                                     db_path,
+                                    current_meta.as_ref(),
                                 ) {
                                     Ok(n) => println!(
                                         "  [💾] Searchable index flushed mid-run ({} sections)",
@@ -2195,9 +2554,32 @@ fn run_indexing(
         }
     }
 
+    if let Some(profile) = local_profile {
+        let sections = collect_all_sections(&cached_files);
+        let base = lume::hybrid::get_shivvr_base_url();
+        let token = lume::hybrid::load_nuts_token();
+        lume::local_vectors::LocalVectors::build(
+            db_path,
+            &sections,
+            profile,
+            embed_imports,
+            &base,
+            token.as_deref(),
+        )?;
+        println!(
+            "[🌐] Local section vectors ready: {} sections",
+            sections.len()
+        );
+    }
+
     let save_start = Instant::now();
-    let section_count =
-        flush_searchable_indexes(&cached_files, tagger.as_ref(), &tagger_phrases, db_path)?;
+    let section_count = flush_searchable_indexes(
+        &cached_files,
+        tagger.as_ref(),
+        &tagger_phrases,
+        db_path,
+        current_meta.as_ref(),
+    )?;
 
     let state = IndexState {
         format_version,
@@ -2214,6 +2596,12 @@ fn run_indexing(
         keep_hyphens,
     };
     save_json(&db_path.join("state.json"), &state)?;
+    let checkpoint_path = db_path.join("index-scan-checkpoint.json");
+    if checkpoint_path.exists() {
+        if let Err(error) = fs::remove_file(&checkpoint_path) {
+            eprintln!("[⚠️] Cannot remove completed source scan checkpoint: {error}");
+        }
+    }
     println!(
         "[💾] Index files written to {} ({} sections) in {:?}",
         db_dir,
@@ -2244,6 +2632,7 @@ fn handle_search(args: &[String]) -> Result<(), String> {
     let mut graph_beta: Option<f64> = None;
     // SKG edge scoring: significance (default) vs legacy Jaccard.
     let mut use_relatedness = true;
+    let mut facets = Vec::new();
     let mut query_opt: Option<String> = None;
 
     let mut idx = 0;
@@ -2283,6 +2672,14 @@ fn handle_search(args: &[String]) -> Result<(), String> {
                     ))
                 }
             };
+            idx += 2;
+        } else if arg == "--facet" && idx + 1 < args.len() {
+            let req = lume::meta::parse_facet_request(&args[idx + 1])?;
+            facets.push(req);
+            idx += 2;
+        } else if arg == "--facet-query" && idx + 1 < args.len() {
+            let req = lume::meta::parse_facet_query_request(&args[idx + 1])?;
+            facets.push(req);
             idx += 2;
         } else if arg == "--" {
             idx += 1;
@@ -2358,6 +2755,7 @@ fn handle_search(args: &[String]) -> Result<(), String> {
         auth_token: None,
         query_inversion,
         max_snippet_chars: 6000,
+        facets,
     };
 
     let results = search(&index, &query, &opts)?;
