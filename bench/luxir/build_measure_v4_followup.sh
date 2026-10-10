@@ -23,7 +23,7 @@ check_target() {
     exit 1
   fi
 }
-rustfmt --edition 2021 --config skip_children=true --check src/bm25.rs src/index_timing.rs src/index_binary/bm25_codec.rs src/index_binary/snapshot.rs src/index_binary/build_state.rs src/index_binary/postings.rs src/main.rs tests/index_v4_snapshot.rs
+rustfmt --edition 2021 --config skip_children=true --check src/bm25.rs src/index_timing.rs src/index_binary/bm25_codec.rs src/index_binary/snapshot.rs src/index_binary/build_state.rs src/index_binary/postings.rs src/main.rs tests/index_v4_snapshot.rs src/index_binary/generation.rs src/index_binary/sections.rs tests/index_v4_generation.rs
 cargo test --locked
 check_target
 cargo clippy --locked --all-targets -- -D warnings

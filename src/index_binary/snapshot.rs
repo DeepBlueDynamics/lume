@@ -177,54 +177,47 @@ fn publish_prepared(
     meta: Option<&crate::meta::MetaIndex>,
 ) -> Result<generation::Manifest, String> {
     let fingerprint = crate::hybrid::index_fingerprint(&bm25.sections);
-    crate::index_timing::memory_checkpoint("v4.memory.publish_start");
-    let mut segments = bm25.v4_segments()?;
-    crate::index_timing::memory_checkpoint("v4.memory.core_buffers");
-    segments.insert(
-        "build-state.json".into(),
-        serde_json::to_vec(&build).map_err(|e| e.to_string())?,
-    );
-    segments.insert(
-        "spelling.json".into(),
-        serde_json::to_vec(spelling).map_err(|e| e.to_string())?,
-    );
-    segments.insert(
-        "entity_graph.json".into(),
-        serde_json::to_vec(graph).map_err(|e| e.to_string())?,
-    );
     let id = crate::uuid_v4();
-    if let Some(meta) = meta {
-        let mut meta = meta.clone();
-        meta.generation = id.clone();
-        segments.insert(
-            "meta.json".into(),
-            serde_json::to_vec(&meta.to_disk()?).map_err(|e| e.to_string())?,
-        );
-    }
+    let manifest = generation::Manifest {
+        format_version: 4,
+        generation: id.clone(),
+        sections: u32::try_from(bm25.sections.len()).map_err(|_| "Section count exceeds u32")?,
+        source_files: u32::try_from(build.sources.len()).map_err(|_| "Source count exceeds u32")?,
+        corpus_fingerprint: [fingerprint.0, fingerprint.1],
+        segments: Default::default(),
+    };
+    let mut staged = generation::StagedGeneration::new(root, manifest)?;
+    crate::index_timing::memory_checkpoint("v4.memory.publish_start");
+    bm25.write_v4_segments(&mut staged)?;
+    crate::index_timing::memory_checkpoint("v4.memory.core_streamed");
     let vectors = root.join(crate::local_vectors::FILE);
     if vectors.exists() {
         crate::local_vectors::LocalVectors::open(root, &bm25.sections)?;
-        segments.insert(
-            "local-vectors.json".into(),
-            std::fs::read(vectors).map_err(|e| e.to_string())?,
-        );
+        staged.write("local-vectors.json", |output| {
+            let mut file = std::fs::File::open(vectors).map_err(|e| e.to_string())?;
+            std::io::copy(&mut file, output).map_err(|e| e.to_string())?;
+            Ok(())
+        })?;
     }
-    crate::index_timing::memory_checkpoint("v4.memory.all_buffers");
-    generation::publish(
-        root,
-        generation::Manifest {
-            format_version: 4,
-            generation: id,
-            sections: u32::try_from(bm25.sections.len())
-                .map_err(|_| "Section count exceeds u32")?,
-            source_files: u32::try_from(build.sources.len())
-                .map_err(|_| "Source count exceeds u32")?,
-            corpus_fingerprint: [fingerprint.0, fingerprint.1],
-            segments: Default::default(),
-        },
-        &segments,
-        |_| Ok(()),
-    )
+    drop(bm25);
+    staged.write("build-state.json", |output| {
+        serde_json::to_writer(output, &build).map_err(|e| e.to_string())
+    })?;
+    staged.write("spelling.json", |output| {
+        serde_json::to_writer(output, spelling).map_err(|e| e.to_string())
+    })?;
+    staged.write("entity_graph.json", |output| {
+        serde_json::to_writer(output, graph).map_err(|e| e.to_string())
+    })?;
+    if let Some(meta) = meta {
+        let mut meta = meta.clone();
+        meta.generation = id;
+        staged.write("meta.json", |output| {
+            serde_json::to_writer(output, &meta.to_disk()?).map_err(|e| e.to_string())
+        })?;
+    }
+    crate::index_timing::memory_checkpoint("v4.memory.publication_complete");
+    staged.finish()
 }
 
 pub fn component<T: serde::de::DeserializeOwned>(root: &Path, name: &str) -> Result<T, String> {

@@ -198,6 +198,120 @@ pub fn publish(
     Ok(manifest)
 }
 
+/// Writes and seals one segment at a time; the pointer stays unchanged until
+/// every required segment and the generation directory are durable.
+pub struct StagedGeneration {
+    root: PathBuf,
+    directory: PathBuf,
+    manifest: Manifest,
+    failed: bool,
+}
+
+impl StagedGeneration {
+    pub fn new(root: &Path, manifest: Manifest) -> Result<Self, String> {
+        if manifest.format_version != FORMAT_VERSION
+            || !valid_generation(&manifest.generation)
+            || !manifest.segments.is_empty()
+        {
+            return Err("Invalid staged generation".into());
+        }
+        let generations = root.join("generations");
+        fs::create_dir_all(&generations).map_err(|e| e.to_string())?;
+        let directory = generations.join(&manifest.generation);
+        fs::create_dir(&directory).map_err(|e| e.to_string())?;
+        Ok(Self {
+            root: root.to_path_buf(),
+            directory,
+            manifest,
+            failed: false,
+        })
+    }
+
+    pub fn write(
+        &mut self,
+        name: &str,
+        encode: impl FnOnce(&mut dyn Write) -> Result<(), String>,
+    ) -> Result<(), String> {
+        if self.failed
+            || self.manifest.segments.contains_key(name)
+            || (!CORE_FILES.contains(&name) && !OPTIONAL_FILES.contains(&name))
+        {
+            return Err("Invalid, repeated or failed staged segment".into());
+        }
+        self.failed = true;
+        let path = self.directory.join(name);
+        let file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&path)
+            .map_err(|e| e.to_string())?;
+        let mut writer = std::io::BufWriter::with_capacity(
+            64 * 1024,
+            SealedWriter {
+                file,
+                hash: ring::digest::Context::new(&ring::digest::SHA256),
+                bytes: 0,
+            },
+        );
+        {
+            let _span = crate::index_timing::FileSpan::new("v4.publish.write", &path);
+            encode(&mut writer)?;
+            writer.flush().map_err(|e| e.to_string())?;
+        }
+        let writer = writer.into_inner().map_err(|e| e.to_string())?;
+        {
+            let _span = crate::index_timing::FileSpan::new("v4.publish.fsync", &path);
+            writer.file.sync_all().map_err(|e| e.to_string())?;
+        }
+        let digest = writer.hash.finish();
+        let sha256 = digest
+            .as_ref()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        self.manifest.segments.insert(
+            name.into(),
+            Seal {
+                bytes: writer.bytes,
+                sha256,
+            },
+        );
+        self.failed = false;
+        Ok(())
+    }
+
+    pub fn finish(self) -> Result<Manifest, String> {
+        if self.failed {
+            return Err("Cannot publish a failed staged generation".into());
+        }
+        self.manifest.validate()?;
+        sync_directory(&self.directory)?;
+        sync_directory(&self.root.join("generations"))?;
+        crate::search::save_json(&self.root.join(POINTER), &self.manifest)?;
+        Ok(self.manifest)
+    }
+}
+
+struct SealedWriter {
+    file: File,
+    hash: ring::digest::Context,
+    bytes: u64,
+}
+impl Write for SealedWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        let written = self.file.write(bytes)?;
+        self.bytes = self
+            .bytes
+            .checked_add(written as u64)
+            .ok_or_else(|| std::io::Error::other("Segment length overflow"))?;
+        self.hash.update(&bytes[..written]);
+        Ok(written)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.file.flush()
+    }
+}
+
 pub fn read_manifest(root: &Path) -> Result<Manifest, String> {
     let path = root.join(POINTER);
     let file = File::open(&path).map_err(|e| format!("Cannot open ordinary-index pointer: {e}"))?;

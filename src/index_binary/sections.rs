@@ -71,6 +71,127 @@ pub fn encode(sections: &[SectionText]) -> Result<(Vec<u8>, Vec<u8>), String> {
     Ok((records.finish()?, text.finish()?))
 }
 
+/// Encode descriptors from borrowed search sections, without cloning bodies.
+pub fn borrowed_table(sections: &[crate::bm25::Section]) -> Result<Vec<u8>, String> {
+    let count = u32::try_from(sections.len()).map_err(|_| "Section count exceeds u32")?;
+    let mut entity_offset = ordinary_bytes(sections)?;
+    let mut ordinary_offset = 0_u64;
+    let mut records = Writer::new(SECTIONS_KIND, count, RECORD_BYTES);
+    for section in sections {
+        for value in [
+            Some(section.title.as_str()),
+            Some(section.body.as_str()),
+            section.filename.as_deref(),
+        ] {
+            if let Some(value) = value {
+                records.u64(ordinary_offset);
+                records.u64(value.len() as u64);
+                ordinary_offset = ordinary_offset
+                    .checked_add(value.len() as u64)
+                    .ok_or("Section text offset overflow")?;
+            } else {
+                records.u64(ABSENT);
+                records.u64(0);
+            }
+        }
+        records.u64(section.line_number as u64);
+        records.u64(entity_offset);
+        records
+            .u32(u32::try_from(section.entities.len()).map_err(|_| "Section entities exceed u32")?);
+        records.u32(0);
+        for entity in &section.entities {
+            let length = entity.len() as u64;
+            entity_offset = entity_offset
+                .checked_add(varint_length(length))
+                .and_then(|n| n.checked_add(length))
+                .ok_or("Entity text offset overflow")?;
+        }
+    }
+    records.finish()
+}
+
+fn ordinary_bytes(sections: &[crate::bm25::Section]) -> Result<u64, String> {
+    sections.iter().try_fold(0_u64, |total, section| {
+        [
+            Some(section.title.as_str()),
+            Some(section.body.as_str()),
+            section.filename.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .try_fold(total, |n, value| {
+            n.checked_add(value.len() as u64)
+                .ok_or("Section text offset overflow".into())
+        })
+    })
+}
+
+fn varint_length(mut value: u64) -> u64 {
+    let mut length = 1;
+    while value >= 128 {
+        value >>= 7;
+        length += 1;
+    }
+    length
+}
+
+/// The length is known before writing, so no corpus-sized buffer or seek is needed.
+pub fn write_borrowed_text(
+    sections: &[crate::bm25::Section],
+    output: &mut dyn std::io::Write,
+) -> Result<(), String> {
+    let mut length = ordinary_bytes(sections)?;
+    for section in sections {
+        for entity in &section.entities {
+            let bytes = entity.len() as u64;
+            length = length
+                .checked_add(varint_length(bytes))
+                .and_then(|n| n.checked_add(bytes))
+                .ok_or("Entity text offset overflow")?;
+        }
+    }
+    let mut header = Writer::new(TEXT_KIND, 0, 0).finish()?;
+    let total = length
+        .checked_add(header.len() as u64)
+        .ok_or("Text segment length overflow")?;
+    header[16..24].copy_from_slice(&total.to_le_bytes());
+    output.write_all(&header).map_err(|e| e.to_string())?;
+    for section in sections {
+        for value in [
+            Some(section.title.as_str()),
+            Some(section.body.as_str()),
+            section.filename.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            output
+                .write_all(value.as_bytes())
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    for section in sections {
+        for entity in &section.entities {
+            let mut value = entity.len() as u64;
+            let mut bytes = [0_u8; 10];
+            let mut used = 0;
+            while value >= 128 {
+                bytes[used] = (value as u8 & 0x7f) | 0x80;
+                used += 1;
+                value >>= 7;
+            }
+            bytes[used] = value as u8;
+            output
+                .write_all(&bytes[..used + 1])
+                .map_err(|e| e.to_string())?;
+            output
+                .write_all(entity.as_bytes())
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
 pub fn decode(records: &[u8], text: &[u8]) -> Result<Vec<SectionText>, String> {
     let mut table = Reader::new(records, SECTIONS_KIND)?;
     if table.record_bytes != RECORD_BYTES {
@@ -196,6 +317,56 @@ pub fn decode(records: &[u8], text: &[u8]) -> Result<Vec<SectionText>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn borrowed_stream_matches_owned_codec_and_propagates_write_failure() {
+        let borrowed = vec![
+            crate::bm25::Section {
+                title: "café".into(),
+                body: "bilge\nwater\0".into(),
+                filename: None,
+                line_number: usize::MAX,
+                entities: vec!["pump".into(), "x".repeat(129)],
+            },
+            crate::bm25::Section {
+                title: String::new(),
+                body: String::new(),
+                filename: Some(String::new()),
+                line_number: 0,
+                entities: Vec::new(),
+            },
+        ];
+        let owned: Vec<_> = borrowed
+            .iter()
+            .map(|section| SectionText {
+                title: section.title.clone(),
+                body: section.body.clone(),
+                filename: section.filename.clone(),
+                line_number: section.line_number as u64,
+                entities: section.entities.clone(),
+            })
+            .collect();
+        let expected = encode(&owned).unwrap();
+        let table = borrowed_table(&borrowed).unwrap();
+        let mut text = Vec::new();
+        write_borrowed_text(&borrowed, &mut text).unwrap();
+        assert_eq!((table, text), expected);
+        let mut empty = Vec::new();
+        write_borrowed_text(&[], &mut empty).unwrap();
+        assert_eq!((borrowed_table(&[]).unwrap(), empty), encode(&[]).unwrap());
+        struct Failed;
+        impl std::io::Write for Failed {
+            fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("injected write failure"))
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        assert!(write_borrowed_text(&borrowed, &mut Failed)
+            .unwrap_err()
+            .contains("injected write failure"));
+    }
+
     #[test]
     fn all_text_and_optional_fields_round_trip() {
         let sections = vec![
