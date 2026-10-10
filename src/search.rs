@@ -350,7 +350,11 @@ pub fn save_json<T: Serialize>(path: &Path, val: &T) -> Result<(), String> {
             .into_inner()
             .map_err(|e| format!("Failed to flush {}: {}", tmp_path.display(), e))?;
         if let Some(started) = started {
-            crate::index_timing::emit("json.serialize", Some(path), started.elapsed().saturating_sub(file.elapsed));
+            crate::index_timing::emit(
+                "json.serialize",
+                Some(path),
+                started.elapsed().saturating_sub(file.elapsed),
+            );
             crate::index_timing::emit("json.write", Some(path), file.elapsed);
         }
         let sync = timing.then(std::time::Instant::now);
@@ -399,7 +403,11 @@ pub fn load_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, Strin
     if let Some(started) = started {
         let read = reader.get_ref().elapsed;
         crate::index_timing::emit("open.read", Some(path), read);
-        crate::index_timing::emit("open.parse_reconstruct", Some(path), started.elapsed().saturating_sub(read));
+        crate::index_timing::emit(
+            "open.parse_reconstruct",
+            Some(path),
+            started.elapsed().saturating_sub(read),
+        );
     }
     Ok(val)
 }

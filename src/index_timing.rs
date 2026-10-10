@@ -22,7 +22,10 @@ pub struct Span {
 }
 impl Span {
     pub fn new(phase: &'static str) -> Self {
-        Self { phase, start: enabled().then(Instant::now) }
+        Self {
+            phase,
+            start: enabled().then(Instant::now),
+        }
     }
 }
 impl Drop for Span {
@@ -41,7 +44,11 @@ pub struct TimedIo<T> {
 }
 impl<T> TimedIo<T> {
     pub fn new(inner: T, enabled: bool) -> Self {
-        Self { inner, enabled, elapsed: Duration::ZERO }
+        Self {
+            inner,
+            enabled,
+            elapsed: Duration::ZERO,
+        }
     }
     fn measure<R>(&mut self, operation: impl FnOnce(&mut T) -> R) -> R {
         let start = self.enabled.then(Instant::now);
