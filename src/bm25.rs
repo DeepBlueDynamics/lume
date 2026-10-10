@@ -1074,6 +1074,101 @@ impl Bm25Index {
         }
     }
 
+    /// Rebuild only entity-derived state after sealed section replacements.
+    /// Text term frequencies, corpus statistics and lexical score bits stay unchanged.
+    pub fn refresh_entities(&mut self, tagger: Option<&Tagger>) {
+        let mut entity_posting_lists: HashMap<String, MiniRoaring> = HashMap::new();
+        let mut entity_kinds = HashMap::new();
+        let mut entity_labels = HashMap::new();
+        for (doc_idx, sec) in self.sections.iter().enumerate() {
+            let doc_id = doc_idx as u32;
+            let pf = &mut self.prime_filters[doc_idx];
+            pf.tag_signature = 1;
+            if let Some(t) = tagger {
+                let title_tags = t.tag(&sec.title);
+                for tag in title_tags {
+                    if let Some(&prime) = self.tag_prime_map.get(&tag.output) {
+                        pf.add_tag_prime(prime);
+                    }
+
+                    // Track for semantic mesh (Option A)
+                    entity_posting_lists
+                        .entry(tag.output.clone())
+                        .or_default()
+                        .insert(doc_id);
+                    entity_kinds.insert(tag.output.clone(), tag.kind.clone());
+
+                    // Keep the best version of the surface label (longer / capitalized)
+                    let entry = entity_labels.entry(tag.output.clone());
+                    match entry {
+                        std::collections::hash_map::Entry::Vacant(v) => {
+                            v.insert(tag.surface.clone());
+                        }
+                        std::collections::hash_map::Entry::Occupied(mut o) => {
+                            let curr = o.get();
+                            let is_better =
+                                (tag.surface.chars().next().is_some_and(|c| c.is_uppercase())
+                                    && !curr.chars().next().is_some_and(|c| c.is_uppercase()))
+                                    || tag.surface.len() > curr.len();
+                            if is_better {
+                                o.insert(tag.surface.clone());
+                            }
+                        }
+                    }
+                }
+                let body_tags = t.tag(&sec.body);
+                for tag in body_tags {
+                    if let Some(&prime) = self.tag_prime_map.get(&tag.output) {
+                        pf.add_tag_prime(prime);
+                    }
+
+                    // Track for semantic mesh (Option A)
+                    entity_posting_lists
+                        .entry(tag.output.clone())
+                        .or_default()
+                        .insert(doc_id);
+                    entity_kinds.insert(tag.output.clone(), tag.kind.clone());
+
+                    // Keep the best version of the surface label (longer / capitalized)
+                    let entry = entity_labels.entry(tag.output.clone());
+                    match entry {
+                        std::collections::hash_map::Entry::Vacant(v) => {
+                            v.insert(tag.surface.clone());
+                        }
+                        std::collections::hash_map::Entry::Occupied(mut o) => {
+                            let curr = o.get();
+                            let is_better =
+                                (tag.surface.chars().next().is_some_and(|c| c.is_uppercase())
+                                    && !curr.chars().next().is_some_and(|c| c.is_uppercase()))
+                                    || tag.surface.len() > curr.len();
+                            if is_better {
+                                o.insert(tag.surface.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            for ent in &sec.entities {
+                let ent_key = ent.trim().to_lowercase();
+                if !ent_key.is_empty() && ent_key != "__lume_processed__" {
+                    entity_posting_lists
+                        .entry(ent_key.clone())
+                        .or_default()
+                        .insert(doc_id);
+                    entity_kinds
+                        .entry(ent_key.clone())
+                        .or_insert_with(|| "ollama".to_string());
+                    entity_labels
+                        .entry(ent_key.clone())
+                        .or_insert_with(|| ent.clone());
+                }
+            }
+        }
+        self.entity_posting_lists = entity_posting_lists;
+        self.entity_kinds = entity_kinds;
+        self.entity_labels = entity_labels;
+    }
+
     /// Evaluates a query and returns matching sections ordered by their BM25 score.
     /// Prints pruning and rejection diagnostics to stderr (the CLI's behaviour).
     pub fn search(

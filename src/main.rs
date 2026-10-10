@@ -1227,7 +1227,12 @@ fn handle_index_init(args: &[String]) -> Result<(), String> {
     let state_file_path = db_path.join("state.json");
     let mut cached_files = HashMap::new();
     if state_file_path.exists() || lume::index_binary::snapshot::present(db_path) {
-        if let Ok(state) = lume::index_binary::snapshot::settings(db_path) {
+        let restored = if !force && lume::index_binary::snapshot::present(db_path) {
+            Ok(lume::index_binary::snapshot::restore_state(db_path)?)
+        } else {
+            lume::index_binary::snapshot::settings(db_path)
+        };
+        if let Ok(state) = restored {
             if let Err(e) = check_state_compatibility(&state) {
                 if !force {
                     return Err(e);
@@ -1301,7 +1306,11 @@ fn handle_index_update(args: &[String]) -> Result<(), String> {
         ));
     }
 
-    let state = lume::index_binary::snapshot::settings(db_path)?;
+    let state = if !force && lume::index_binary::snapshot::present(db_path) {
+        lume::index_binary::snapshot::restore_state(db_path)?
+    } else {
+        lume::index_binary::snapshot::settings(db_path)?
+    };
     check_state_compatibility(&state)?;
 
     println!("Updating index for target directory: {}", state.target_dir);
@@ -1949,14 +1958,12 @@ fn run_indexing(
     }
 
     let db_path = Path::new(db_dir);
-    let binary_format = std::env::var("LUME_INDEX_FORMAT").as_deref() == Ok("4");
-    if binary_format && ollama_entities {
-        return Err("V4 entity-overlay publication is not yet implemented".into());
-    }
-    if binary_format && !force {
+    let binary_format = std::env::var("LUME_INDEX_FORMAT").as_deref() == Ok("4")
+        || lume::index_binary::snapshot::present(db_path);
+    if binary_format && !force && !ollama_entities {
         return Err("LUME_INDEX_FORMAT=4 requires lume index -f".into());
     }
-    if !force && lume::index_binary::snapshot::present(db_path) {
+    if !force && !ollama_entities && lume::index_binary::snapshot::present(db_path) {
         return Err("V4 index updates currently require lume index -f".into());
     }
     fs::create_dir_all(db_path).map_err(|e| format!("Failed to create db dir: {}", e))?;
@@ -2077,17 +2084,9 @@ fn run_indexing(
             .map_err(|e| e.to_string())?
             .as_secs();
 
-        let mut needs_index = force
+        let needs_index = force
             || !cached_files.contains_key(&path_str)
             || cached_files.get(&path_str).unwrap().0 != mtime;
-
-        if !needs_index && ollama_entities {
-            if let Some((_, cached_sections)) = cached_files.get(&path_str) {
-                if cached_sections.iter().any(|s| s.entities.is_empty()) {
-                    needs_index = true;
-                }
-            }
-        }
 
         if needs_index {
             let file_start = Instant::now();
@@ -2301,8 +2300,10 @@ fn run_indexing(
 
     // Determine the analyzer and metadata before publishing searchable tables.
     // The slow Ollama pass publishes early; ordinary scans publish only at the end.
-    let stemmed = if !force && db_path.join("state.json").exists() {
-        if let Ok(prev_state) = load_json::<IndexState>(&db_path.join("state.json")) {
+    let stemmed = if !force
+        && (db_path.join("state.json").exists() || lume::index_binary::snapshot::present(db_path))
+    {
+        if let Ok(prev_state) = lume::index_binary::snapshot::settings(db_path) {
             prev_state.stemmed
         } else {
             std::env::var("LUME_STEM")
@@ -2337,13 +2338,10 @@ fn run_indexing(
     // searchable tables once, after all source/vector work succeeds.
     if ollama_entities {
         let early_flush_start = Instant::now();
-        let early_count = flush_searchable_indexes(
-            &cached_files,
-            tagger.as_ref(),
-            &tagger_phrases,
-            db_path,
-            current_meta.as_ref(),
-        )?;
+        let early_count = cached_files
+            .values()
+            .map(|(_, sections)| sections.len())
+            .sum::<usize>();
         let early_state = IndexState {
             format_version,
             target_dir: target_dir.to_string(),
@@ -2358,7 +2356,37 @@ fn run_indexing(
             stemmed,
             keep_hyphens,
         };
-        save_json(&db_path.join("state.json"), &early_state)?;
+        if binary_format {
+            let bm25 = Bm25Index::build(collect_all_sections(&cached_files), tagger.as_ref());
+            let spelling = SpellIndex::build(
+                &tagger_phrases,
+                &bm25.posting_lists.keys().cloned().collect::<Vec<_>>(),
+            );
+            let graph = EntityGraph::build(
+                &bm25.entity_posting_lists,
+                &bm25.entity_kinds,
+                &bm25.entity_labels,
+                0.1,
+                bm25.sections.len(),
+            );
+            lume::index_binary::snapshot::publish_owned(
+                db_path,
+                early_state,
+                bm25,
+                &spelling,
+                &graph,
+                current_meta.as_ref(),
+            )?;
+        } else {
+            flush_searchable_indexes(
+                &cached_files,
+                tagger.as_ref(),
+                &tagger_phrases,
+                db_path,
+                current_meta.as_ref(),
+            )?;
+            save_json(&db_path.join("state.json"), &early_state)?;
+        }
         println!(
             "[💾] Index searchable: {} sections written to {} in {:?}",
             early_count,
@@ -2375,6 +2403,8 @@ fn run_indexing(
         struct ExtractTask {
             file_path: String,
             sec_idx: usize,
+            section_id: u32,
+            source_hash: String,
             title: String,
             body: String,
         }
@@ -2384,8 +2414,13 @@ fn run_indexing(
         {
             let mut paths: Vec<&String> = cached_files.keys().collect();
             paths.sort();
+            let mut section_id = 0u32;
             for path in paths {
                 for (sec_idx, sec) in cached_files[path].1.iter().enumerate() {
+                    let current_id = section_id;
+                    section_id = section_id
+                        .checked_add(1)
+                        .ok_or("Section count exceeds u32")?;
                     // Chunk-range numbering stays per-file, as before.
                     let chunk_num = sec_idx + 1;
                     if let Some((start, end)) = chunk_range {
@@ -2400,6 +2435,8 @@ fn run_indexing(
                     tasks.push(ExtractTask {
                         file_path: path.clone(),
                         sec_idx,
+                        section_id: current_id,
+                        source_hash: lume::index_binary::overlays::source_hash(sec),
                         title: sec.title.clone(),
                         body: sec.body.clone(),
                     });
@@ -2434,6 +2471,8 @@ fn run_indexing(
             let mut ok_count = 0usize;
             let mut fail_count = 0usize;
 
+            let mut pending = Vec::new();
+            let mut checkpoint_error = None;
             std::thread::scope(|s| {
                 for worker_id in 0..num_workers {
                     let tasks = Arc::clone(&tasks);
@@ -2497,53 +2536,80 @@ fn run_indexing(
                             }
                             if let Some((_, sections)) = cached_files.get_mut(&task.file_path) {
                                 if let Some(sec) = sections.get_mut(task.sec_idx) {
-                                    sec.entities = ents;
+                                    sec.entities = ents.clone();
                                 }
                             }
 
-                            // Checkpoint state.json (preserving the semantic
-                            // session id) so an interrupted run resumes from
-                            // the last completed chunk.
-                            let temp_state = IndexState {
-                                format_version,
-                                target_dir: target_dir.to_string(),
-                                db_dir: db_dir.to_string(),
-                                semantic_enabled,
-                                ollama_entities,
-                                ollama_model: ollama_model.clone(),
-                                ollama_url: ollama_url.clone(),
-                                tag_dict_path: tag_dict_path.clone(),
-                                semantic_session_id: semantic_session_id.clone(),
-                                cached_files: cached_files.clone(),
-                                stemmed,
-                                keep_hyphens,
-                            };
-                            let state_path = db_path.join("state.json");
-                            if let Err(e) = save_json(&state_path, &temp_state) {
-                                eprintln!(
-                                    "  [⚠️] Warning: failed to save index checkpoint {}: {}",
-                                    state_path.display(),
-                                    e
-                                );
-                            }
-
-                            // Periodically rewrite the searchable indexes so
-                            // long extraction runs can be queried mid-flight.
-                            if last_flush.elapsed() >= FLUSH_INTERVAL {
-                                match flush_searchable_indexes(
-                                    &cached_files,
-                                    tagger.as_ref(),
-                                    &tagger_phrases,
-                                    db_path,
-                                    current_meta.as_ref(),
-                                ) {
-                                    Ok(n) => println!(
-                                        "  [💾] Searchable index flushed mid-run ({} sections)",
-                                        n
-                                    ),
-                                    Err(e) => eprintln!("  [⚠️] Mid-run index flush failed: {}", e),
+                            if binary_format {
+                                pending.push(lume::index_binary::overlays::Replacement {
+                                    section: task.section_id,
+                                    source_hash: task.source_hash.clone(),
+                                    entities: ents,
+                                });
+                                if pending.len() >= 16 || last_flush.elapsed() >= FLUSH_INTERVAL {
+                                    match lume::index_binary::overlays::publish(
+                                        db_path,
+                                        pending.clone(),
+                                        |_| Ok(()),
+                                    ) {
+                                        Ok((_, bytes)) => {
+                                            println!("  [💾] Entity batch sealed: {} sections, {} checkpoint bytes", pending.len(), bytes);
+                                            pending.clear();
+                                            last_flush = Instant::now();
+                                        }
+                                        Err(error) => {
+                                            checkpoint_error = Some(error);
+                                            break;
+                                        }
+                                    }
                                 }
-                                last_flush = Instant::now();
+                            } else {
+                                // Checkpoint state.json (preserving the semantic
+                                // session id) so an interrupted run resumes from
+                                // the last completed chunk.
+                                let temp_state = IndexState {
+                                    format_version,
+                                    target_dir: target_dir.to_string(),
+                                    db_dir: db_dir.to_string(),
+                                    semantic_enabled,
+                                    ollama_entities,
+                                    ollama_model: ollama_model.clone(),
+                                    ollama_url: ollama_url.clone(),
+                                    tag_dict_path: tag_dict_path.clone(),
+                                    semantic_session_id: semantic_session_id.clone(),
+                                    cached_files: cached_files.clone(),
+                                    stemmed,
+                                    keep_hyphens,
+                                };
+                                let state_path = db_path.join("state.json");
+                                if let Err(e) = save_json(&state_path, &temp_state) {
+                                    eprintln!(
+                                        "  [⚠️] Warning: failed to save index checkpoint {}: {}",
+                                        state_path.display(),
+                                        e
+                                    );
+                                }
+
+                                // Periodically rewrite the searchable indexes so
+                                // long extraction runs can be queried mid-flight.
+                                if last_flush.elapsed() >= FLUSH_INTERVAL {
+                                    match flush_searchable_indexes(
+                                        &cached_files,
+                                        tagger.as_ref(),
+                                        &tagger_phrases,
+                                        db_path,
+                                        current_meta.as_ref(),
+                                    ) {
+                                        Ok(n) => println!(
+                                            "  [💾] Searchable index flushed mid-run ({} sections)",
+                                            n
+                                        ),
+                                        Err(e) => {
+                                            eprintln!("  [⚠️] Mid-run index flush failed: {}", e)
+                                        }
+                                    }
+                                    last_flush = Instant::now();
+                                }
                             }
                         }
                         Err(err) => {
@@ -2557,6 +2623,17 @@ fn run_indexing(
                 }
             });
 
+            if let Some(error) = checkpoint_error {
+                return Err(format!(
+                    "Entity checkpoint failed; last sealed batch remains readable: {error}"
+                ));
+            }
+            if binary_format && !pending.is_empty() {
+                let count = pending.len();
+                let (_, bytes) =
+                    lume::index_binary::overlays::publish(db_path, pending, |_| Ok(()))?;
+                println!("  [💾] Entity batch sealed: {count} sections, {bytes} checkpoint bytes");
+            }
             let elapsed_all = ollama_start_all.elapsed();
             let rate = if elapsed_all.as_secs_f64() > 0.0 {
                 ok_count as f64 / elapsed_all.as_secs_f64()

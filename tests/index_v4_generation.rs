@@ -23,6 +23,7 @@ fn manifest() -> Manifest {
         source_files: 0,
         corpus_fingerprint: [0; 2],
         segments: BTreeMap::new(),
+        entity_overlay: None,
     }
 }
 fn segments(value: u8) -> BTreeMap<String, Vec<u8>> {

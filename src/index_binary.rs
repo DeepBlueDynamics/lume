@@ -4,6 +4,7 @@ pub mod build_state;
 pub mod codec;
 pub mod csr;
 pub mod generation;
+pub mod overlays;
 pub mod postings;
 pub mod profiles;
 pub mod sections;
