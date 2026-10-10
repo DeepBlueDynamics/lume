@@ -1009,6 +1009,18 @@ pub fn blend_hybrid_scores_with_mode(
         }
     }
 
+    let experimental = std::env::var("LUME_BLEND").ok();
+    if crate::hybrid_fusion::enabled(experimental.as_deref()) {
+        let k = std::env::var("LUME_RRF_K")
+            .ok()
+            .and_then(|value| value.parse::<f64>().ok())
+            .filter(|value| value.is_finite() && *value > 0.0)
+            .unwrap_or(60.0);
+        return crate::hybrid_fusion::fuse(
+            bm25_hits, &semantic_map, experimental.as_deref().unwrap(), k, alpha,
+        );
+    }
+
     // Per-candidate tuple: (bm25, semantic, skg, boosted).
     let mut candidate_indices: HashMap<usize, (f64, f64, f64, bool)> = HashMap::new();
     for hit in bm25_hits {

@@ -35,6 +35,7 @@ pub mod graph_search;
 pub mod http_auth;
 pub mod hybrid;
 pub mod meta;
+mod hybrid_fusion;
 pub mod inversion;
 pub mod local_vectors;
 pub mod nuts_auth;
