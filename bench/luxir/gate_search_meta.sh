@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd /workspace/lume/.lanes/meta
+cd "$(dirname "$0")/../.."
 export CARGO_INCREMENTAL=0
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/tmp/target}"
 export CARGO_TARGET_TMPDIR="${CARGO_TARGET_TMPDIR:-/tmp/cargo-tmp}"
