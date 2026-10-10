@@ -1,5 +1,5 @@
 import unittest
-from h3_quality import query
+from h3_quality import query, heldout_configs
 
 
 class FakeClient:
@@ -13,6 +13,10 @@ class FakeClient:
 
 
 class H3Tests(unittest.TestCase):
+    def test_heldout_configs_are_fixed_before_results(self):
+        self.assertEqual(heldout_configs(), [("normalized-v2", 2.0, 60),
+            ("vector", 1.0, 60), ("rrf", 1.0, 20), ("bm25", 0.0, 60)])
+
     def test_local_search_passes_alpha_and_returns_document_hits(self):
         client = FakeClient({"result": {"content": [{"type": "text",
             "text": "[1] Hybrid Score: 0.9 (File: /source/a.txt, Line: 1)"}]}})

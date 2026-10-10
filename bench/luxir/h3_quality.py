@@ -1,4 +1,4 @@
-"""Matched-vector SciFact sweep; reject any embedding/service call."""
+"""Matched-vector SciFact sweep or fixed held-out NFCorpus check; no upstream calls."""
 import argparse
 import csv
 import hashlib
@@ -13,6 +13,7 @@ import time
 from http_runner import JsonClient
 from hybrid_quality import document_hits, HIT
 from score import evaluate, read_qrels, read_run
+from run_lume import files
 
 
 def query(client, db, text, alpha):
@@ -35,6 +36,12 @@ def query(client, db, text, alpha):
             raise RuntimeError("Document result cap exceeded")
 
 
+def heldout_configs():
+    # Fixed before seeing NFCorpus results: no alpha or depth tuning.
+    return [("normalized-v2", 2.0, 60), ("vector", 1.0, 60),
+            ("rrf", 1.0, 20), ("bm25", 0.0, 60)]
+
+
 COUNTER_URL = ""
 
 
@@ -43,14 +50,19 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--binary", type=Path, required=True)
-    parser.add_argument("--db", type=Path, default=Path("/indexes/h3/scifact"))
+    parser.add_argument("--dataset", choices=("scifact", "nfcorpus"), default="scifact")
+    parser.add_argument("--files-dir", type=Path, help="Linux corpus directory; stage from docs.jsonl if absent")
+    parser.add_argument("--db", type=Path)
     parser.add_argument("--fusion-sweep", action="store_true", help="reuse H3 index; compare opt-in fusion modes")
     parser.add_argument("--source-sha", default="166cab7")
     args = parser.parse_args()
-    root, db = args.root, args.db
+    root = args.root
+    dataset = args.dataset
+    db = args.db or Path("/indexes/h3") / dataset
+    files_dir = args.files_dir or root / dataset / "files"
     if db.exists() != args.fusion_sweep:
         raise RuntimeError("Fusion sweep requires the existing H3 index; initial run requires a new index")
-    label = "h3-fusion" if args.fusion_sweep else "h3"
+    label = "h3-heldout-nfcorpus" if dataset == "nfcorpus" else ("h3-fusion" if args.fusion_sweep else "h3")
     runs = root / "runs"
     runs.mkdir(exist_ok=True)
     calls = []
@@ -80,31 +92,36 @@ def main():
     summary = []
     try:
         if not args.fusion_sweep:
-            prefix = root / "embeddings/embeddinggemma-2-768-scifact"
-            command = [str(args.binary), "index", str(root / "scifact/files"),
+            if not files_dir.exists():
+                files(root, dataset, files_dir)
+            prefix = root / f"embeddings/embeddinggemma-2-768-{dataset}"
+            command = [str(args.binary), "index", str(files_dir),
                 "--db", str(db), "--embed-model", "embeddinggemma-2",
                 "--embed-dimensions", "768", "--embed-docs", str(prefix) + "-docs.jsonl",
                 "--embed-queries", str(prefix) + "-queries.jsonl",
-                "--embed-query-texts", str(root / "scifact/queries.tsv"),
+                "--embed-query-texts", str(root / dataset / "queries.tsv"),
                 "--shivvr-url", COUNTER_URL]
-            with (runs / "h3-index.log").open("wb") as output:
+            with (runs / (label + "-index.log")).open("wb") as output:
                 subprocess.run(command, env=env, stdout=output, stderr=subprocess.STDOUT, check=True)
             if calls:
                 raise RuntimeError("Index made upstream calls")
         state = json.loads((db / "state.json").read_text())
         sections = sum(len(row[1]) for row in state["cached_files"].values())
         vectors = json.loads((db / "local-vectors.json").read_text())
-        if sections != 5183 or len(vectors["documents"]) != 5183 or len(vectors["queries"]) != 300:
+        queries = list(csv.reader((root / dataset / "queries.tsv").open(), delimiter="\t"))
+        with (root / dataset / "docs.jsonl").open() as source:
+            expected_documents = sum(bool(line.strip()) for line in source)
+        expected_queries = len({text.strip() for _, text in queries})
+        if sections != expected_documents or len(vectors["documents"]) != expected_documents or len(vectors["queries"]) != expected_queries:
             raise RuntimeError("Unexpected imported section/query coverage")
-        queries = list(csv.reader((root / "scifact/queries.tsv").open(), delimiter="\t"))
-        qrels = read_qrels(root / "scifact/qrels.tsv")
+        qrels = read_qrels(root / dataset / "qrels.tsv")
         token = (root / "http-token.txt").read_text().strip()
 
         def run(blend, depth, alphas, k=60):
             server_env = dict(env, LUME_BLEND_NORM="1" if blend == "normalized" else "0",
                               LUME_LOCAL_VECTOR_DEPTH=str(depth), LUME_RRF_K=str(k),
-                              LUME_BLEND=blend if args.fusion_sweep else "")
-            with (runs / f"h3-server-{blend}-{depth}.log").open("wb") as output:
+                              LUME_BLEND=blend if args.fusion_sweep or dataset == "nfcorpus" else "")
+            with (runs / f"{label}-server-{blend}-{depth}-k{k}.log").open("wb") as output:
                 child = subprocess.Popen([str(args.binary), "serve", "--bind", "127.0.0.1",
                     "--port", "5863", "--http-token-file", str(root / "http-token.txt")],
                     env=server_env, stdout=output, stderr=subprocess.STDOUT)
@@ -124,7 +141,7 @@ def main():
                             raise RuntimeError("H3 server readiness timed out")
                         time.sleep(.2)
                     for alpha in alphas:
-                        name = f"lume-{label}-{blend}-k{k}-a{int(alpha * 10)}-depth{depth}-scifact"
+                        name = f"lume-{label}-{blend}-k{k}-a{int(alpha * 10)}-depth{depth}-{dataset}"
                         invalid = runs / (name + ".invalid.json")
                         invalid.write_text('{"reason":"incomplete H3 run"}\n')
                         rows = []
@@ -152,7 +169,10 @@ def main():
                         child.kill()
                         child.wait()
 
-        if args.fusion_sweep:
+        if dataset == "nfcorpus":
+            for blend, alpha, k in heldout_configs():
+                run(blend, 100, (alpha,), k)
+        elif args.fusion_sweep:
             for depth in (100, "all"):
                 for k in (20, 60, 100):
                     run("rrf", depth, (1.0,), k)
@@ -171,8 +191,9 @@ def main():
         (runs / (label + "-summary.json")).write_text(json.dumps({
             "source_sha": args.source_sha, "binary_sha256": hashlib.sha256(args.binary.read_bytes()).hexdigest(),
             "profile": "rustc 1.96; thin LTO; CGU 1", "runs": summary,
-            "rrf": "tested" if args.fusion_sweep else "not tested", "upstream_calls": len(calls),
-            "reference": {"ndcg@10": .7794, "recall@100": .9867, "mrr@10": .7523}
+            "rrf": "tested" if args.fusion_sweep or dataset == "nfcorpus" else "not tested", "upstream_calls": len(calls),
+            "dataset": dataset,
+            "reference": {"ndcg@10": .7794, "recall@100": .9867, "mrr@10": .7523} if dataset == "scifact" else None
         }, indent=2) + "\n")
 
 
