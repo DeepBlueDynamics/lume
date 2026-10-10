@@ -1017,7 +1017,11 @@ pub fn blend_hybrid_scores_with_mode(
             .filter(|value| value.is_finite() && *value > 0.0)
             .unwrap_or(60.0);
         return crate::hybrid_fusion::fuse(
-            bm25_hits, &semantic_map, experimental.as_deref().unwrap(), k, alpha,
+            bm25_hits,
+            &semantic_map,
+            experimental.as_deref().unwrap(),
+            k,
+            alpha,
         );
     }
 
@@ -1900,10 +1904,20 @@ mod tests {
 
     #[test]
     fn legacy_blend_scores_preserve_existing_formulas() {
-        let lexical = [SearchHit { section_index: 0, score: 4.0 },
-                       SearchHit { section_index: 1, score: 2.0 }];
+        let lexical = [
+            SearchHit {
+                section_index: 0,
+                score: 4.0,
+            },
+            SearchHit {
+                section_index: 1,
+                score: 2.0,
+            },
+        ];
         let semantic = [SearchResult {
-            chunk_id: "one".to_string(), score: 0.5, text: String::new(),
+            chunk_id: "one".to_string(),
+            score: 0.5,
+            text: String::new(),
             source: Some("0".to_string()),
         }];
         for (mode, expected) in [
@@ -1911,7 +1925,13 @@ mod tests {
             (crate::search::BlendMode::Normalized, [1.25f64, 0.5]),
         ] {
             let hits = blend_hybrid_scores_with_mode(
-                &lexical, &semantic, &HashMap::new(), &HashMap::new(), 0.5, 0.0, mode,
+                &lexical,
+                &semantic,
+                &HashMap::new(),
+                &HashMap::new(),
+                0.5,
+                0.0,
+                mode,
             );
             assert_eq!(hits[0].section_index, 0);
             assert_eq!(hits[1].section_index, 1);
