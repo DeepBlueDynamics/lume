@@ -16,7 +16,9 @@ Accelerates `MiniRoaring` container operations (`intersect`, `union`, `andnot`, 
 
 ## Runtime Dispatch & Fallback
 - **x86_64**: Uses `is_x86_feature_detected!("avx2")` to dynamically route to AVX2 kernels; falls back to pure scalar implementations when AVX2 is absent.
-- **aarch64**: Uses NEON baseline intrinsics with scalar fallback on non-ARM architectures.
+- **aarch64**: Architecture-tuned routing based on physical Cortex-A76 measurements:
+  - `bitmap_and`, `bitmap_or`, `bitmap_andnot`: Routed to the scalar reference. LLVM auto-vectorizes the scalar single-pass loop with accumulated OR faster than manual NEON store + reduction (3.33 ms scalar vs 4.45 ms NEON, 0.75x).
+  - `bitmap_popcount` & `bitmap_and_popcount`: Routed to hardware NEON vector popcount (`vcntq_u8` with `vpaddlq`), which delivers 1.18x–1.19x measured speedups over scalar.
 - Existing `MiniRoaring` call sites remain safe Rust and require zero manual SIMD gating.
 
 ## Safety Argument
@@ -26,7 +28,8 @@ Accelerates `MiniRoaring` container operations (`intersect`, `union`, `andnot`, 
 - Comprehensive differential property tests assert exact scalar == SIMD parity across all edge sizes (0, 1, 63, 64, 127, 128, 1023, 1024, 1025, 4096, 32768, 65535, 65536) and alternating bit patterns.
 
 ## Verification & Benchmark Results
-Verified on host (`rust:1.96-bookworm`, x86_64 with AVX2):
+
+### 1. Host Verification (`rust:1.96-bookworm`, x86_64 with AVX2)
 - **Byte Parity**: 4/4 checks PASS against candidate PR #12 binary.
 - **Release Microbenchmark (10,000 iterations × 8 KiB container)**:
   - `bitmap_and`: Scalar 2.29 ms vs SIMD 0.97 ms (**2.36x speedup**)
@@ -37,5 +40,14 @@ Verified on host (`rust:1.96-bookworm`, x86_64 with AVX2):
   - **TREC-COVID**: p50 5.88 ms vs metafix baseline 6.27 ms (**−6% latency**), p99 11.23 ms vs 11.77 ms (**−5% latency**), QPS8 598 vs 609 (within run noise).
   - **SciFact**: 2.18 ms vs 2.19 ms (flat).
 
-## Caveat
-The NEON implementation compiles cleanly and passes strict Clippy (`-D warnings`) for `aarch64-unknown-linux-gnu`, but has not yet been executed on physical ARM hardware. A dedicated benchmark and parity verification on Raspberry Pi 5 hardware will follow before production deployment to ARM edge nodes.
+### 2. ARM Hardware Verification (Raspberry Pi 5, aarch64 Cortex-A76)
+- **SIMD Differential Tests**: 3/3 tests PASS on physical NEON hardware.
+- **Microbenchmark (10,000 iterations × 8 KiB container)**:
+  - `bitmap_and`: Scalar 3.33 ms vs NEON 4.45 ms (**0.75x** — scalar faster; routed to scalar)
+  - `bitmap_popcount`: Scalar 5.24 ms vs NEON 4.43 ms (**1.18x speedup** — NEON retained)
+  - `and_popcount`: Scalar 6.76 ms vs NEON 5.67 ms (**1.19x speedup** — NEON retained)
+- **SciFact End-to-End Parity**:
+  - 300 queries on `f3-f2` verified via standalone parity harness: **BYTE PARITY PASS** (run SHA256: `8f7e3d53…42b4`).
+
+## Multi-Architecture Validation
+The SIMD layer is cross-verified across both x86_64 (AVX2) and aarch64 (NEON). Runtime dispatch ensures that only operations demonstrating empirical hardware speedups (≥ 1.05x) utilize vector intrinsics, while memory-bound operations on ARM benefit from LLVM's auto-vectorized single-pass scalar loops.

@@ -72,6 +72,12 @@ def wait_for_ready(url, token, deadline_seconds=30):
 
 
 def run_parity(binary, index_dir, queries_file, baseline_file=None, profile="f3-f2", port=5863):
+    binary = Path(binary).resolve()
+    index_dir = Path(index_dir).resolve()
+    queries_file = Path(queries_file).resolve()
+    if baseline_file:
+        baseline_file = Path(baseline_file).resolve()
+
     token = hashlib.sha256(os.urandom(32)).hexdigest()
     token_file = Path(f"/tmp/lume-token-{port}.txt")
     token_file.write_text(token + "\n")
