@@ -3673,7 +3673,7 @@ fn handle_generate(args: &[String]) -> Result<(), String> {
         limit,
         tagger.as_ref(),
         &bm25.entity_posting_lists,
-        &bm25.posting_lists,
+        &bm25.candidate_posting_lists(),
         &steer_tags,
     );
 
@@ -3760,7 +3760,7 @@ fn run_inversion_steered_generate(
             limit,
             tagger,
             &bm25.entity_posting_lists,
-            &bm25.posting_lists,
+            &bm25.candidate_posting_lists(),
             &this_steer,
         );
         let cand_vec = embed_text(&cand, token)?;

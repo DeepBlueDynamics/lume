@@ -380,6 +380,7 @@ struct InternedIndex {
     vocabulary: HashMap<Vec<u8>, u32>,
     postings: Vec<Vec<TermPosting>>,
     flat_postings: Option<crate::index_binary::postings::PostingsCsr>,
+    candidate_cache: Vec<std::sync::OnceLock<MiniRoaring>>,
     bounds: std::sync::Mutex<HashMap<BoundsKey, ProfileBounds>>,
 }
 
@@ -397,6 +398,7 @@ impl InternedIndex {
             vocabulary: HashMap::new(),
             postings: Vec::new(),
             flat_postings: None,
+            candidate_cache: Vec::new(),
             bounds: std::sync::Mutex::new(HashMap::new()),
         };
         for doc in 0..index.num_docs {
@@ -673,6 +675,42 @@ pub fn parse_markdown(content: &str) -> Vec<Section> {
 }
 
 impl Bm25Index {
+    pub fn candidate_posting(&self, term: &[u8]) -> Option<&MiniRoaring> {
+        if self.compact_forward.is_none() {
+            return self.posting_lists.get(term);
+        }
+        let interned = self.interned.get()?;
+        let id = *interned.vocabulary.get(term)?;
+        Some(interned.candidate_cache[id as usize].get_or_init(|| {
+            let docs: Vec<u32> = interned.postings(id).iter().map(|p| p.doc).collect();
+            MiniRoaring::from_sorted(&docs)
+        }))
+    }
+
+    pub fn candidate_posting_lists(&self) -> std::borrow::Cow<'_, HashMap<Vec<u8>, MiniRoaring>> {
+        if self.compact_forward.is_none() {
+            return std::borrow::Cow::Borrowed(&self.posting_lists);
+        }
+        let map = self
+            .interned
+            .get()
+            .unwrap()
+            .vocabulary
+            .keys()
+            .map(|term| (term.clone(), self.candidate_posting(term).unwrap().clone()))
+            .collect();
+        std::borrow::Cow::Owned(map)
+    }
+
+    pub fn from_v4_segments_for_open(
+        segments: &std::collections::BTreeMap<String, Vec<u8>>,
+    ) -> Result<Self, String> {
+        binary::decode_checked(
+            segments,
+            std::env::var("LUME_INDEX_VERIFY").as_deref() == Ok("full"),
+        )
+    }
+
     pub fn v4_segments(&mut self) -> Result<std::collections::BTreeMap<String, Vec<u8>>, String> {
         binary::encode(self)
     }
@@ -749,6 +787,9 @@ impl Bm25Index {
         let interned = InternedIndex {
             vocabulary: vocabulary.clone(),
             postings: Vec::new(),
+            candidate_cache: (0..flat_postings.len())
+                .map(|_| std::sync::OnceLock::new())
+                .collect(),
             flat_postings: Some(flat_postings),
             bounds: std::sync::Mutex::new(HashMap::new()),
         };
@@ -1296,7 +1337,7 @@ impl Bm25Index {
         let mut candidate_set = MiniRoaring::new();
         let mut first = true;
         for q_tok in &query_tokens {
-            if let Some(list) = self.posting_lists.get(&q_tok.bytes) {
+            if let Some(list) = self.candidate_posting(&q_tok.bytes) {
                 if first {
                     candidate_set = list.clone();
                     first = false;
@@ -1308,7 +1349,7 @@ impl Bm25Index {
 
         // 1b. Exclude any sections containing excluded terms using MiniRoaring::andnot
         for not_tok in &effective_not_tokens {
-            if let Some(list) = self.posting_lists.get(&not_tok.bytes) {
+            if let Some(list) = self.candidate_posting(&not_tok.bytes) {
                 candidate_set = candidate_set.andnot(list);
             }
         }
@@ -1694,7 +1735,7 @@ impl Bm25Index {
         let mut candidate_set = MiniRoaring::new();
         let mut first = true;
         for q_tok in &query_tokens {
-            if let Some(list) = self.posting_lists.get(&q_tok.bytes) {
+            if let Some(list) = self.candidate_posting(&q_tok.bytes) {
                 if first {
                     candidate_set = list.clone();
                     first = false;

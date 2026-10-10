@@ -1447,7 +1447,7 @@ pub fn execute_hybrid_search_with_local(
         for not_term in &parsed.not_terms {
             for tok in crate::tokenize_with_options(not_term, index.stemmed, false) {
                 if !crate::bm25::is_stopword(&tok.bytes) {
-                    if let Some(list) = index.posting_lists.get(&tok.bytes) {
+                    if let Some(list) = index.candidate_posting(&tok.bytes) {
                         not_postings.push(list);
                     }
                 }

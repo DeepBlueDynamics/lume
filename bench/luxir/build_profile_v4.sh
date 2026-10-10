@@ -17,13 +17,14 @@ export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
 export TMPDIR=/tmp
 export CARGO_TARGET_TMPDIR=/tmp/cargo-tmp
 trap 'cargo clean' EXIT
-rustfmt --edition 2021 --config skip_children=true --check src/index_timing.rs src/index_binary/bm25_codec.rs src/index_binary/generation.rs src/index_binary/snapshot.rs
+rustfmt --edition 2021 --config skip_children=true --check src/index_timing.rs src/bm25.rs src/index_binary/bm25_codec.rs src/index_binary/generation.rs src/index_binary/snapshot.rs src/hybrid.rs src/meta.rs src/ti_text.rs src/inversion.rs src/main.rs tests/index_v4_core.rs
 cargo test --locked --features ti --test index_v4_core --test index_v4_generation --test index_v4_snapshot --test index_v4_cli
+cargo test --locked --features ti --lib
 cargo clippy --locked --features ti --all-targets -- -D warnings
 # Delete the debug target before the release build to keep below the lane budget.
 cargo clean
 cargo build --release --locked --features ti --bin lume
 install -m 755 "$CARGO_TARGET_DIR/release/lume" /bench/bin/lume-index-v4-profile
 sha256sum /bench/bin/lume-index-v4-profile
-python3 bench/luxir/profile_v4_open.py --binary /bench/bin/lume-index-v4-profile --output /bench/index-v4-profile
+python3 bench/luxir/profile_v4_open.py --binary /bench/bin/lume-index-v4-profile --output "${LUME_V4_PROFILE_OUTPUT:-/bench/index-v4-profile}"
 du -sh "$CARGO_TARGET_DIR"

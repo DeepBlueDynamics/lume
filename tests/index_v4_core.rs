@@ -155,3 +155,51 @@ fn binary_core_rejects_missing_segments_and_semantic_disagreements() {
     );
     assert!(Bm25Index::from_v4_segments(&bad).is_err());
 }
+
+#[test]
+fn fast_open_keeps_candidates_lazy_with_identical_rankings() {
+    let legacy = fixture(144);
+    let mut compact = legacy.clone();
+    let segments = compact.v4_segments().unwrap();
+    let decoded = Bm25Index::from_v4_segments_for_open(&segments).unwrap();
+    assert!(decoded.posting_lists.is_empty());
+    assert!(decoded.title_tfs.is_empty() && decoded.body_tfs.is_empty());
+    assert_rankings(&legacy, &decoded);
+    let first = decoded.candidate_posting(b"pump").unwrap();
+    let second = decoded.candidate_posting(b"pump").unwrap();
+    assert!(std::ptr::eq(first, second));
+    assert_eq!(
+        first.iter(),
+        legacy.candidate_posting(b"pump").unwrap().iter()
+    );
+    assert_eq!(
+        serde_json::to_value(&decoded).unwrap(),
+        serde_json::to_value(&legacy).unwrap()
+    );
+}
+
+#[test]
+fn concurrent_readers_share_the_same_lazy_candidate_set() {
+    let mut index = fixture(144);
+    let segments = index.v4_segments().unwrap();
+    let decoded = std::sync::Arc::new(Bm25Index::from_v4_segments_for_open(&segments).unwrap());
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+    let workers: Vec<_> = (0..8)
+        .map(|_| {
+            let index = std::sync::Arc::clone(&decoded);
+            let barrier = std::sync::Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                barrier.wait();
+                let bitmap = index.candidate_posting(b"pump").unwrap();
+                (bitmap as *const _ as usize, bitmap.iter())
+            })
+        })
+        .collect();
+    let results: Vec<_> = workers
+        .into_iter()
+        .map(|worker| worker.join().unwrap())
+        .collect();
+    for result in &results {
+        assert_eq!(result, &results[0]);
+    }
+}

@@ -102,6 +102,13 @@ pub fn encode(index: &mut Bm25Index) -> Result<BTreeMap<String, Vec<u8>>, String
 }
 
 pub fn decode(segments: &BTreeMap<String, Vec<u8>>) -> Result<Bm25Index, String> {
+    decode_checked(segments, true)
+}
+
+pub fn decode_checked(
+    segments: &BTreeMap<String, Vec<u8>>,
+    deep: bool,
+) -> Result<Bm25Index, String> {
     let bytes = |name: &str| -> Result<&[u8], String> {
         segments
             .get(name)
@@ -158,69 +165,69 @@ pub fn decode(segments: &BTreeMap<String, Vec<u8>>) -> Result<Bm25Index, String>
     {
         return Err("Invalid v4 field averages".into());
     }
-    let forward_validation = crate::index_timing::Span::new("v4.validate.forward_masks");
-    for (doc, profile) in document_profiles.iter().enumerate() {
-        let length = |rows: &csr::ForwardCsr| -> Result<u64, String> {
-            rows.row(doc)
-                .ok_or("Missing forward row")?
-                .iter()
-                .try_fold(0_u64, |n, entry| {
-                    n.checked_add(entry.tf)
-                        .ok_or("Forward TF sum overflow".into())
-                })
-        };
-        if length(&title)? != profile.title_len || length(&body)? != profile.body_len {
-            return Err("V4 forward TFs do not match document lengths".into());
-        }
-        let mut filter = PrimeFilter::new();
-        for entry in title.row(doc).unwrap().iter().chain(body.row(doc).unwrap()) {
-            filter.add_term(&dictionary[entry.term as usize].word);
-        }
-        if filter.term_mask != profile.term_mask {
-            return Err("V4 prime mask does not match forward terms".into());
-        }
-    }
-    drop(forward_validation);
-    let posting_validation = crate::index_timing::Span::new("v4.validate.postings_and_candidates");
-    let mut title_entries = 0_usize;
-    let mut body_entries = 0_usize;
-    let mut posting_lists = HashMap::new();
-    for (id, term) in dictionary.iter().enumerate() {
-        let row = flat.row(id as u32).ok_or("Missing term postings")?;
-        let mut title_df = 0_u64;
-        let mut body_df = 0_u64;
-        let mut bitmap = MiniRoaring::new();
-        for posting in row {
-            if title.get(posting.doc as usize, id as u32) != posting.title_tf
-                || body.get(posting.doc as usize, id as u32) != posting.body_tf
-            {
-                return Err("V4 forward/posting TF disagreement".into());
+    if deep {
+        let forward_validation = crate::index_timing::Span::new("v4.validate.forward_masks");
+        for (doc, profile) in document_profiles.iter().enumerate() {
+            let length = |rows: &csr::ForwardCsr| -> Result<u64, String> {
+                rows.row(doc)
+                    .ok_or("Missing forward row")?
+                    .iter()
+                    .try_fold(0_u64, |n, entry| {
+                        n.checked_add(entry.tf)
+                            .ok_or("Forward TF sum overflow".into())
+                    })
+            };
+            if length(&title)? != profile.title_len || length(&body)? != profile.body_len {
+                return Err("V4 forward TFs do not match document lengths".into());
             }
-            if posting.title_tf != 0 {
-                title_df += 1;
-                title_entries += 1;
+            let mut filter = PrimeFilter::new();
+            for entry in title.row(doc).unwrap().iter().chain(body.row(doc).unwrap()) {
+                filter.add_term(&dictionary[entry.term as usize].word);
             }
-            if posting.body_tf != 0 {
-                body_df += 1;
-                body_entries += 1;
+            if filter.term_mask != profile.term_mask {
+                return Err("V4 prime mask does not match forward terms".into());
             }
-            bitmap.insert(posting.doc);
         }
-        if title_df != term.title_df || body_df != term.body_df {
-            return Err("V4 posting DFs disagree with dictionary".into());
+        drop(forward_validation);
+        let posting_validation =
+            crate::index_timing::Span::new("v4.validate.postings_and_candidates");
+        let mut title_entries = 0_usize;
+        let mut body_entries = 0_usize;
+
+        for (id, term) in dictionary.iter().enumerate() {
+            let row = flat.row(id as u32).ok_or("Missing term postings")?;
+            let mut title_df = 0_u64;
+            let mut body_df = 0_u64;
+
+            for posting in row {
+                if title.get(posting.doc as usize, id as u32) != posting.title_tf
+                    || body.get(posting.doc as usize, id as u32) != posting.body_tf
+                {
+                    return Err("V4 forward/posting TF disagreement".into());
+                }
+                if posting.title_tf != 0 {
+                    title_df += 1;
+                    title_entries += 1;
+                }
+                if posting.body_tf != 0 {
+                    body_df += 1;
+                    body_entries += 1;
+                }
+            }
+            if title_df != term.title_df || body_df != term.body_df {
+                return Err("V4 posting DFs disagree with dictionary".into());
+            }
         }
-        // Replace this with rare-inline candidate access before final integration.
-        posting_lists.insert(term.word.clone(), bitmap);
-    }
-    if title_entries != title.entry_count() || body_entries != body.entry_count() {
-        return Err("V4 forward entries are absent from postings".into());
-    }
-    for bitmap in auxiliary.entity_posting_lists.values() {
-        if bitmap.iter().iter().any(|doc| *doc >= doc_count) {
-            return Err("V4 entity posting exceeds document count".into());
+        if title_entries != title.entry_count() || body_entries != body.entry_count() {
+            return Err("V4 forward entries are absent from postings".into());
         }
+        for bitmap in auxiliary.entity_posting_lists.values() {
+            if bitmap.iter().iter().any(|doc| *doc >= doc_count) {
+                return Err("V4 entity posting exceeds document count".into());
+            }
+        }
+        drop(posting_validation);
     }
-    drop(posting_validation);
     let _reconstruct = crate::index_timing::Span::new("v4.reconstruct.maps_profiles");
     let mut title_dfs = HashMap::new();
     let mut body_dfs = HashMap::new();
@@ -243,6 +250,9 @@ pub fn decode(segments: &BTreeMap<String, Vec<u8>>) -> Result<Bm25Index, String>
     let interned = InternedIndex {
         vocabulary: vocabulary.clone(),
         postings: Vec::new(),
+        candidate_cache: (0..flat.len())
+            .map(|_| std::sync::OnceLock::new())
+            .collect(),
         flat_postings: Some(flat),
         bounds: std::sync::Mutex::new(HashMap::new()),
     };
@@ -280,7 +290,7 @@ pub fn decode(segments: &BTreeMap<String, Vec<u8>>) -> Result<Bm25Index, String>
         avg_body_len,
         title_dfs,
         body_dfs,
-        posting_lists,
+        posting_lists: HashMap::new(),
         prime_filters,
         tag_prime_map: auxiliary.tag_prime_map,
         entity_posting_lists: auxiliary.entity_posting_lists,

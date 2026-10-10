@@ -13,7 +13,7 @@ pub fn present(root: &Path) -> bool {
 pub fn open(root: &Path, checks: OpenEnvChecks) -> Result<LoadedIndex, String> {
     let manifest = generation::read_manifest(root)?;
     let segments = generation::read_segments(root, &manifest)?;
-    let bm25 = Bm25Index::from_v4_segments(&segments)?;
+    let bm25 = Bm25Index::from_v4_segments_for_open(&segments)?;
     let build_span = crate::index_timing::Span::new("v4.decode.build_state");
     let build: BuildState = serde_json::from_slice(&segments["build-state.json"])
         .map_err(|e| format!("Invalid v4 build state: {e}"))?;
@@ -129,13 +129,13 @@ pub fn load_bm25(root: &Path) -> Result<Bm25Index, String> {
         return crate::search::load_json(&root.join("bm25.json"));
     }
     let manifest = generation::read_manifest(root)?;
-    Bm25Index::from_v4_segments(&generation::read_segments(root, &manifest)?)
+    Bm25Index::from_v4_segments_for_open(&generation::read_segments(root, &manifest)?)
 }
 
 pub fn restore_state(root: &Path) -> Result<IndexState, String> {
     let manifest = generation::read_manifest(root)?;
     let segments = generation::read_segments(root, &manifest)?;
-    let bm25 = Bm25Index::from_v4_segments(&segments)?;
+    let bm25 = Bm25Index::from_v4_segments_for_open(&segments)?;
     let build: BuildState = serde_json::from_slice(&segments["build-state.json"])
         .map_err(|e| format!("Invalid v4 build state: {e}"))?;
     build.restore_cached_files(&bm25.sections)

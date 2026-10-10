@@ -1759,7 +1759,7 @@ pub fn compute_facets(
                 let tokens = crate::tokenize_with_options(facet_q, bm25.stemmed, false);
                 let mut query_bm = MiniRoaring::new();
                 for tok in tokens {
-                    if let Some(pl) = bm25.posting_lists.get(&tok.bytes) {
+                    if let Some(pl) = bm25.candidate_posting(&tok.bytes) {
                         query_bm = query_bm.union(pl);
                     }
                 }

@@ -62,7 +62,7 @@ impl KindIndex {
         for group in query_groups(query) {
             let mut hits = BTreeSet::new();
             for token in filter_query_stopwords(crate::tokenize(&group)) {
-                if let Some(list) = self.bm25.posting_lists.get(&token.bytes) {
+                if let Some(list) = self.bm25.candidate_posting(&token.bytes) {
                     hits.extend(list.iter().into_iter().map(|id| id as usize));
                 }
             }
