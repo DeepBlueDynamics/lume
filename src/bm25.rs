@@ -731,19 +731,21 @@ impl Bm25Index {
         if self.title_tfs.len() != self.num_docs || self.body_tfs.len() != self.num_docs {
             return Err("V4 forward row count mismatch".into());
         }
-        let mut words: Vec<Vec<u8>> = self
+        // Borrow keys while deduplicating: cloning every document-term pair
+        // temporarily duplicates the entire forward index before compaction.
+        let unique: std::collections::HashSet<&Vec<u8>> = self
             .title_tfs
             .iter()
             .chain(&self.body_tfs)
-            .flat_map(|row| row.keys().cloned())
+            .flat_map(|row| row.keys())
             .collect();
+        let mut words: Vec<_> = unique.into_iter().collect();
         words.sort_unstable();
-        words.dedup();
         let term_count = u32::try_from(words.len()).map_err(|_| "V4 terms exceed u32")?;
         let vocabulary: HashMap<Vec<u8>, u32> = words
             .into_iter()
             .enumerate()
-            .map(|(id, word)| (word, id as u32))
+            .map(|(id, word)| (word.clone(), id as u32))
             .collect();
         let forward = |rows: &[HashMap<Vec<u8>, usize>]| {
             let mut offsets = Vec::with_capacity(rows.len() + 1);
