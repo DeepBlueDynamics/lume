@@ -83,10 +83,8 @@ fn scalar_to_f64(scalar: &ScalarValue) -> Option<f64> {
         ScalarValue::Utf8(Some(s)) => {
             if let Ok(num) = s.parse::<f64>() {
                 Some(num)
-            } else if let Some(ms) = crate::meta::parse_date_to_epoch_ms(s) {
-                Some(ms as f64)
             } else {
-                None
+                crate::meta::parse_date_to_epoch_ms(s).map(|ms| ms as f64)
             }
         }
         _ => None,

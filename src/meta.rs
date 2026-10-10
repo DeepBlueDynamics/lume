@@ -548,10 +548,12 @@ impl MetaIndex {
                     for run in &col_disk.present_runs {
                         let start = run[0];
                         let end = run[1].min(disk.num_sections);
-                        for sec_idx in start..end {
-                            if val_idx < col_disk.values.len() {
-                                values[sec_idx] = Some(col_disk.values[val_idx]);
-                                val_idx += 1;
+                        if start < end {
+                            for val in &mut values[start..end] {
+                                if val_idx < col_disk.values.len() {
+                                    *val = Some(col_disk.values[val_idx]);
+                                    val_idx += 1;
+                                }
                             }
                         }
                     }
@@ -570,10 +572,12 @@ impl MetaIndex {
                     for run in &col_disk.present_runs {
                         let start = run[0];
                         let end = run[1].min(disk.num_sections);
-                        for sec_idx in start..end {
-                            if val_idx < col_disk.values.len() {
-                                values[sec_idx] = Some(col_disk.values[val_idx]);
-                                val_idx += 1;
+                        if start < end {
+                            for val in &mut values[start..end] {
+                                if val_idx < col_disk.values.len() {
+                                    *val = Some(col_disk.values[val_idx]);
+                                    val_idx += 1;
+                                }
                             }
                         }
                     }
@@ -592,10 +596,12 @@ impl MetaIndex {
                     for run in &col_disk.present_runs {
                         let start = run[0];
                         let end = run[1].min(disk.num_sections);
-                        for sec_idx in start..end {
-                            if val_idx < col_disk.values.len() {
-                                values[sec_idx] = Some(col_disk.values[val_idx]);
-                                val_idx += 1;
+                        if start < end {
+                            for val in &mut values[start..end] {
+                                if val_idx < col_disk.values.len() {
+                                    *val = Some(col_disk.values[val_idx]);
+                                    val_idx += 1;
+                                }
                             }
                         }
                     }
@@ -647,9 +653,13 @@ impl MetaIndex {
                 } => {
                     let mut dense_values = Vec::new();
                     for run in present_runs {
-                        for sec_idx in run[0]..run[1].min(values.len()) {
-                            if let Some(v) = values[sec_idx] {
-                                dense_values.push(v);
+                        let start = run[0];
+                        let end = run[1].min(values.len());
+                        if start < end {
+                            for val in &values[start..end] {
+                                if let Some(v) = *val {
+                                    dense_values.push(v);
+                                }
                             }
                         }
                     }
@@ -664,9 +674,13 @@ impl MetaIndex {
                 } => {
                     let mut dense_values = Vec::new();
                     for run in present_runs {
-                        for sec_idx in run[0]..run[1].min(values.len()) {
-                            if let Some(v) = values[sec_idx] {
-                                dense_values.push(v);
+                        let start = run[0];
+                        let end = run[1].min(values.len());
+                        if start < end {
+                            for val in &values[start..end] {
+                                if let Some(v) = *val {
+                                    dense_values.push(v);
+                                }
                             }
                         }
                     }
@@ -681,9 +695,13 @@ impl MetaIndex {
                 } => {
                     let mut dense_values = Vec::new();
                     for run in present_runs {
-                        for sec_idx in run[0]..run[1].min(values.len()) {
-                            if let Some(v) = values[sec_idx] {
-                                dense_values.push(v);
+                        let start = run[0];
+                        let end = run[1].min(values.len());
+                        if start < end {
+                            for val in &values[start..end] {
+                                if let Some(v) = *val {
+                                    dense_values.push(v);
+                                }
                             }
                         }
                     }
@@ -1574,12 +1592,10 @@ pub fn compute_facets(
 
                         if match_ids.len() < v * 2048 {
                             for &id in match_ids {
-                                if let Some(ord_opt) = ords.get(id as usize) {
-                                    if let Some(ord) = *ord_opt {
-                                        if (ord as usize) < v {
-                                            counts[ord as usize] += 1;
-                                            continue;
-                                        }
+                                if let Some(&Some(ord)) = ords.get(id as usize) {
+                                    if (ord as usize) < v {
+                                        counts[ord as usize] += 1;
+                                        continue;
                                     }
                                 }
                                 missing += 1;
@@ -1860,7 +1876,7 @@ Line 11 content here.
 
         // 2. Int + Float widens to Float
         let mut f2 = HashMap::new();
-        f2.insert("num".to_string(), serde_json::json!(3.14));
+        f2.insert("num".to_string(), serde_json::json!(3.5));
         files.insert("doc2.txt".to_string(), ("frontmatter".to_string(), f2));
 
         let sec_files = vec!["doc1.txt".to_string(), "doc2.txt".to_string()];
@@ -2131,8 +2147,13 @@ Line 11 content here.
         fields1.insert("category".to_string(), serde_json::json!("biology"));
         files_meta1.insert(doc_name.clone(), ("manifest".to_string(), fields1));
 
-        let meta1 =
-            build_meta_index(&[doc_name.clone()], &files_meta1, &HashMap::new(), "gen-1").unwrap();
+        let meta1 = build_meta_index(
+            std::slice::from_ref(&doc_name),
+            &files_meta1,
+            &HashMap::new(),
+            "gen-1",
+        )
+        .unwrap();
         assert_eq!(
             meta1.keyword_bitmap("category", "biology").unwrap().iter(),
             vec![0]
@@ -2144,8 +2165,13 @@ Line 11 content here.
         fields2.insert("category".to_string(), serde_json::json!("chemistry"));
         files_meta2.insert(doc_name.clone(), ("manifest".to_string(), fields2));
 
-        let meta2 =
-            build_meta_index(&[doc_name.clone()], &files_meta2, &HashMap::new(), "gen-2").unwrap();
+        let meta2 = build_meta_index(
+            std::slice::from_ref(&doc_name),
+            &files_meta2,
+            &HashMap::new(),
+            "gen-2",
+        )
+        .unwrap();
         assert_eq!(
             meta2
                 .keyword_bitmap("category", "chemistry")

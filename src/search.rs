@@ -1745,8 +1745,7 @@ mod tests {
         save_json(&temp_dir.join("bm25.json"), &bm25).unwrap();
 
         let err = LoadedIndex::open(&temp_dir)
-            .err()
-            .expect("expected error loading index without meta.json");
+            .expect_err("expected error loading index without meta.json");
         assert!(
             err.contains("requires meta.json"),
             "expected requires meta.json, got: {}",
@@ -1809,8 +1808,7 @@ mod tests {
         save_json(&temp_dir.join("meta.json"), &meta_disk).unwrap();
 
         let err = LoadedIndex::open(&temp_dir)
-            .err()
-            .expect("expected error loading index with section count mismatch");
+            .expect_err("expected error loading index with section count mismatch");
         assert!(
             err.contains("Index metadata section count mismatch"),
             "expected section count mismatch, got: {}",
