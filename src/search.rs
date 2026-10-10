@@ -2056,4 +2056,99 @@ mod tests {
             panic!("Expected query facet therapy");
         }
     }
+
+    #[test]
+    fn test_filter_before_scoring_exact_parity() {
+        let sections = vec![
+            Section {
+                title: "Cancer biology".into(),
+                body: "Cancer cells divide rapidly in biology tissue".into(),
+                line_number: 1,
+                filename: Some("doc1.txt".into()),
+                entities: Vec::new(),
+            },
+            Section {
+                title: "Cancer treatment".into(),
+                body: "Cancer therapy and medicine advances".into(),
+                line_number: 2,
+                filename: Some("doc2.txt".into()),
+                entities: Vec::new(),
+            },
+            Section {
+                title: "Physics of radiation".into(),
+                body: "Radiation physics and photon beams".into(),
+                line_number: 3,
+                filename: Some("doc3.txt".into()),
+                entities: Vec::new(),
+            },
+            Section {
+                title: "Cancer study".into(),
+                body: "Cancer research across multiple domains".into(),
+                line_number: 4,
+                filename: Some("doc4.txt".into()),
+                entities: Vec::new(),
+            },
+        ];
+        let bm25 = Bm25Index::build_with_options(sections, None, Bm25BuildOptions::default());
+
+        let mut schema = HashMap::new();
+        schema.insert("category".into(), crate::meta::ColumnType::String);
+
+        let mut columns = HashMap::new();
+        columns.insert(
+            "category".into(),
+            crate::meta::ColumnData::String {
+                values: vec![
+                    Some("biology".into()),
+                    Some("medicine".into()),
+                    Some("physics".into()),
+                    None,
+                ],
+                dict: vec!["biology".into(), "medicine".into(), "physics".into()],
+            },
+        );
+
+        let meta = crate::meta::MetaIndex {
+            meta_version: 1,
+            num_sections: 4,
+            generation: "gen-fbs".into(),
+            schema,
+            files: HashMap::new(),
+            columns,
+        };
+
+        let index = LoadedIndex {
+            state: None,
+            bm25,
+            spelling: None,
+            entity_graph: None,
+            tagger: None,
+            cache_dir: None,
+            meta: Some(meta),
+        };
+
+        let opts = SearchOptions {
+            limit: 10,
+            mode: SearchMode::LexicalOnly,
+            graph_beta: 0.0,
+            ..Default::default()
+        };
+
+        // Search with filter category:biology
+        let res = search(&index, "cancer category:biology", &opts).unwrap();
+        assert_eq!(res.hits.len(), 1);
+        assert_eq!(res.found, 1);
+        assert_eq!(res.hits[0].section_index, 0);
+
+        // Compare score with unfiltered cancer search hit for doc 0
+        let res_unfiltered = search(&index, "cancer", &opts).unwrap();
+        let doc0_unfiltered = res_unfiltered.hits.iter().find(|h| h.section_index == 0).unwrap();
+        assert_eq!(res.hits[0].score.to_bits(), doc0_unfiltered.score.to_bits());
+
+        // Negative filter -category:biology
+        let res_neg = search(&index, "cancer -category:biology", &opts).unwrap();
+        assert_eq!(res_neg.hits.len(), 2);
+        assert_eq!(res_neg.found, 2);
+        assert!(!res_neg.hits.iter().any(|h| h.section_index == 0));
+    }
 }
