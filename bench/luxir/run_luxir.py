@@ -7,6 +7,13 @@ Produces:
 - <root>/runs/luxir-<mode>-<ds>.lat.jsonl
 - <root>/runs/luxir-<ds>.build.json
 - <root>/runs/luxir-<mode>-<ds>.throughput.json
+
+Hybrid embeddings come from Shivvr. gtr-t5-base posts {"texts": [...]} only.
+embeddinggemma-2 also sends model, task ("document" or "query"), and dimensions.
+That model's run label is luxir-hybrid-embgemma2-<dataset>, with its own collection
+and build json so the GTR hybrid index is left in place. Vectors are cached as
+JSONL (the runner is stdlib-only; python:3.12-slim has no numpy) under
+<root>/embeddings/<model>-<dims>-<dataset>-{docs,queries}.jsonl.
 """
 import argparse
 import csv
@@ -22,6 +29,9 @@ import urllib.parse
 import urllib.request
 
 from http_runner import JsonClient, throughput
+
+
+EMBED_BATCH = 64
 
 
 def http_post(url, data=None, timeout=60, retries=3):
@@ -45,6 +55,140 @@ def http_get(url, timeout=30):
     req = urllib.request.Request(url, method="GET")
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.status, json.loads(resp.read().decode("utf-8"))
+
+
+def embed_request(model, texts, dims, task):
+    """Shivvr body. gtr-t5-base is exactly {"texts": [...]} with no other keys."""
+    if model == "gtr-t5-base":
+        return {"texts": list(texts)}
+    if model != "embeddinggemma-2":
+        raise ValueError(f"unknown embed model: {model}")
+    if task not in ("document", "query"):
+        raise ValueError(f"unknown embed task: {task}")
+    return {
+        "texts": list(texts),
+        "model": model,
+        "task": task,
+        "dimensions": int(dims)
+    }
+
+
+def take_embed_vectors(model, dims, batch_len, resp):
+    if not isinstance(resp, dict) or "vectors" not in resp:
+        raise RuntimeError("embed response missing vectors")
+    vectors = resp["vectors"]
+    if len(vectors) != batch_len:
+        raise RuntimeError(f"embed returned {len(vectors)} vectors for {batch_len} texts")
+    dims = int(dims)
+    if model == "embeddinggemma-2":
+        if resp.get("model") != model:
+            raise RuntimeError(f"embed model {resp.get('model')!r} != {model!r}")
+        got = resp.get("dim", None)
+        try:
+            got_dim = int(got)
+        except (TypeError, ValueError):
+            got_dim = None
+        if got_dim != dims:
+            raise RuntimeError(f"embed dim {got!r} != {dims}")
+    for vec in vectors:
+        if len(vec) != dims:
+            raise RuntimeError(f"vector length {len(vec)} != dims {dims}")
+    return vectors
+
+
+def embedding_cache_path(root, model, dims, dataset, kind):
+    if kind not in ("docs", "queries"):
+        raise ValueError(f"unknown embedding cache kind: {kind}")
+    return Path(root) / "embeddings" / f"{model}-{int(dims)}-{dataset}-{kind}.jsonl"
+
+
+def read_embedding_cache(path):
+    found = {}
+    p = Path(path)
+    if not p.exists():
+        return found
+    with p.open(encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            found[str(row["id"])] = row["vector"]
+    return found
+
+
+def write_embedding_cache(path, rows):
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        for doc_id, vector in rows:
+            f.write(json.dumps({"id": str(doc_id), "vector": vector}) + "\n")
+    os.replace(tmp, p)
+
+
+def _usable_cached_vector(cache, doc_id, dims):
+    vec = cache.get(str(doc_id))
+    if vec is None:
+        return False
+    try:
+        return len(vec) == int(dims)
+    except TypeError:
+        return False
+
+
+def embed_identified(admin, pairs, model, dims, task, cache_path, batch_size=EMBED_BATCH):
+    """Return one vector per (id, text) pair. POST only ids missing from the JSONL cache.
+
+    A complete cache does not call Shivvr and does not rewrite the file. A fetch
+    rewrites it: ids already stored but absent from this call stay in their
+    previous order, then this call's ids in pair order. Indexing the corpus from
+    front to back therefore leaves the file in input id order.
+    """
+    cache = read_embedding_cache(cache_path)
+    dims = int(dims)
+    missing = [
+        (doc_id, text) for doc_id, text in pairs
+        if not _usable_cached_vector(cache, doc_id, dims)
+    ]
+    if missing:
+        prior_ids = list(cache.keys())
+        for i in range(0, len(missing), batch_size):
+            batch = missing[i:i + batch_size]
+            texts = [text for _, text in batch]
+            body = embed_request(model, texts, dims, task)
+            _status, resp = http_post(admin.embed_endpoint, body, timeout=60)
+            vectors = take_embed_vectors(model, dims, len(batch), resp)
+            for (doc_id, _), vec in zip(batch, vectors):
+                cache[str(doc_id)] = vec
+        pair_ids = [str(doc_id) for doc_id, _ in pairs]
+        pair_set = set(pair_ids)
+        ordered_ids = [doc_id for doc_id in prior_ids if doc_id not in pair_set]
+        ordered_ids.extend(pair_ids)
+        write_embedding_cache(
+            cache_path, [(doc_id, cache[doc_id]) for doc_id in ordered_ids]
+        )
+    return [cache[str(doc_id)] for doc_id, _ in pairs]
+
+
+def hybrid_collection_name(dataset, embed_model):
+    """GTR keeps <dataset>_hybrid. Gemma uses another name so _delete cannot wipe it."""
+    base = dataset.replace("-", "_")
+    if embed_model == "embeddinggemma-2":
+        return f"{base}_hybrid_embgemma2"
+    return f"{base}_hybrid"
+
+
+def hybrid_run_name(dataset, embed_model):
+    if embed_model == "embeddinggemma-2":
+        return f"luxir-hybrid-embgemma2-{dataset}"
+    return f"luxir-hybrid-{dataset}"
+
+
+def trec_tag(mode, embed_model, run_name):
+    if mode == "hybrid" and embed_model == "embeddinggemma-2":
+        return run_name
+    return f"luxir-{mode}"
 
 
 class MemoryMonitor:
@@ -96,7 +240,7 @@ class LuxirAdmin:
         self.endpoint = endpoint.rstrip("/")
         self.embed_endpoint = embed_endpoint
 
-    def create_collection(self, name, mode="bm25"):
+    def create_collection(self, name, mode="bm25", dims=768):
         try:
             http_post(f"{self.endpoint}/collections/_delete", {"name": name})
         except Exception:
@@ -106,7 +250,7 @@ class LuxirAdmin:
 
         fields = {"text": {"parent": "_t"}}
         if mode == "hybrid":
-            fields["embedding_v"] = {"type": "vector", "dims": 768, "metric": "cosine"}
+            fields["embedding_v"] = {"type": "vector", "dims": int(dims), "metric": "cosine"}
 
         http_post(f"{self.endpoint}/collections/{name}/_schema", {"fields": fields})
 
@@ -117,12 +261,13 @@ class LuxirAdmin:
         status, resp = http_post(url, {"docs": docs}, timeout=120)
         return resp
 
-    def embed_texts(self, texts, batch_size=64):
+    def embed_texts(self, texts, batch_size=EMBED_BATCH, model="gtr-t5-base", dims=768, task="document"):
         vectors = []
         for i in range(0, len(texts), batch_size):
             batch = texts[i:i + batch_size]
-            status, resp = http_post(self.embed_endpoint, {"texts": batch}, timeout=60)
-            vectors.extend(resp["vectors"])
+            body = embed_request(model, batch, dims, task)
+            status, resp = http_post(self.embed_endpoint, body, timeout=60)
+            vectors.extend(take_embed_vectors(model, dims, len(batch), resp))
         return vectors
 
 
@@ -136,7 +281,8 @@ def get_dir_size(path):
     return total
 
 
-def index_dataset(admin, dataset_dir, collection, mode, mem_monitor, luxir_data_dir, batch_size=500):
+def index_dataset(admin, dataset_dir, collection, mode, mem_monitor, luxir_data_dir, batch_size=500,
+                  embed_model="gtr-t5-base", embed_dims=768, dataset_name="", cache_root=None):
     docs_file = Path(dataset_dir) / "docs.jsonl"
     print(f"Reading docs from {docs_file}...")
 
@@ -148,7 +294,7 @@ def index_dataset(admin, dataset_dir, collection, mode, mem_monitor, luxir_data_
 
     print(f"Loaded {len(all_docs)} documents.")
 
-    admin.create_collection(collection, mode=mode)
+    admin.create_collection(collection, mode=mode, dims=embed_dims)
 
     mem_monitor.start()
     t0 = time.perf_counter()
@@ -158,8 +304,21 @@ def index_dataset(admin, dataset_dir, collection, mode, mem_monitor, luxir_data_
         is_last = (i + batch_size >= len(all_docs))
 
         if mode == "hybrid":
-            texts = [d["text"] for d in batch]
-            vecs = admin.embed_texts(texts)
+            pairs = [(d["id"], d["text"]) for d in batch]
+            if cache_root is None:
+                vecs = admin.embed_texts(
+                    [text for _, text in pairs],
+                    model=embed_model,
+                    dims=embed_dims,
+                    task="document"
+                )
+            else:
+                cache_path = embedding_cache_path(
+                    cache_root, embed_model, embed_dims, dataset_name, "docs"
+                )
+                vecs = embed_identified(
+                    admin, pairs, embed_model, embed_dims, "document", cache_path
+                )
             doc_batch = [
                 {"id": d["id"], "text": d["text"], "embedding_v": v}
                 for d, v in zip(batch, vecs)
@@ -264,7 +423,7 @@ def extract_hits(reply, mode):
     return [(d["id"], float(d.get("_score_", 0.0))) for d in sorted_docs]
 
 
-def evaluate_queries(endpoint, collection, mode, queries, query_vecs):
+def evaluate_queries(endpoint, collection, mode, queries, query_vecs, tag=None):
     print(f"Running queries evaluation: {len(queries)} test queries in mode={mode}...")
     search_url = f"{endpoint}/collections/{collection}/_search"
     client = JsonClient(search_url)
@@ -298,8 +457,9 @@ def evaluate_queries(endpoint, collection, mode, queries, query_vecs):
 
     latencies = {qid: statistics.median(times_per_query[qid]) for qid, _ in queries}
 
+    if tag is None:
+        tag = f"luxir-{mode}"
     trec_rows = []
-    tag = f"luxir-{mode}"
     for qid, _ in queries:
         hits = last_results.get(qid, [])
         for rank, (docid, score) in enumerate(hits, start=1):
@@ -347,6 +507,10 @@ def main():
     parser.add_argument("--root", type=Path, default=Path("/workspace/lume/.lanes/data/luxir-bench"))
     parser.add_argument("--endpoint", default="http://luxir-bench:9400")
     parser.add_argument("--embed-endpoint", default="http://host.docker.internal:8085/embed")
+    parser.add_argument("--embed-model", default="gtr-t5-base", choices=["gtr-t5-base", "embeddinggemma-2"],
+                        help="Hybrid embedding model. Ignored for bm25.")
+    parser.add_argument("--embed-dims", type=int, default=768,
+                        help="Hybrid embedding dimensions. Ignored for bm25.")
     parser.add_argument("--skip-build", action="store_true", help="Skip index build if collection already indexed")
     parser.add_argument("--skip-throughput", action="store_true", help="Skip throughput suite")
     parser.add_argument("--batch-size", type=int, default=500)
@@ -359,14 +523,21 @@ def main():
     runs_dir = args.root / "runs"
     runs_dir.mkdir(parents=True, exist_ok=True)
 
-    collection = f"{args.dataset.replace('-', '_')}_{args.mode}"
     engine = "luxir"
-    run_name = f"{engine}-{args.mode}-{args.dataset}"
+    if args.mode == "hybrid":
+        collection = hybrid_collection_name(args.dataset, args.embed_model)
+        run_name = hybrid_run_name(args.dataset, args.embed_model)
+    else:
+        collection = f"{args.dataset.replace('-', '_')}_{args.mode}"
+        run_name = f"{engine}-{args.mode}-{args.dataset}"
 
     mem_monitor = MemoryMonitor(args.root / "rss.json")
 
     # 1. Indexing
-    build_json_path = runs_dir / f"{engine}-{args.dataset}.build.json"
+    if args.mode == "hybrid" and args.embed_model == "embeddinggemma-2":
+        build_json_path = runs_dir / f"{run_name}.build.json"
+    else:
+        build_json_path = runs_dir / f"{engine}-{args.dataset}.build.json"
     if not args.skip_build:
         build_stats = index_dataset(
             admin=admin,
@@ -375,7 +546,11 @@ def main():
             mode=args.mode,
             mem_monitor=mem_monitor,
             luxir_data_dir=luxir_data_dir,
-            batch_size=args.batch_size
+            batch_size=args.batch_size,
+            embed_model=args.embed_model,
+            embed_dims=args.embed_dims,
+            dataset_name=args.dataset,
+            cache_root=args.root
         )
         build_json_path.write_text(json.dumps(build_stats, indent=2) + "\n", encoding="utf-8")
         print(f"Saved build stats to {build_json_path}")
@@ -386,13 +561,21 @@ def main():
     queries = read_queries(dataset_dir / "queries.tsv", dataset_dir / "qrels.tsv")
     query_vecs = {}
     if args.mode == "hybrid":
-        print(f"Embedding {len(queries)} test queries with Shivvr...")
-        texts = [text for _, text in queries]
-        vecs = admin.embed_texts(texts)
+        print(f"Embedding {len(queries)} test queries with Shivvr ({args.embed_model})...")
+        pairs = [(qid, text) for qid, text in queries]
+        cache_path = embedding_cache_path(
+            args.root, args.embed_model, args.embed_dims, args.dataset, "queries"
+        )
+        vecs = embed_identified(
+            admin, pairs, args.embed_model, args.embed_dims, "query", cache_path
+        )
         for (qid, _), v in zip(queries, vecs):
             query_vecs[qid] = v
 
-    latencies, trec_rows = evaluate_queries(args.endpoint, collection, args.mode, queries, query_vecs)
+    latencies, trec_rows = evaluate_queries(
+        args.endpoint, collection, args.mode, queries, query_vecs,
+        tag=trec_tag(args.mode, args.embed_model, run_name)
+    )
 
     trec_path = runs_dir / f"{run_name}.trec"
     with trec_path.open("w", encoding="utf-8") as f:
