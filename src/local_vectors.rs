@@ -285,7 +285,7 @@ impl LocalVectors {
             Some(vector) => vector,
             None => {
                 let vector = embed(
-                    &[key.clone()],
+                    std::slice::from_ref(&key),
                     &self.profile,
                     &self.profile.query_task,
                     base,
