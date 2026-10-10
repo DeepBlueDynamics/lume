@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.15.0 — 2026-10-10
+
+### Binary index format v4: faster, smaller, and resumable entity tagging
+v4 is still opt-in (`LUME_INDEX_FORMAT=4`), and **JSON stays the default**. Search replies remain **byte-identical** to the JSON index. That was checked with full raw MCP replies for every TREC-COVID query, at both coordination floors.
+
+| TREC-COVID (171k files) | JSON | v4 in 0.14.0 | v4 in 0.15.0 |
+|---|---:|---:|---:|
+| Index on disk | 1,022 MB | 368 MB | **354 MB** |
+| Spelling component | 57.0 MB | 57.0 MB (JSON) | **6.4 MB** |
+| Index open (median, page cache primed) | 6.29 s | 1.1–1.26 s | **0.61 s** |
+| Build time | 56 s | 78–87 s | **62–67 s** |
+| Build peak RSS | 2.43 GB | 3.97–4.4 GB | **3.15 GB** |
+
+- **Entity overlays: `lume index -o` now works with v4, and it's resumable** (#28, closes #3).
+  - Entity tags land in small linked overlay checkpoints over a sealed text base, behind an atomic head pointer.
+  - Results are searchable while the run is still going, and a killed run resumes from the last checkpoint.
+  - After compaction, results match a one-shot build exactly, including the score bits.
+  - Checkpoint bytes grow linearly with the corpus instead of rewriting the index each time.
+- **Binary spelling segment** (#29). `spelling.bin` replaces `spelling.json` inside v4 generations: −89% on TREC-COVID, with faster decode and identical corrections and score bits. Older v4 generations that still hold `spelling.json` keep loading.
+- **Parallel open** (#30). The four largest independent decode steps (sections and text, body rows, postings, spelling) now run concurrently, on up to 4 scoped threads. In a paired A/B on TREC-COVID, open fell from 1,006 ms to **614 ms (−39%)**, with peak RSS unchanged. `LUME_OPEN_THREADS=1` restores serial decoding.
+- **Faster build with lower peak memory** (#26, #27). Terms are deduplicated before compaction (build 86.7 → 62.2 s). Flat postings are built directly, and source copies are released early (peak RSS 3.97 → 3.15 GB).
+
+### Fixes
+- **`uuid_v4` now uses OS secure randomness on every platform** (#31). On Windows it used to fall back to a timestamp-only value, so two IDs created in the same clock tick were identical. This affected v4 generation directories, overlay node IDs and test fixture roots, and caused intermittent Windows CI failures.
+- Overlay filesystem errors now name the operation and the path.
+
 ## 0.14.0 — 2026-10-10
 
 ### Binary index format v4 (opt-in, #23)

@@ -1,6 +1,6 @@
 {
   "name": "signalk-lume-ti",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "Lume TI high-resolution timeseries store and query engine for Signal K",
   "main": "index.js",
   "keywords": [
