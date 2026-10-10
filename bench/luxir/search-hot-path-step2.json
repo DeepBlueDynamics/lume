@@ -1,0 +1,77 @@
+{
+  "date": "2026-10-10",
+  "source": "bb25346",
+  "base": "9da46af",
+  "version": "0.12.2",
+  "search_code_identical_to": "eff1719",
+  "retarget_base": "3a92129",
+  "toolchain": "rustc 1.96.1",
+  "features": "ti",
+  "profile": {
+    "lto": "thin",
+    "codegen_units": 1
+  },
+  "binary_sha256": "f81b50453f0ee2cac6c88b4fdd7daafb385f48f8d09e627c1ed1abe2a7c3f4c9",
+  "rows": [
+    {
+      "label": "heap-off",
+      "dataset": "scifact",
+      "ranking_parity": true,
+      "run_sha256": "de34417eb2d1d3d1a64e4aedaf82c1523718eff69d8226394cc0525accb56a9f",
+      "p50_ms": 2.3870255099609494,
+      "p95_ms": 3.2823256566189234,
+      "p99_ms": 3.7407700286712493,
+      "qps8": 549.182863157052,
+      "qps16": 496.5166514623998,
+      "errors": [
+        0,
+        0
+      ]
+    },
+    {
+      "label": "heap-off",
+      "dataset": "trec-covid",
+      "ranking_parity": true,
+      "run_sha256": "ba1b0cd03f615d4077274abfb807231c7f0cf59984d8137e0f5a479b80d7cdbd",
+      "p50_ms": 10.373321507358924,
+      "p95_ms": 13.543751227553003,
+      "p99_ms": 16.1059133009985,
+      "qps8": 308.9233041644443,
+      "qps16": 293.9955133475273,
+      "errors": [
+        0,
+        0
+      ]
+    },
+    {
+      "label": "heap-f3-f2",
+      "dataset": "scifact",
+      "ranking_parity": true,
+      "run_sha256": "8f7e3d5379cf5ebbefd33bdd69369649f7b2e77120afcfd06dbc4ebdda5a42b4",
+      "p50_ms": 3.0638330208603293,
+      "p95_ms": 4.4213528104592115,
+      "p99_ms": 4.840391518664546,
+      "qps8": 488.69608465469906,
+      "qps16": 486.6275119215513,
+      "errors": [
+        0,
+        0
+      ]
+    },
+    {
+      "label": "heap-f3-f2",
+      "dataset": "trec-covid",
+      "ranking_parity": true,
+      "run_sha256": "3b3beb724bc9821c115cf9424b07c9ff7626a7581c7fdbbc7aed51c6312fe21a",
+      "p50_ms": 9.112906496739015,
+      "p95_ms": 11.240395691129379,
+      "p99_ms": 12.443302421597762,
+      "qps8": 303.29107876135873,
+      "qps16": 287.409570502137,
+      "errors": [
+        0,
+        0
+      ]
+    }
+  ]
+}

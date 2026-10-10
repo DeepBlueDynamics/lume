@@ -15,7 +15,7 @@ Step 1 replaces per-document byte-key TF lookups with integer TF postings. Scori
 | Integer postings | F3+F2 | scifact | 2.60 | 3.38 | 3.73 | 502.16 | 506.40 |
 | Integer postings | F3+F2 | trec-covid | 10.07 | 13.45 | 14.46 | 236.19 | 240.98 |
 
-All eight runs have byte-identical TREC output to their frozen references and zero errors at concurrency 8 and 16. TREC-COVID p50 improves 9.84× with flags off and 11.08× with F3+F2. The latter remains just above the <10 ms target; the heap and exact pruning steps are not implemented yet.
+All eight runs have byte-identical TREC output to their frozen references and zero errors at concurrency 8 and 16. TREC-COVID p50 improves 9.84× with flags off and 11.08× with F3+F2. At Step 1, the latter remained just above the <10 ms target; heap results follow below.
 
 Both binaries use rustc 1.96.1, --features ti, thin LTO, codegen-units=1, stripped. Source base is 03e0cff; Step 1 scoring commit is 094ea55. Full binary hashes and measurements are in search-hot-path-step1.json.
 
@@ -26,3 +26,18 @@ The first baseline attempt overlapped a short lead formatter job and was stopped
 ## Verification
 
 Root strict clippy and touched-file rustfmt passed. Full library tests passed 79/79 twice with TMPDIR=/tmp and CARGO_TARGET_TMPDIR=/tmp/cargo-tmp on Linux storage, including concurrent_readers_never_observe_a_partial_index. Unit comparisons check exact score bits and tie order against the original scorer across BM25 variants, coordination floors, repeated terms and Unicode. A serialization test confirms derived postings do not alter the saved format. Separate quality-only runs and timed runs both passed all four corpus/profile parity checks. Target was 1.4 GiB before cargo clean; it was cleaned after the Step 1 build.
+
+## Step 2: bounded heap
+
+| Profile | Corpus | IDs p50 ms | Heap p50 ms | Heap p95 ms | Heap p99 ms | Heap QPS 8 | Heap QPS 16 |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Flags off | scifact | 2.64 | 2.39 | 3.28 | 3.74 | 549.18 | 496.52 |
+| Flags off | trec-covid | 9.87 | 10.37 | 13.54 | 16.11 | 308.92 | 294.00 |
+| F3+F2 | scifact | 2.60 | 3.06 | 4.42 | 4.84 | 488.70 | 486.63 |
+| F3+F2 | trec-covid | 10.07 | 9.11 | 11.24 | 12.44 | 303.29 | 287.41 |
+
+Neutral overall: latency changes are mixed, so this is not a consistent speed win. TREC-COVID F3+F2 reaches 9.11 ms p50 and QPS8 improves 236.19→303.29; flags-off p50 rises 9.87→10.37 ms. SciFact moves −0.25 ms and +0.46 ms. Retain the heap for bounded hit storage and the exact top-k interface. No claim of statistical significance is made from these runs.
+
+All four timed runs have byte-identical TREC files and zero errors at both concurrency levels; the preceding four quality-only checks also passed. Full library tests passed 83/83 twice, including the atomic-index test. Strict root clippy and rustfmt on bm25.rs/search.rs passed. Heap tests preserve score bits and ties across zero/small/oversized limits, repeated terms, Unicode, scoring variants and coordination floors. Graph scores that can reorder hits and hybrid ranking keep exhaustive scoring.
+
+Exact provenance: binary SHA256 `f81b50453f0ee2cac6c88b4fdd7daafb385f48f8d09e627c1ed1abe2a7c3f4c9`, built from `bb25346` on `9da46af`, version string **0.12.2**, rustc 1.96.1, ti, thin LTO/CGU1. After retargeting to `3a92129`, search code in `eff1719` is byte-identical (`git diff --exit-code bb25346 eff1719 -- src/bm25.rs src/search.rs` exits 0); package version and other files differ. This measurement uses the candidate-built binary, not a newly built 0.12.3 binary. Final PR gates will rebuild the final branch. Raw runs use label `lume-heap-*`; full numbers are in search-hot-path-step2.json. Target was 1.4 GiB and was cleaned.
