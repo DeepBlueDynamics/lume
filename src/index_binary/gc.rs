@@ -439,7 +439,7 @@ mod tests {
             .unwrap()
             .as_secs();
         let report = collect(&fixture.0, &options(1)).unwrap();
-        assert_eq!(report.unknown, [orphan.clone()]);
+        assert_eq!(report.unknown, std::slice::from_ref(&orphan));
         assert!(orphan.exists());
         let opts = Options {
             include_unknown: true,
