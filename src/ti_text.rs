@@ -9,7 +9,9 @@
 //!   missing (spec/14). `match_buckets` returns global ColumnIds `(vessel << 32) | bucket`.
 //! - Index and query caches are rebuilt whenever the document set's version changes.
 
-use crate::bm25::{filter_query_stopwords, Bm25Index, Bm25Params, SearchVariant, Section};
+use crate::bm25::{
+    filter_query_stopwords, Bm25BuildOptions, Bm25Index, Bm25Params, SearchVariant, Section,
+};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -42,8 +44,14 @@ impl KindIndex {
                 entities: Vec::new(),
             })
             .collect();
+        // match() tokenizes queries without stemming, so TI documents are indexed
+        // unstemmed regardless of the LUME_STEM default for ordinary indexes.
+        let options = Bm25BuildOptions {
+            stemmed: false,
+            keep_hyphens: false,
+        };
         Self {
-            bm25: Bm25Index::build(sections, None),
+            bm25: Bm25Index::build_with_options(sections, None, options),
             docs,
         }
     }
