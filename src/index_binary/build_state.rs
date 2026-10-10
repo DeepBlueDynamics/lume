@@ -57,9 +57,22 @@ impl BuildState {
         if cursor != sections.len() {
             return Err("Source ranges do not cover index".into());
         }
-        let mut settings = state.clone();
-        settings.cached_files.clear();
-        settings.format_version = 4;
+        // Clone settings only; cloning cached bodies just to clear them adds a
+        // corpus-sized temporary allocation at the start of publication.
+        let settings = IndexState {
+            format_version: 4,
+            target_dir: state.target_dir.clone(),
+            db_dir: state.db_dir.clone(),
+            semantic_enabled: state.semantic_enabled,
+            ollama_entities: state.ollama_entities,
+            ollama_model: state.ollama_model.clone(),
+            ollama_url: state.ollama_url.clone(),
+            tag_dict_path: state.tag_dict_path.clone(),
+            semantic_session_id: state.semantic_session_id.clone(),
+            cached_files: HashMap::new(),
+            stemmed: state.stemmed,
+            keep_hyphens: state.keep_hyphens,
+        };
         Ok(Self { settings, sources })
     }
 

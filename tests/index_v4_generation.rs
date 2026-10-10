@@ -95,3 +95,61 @@ fn pointer_rejects_duplicate_segments_and_path_traversal() {
     invalid.generation = "../outside".into();
     assert!(invalid.validate().is_err());
 }
+
+#[test]
+fn streamed_seals_match_and_failed_or_incomplete_writes_preserve_pointer() {
+    let root = Scratch::new();
+    let expected = segments(1);
+    let original = generation::publish(&root.0, manifest(), &expected, |_| Ok(())).unwrap();
+    let mut staged = generation::StagedGeneration::new(&root.0, manifest()).unwrap();
+    for (name, bytes) in &expected {
+        staged
+            .write(name, |output| {
+                output.write_all(bytes).map_err(|e| e.to_string())
+            })
+            .unwrap();
+        assert_eq!(
+            generation::read_manifest(&root.0).unwrap().generation,
+            original.generation
+        );
+    }
+    let complete = staged.finish().unwrap();
+    assert_eq!(
+        generation::read_segments(&root.0, &complete).unwrap(),
+        expected
+    );
+    for name in generation::CORE_FILES {
+        assert_eq!(
+            complete.segments[*name].sha256,
+            original.segments[*name].sha256
+        );
+        assert_eq!(
+            complete.segments[*name].bytes,
+            original.segments[*name].bytes
+        );
+    }
+    let mut failed = generation::StagedGeneration::new(&root.0, manifest()).unwrap();
+    assert!(failed
+        .write("text.bin", |output| {
+            output.write_all(b"partial").map_err(|e| e.to_string())?;
+            Err("injected encoder failure".into())
+        })
+        .is_err());
+    assert!(failed.finish().is_err());
+    let mut incomplete = generation::StagedGeneration::new(&root.0, manifest()).unwrap();
+    assert!(incomplete.write("../escape", |_| Ok(())).is_err());
+    incomplete
+        .write("text.bin", |output| {
+            output.write_all(b"partial").map_err(|e| e.to_string())
+        })
+        .unwrap();
+    assert!(incomplete.finish().is_err());
+    assert_eq!(
+        generation::read_manifest(&root.0).unwrap().generation,
+        complete.generation
+    );
+    assert_eq!(
+        generation::read_segments(&root.0, &complete).unwrap(),
+        expected
+    );
+}

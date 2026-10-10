@@ -62,6 +62,87 @@ impl PostingsCsr {
         })
     }
 
+    /// Two passes over sorted forward rows avoid retaining temporary posting
+    /// vectors alongside the final flat allocation.
+    pub fn from_forward(
+        title: &super::csr::ForwardCsr,
+        body: &super::csr::ForwardCsr,
+    ) -> Result<Self, String> {
+        if title.len() != body.len() || title.term_count() != body.term_count() {
+            return Err("Forward fields disagree on document or term count".into());
+        }
+        let doc_count = u32::try_from(title.len()).map_err(|_| "Documents exceed u32")?;
+        let mut counts = vec![0_usize; title.term_count() as usize];
+        Self::visit_forward(title, body, |term, _| counts[term] += 1);
+        let mut terms = Vec::with_capacity(counts.len());
+        let mut total = 0_usize;
+        for &count in &counts {
+            if count <= INLINE_LIMIT {
+                terms.push(TermRange::Inline {
+                    length: count as u8,
+                    values: [Posting::default(); INLINE_LIMIT],
+                });
+            } else {
+                let start = total;
+                total = total.checked_add(count).ok_or("Posting count overflow")?;
+                terms.push(TermRange::Flat { start, end: total });
+            }
+        }
+        let mut entries = Vec::new();
+        entries
+            .try_reserve_exact(total)
+            .map_err(|_| "Cannot allocate postings")?;
+        entries.resize(total, Posting::default());
+        counts.fill(0);
+        Self::visit_forward(title, body, |term, posting| {
+            let cursor = counts[term];
+            match &mut terms[term] {
+                TermRange::Inline { values, .. } => values[cursor] = posting,
+                TermRange::Flat { start, .. } => entries[*start + cursor] = posting,
+            }
+            counts[term] += 1;
+        });
+        Ok(Self {
+            doc_count,
+            terms,
+            entries,
+        })
+    }
+
+    fn visit_forward(
+        title: &super::csr::ForwardCsr,
+        body: &super::csr::ForwardCsr,
+        mut emit: impl FnMut(usize, Posting),
+    ) {
+        for doc in 0..title.len() {
+            let left = title.row(doc).unwrap();
+            let right = body.row(doc).unwrap();
+            let (mut i, mut j) = (0, 0);
+            while i < left.len() || j < right.len() {
+                let term = match (left.get(i), right.get(j)) {
+                    (Some(a), Some(b)) => a.term.min(b.term),
+                    (Some(a), None) => a.term,
+                    (None, Some(b)) => b.term,
+                    (None, None) => unreachable!(),
+                };
+                let mut posting = Posting {
+                    doc: doc as u32,
+                    title_tf: 0,
+                    body_tf: 0,
+                };
+                if left.get(i).is_some_and(|entry| entry.term == term) {
+                    posting.title_tf = left[i].tf;
+                    i += 1;
+                }
+                if right.get(j).is_some_and(|entry| entry.term == term) {
+                    posting.body_tf = right[j].tf;
+                    j += 1;
+                }
+                emit(term as usize, posting);
+            }
+        }
+    }
+
     fn validate_row(doc_count: u32, row: &[Posting]) -> Result<(), String> {
         let mut previous = None;
         for posting in row {
@@ -217,6 +298,57 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn direct_forward_transpose_matches_legacy_rows_byte_for_byte() {
+        use super::super::csr::{ForwardCsr, ForwardEntry};
+        for docs in [0, 1, 5, 65539] {
+            let mut title_offsets = vec![0];
+            let mut body_offsets = vec![0];
+            let mut title_entries = Vec::new();
+            let mut body_entries = Vec::new();
+            let mut expected = vec![Vec::new(); 8];
+            for doc in 0..docs {
+                for (term, row) in expected.iter_mut().enumerate() {
+                    let title_tf = if term == doc % 7 { u64::MAX } else { 0 };
+                    let body_tf = if (term == 0 && doc % 2 == 0) || (term == 3 && doc % 11 == 0) {
+                        doc as u64 + 1
+                    } else {
+                        0
+                    };
+                    if title_tf != 0 {
+                        title_entries.push(ForwardEntry {
+                            term: term as u32,
+                            tf: title_tf,
+                        });
+                    }
+                    if body_tf != 0 {
+                        body_entries.push(ForwardEntry {
+                            term: term as u32,
+                            tf: body_tf,
+                        });
+                    }
+                    if title_tf != 0 || body_tf != 0 {
+                        row.push(Posting {
+                            doc: doc as u32,
+                            title_tf,
+                            body_tf,
+                        });
+                    }
+                }
+                title_offsets.push(title_entries.len() as u64);
+                body_offsets.push(body_entries.len() as u64);
+            }
+            let title = ForwardCsr::new(8, title_offsets, title_entries).unwrap();
+            let body = ForwardCsr::new(8, body_offsets, body_entries).unwrap();
+            let actual = PostingsCsr::from_forward(&title, &body).unwrap();
+            let expected = PostingsCsr::new(docs as u32, expected).unwrap();
+            assert_eq!(actual, expected);
+            assert_eq!(actual.encode().unwrap(), expected.encode().unwrap());
+            let wrong_terms = ForwardCsr::new(9, vec![0], Vec::new()).unwrap();
+            assert!(PostingsCsr::from_forward(&title, &wrong_terms).is_err());
+        }
     }
 
     #[test]

@@ -2595,7 +2595,10 @@ fn run_indexing(
 
     let save_start = Instant::now();
     let section_count = if binary_format {
-        collect_all_sections(&cached_files).len()
+        cached_files
+            .values()
+            .map(|(_, sections)| sections.len())
+            .sum()
     } else {
         flush_searchable_indexes(
             &cached_files,
@@ -2632,9 +2635,9 @@ fn run_indexing(
             0.1,
             bm25.sections.len(),
         );
-        lume::index_binary::snapshot::publish(
+        lume::index_binary::snapshot::publish_owned(
             db_path,
-            &state,
+            state,
             bm25,
             &spelling,
             &graph,

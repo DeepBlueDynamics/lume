@@ -715,6 +715,22 @@ impl Bm25Index {
         binary::encode(self)
     }
 
+    pub fn write_v4_segments(
+        &mut self,
+        staged: &mut crate::index_binary::generation::StagedGeneration,
+    ) -> Result<(), String> {
+        binary::encode_with(self, |name, segment| {
+            staged.write(name, |output| match segment {
+                binary::Segment::Bytes(bytes) => {
+                    output.write_all(&bytes).map_err(|e| e.to_string())
+                }
+                binary::Segment::Text(sections) => {
+                    crate::index_binary::sections::write_borrowed_text(sections, output)
+                }
+            })
+        })
+    }
+
     pub fn from_v4_segments(
         segments: &std::collections::BTreeMap<String, Vec<u8>>,
     ) -> Result<Self, String> {
@@ -727,7 +743,7 @@ impl Bm25Index {
         if self.compact_forward.is_some() {
             return Ok(());
         }
-        let doc_count = u32::try_from(self.num_docs).map_err(|_| "V4 documents exceed u32")?;
+        u32::try_from(self.num_docs).map_err(|_| "V4 documents exceed u32")?;
         if self.title_tfs.len() != self.num_docs || self.body_tfs.len() != self.num_docs {
             return Err("V4 forward row count mismatch".into());
         }
@@ -747,15 +763,31 @@ impl Bm25Index {
             .enumerate()
             .map(|(id, word)| (word.clone(), id as u32))
             .collect();
-        let forward = |rows: &[HashMap<Vec<u8>, usize>]| {
+        // Validate before draining, so malformed TFs leave the legacy index intact.
+        if self
+            .title_tfs
+            .iter()
+            .chain(&self.body_tfs)
+            .any(|row| row.values().any(|tf| *tf == 0))
+        {
+            return Err("Invalid zero v4 forward TF".into());
+        }
+        let forward = |rows: &mut [HashMap<Vec<u8>, usize>]| {
+            let count = rows.iter().try_fold(0_usize, |n, row| {
+                n.checked_add(row.len())
+                    .ok_or("Forward entry count overflow")
+            })?;
             let mut offsets = Vec::with_capacity(rows.len() + 1);
             let mut entries = Vec::new();
+            entries
+                .try_reserve_exact(count)
+                .map_err(|_| "Cannot allocate forward entries")?;
             offsets.push(0);
             for row in rows {
                 let start = entries.len();
-                for (word, &tf) in row {
+                for (word, tf) in std::mem::take(row) {
                     entries.push(crate::index_binary::csr::ForwardEntry {
-                        term: vocabulary[word],
+                        term: vocabulary[&word],
                         tf: tf as u64,
                     });
                 }
@@ -764,28 +796,15 @@ impl Bm25Index {
             }
             crate::index_binary::csr::ForwardCsr::new(term_count, offsets, entries)
         };
-        let title = forward(&self.title_tfs)?;
-        let body = forward(&self.body_tfs)?;
-        let mut postings = vec![Vec::new(); term_count as usize];
-        for doc in 0..self.num_docs {
-            for entry in title.row(doc).unwrap() {
-                postings[entry.term as usize].push(TermPosting {
-                    doc: doc as u32,
-                    title_tf: entry.tf,
-                    body_tf: body.get(doc, entry.term),
-                });
-            }
-            for entry in body.row(doc).unwrap() {
-                if title.get(doc, entry.term) == 0 {
-                    postings[entry.term as usize].push(TermPosting {
-                        doc: doc as u32,
-                        title_tf: 0,
-                        body_tf: entry.tf,
-                    });
-                }
-            }
-        }
-        let flat_postings = crate::index_binary::postings::PostingsCsr::new(doc_count, postings)?;
+        let title = forward(&mut self.title_tfs)?;
+        let body = forward(&mut self.body_tfs)?;
+        self.title_tfs = Vec::new();
+        self.body_tfs = Vec::new();
+        self.posting_lists = HashMap::new();
+        crate::index_timing::memory_checkpoint("v4.memory.forward_drained");
+        let flat_postings =
+            crate::index_binary::postings::PostingsCsr::from_forward(&title, &body)?;
+        crate::index_timing::memory_checkpoint("v4.memory.flat_postings");
         let interned = InternedIndex {
             vocabulary: vocabulary.clone(),
             postings: Vec::new(),
@@ -803,6 +822,8 @@ impl Bm25Index {
         self.interned = std::sync::OnceLock::from(std::sync::Arc::new(interned));
         self.title_tfs = Vec::new();
         self.body_tfs = Vec::new();
+        self.posting_lists = HashMap::new();
+        crate::index_timing::memory_checkpoint("v4.memory.compact_complete");
         Ok(())
     }
 

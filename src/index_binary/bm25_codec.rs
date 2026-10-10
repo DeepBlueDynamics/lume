@@ -17,7 +17,32 @@ struct Auxiliary {
     entity_labels: HashMap<String, String>,
 }
 
+pub enum Segment<'a> {
+    Bytes(Vec<u8>),
+    Text(&'a [crate::bm25::Section]),
+}
+
 pub fn encode(index: &mut Bm25Index) -> Result<BTreeMap<String, Vec<u8>>, String> {
+    let mut result = BTreeMap::new();
+    encode_with(index, |name, segment| {
+        let bytes = match segment {
+            Segment::Bytes(bytes) => bytes,
+            Segment::Text(sections) => {
+                let mut bytes = Vec::new();
+                sections::write_borrowed_text(sections, &mut bytes)?;
+                bytes
+            }
+        };
+        result.insert(name.into(), bytes);
+        Ok(())
+    })?;
+    Ok(result)
+}
+
+pub fn encode_with(
+    index: &mut Bm25Index,
+    mut write: impl for<'a> FnMut(&str, Segment<'a>) -> Result<(), String>,
+) -> Result<(), String> {
     let _encode = crate::index_timing::Span::new("v4.encode.core");
     {
         let _compact = crate::index_timing::Span::new("v4.encode.compact");
@@ -47,18 +72,15 @@ pub fn encode(index: &mut Bm25Index) -> Result<BTreeMap<String, Vec<u8>>, String
         })
         .collect();
     let (term_table, term_text) = terms::encode(&dictionary, doc_count)?;
-    let section_text: Vec<_> = index
-        .sections
-        .iter()
-        .map(|section| sections::SectionText {
-            title: section.title.clone(),
-            body: section.body.clone(),
-            filename: section.filename.clone(),
-            line_number: section.line_number as u64,
-            entities: section.entities.clone(),
-        })
-        .collect();
-    let (section_table, text) = sections::encode(&section_text)?;
+    drop(dictionary);
+    write("terms.tbl", Segment::Bytes(term_table))?;
+    write("term-text.bin", Segment::Bytes(term_text))?;
+    write(
+        "sections.tbl",
+        Segment::Bytes(sections::borrowed_table(&index.sections)?),
+    )?;
+    write("text.bin", Segment::Text(&index.sections))?;
+    crate::index_timing::memory_checkpoint("v4.memory.text_streamed");
     if index.title_lens.len() != index.num_docs
         || index.body_lens.len() != index.num_docs
         || index.prime_filters.len() != index.num_docs
@@ -74,6 +96,14 @@ pub fn encode(index: &mut Bm25Index) -> Result<BTreeMap<String, Vec<u8>>, String
             tag_signature: index.prime_filters[doc].tag_signature,
         })
         .collect();
+    write(
+        "profiles.bin",
+        Segment::Bytes(profiles::encode(&document_profiles)?),
+    )?;
+    drop(document_profiles);
+    write("forward-title.bin", Segment::Bytes(forward.title.encode()?))?;
+    write("forward-body.bin", Segment::Bytes(forward.body.encode()?))?;
+    write("postings.bin", Segment::Bytes(flat.encode()?))?;
     let auxiliary = Auxiliary {
         num_docs: doc_count,
         avg_title_len_bits: index.avg_title_len.to_bits(),
@@ -85,20 +115,11 @@ pub fn encode(index: &mut Bm25Index) -> Result<BTreeMap<String, Vec<u8>>, String
         entity_kinds: index.entity_kinds.clone(),
         entity_labels: index.entity_labels.clone(),
     };
-    Ok(BTreeMap::from([
-        ("terms.tbl".into(), term_table),
-        ("term-text.bin".into(), term_text),
-        ("sections.tbl".into(), section_table),
-        ("text.bin".into(), text),
-        ("profiles.bin".into(), profiles::encode(&document_profiles)?),
-        ("forward-title.bin".into(), forward.title.encode()?),
-        ("forward-body.bin".into(), forward.body.encode()?),
-        ("postings.bin".into(), flat.encode()?),
-        (
-            "bm25-aux.json".into(),
-            serde_json::to_vec(&auxiliary).map_err(|e| e.to_string())?,
-        ),
-    ]))
+    write(
+        "bm25-aux.json",
+        Segment::Bytes(serde_json::to_vec(&auxiliary).map_err(|e| e.to_string())?),
+    )?;
+    Ok(())
 }
 
 pub fn decode(segments: &BTreeMap<String, Vec<u8>>) -> Result<Bm25Index, String> {
