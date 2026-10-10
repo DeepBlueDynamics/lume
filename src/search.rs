@@ -676,14 +676,11 @@ pub fn search(
     };
 
     if want_hybrid {
-        let token_opt = opts
-            .auth_token
-            .clone()
-            .or_else(|| {
-                crate::hybrid::load_nuts_token_at(&crate::hybrid::resolve_shivvr_base_url(
-                    opts.shivvr_url.as_deref(),
-                ))
-            });
+        let token_opt = opts.auth_token.clone().or_else(|| {
+            crate::hybrid::load_nuts_token_at(&crate::hybrid::resolve_shivvr_base_url(
+                opts.shivvr_url.as_deref(),
+            ))
+        });
         let has_session = index
             .state
             .as_ref()
@@ -711,9 +708,9 @@ pub fn search(
                 &index.bm25,
                 index.tagger.as_ref(),
                 target_dir,
-                *index.corpus_fingerprint.get_or_init(|| {
-                    crate::hybrid::index_fingerprint(&index.bm25.sections)
-                }),
+                *index
+                    .corpus_fingerprint
+                    .get_or_init(|| crate::hybrid::index_fingerprint(&index.bm25.sections)),
                 &effective_query,
                 &skg_scores,
                 beta,
@@ -1140,8 +1137,13 @@ mod tests {
         assert_eq!(changed.0, size);
         assert_ne!(changed.1, fingerprint);
         assert!(crate::hybrid::load_semantic_cache_with_dir(
-            &target, changed.0, changed.1, Some(&dir)
-        ).queries.is_empty());
+            &target,
+            changed.0,
+            changed.1,
+            Some(&dir)
+        )
+        .queries
+        .is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
