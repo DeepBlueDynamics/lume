@@ -2187,11 +2187,9 @@ These changes include blebbing, cell shrinkage, nuclear fragmentation, and chrom
             index.search_quiet("cancer -therapy", SearchVariant::Classic, &params, None);
         assert_eq!(minus_hits.len(), 1);
         assert_eq!(minus_hits[0].section_index, 1);
-        assert!(
-            !index.sections[minus_hits[0].section_index]
-                .body
-                .contains("therapy")
-        );
+        assert!(!index.sections[minus_hits[0].section_index]
+            .body
+            .contains("therapy"));
 
         // Subtraction with NOT therapy: sec0 must be excluded
         let not_hits =
@@ -2210,8 +2208,7 @@ These changes include blebbing, cell shrinkage, nuclear fragmentation, and chrom
         assert_eq!(stopword_hits.len(), 2);
 
         // Only NOT terms: returns empty results
-        let only_not_hits =
-            index.search_quiet("-therapy", SearchVariant::Classic, &params, None);
+        let only_not_hits = index.search_quiet("-therapy", SearchVariant::Classic, &params, None);
         assert!(only_not_hits.is_empty());
         let only_not_op_hits =
             index.search_quiet("NOT therapy", SearchVariant::Classic, &params, None);
