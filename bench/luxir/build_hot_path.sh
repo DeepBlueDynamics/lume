@@ -13,7 +13,7 @@ rustc --version
 rustc --version | awk '{ if ($2 !~ /^1\.96\./) exit 1 }'
 rustup component add rustfmt clippy
 trap 'cargo clean' EXIT
-rustfmt --edition 2021 --check src/bm25.rs
+rustfmt --edition 2021 --check src/bm25.rs src/search.rs
 cargo clippy --locked -p lume --all-targets -- -D warnings
 cargo test --locked -p lume --lib
 cargo test --locked -p lume --lib

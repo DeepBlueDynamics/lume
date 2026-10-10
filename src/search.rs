@@ -638,12 +638,24 @@ pub fn search(
 
     // 4. Lexical BM25 path
     let (lexical_params, lexical_variant) = (opts.bm25_params.clone(), opts.bm25_variant);
-    let mut bm25_hits = index.bm25.search(
-        &effective_query,
-        lexical_variant,
-        &lexical_params,
-        index.tagger.as_ref(),
-    );
+    // Graph and hybrid stages can reorder lexical hits. Only bound the
+    // lexical collector once those stages are absent.
+    let mut bm25_hits = if beta == 0.0 || skg_scores.is_empty() {
+        index.bm25.search_top_k(
+            &effective_query,
+            lexical_variant,
+            &lexical_params,
+            index.tagger.as_ref(),
+            opts.limit,
+        )
+    } else {
+        index.bm25.search(
+            &effective_query,
+            lexical_variant,
+            &lexical_params,
+            index.tagger.as_ref(),
+        )
+    };
     crate::graph_search::apply_skg_boost(&mut bm25_hits, &skg_scores, beta);
     bm25_hits.truncate(opts.limit);
 

@@ -413,6 +413,45 @@ pub struct SearchHit {
     pub score: f64,
 }
 
+/// Worst retained hit first: low scores and, on ties, larger section ids.
+#[derive(Debug)]
+struct HeapHit(SearchHit);
+
+impl PartialEq for HeapHit {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == std::cmp::Ordering::Equal
+    }
+}
+impl Eq for HeapHit {}
+impl PartialOrd for HeapHit {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for HeapHit {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other
+            .0
+            .score
+            .total_cmp(&self.0.score)
+            .then_with(|| self.0.section_index.cmp(&other.0.section_index))
+    }
+}
+
+fn retain_top_hit(heap: &mut std::collections::BinaryHeap<HeapHit>, hit: SearchHit, limit: usize) {
+    if limit == 0 {
+        return;
+    }
+    let hit = HeapHit(hit);
+    if heap.len() < limit {
+        heap.push(hit);
+    } else if let Some(mut worst) = heap.peek_mut() {
+        if hit < *worst {
+            *worst = hit;
+        }
+    }
+}
+
 /// Represents the reason why a candidate section was rejected during ranking.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RejectReason {
@@ -737,7 +776,7 @@ impl Bm25Index {
         params: &Bm25Params,
         tagger: Option<&Tagger>,
     ) -> Vec<SearchHit> {
-        self.search_impl(query, variant, params, tagger, true)
+        self.search_impl(query, variant, params, tagger, true, None)
     }
 
     /// `search` without stderr diagnostics, for in-process callers (Lume TI `match()`).
@@ -748,7 +787,19 @@ impl Bm25Index {
         params: &Bm25Params,
         tagger: Option<&Tagger>,
     ) -> Vec<SearchHit> {
-        self.search_impl(query, variant, params, tagger, false)
+        self.search_impl(query, variant, params, tagger, false, None)
+    }
+
+    /// Bounded lexical ranking. Call only when no later stage can reorder hits.
+    pub fn search_top_k(
+        &self,
+        query: &str,
+        variant: SearchVariant,
+        params: &Bm25Params,
+        tagger: Option<&Tagger>,
+        limit: usize,
+    ) -> Vec<SearchHit> {
+        self.search_impl(query, variant, params, tagger, true, Some(limit))
     }
 
     fn search_impl(
@@ -758,6 +809,7 @@ impl Bm25Index {
         params: &Bm25Params,
         tagger: Option<&Tagger>,
         verbose: bool,
+        limit: Option<usize>,
     ) -> Vec<SearchHit> {
         macro_rules! diag {
             ($($arg:tt)*) => {
@@ -922,6 +974,8 @@ impl Bm25Index {
 
         // Stage 2: Heavy Scoring on active candidates only
         let mut hits = Vec::new();
+        let mut top_hits = std::collections::BinaryHeap::new();
+        let mut ranked_count = 0usize;
 
         // Distinct query terms drive the coordination factor below: a document
         // that matches more of the distinct query terms is more relevant than
@@ -998,10 +1052,16 @@ impl Bm25Index {
             total_score *= coord;
 
             if total_score > 0.0 {
-                hits.push(SearchHit {
+                let hit = SearchHit {
                     section_index: doc_idx,
                     score: total_score,
-                });
+                };
+                ranked_count += 1;
+                if let Some(limit) = limit {
+                    retain_top_hit(&mut top_hits, hit, limit);
+                } else {
+                    hits.push(hit);
+                }
                 candidate_details.push(RankDebug {
                     section_id: doc_id,
                     score: Some(total_score),
@@ -1019,7 +1079,7 @@ impl Bm25Index {
 
         // Print high-level Rejection Accounting summary to stderr
         diag!("\x1B[33mCandidates: {}\x1B[0m", num_candidates_roaring);
-        diag!("\x1B[33mRanked: {}\x1B[0m", hits.len());
+        diag!("\x1B[33mRanked: {}\x1B[0m", ranked_count);
         diag!("\x1B[33mRejected:\x1B[0m");
         diag!("  MissingSection: {}", rejected_missing);
         diag!("  EmptyText: {}", rejected_empty);
@@ -1029,7 +1089,7 @@ impl Bm25Index {
         diag!("  ScoreBelowThreshold: {}", rejected_below_threshold);
 
         // Trigger deep diagnostic explanation if hits is empty but we had candidates
-        if hits.is_empty() && num_candidates_roaring > 0 {
+        if ranked_count == 0 && num_candidates_roaring > 0 {
             diag!("\n\x1B[1;31m🔍 [Deep Rejection Diagnostics] Why zero ranked results?\x1B[0m");
             for detail in &candidate_details {
                 if let Some(reason) = detail.rejected {
@@ -1093,10 +1153,14 @@ impl Bm25Index {
             diag!();
         }
 
+        if limit.is_some() {
+            hits = top_hits.into_iter().map(|hit| hit.0).collect();
+        }
         hits.sort_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.section_index.cmp(&b.section_index))
         });
         hits
     }
@@ -1806,6 +1870,28 @@ mod integer_scoring_tests {
     use super::*;
 
     #[test]
+    fn bounded_heap_keeps_earliest_section_on_score_ties() {
+        let mut heap = std::collections::BinaryHeap::new();
+        for section_index in [7, 3, 5, 1, 9, 0] {
+            retain_top_hit(
+                &mut heap,
+                SearchHit {
+                    section_index,
+                    score: 2.0,
+                },
+                3,
+            );
+            assert!(heap.len() <= 3);
+        }
+        let mut ids = heap
+            .into_iter()
+            .map(|hit| hit.0.section_index)
+            .collect::<Vec<_>>();
+        ids.sort_unstable();
+        assert_eq!(ids, [0, 1, 3]);
+    }
+
+    #[test]
     fn integer_postings_preserve_reference_score_bits_and_ties() {
         let words = ["anchor", "bilge", "pump", "wind", "sea", "café", "missing"];
         let sections = (0..96)
@@ -1843,6 +1929,14 @@ mod integer_scoring_tests {
                     let expected = index.search_reference(query, variant, &params, None, false);
                     let actual = index.search_quiet(query, variant, &params, None);
                     assert_eq!(actual.len(), expected.len(), "{query}");
+                    for limit in [0, 1, 3, 17, 96, usize::MAX] {
+                        let limited = index.search_top_k(query, variant, &params, None, limit);
+                        assert_eq!(limited.len(), expected.len().min(limit), "{query}");
+                        for (actual, expected) in limited.iter().zip(&expected) {
+                            assert_eq!(actual.section_index, expected.section_index, "{query}");
+                            assert_eq!(actual.score.to_bits(), expected.score.to_bits(), "{query}");
+                        }
+                    }
                     for (actual, expected) in actual.iter().zip(&expected) {
                         assert_eq!(actual.section_index, expected.section_index, "{query}");
                         assert_eq!(actual.score.to_bits(), expected.score.to_bits(), "{query}");
