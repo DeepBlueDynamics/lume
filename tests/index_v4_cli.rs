@@ -155,7 +155,7 @@ fn cli_v4_publish_search_sql_mcp_and_reindex_with_json_neighbor() {
     success(&index(&source, &v4, true, &[]));
     let new = lume::index_binary::generation::read_manifest(&v4).unwrap();
     assert_ne!(old.generation, new.generation);
-    assert!(v4.join("generations").join(old.generation).exists());
+    assert!(v4.join("generations").join(&old.generation).exists());
     let anchor = command()
         .args(["search", "--alpha", "0", "--graph", "0", "--db"])
         .arg(&v4)
@@ -207,6 +207,6 @@ fn cli_v4_publish_search_sql_mcp_and_reindex_with_json_neighbor() {
         .output()
         .unwrap();
     success(&cleaned);
-    assert!(!v4.join("generations").join(old.generation).exists());
+    assert!(!v4.join("generations").join(&old.generation).exists());
     assert_eq!(mcp("engine"), before_gc);
 }
