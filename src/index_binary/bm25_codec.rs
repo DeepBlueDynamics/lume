@@ -174,42 +174,6 @@ fn run_tasks<T: Send>(tasks: Vec<DecodeTask<'_, T>>, workers: usize) -> Result<V
     })
 }
 
-#[cfg(test)]
-mod worker_tests {
-    use super::*;
-    #[test]
-    fn joined_worker_panic_is_an_error_and_other_worker_finishes() {
-        let finished = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let marker = finished.clone();
-        let tasks: Vec<DecodeTask<'_, ()>> = vec![
-            Box::new(|| panic!("injected decoder panic")),
-            Box::new(move || {
-                marker.store(true, std::sync::atomic::Ordering::SeqCst);
-                Ok(())
-            }),
-        ];
-        assert_eq!(
-            run_tasks(tasks, 2).unwrap_err(),
-            "V4 decode worker panicked"
-        );
-        assert!(finished.load(std::sync::atomic::Ordering::SeqCst));
-    }
-    #[test]
-    fn task_order_and_errors_are_independent_of_worker_count() {
-        for workers in 1..=4 {
-            let tasks: Vec<DecodeTask<'_, usize>> = (0..4usize)
-                .map(|n| Box::new(move || Ok(n)) as DecodeTask<'_, usize>)
-                .collect();
-            assert_eq!(run_tasks(tasks, workers).unwrap(), [0, 1, 2, 3]);
-            let tasks: Vec<DecodeTask<'_, usize>> = vec![
-                Box::new(|| Err("first".into())),
-                Box::new(|| Err("second".into())),
-            ];
-            assert_eq!(run_tasks(tasks, workers).unwrap_err(), "first");
-        }
-    }
-}
-
 pub fn decode_with_spelling(
     segments: &BTreeMap<String, Vec<u8>>,
     deep: bool,
@@ -448,4 +412,40 @@ pub fn decode_with_spelling(
         },
         spelling,
     ))
+}
+
+#[cfg(test)]
+mod worker_tests {
+    use super::*;
+    #[test]
+    fn joined_worker_panic_is_an_error_and_other_worker_finishes() {
+        let finished = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let marker = finished.clone();
+        let tasks: Vec<DecodeTask<'_, ()>> = vec![
+            Box::new(|| panic!("injected decoder panic")),
+            Box::new(move || {
+                marker.store(true, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
+            }),
+        ];
+        assert_eq!(
+            run_tasks(tasks, 2).unwrap_err(),
+            "V4 decode worker panicked"
+        );
+        assert!(finished.load(std::sync::atomic::Ordering::SeqCst));
+    }
+    #[test]
+    fn task_order_and_errors_are_independent_of_worker_count() {
+        for workers in 1..=4 {
+            let tasks: Vec<DecodeTask<'_, usize>> = (0..4usize)
+                .map(|n| Box::new(move || Ok(n)) as DecodeTask<'_, usize>)
+                .collect();
+            assert_eq!(run_tasks(tasks, workers).unwrap(), [0, 1, 2, 3]);
+            let tasks: Vec<DecodeTask<'_, usize>> = vec![
+                Box::new(|| Err("first".into())),
+                Box::new(|| Err("second".into())),
+            ];
+            assert_eq!(run_tasks(tasks, workers).unwrap_err(), "first");
+        }
+    }
 }
