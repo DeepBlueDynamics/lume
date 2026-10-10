@@ -130,6 +130,56 @@ pub fn decode_checked(
     segments: &BTreeMap<String, Vec<u8>>,
     deep: bool,
 ) -> Result<Bm25Index, String> {
+    Ok(decode_with_spelling(segments, deep, 1, false)?.0)
+}
+
+enum Decoded {
+    Sections(Vec<sections::SectionText>),
+    Body(csr::ForwardCsr),
+    Postings(postings::PostingsCsr),
+    Spelling(Option<crate::spelling::SpellIndex>),
+}
+
+type DecodeTask<'a, T> = Box<dyn FnOnce() -> Result<T, String> + Send + 'a>;
+
+fn run_tasks<T: Send>(tasks: Vec<DecodeTask<'_, T>>, workers: usize) -> Result<Vec<T>, String> {
+    let workers = workers.clamp(1, 4).min(tasks.len().max(1));
+    if workers == 1 {
+        return tasks.into_iter().map(|task| task()).collect();
+    }
+    std::thread::scope(|scope| {
+        let mut groups: Vec<Vec<_>> = (0..workers).map(|_| Vec::new()).collect();
+        for (index, task) in tasks.into_iter().enumerate() {
+            groups[index % workers].push((index, task));
+        }
+        let handles: Vec<_> = groups
+            .into_iter()
+            .map(|group| {
+                scope.spawn(move || {
+                    group
+                        .into_iter()
+                        .map(|(index, task)| (index, task()))
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        // Join every worker, including after an error or panic.
+        let joined: Vec<_> = handles.into_iter().map(|handle| handle.join()).collect();
+        let mut results = Vec::new();
+        for result in joined {
+            results.extend(result.map_err(|_| "V4 decode worker panicked")?);
+        }
+        results.sort_by_key(|(index, _)| *index);
+        results.into_iter().map(|(_, result)| result).collect()
+    })
+}
+
+pub fn decode_with_spelling(
+    segments: &BTreeMap<String, Vec<u8>>,
+    deep: bool,
+    workers: usize,
+    include_spelling: bool,
+) -> Result<(Bm25Index, Option<crate::spelling::SpellIndex>), String> {
     let bytes = |name: &str| -> Result<&[u8], String> {
         segments
             .get(name)
@@ -145,9 +195,50 @@ pub fn decode_checked(
         let _span = crate::index_timing::Span::new("v4.decode.terms");
         terms::decode(bytes("terms.tbl")?, bytes("term-text.bin")?, doc_count)?
     };
-    let section_text = {
-        let _span = crate::index_timing::Span::new("v4.decode.sections");
-        sections::decode(bytes("sections.tbl")?, bytes("text.bin")?)?
+    let tasks: Vec<DecodeTask<'_, Decoded>> = vec![
+        Box::new(|| {
+            let _span = crate::index_timing::Span::new("v4.decode.sections");
+            sections::decode(bytes("sections.tbl")?, bytes("text.bin")?).map(Decoded::Sections)
+        }),
+        Box::new(|| {
+            let _span = crate::index_timing::Span::new("v4.decode.forward_body");
+            csr::ForwardCsr::decode(bytes("forward-body.bin")?).map(Decoded::Body)
+        }),
+        Box::new(|| {
+            let _span = crate::index_timing::Span::new("v4.decode.postings");
+            postings::PostingsCsr::decode(bytes("postings.bin")?).map(Decoded::Postings)
+        }),
+        Box::new(|| {
+            let _span = crate::index_timing::Span::new("v4.decode.spelling");
+            if !include_spelling {
+                return Ok(Decoded::Spelling(None));
+            }
+            let spelling = if let Some(bytes) = segments.get(crate::index_binary::spelling::FILE) {
+                Some(crate::index_binary::spelling::decode(bytes)?)
+            } else {
+                segments
+                    .get("spelling.json")
+                    .map(|bytes| {
+                        serde_json::from_slice(bytes)
+                            .map_err(|e| format!("Invalid v4 spelling: {e}"))
+                    })
+                    .transpose()?
+            };
+            Ok(Decoded::Spelling(spelling))
+        }),
+    ];
+    let mut decoded = run_tasks(tasks, workers)?.into_iter();
+    let Some(Decoded::Sections(section_text)) = decoded.next() else {
+        return Err("Missing decoded sections".into());
+    };
+    let Some(Decoded::Body(body)) = decoded.next() else {
+        return Err("Missing decoded body rows".into());
+    };
+    let Some(Decoded::Postings(flat)) = decoded.next() else {
+        return Err("Missing decoded postings".into());
+    };
+    let Some(Decoded::Spelling(spelling)) = decoded.next() else {
+        return Err("Missing decoded spelling".into());
     };
     let document_profiles = {
         let _span = crate::index_timing::Span::new("v4.decode.profiles");
@@ -156,14 +247,6 @@ pub fn decode_checked(
     let title = {
         let _span = crate::index_timing::Span::new("v4.decode.forward_title");
         csr::ForwardCsr::decode(bytes("forward-title.bin")?)?
-    };
-    let body = {
-        let _span = crate::index_timing::Span::new("v4.decode.forward_body");
-        csr::ForwardCsr::decode(bytes("forward-body.bin")?)?
-    };
-    let flat = {
-        let _span = crate::index_timing::Span::new("v4.decode.postings");
-        postings::PostingsCsr::decode(bytes("postings.bin")?)?
     };
     let docs = doc_count as usize;
     if section_text.len() != docs
@@ -300,30 +383,69 @@ pub fn decode_checked(
             tag_signature: profile.tag_signature,
         });
     }
-    Ok(Bm25Index {
-        sections,
-        num_docs: docs,
-        title_tfs: Vec::new(),
-        body_tfs: Vec::new(),
-        title_lens,
-        body_lens,
-        avg_title_len,
-        avg_body_len,
-        title_dfs,
-        body_dfs,
-        posting_lists: HashMap::new(),
-        prime_filters,
-        tag_prime_map: auxiliary.tag_prime_map,
-        entity_posting_lists: auxiliary.entity_posting_lists,
-        entity_kinds: auxiliary.entity_kinds,
-        entity_labels: auxiliary.entity_labels,
-        stemmed: auxiliary.stemmed,
-        keep_hyphens: auxiliary.keep_hyphens,
-        compact_forward: Some(std::sync::Arc::new(CompactForward {
-            vocabulary,
-            title,
-            body,
-        })),
-        interned: std::sync::OnceLock::from(std::sync::Arc::new(interned)),
-    })
+    Ok((
+        Bm25Index {
+            sections,
+            num_docs: docs,
+            title_tfs: Vec::new(),
+            body_tfs: Vec::new(),
+            title_lens,
+            body_lens,
+            avg_title_len,
+            avg_body_len,
+            title_dfs,
+            body_dfs,
+            posting_lists: HashMap::new(),
+            prime_filters,
+            tag_prime_map: auxiliary.tag_prime_map,
+            entity_posting_lists: auxiliary.entity_posting_lists,
+            entity_kinds: auxiliary.entity_kinds,
+            entity_labels: auxiliary.entity_labels,
+            stemmed: auxiliary.stemmed,
+            keep_hyphens: auxiliary.keep_hyphens,
+            compact_forward: Some(std::sync::Arc::new(CompactForward {
+                vocabulary,
+                title,
+                body,
+            })),
+            interned: std::sync::OnceLock::from(std::sync::Arc::new(interned)),
+        },
+        spelling,
+    ))
+}
+
+#[cfg(test)]
+mod worker_tests {
+    use super::*;
+    #[test]
+    fn joined_worker_panic_is_an_error_and_other_worker_finishes() {
+        let finished = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let marker = finished.clone();
+        let tasks: Vec<DecodeTask<'_, ()>> = vec![
+            Box::new(|| panic!("injected decoder panic")),
+            Box::new(move || {
+                marker.store(true, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
+            }),
+        ];
+        assert_eq!(
+            run_tasks(tasks, 2).unwrap_err(),
+            "V4 decode worker panicked"
+        );
+        assert!(finished.load(std::sync::atomic::Ordering::SeqCst));
+    }
+    #[test]
+    fn task_order_and_errors_are_independent_of_worker_count() {
+        for workers in 1..=4 {
+            let tasks: Vec<DecodeTask<'_, usize>> = (0..4usize)
+                .map(|n| Box::new(move || Ok(n)) as DecodeTask<'_, usize>)
+                .collect();
+            assert_eq!(run_tasks(tasks, workers).unwrap(), [0, 1, 2, 3]);
+            let tasks: Vec<DecodeTask<'_, usize>> = vec![
+                Box::new(|| Err("first".into())),
+                Box::new(|| Err("second".into())),
+            ];
+            assert_eq!(run_tasks(tasks, workers).unwrap_err(), "first");
+        }
+    }
 }
