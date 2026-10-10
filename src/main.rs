@@ -9,7 +9,7 @@ use lume::bm25::{Bm25Index, Bm25Params, SearchVariant, Section};
 use lume::search::{
     check_state_compatibility, correct_query, format_cli_output, load_json, load_tagger_csv,
     save_json, search, BlendMode, IndexState, LoadedIndex, SearchMode, SearchOptions,
-    CURRENT_FORMAT_VERSION, FORMAT_VERSION_META, FORMAT_VERSION_STEMMED, FORMAT_VERSION_UNSTEMMED,
+    FORMAT_VERSION_META, FORMAT_VERSION_STEMMED, FORMAT_VERSION_UNSTEMMED,
 };
 use lume::semantic_mesh::EntityGraph;
 use lume::spelling::SpellIndex;
