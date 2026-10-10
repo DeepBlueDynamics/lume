@@ -400,11 +400,41 @@ Every number below comes from a test or command in this repository, run on an x8
 
 ## Performance
 
-The core search engine, measured on real corpora:
+Search numbers below are a comparison with Luxir 0.1.0, a separate search engine. Luxir is not part of Lume. The full table, the capability list, and the bugs found are in [bench/luxir_vs_lume_summary.md](bench/luxir_vs_lume_summary.md). Lume TI timings are a different workload and stay in [Measured](#measured).
 
-- **Indexing:** a 2.8 MB novel chunks into about 1,900 sections and is searchable in **under a second** (lexical). Dense ingest of about 450 chunks through local Shivvr takes about 8 s.
-- **Search:** two-stage roaring-bitmap pruning runs in about **10 µs**, and full lexical queries finish in under a millisecond. Hybrid queries add one embedding round-trip, and the graph boost is arithmetic on intersection counts the bitmaps already produced.
-- **Vector inversion:** GTR-T5 vectors can be inverted back to text through Shivvr's `/invert` (about 0.88 self-similarity round-trip). The steered generator uses this to hill-climb toward a target.
+Setup for every search number here: Docker with 8 CPU and 8 GiB, indexes on Linux volumes, one `python:3.12-slim` client on a shared Docker network, a warm server (one warmup pass, then 3 timed passes, median of the three). The time is client wall-clock. BEIR SciFact is 5,183 documents and 300 queries. TREC-COVID is 171,332 documents and 50 queries.
+
+### Released in v0.12.3
+
+`lume serve` keeps the index resident. Rankings match v0.12.2. Median latency:
+
+| | SciFact p50 | TREC-COVID p50 |
+|---|---:|---:|
+| Lume v0.12.2 | 286 ms | 7,892 ms |
+| Lume v0.12.3 | 5.7 ms | 99 ms |
+| Luxir 0.1.0 BM25 | 0.36 ms | 1.26 ms |
+
+On SciFact that is 286 ms to 5.7 ms. On TREC-COVID that is 7,892 ms to 99 ms. At this released speed Luxir is about 16× faster on SciFact and about 80× faster on TREC-COVID.
+
+### On main, not yet released
+
+Merged as PR #8 after v0.12.3; it ships in the next release. Stemming plus a coordination floor of 1.0 is the default for new indexes; existing indexes keep their recorded mode until reindexed (`lume index -f`). nDCG@10:
+
+| | SciFact | TREC-COVID | NFCorpus (held out) |
+|---|---:|---:|---:|
+| Lume before | 0.645 | 0.561 | 0.296 |
+| Lume after | 0.677 | 0.632 | 0.314 |
+| Luxir BM25 | 0.679 | 0.605 | 0.321 |
+
+NFCorpus (3.6k documents, 323 queries) was not used to choose the change. Luxir is still ahead there (0.321 vs 0.314). On the sets that were tuned, Lume is ahead on TREC-COVID (0.632 vs 0.605) and close on SciFact (0.677 vs 0.679).
+
+### In progress, not released
+
+Integer term ids, Step 1 on branch `perf/search-hot-path`. Unreleased, measured on branch. With the new defaults, TREC-COVID p50 is 10.07 ms and SciFact p50 is 2.60 ms. Rankings on that branch stayed byte-identical.
+
+### Vector inversion
+
+GTR-T5 vectors can be inverted back to text through Shivvr's `/invert` (about 0.88 self-similarity round-trip). The steered generator uses this to hill-climb toward a target.
 
 ## Development
 
