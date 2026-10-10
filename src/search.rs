@@ -2002,6 +2002,8 @@ mod tests {
             tagger: None,
             cache_dir: None,
             meta,
+            corpus_fingerprint: OnceLock::new(),
+            local_vectors: None,
         };
 
         let opts = SearchOptions {
@@ -2150,6 +2152,8 @@ mod tests {
             tagger: None,
             cache_dir: None,
             meta: Some(meta),
+            corpus_fingerprint: OnceLock::new(),
+            local_vectors: None,
         };
 
         let facet_reqs = vec![
@@ -2312,6 +2316,8 @@ mod tests {
             tagger: None,
             cache_dir: None,
             meta: Some(meta),
+            corpus_fingerprint: OnceLock::new(),
+            local_vectors: None,
         };
 
         let opts = SearchOptions {
