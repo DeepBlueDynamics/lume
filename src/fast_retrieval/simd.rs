@@ -237,6 +237,7 @@ mod avx2 {
 // ─── aarch64 NEON Kernels ────────────────────────────────────────────────────
 
 #[cfg(target_arch = "aarch64")]
+#[allow(dead_code)]
 mod neon {
     use core::arch::aarch64::*;
 
@@ -328,11 +329,8 @@ pub fn bitmap_and(dst: &mut [u64; 1024], a: &[u64; 1024], b: &[u64; 1024]) -> bo
             return unsafe { avx2::bitmap_and(dst, a, b) };
         }
     }
-    #[cfg(target_arch = "aarch64")]
-    {
-        return unsafe { neon::bitmap_and(dst, a, b) };
-    }
-    #[allow(unreachable_code)]
+    // On aarch64 (ARM Cortex-A76), LLVM auto-vectorizes the scalar single-pass
+    // loop with accumulated OR faster than manual NEON store + reduction (3.33 vs 4.45 ms, 0.75x).
     scalar_bitmap_and(dst, a, b)
 }
 
@@ -345,12 +343,7 @@ pub fn bitmap_or(dst: &mut [u64; 1024], a: &[u64; 1024], b: &[u64; 1024]) {
             return;
         }
     }
-    #[cfg(target_arch = "aarch64")]
-    {
-        unsafe { neon::bitmap_or(dst, a, b) };
-        return;
-    }
-    #[allow(unreachable_code)]
+    // On aarch64, route to scalar_bitmap_or.
     scalar_bitmap_or(dst, a, b);
 }
 
@@ -362,11 +355,7 @@ pub fn bitmap_andnot(dst: &mut [u64; 1024], a: &[u64; 1024], b: &[u64; 1024]) ->
             return unsafe { avx2::bitmap_andnot(dst, a, b) };
         }
     }
-    #[cfg(target_arch = "aarch64")]
-    {
-        return unsafe { neon::bitmap_andnot(dst, a, b) };
-    }
-    #[allow(unreachable_code)]
+    // On aarch64, route to scalar_bitmap_andnot.
     scalar_bitmap_andnot(dst, a, b)
 }
 
