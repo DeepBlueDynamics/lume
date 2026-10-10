@@ -626,9 +626,29 @@ fn metadata_columns_pushdown_and_facets_equivalence() {
     if let lume::meta::FacetResult::Field { buckets, missing } = native_cat_facet {
         assert_eq!(*missing, 1);
         assert_eq!(rows_cat.len(), buckets.len());
-        for (row, bucket) in rows_cat.iter().zip(buckets) {
-            assert_eq!(row["category"].as_str().unwrap(), bucket.val);
-            assert_eq!(row["n"].as_u64().unwrap(), bucket.count as u64);
+        let sql_map: std::collections::BTreeMap<String, u64> = rows_cat
+            .iter()
+            .map(|r| {
+                (
+                    r["category"].as_str().unwrap().to_string(),
+                    r["n"].as_u64().unwrap(),
+                )
+            })
+            .collect();
+        let native_map: std::collections::BTreeMap<String, u64> = buckets
+            .iter()
+            .map(|b| (b.val.clone(), b.count as u64))
+            .collect();
+        assert_eq!(sql_map, native_map);
+
+        for window in buckets.windows(2) {
+            let (b1, b2) = (&window[0], &window[1]);
+            assert!(
+                b1.count > b2.count || (b1.count == b2.count && b1.val <= b2.val),
+                "native buckets must be sorted by count desc, then value asc; got {:?} before {:?}",
+                b1,
+                b2
+            );
         }
     } else {
         panic!("expected field facet for category");
@@ -683,9 +703,29 @@ fn metadata_columns_pushdown_and_facets_equivalence() {
     if let lume::meta::FacetResult::Field { buckets, missing } = native_tags_facet {
         assert_eq!(*missing, 0);
         assert_eq!(rows_tags.len(), buckets.len());
-        for (row, bucket) in rows_tags.iter().zip(buckets) {
-            assert_eq!(row["tag"].as_str().unwrap(), bucket.val);
-            assert_eq!(row["n"].as_u64().unwrap(), bucket.count as u64);
+        let sql_map: std::collections::BTreeMap<String, u64> = rows_tags
+            .iter()
+            .map(|r| {
+                (
+                    r["tag"].as_str().unwrap().to_string(),
+                    r["n"].as_u64().unwrap(),
+                )
+            })
+            .collect();
+        let native_map: std::collections::BTreeMap<String, u64> = buckets
+            .iter()
+            .map(|b| (b.val.clone(), b.count as u64))
+            .collect();
+        assert_eq!(sql_map, native_map);
+
+        for window in buckets.windows(2) {
+            let (b1, b2) = (&window[0], &window[1]);
+            assert!(
+                b1.count > b2.count || (b1.count == b2.count && b1.val <= b2.val),
+                "native buckets must be sorted by count desc, then value asc; got {:?} before {:?}",
+                b1,
+                b2
+            );
         }
     } else {
         panic!("expected field facet for tags");
