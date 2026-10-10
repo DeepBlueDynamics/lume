@@ -711,6 +711,14 @@ impl Bm25Index {
         )
     }
 
+    pub fn from_v4_segments_with_spelling(
+        segments: &std::collections::BTreeMap<String, Vec<u8>>,
+        deep: bool,
+        workers: usize,
+    ) -> Result<(Self, Option<crate::spelling::SpellIndex>), String> {
+        binary::decode_with_spelling(segments, deep, workers, true)
+    }
+
     pub fn v4_segments(&mut self) -> Result<std::collections::BTreeMap<String, Vec<u8>>, String> {
         binary::encode(self)
     }

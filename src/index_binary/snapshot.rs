@@ -10,10 +10,28 @@ pub fn present(root: &Path) -> bool {
     root.join(generation::POINTER).exists()
 }
 
+fn open_threads() -> Result<usize, String> {
+    let available = std::thread::available_parallelism().map_or(1, usize::from);
+    let requested = match std::env::var("LUME_OPEN_THREADS") {
+        Ok(value) => value
+            .parse::<usize>()
+            .ok()
+            .filter(|n| *n > 0)
+            .ok_or("LUME_OPEN_THREADS must be a positive integer")?,
+        Err(std::env::VarError::NotPresent) => available,
+        Err(_) => return Err("Invalid LUME_OPEN_THREADS".into()),
+    };
+    Ok(requested.min(available).clamp(1, 4))
+}
+
 pub fn open(root: &Path, checks: OpenEnvChecks) -> Result<LoadedIndex, String> {
     let manifest = generation::read_manifest(root)?;
     let segments = generation::read_segments(root, &manifest)?;
-    let mut bm25 = Bm25Index::from_v4_segments_for_open(&segments)?;
+    let (mut bm25, spelling) = Bm25Index::from_v4_segments_with_spelling(
+        &segments,
+        std::env::var("LUME_INDEX_VERIFY").as_deref() == Ok("full"),
+        open_threads()?,
+    )?;
     let build_span = crate::index_timing::Span::new("v4.decode.build_state");
     let build: BuildState = serde_json::from_slice(&segments["build-state.json"])
         .map_err(|e| format!("Invalid v4 build state: {e}"))?;
@@ -43,16 +61,6 @@ pub fn open(root: &Path, checks: OpenEnvChecks) -> Result<LoadedIndex, String> {
             })
             .transpose()
     };
-    let spelling_span = crate::index_timing::Span::new("v4.decode.spelling");
-    let spelling = if let Some(bytes) = segments.get(super::spelling::FILE) {
-        Some(super::spelling::decode(bytes)?)
-    } else {
-        decode("spelling.json")?
-            .map(serde_json::from_value)
-            .transpose()
-            .map_err(|e| format!("Invalid v4 spelling: {e}"))?
-    };
-    drop(spelling_span);
     let graph_span = crate::index_timing::Span::new("v4.decode.graph");
     let mut entity_graph = decode("entity_graph.json")?
         .map(serde_json::from_value)
