@@ -10,8 +10,9 @@ export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
 export TMPDIR=/tmp
 export CARGO_TARGET_TMPDIR=/tmp/cargo-tmp
 trap 'cargo clean' EXIT
-rustfmt --edition 2021 --config skip_children=true --check src/index_timing.rs src/bm25.rs src/meta.rs tests/index_timing.rs tests/lume_sql.rs
+rustfmt --edition 2021 --config skip_children=true --check src/index_timing.rs src/bm25.rs src/meta.rs tests/index_timing.rs tests/index_checkpoint.rs tests/lume_sql.rs
 cargo build --release --locked --features ti --bin lume
-install -m 755 "$CARGO_TARGET_DIR/release/lume" /bench/bin/lume-index-stage0
-sha256sum /bench/bin/lume-index-stage0
+binary_output="${LUME_INDEX_V4_BINARY:-/bench/bin/lume-index-stage0}"
+install -m 755 "$CARGO_TARGET_DIR/release/lume" "$binary_output"
+sha256sum "$binary_output"
 du -sh "$CARGO_TARGET_DIR"

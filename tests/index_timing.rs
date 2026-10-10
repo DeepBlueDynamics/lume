@@ -1,4 +1,9 @@
-use std::process::Command;
+_eq!(
+        stderr.lines().filter(|line| line.contains("\"phase\":\"index.bm25_total\"")).count(),
+        1,
+        "ordinary indexing must build BM25 once: {stderr}"
+    );
+    assertuse std::process::Command;
 
 #[test]
 fn timing_is_opt_in_stderr_only_and_preserves_search_output() {

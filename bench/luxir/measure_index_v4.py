@@ -7,6 +7,7 @@ from pathlib import Path
 import resource
 import subprocess
 import time
+from compare_index_v4 import compare
 
 
 def records(stderr):
@@ -21,6 +22,7 @@ def main():
     p.add_argument("--source", type=Path, default=Path("/indexes/trec-covid-files"))
     p.add_argument("--existing", type=Path, default=Path("/indexes/hot-path/trec-covid/stemmed"))
     p.add_argument("--new-db", type=Path, default=Path("/measuredb/trec-stage0"))
+    p.add_argument("--compare-before", type=Path, help="Prior fresh index for stored-value parity")
     a = p.parse_args()
     if a.new_db.exists():
         raise RuntimeError("Refusing to reuse a stage-0 build output")
@@ -60,8 +62,11 @@ def main():
               "storage": "Linux Docker volumes; source and existing index read-only",
               "cold_definition": "fresh process, page cache not flushed; baseline primes pages",
               "phase_accounting": "BM25 total includes tokenize; parse_reconstruct = serde wall minus underlying reads; serialize = serde/flush wall minus underlying writes; do not sum parent and child spans",
-              "build": build, "opens": opens}
+              "build": build, "opens": opens,
+              "stored_parity": compare(a.compare_before, a.new_db) if a.compare_before else None}
     (a.output / "summary.json").write_text(json.dumps(report, indent=2) + "\n")
+    if report["stored_parity"] is not None and not all(row["equal"] for row in report["stored_parity"]):
+        raise RuntimeError("Stored-value parity failed; inspect summary.json")
     print(json.dumps({"build_seconds": build["seconds"], "opens": len(opens),
                       "output": str(a.output)}, indent=2), flush=True)
 
