@@ -30,8 +30,10 @@ box. One query crosses both. Search, the knowledge graph and the telemetry
 SQL run on the boat's Raspberry Pi with no internet connection — because
 that's where boats are.
 
-An open source project from [DeepBlue Dynamics](https://deepbluedynamics.com/),
+An open source project from [DeepBlue Dynamics](https://github.com/deepbluedynamics/),
 which builds open source agentic tooling for the marine electronics market.
+DeepBlue's promise: agents and people can ask questions of a boat's instruments,
+logs and documents, on board and without a connection.
 
 The default build has **four runtime dependencies** (`tantivy-fst`, `ureq`, `serde`, `serde_json`). The time-series engine (DataFusion, Arrow, Parquet) sits behind `--features ti`.
 
