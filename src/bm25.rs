@@ -355,10 +355,15 @@ struct TermPosting {
     body_tf: usize,
 }
 
+type BoundsKey = [u64; 6];
+type BoundsCell = std::sync::Arc<std::sync::OnceLock<Option<f64>>>;
+type ProfileBounds = HashMap<u32, BoundsCell>;
+
 #[derive(Debug)]
 struct InternedIndex {
     vocabulary: HashMap<Vec<u8>, u32>,
     postings: Vec<Vec<TermPosting>>,
+    bounds: std::sync::Mutex<HashMap<BoundsKey, ProfileBounds>>,
 }
 
 impl InternedIndex {
@@ -366,6 +371,7 @@ impl InternedIndex {
         let mut result = Self {
             vocabulary: HashMap::new(),
             postings: Vec::new(),
+            bounds: std::sync::Mutex::new(HashMap::new()),
         };
         for doc in 0..index.num_docs {
             let title = &index.title_tfs[doc];
@@ -396,6 +402,21 @@ impl InternedIndex {
         result
     }
 
+    fn bounds_cell(&self, key: BoundsKey, term: u32) -> BoundsCell {
+        let mut profiles = self.bounds.lock().unwrap_or_else(|e| e.into_inner());
+        // Arbitrary user parameters cannot grow a resident cache without bound.
+        if !profiles.contains_key(&key) && profiles.len() >= 8 {
+            profiles.clear();
+        }
+        std::sync::Arc::clone(
+            profiles
+                .entry(key)
+                .or_default()
+                .entry(term)
+                .or_insert_with(|| std::sync::Arc::new(std::sync::OnceLock::new())),
+        )
+    }
+
     fn add(&mut self, bytes: &[u8], posting: TermPosting) {
         let id = *self.vocabulary.entry(bytes.to_vec()).or_insert_with(|| {
             let id = u32::try_from(self.postings.len()).expect("index vocabulary exceeds u32");
@@ -404,6 +425,78 @@ impl InternedIndex {
         });
         self.postings[id as usize].push(posting);
     }
+}
+
+#[derive(Debug, Default)]
+struct MaxScoreStats {
+    scored: usize,
+    pruned: usize,
+}
+
+struct ScoringTerm<'a> {
+    postings: &'a [TermPosting],
+    cursor: usize,
+    signature: u64,
+    title_idf: f64,
+    body_idf: f64,
+    maximum: f64,
+}
+
+impl ScoringTerm<'_> {
+    fn posting(&mut self, doc: u32, mask: u64) -> Option<TermPosting> {
+        // Sequential cursors are cheap for dense hits; gallop across filter gaps.
+        for _ in 0..8 {
+            if self.postings.get(self.cursor).is_none_or(|p| p.doc >= doc) {
+                break;
+            }
+            self.cursor += 1;
+        }
+        if self.postings.get(self.cursor).is_some_and(|p| p.doc < doc) {
+            self.cursor += self.postings[self.cursor..].partition_point(|p| p.doc < doc);
+        }
+        self.postings
+            .get(self.cursor)
+            .copied()
+            .filter(|p| p.doc == doc && mask & self.signature == self.signature)
+    }
+}
+
+/// Sum maxima/known contributions in the SAME order as the real scorer.
+/// Each maximum is an actual f64 contribution maximum over the full index.
+/// Nonnegative addition is monotone; outward rounding adds extra slack.
+fn score_upper_bound(
+    terms: &[ScoringTerm<'_>],
+    postings: &[Option<TermPosting>],
+    values: &[f64],
+    evaluated: &[bool],
+) -> f64 {
+    let mut upper = 0.0;
+    for (i, term) in terms.iter().enumerate() {
+        if postings[i].is_some() {
+            upper = (upper
+                + if evaluated[i] {
+                    values[i]
+                } else {
+                    term.maximum
+                })
+            .next_up();
+        }
+    }
+    upper
+}
+
+fn additive_parameters(params: &Bm25Params) -> bool {
+    params.coord_floor == 1.0
+        && params.b.is_finite()
+        && (0.0..=1.0).contains(&params.b)
+        && [
+            params.k1,
+            params.delta,
+            params.title_weight,
+            params.body_weight,
+        ]
+        .iter()
+        .all(|x| x.is_finite() && *x >= 0.0)
 }
 
 /// A hit returned by the search query.
@@ -802,6 +895,187 @@ impl Bm25Index {
         self.search_impl(query, variant, params, tagger, true, Some(limit))
     }
 
+    /// Exact term-MaxScore early termination, never an approximate shortlist.
+    /// The caller has already applied union/NOT, allow and tag pruning.
+    fn search_maxscore(
+        &self,
+        tokens: &[crate::Token],
+        candidates: &[u32],
+        variant: SearchVariant,
+        params: &Bm25Params,
+        limit: usize,
+    ) -> Option<(Vec<SearchHit>, MaxScoreStats)> {
+        if !additive_parameters(params) || candidates.len() <= limit.saturating_mul(4) {
+            return None;
+        }
+        if limit == 0 {
+            return Some((Vec::new(), MaxScoreStats::default()));
+        }
+        let interned = self
+            .interned
+            .get_or_init(|| std::sync::Arc::new(InternedIndex::build(self)));
+        let key = [
+            match variant {
+                SearchVariant::Classic => 0,
+                SearchVariant::Plus => 1,
+                SearchVariant::L => 2,
+            },
+            params.k1.to_bits(),
+            params.b.to_bits(),
+            params.delta.to_bits(),
+            params.title_weight.to_bits(),
+            params.body_weight.to_bits(),
+        ];
+        let distinct: std::collections::HashSet<_> = tokens
+            .iter()
+            .filter_map(|token| interned.vocabulary.get(token.bytes.as_slice()).copied())
+            .collect();
+        // Avoid initializing bounds for single-term queries.
+        if distinct.len() < 2 {
+            return None;
+        }
+        let mut terms = Vec::new();
+        for token in tokens {
+            let Some(&term_id) = interned.vocabulary.get(token.bytes.as_slice()) else {
+                continue;
+            };
+            let title_df = self.title_dfs.get(&token.bytes).copied().unwrap_or(0) as f64;
+            let body_df = self.body_dfs.get(&token.bytes).copied().unwrap_or(0) as f64;
+            let title_idf = ((self.num_docs as f64 - title_df + 0.5) / (title_df + 0.5) + 1.0)
+                .ln()
+                .max(0.0);
+            let body_idf = ((self.num_docs as f64 - body_df + 0.5) / (body_df + 0.5) + 1.0)
+                .ln()
+                .max(0.0);
+            let postings = &interned.postings[term_id as usize];
+            let cell = interned.bounds_cell(key, term_id);
+            let maximum = (*cell.get_or_init(|| {
+                let mut maximum: f64 = 0.0;
+                for posting in postings {
+                    let doc = posting.doc as usize;
+                    let title_score = calculate_bm25_term_score(
+                        posting.title_tf as f64,
+                        self.title_lens[doc] as f64,
+                        self.avg_title_len,
+                        title_idf,
+                        variant,
+                        params,
+                    );
+                    let body_score = calculate_bm25_term_score(
+                        posting.body_tf as f64,
+                        self.body_lens[doc] as f64,
+                        self.avg_body_len,
+                        body_idf,
+                        variant,
+                        params,
+                    );
+                    let contribution =
+                        params.title_weight * title_score + params.body_weight * body_score;
+                    if !contribution.is_finite() || contribution < 0.0 {
+                        return None;
+                    }
+                    maximum = maximum.max(contribution);
+                }
+                Some(maximum)
+            }))?;
+            let mut signature = PrimeFilter::new();
+            signature.add_term(&token.bytes);
+            terms.push(ScoringTerm {
+                postings,
+                cursor: 0,
+                signature: signature.term_mask,
+                title_idf,
+                body_idf,
+                maximum,
+            });
+        }
+        let mut order: Vec<_> = (0..terms.len()).collect();
+        order.sort_by(|&a, &b| {
+            terms[b]
+                .maximum
+                .total_cmp(&terms[a].maximum)
+                .then_with(|| a.cmp(&b))
+        });
+        let mut postings = vec![None; terms.len()];
+        let mut values = vec![0.0; terms.len()];
+        let mut evaluated = vec![false; terms.len()];
+        let mut heap = std::collections::BinaryHeap::new();
+        let mut stats = MaxScoreStats::default();
+
+        'documents: for &doc_id in candidates {
+            let doc = doc_id as usize;
+            for (i, term) in terms.iter_mut().enumerate() {
+                postings[i] = term.posting(doc_id, self.prime_filters[doc].term_mask);
+            }
+            values.fill(0.0);
+            evaluated.fill(false);
+            let threshold = if heap.len() == limit {
+                heap.peek().map(|hit: &HeapHit| hit.0.score)
+            } else {
+                None
+            };
+            if threshold.is_some_and(|score| {
+                score_upper_bound(&terms, &postings, &values, &evaluated) < score
+            }) {
+                stats.pruned += 1;
+                continue;
+            }
+            for &i in &order {
+                if let Some(posting) = postings[i] {
+                    let title_score = calculate_bm25_term_score(
+                        posting.title_tf as f64,
+                        self.title_lens[doc] as f64,
+                        self.avg_title_len,
+                        terms[i].title_idf,
+                        variant,
+                        params,
+                    );
+                    let body_score = calculate_bm25_term_score(
+                        posting.body_tf as f64,
+                        self.body_lens[doc] as f64,
+                        self.avg_body_len,
+                        terms[i].body_idf,
+                        variant,
+                        params,
+                    );
+                    values[i] = params.title_weight * title_score + params.body_weight * body_score;
+                }
+                evaluated[i] = true;
+                if threshold.is_some_and(|score| {
+                    score_upper_bound(&terms, &postings, &values, &evaluated) < score
+                }) {
+                    stats.pruned += 1;
+                    continue 'documents;
+                }
+            }
+            // Computation may visit important terms first, but addition retains
+            // the original token order, including repeated terms.
+            let mut total = 0.0;
+            for value in &values {
+                total += value;
+            }
+            stats.scored += 1;
+            if total > 0.0 {
+                retain_top_hit(
+                    &mut heap,
+                    SearchHit {
+                        section_index: doc,
+                        score: total,
+                    },
+                    limit,
+                );
+            }
+        }
+        let mut hits: Vec<_> = heap.into_iter().map(|hit| hit.0).collect();
+        hits.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.section_index.cmp(&b.section_index))
+        });
+        Some((hits, stats))
+    }
+
     fn search_impl(
         &self,
         query: &str,
@@ -971,6 +1245,20 @@ impl Bm25Index {
             "\x1B[32m[Two-Stage Pruning] Pruned candidate space from {} to {} (roaring generated: {}) sections in {:.2?}\x1B[0m",
             self.num_docs, pruned_candidates.len(), num_candidates_roaring, pruning_elapsed
         );
+
+        if let Some(limit) = limit {
+            if let Some((hits, stats)) =
+                self.search_maxscore(&query_tokens, &pruned_candidates, variant, params, limit)
+            {
+                diag!(
+                    "[Exact MaxScore] Fully scored: {}; bound-pruned: {}; retained: {}",
+                    stats.scored,
+                    stats.pruned,
+                    hits.len()
+                );
+                return hits;
+            }
+        }
 
         // Stage 2: Heavy Scoring on active candidates only
         let mut hits = Vec::new();
@@ -1868,6 +2156,141 @@ These changes include blebbing, cell shrinkage, nuclear fragmentation, and chrom
 #[cfg(test)]
 mod integer_scoring_tests {
     use super::*;
+
+    #[test]
+    fn maxscore_prunes_without_changing_score_bits() {
+        let sections = (0..256)
+            .map(|doc| Section {
+                title: if doc < 4 {
+                    "anchor bilge".into()
+                } else {
+                    String::new()
+                },
+                body: if doc < 4 {
+                    "anchor bilge anchor bilge".into()
+                } else {
+                    format!("anchor {}", "ballast ".repeat(64 + doc % 7))
+                },
+                line_number: doc + 1,
+                filename: None,
+                entities: Vec::new(),
+            })
+            .collect();
+        let index = Bm25Index::build_with_options(sections, None, Bm25BuildOptions::default());
+        let before = serde_json::to_value(&index).unwrap();
+        let candidates: Vec<_> = (0..256).collect();
+        for variant in [
+            SearchVariant::Classic,
+            SearchVariant::Plus,
+            SearchVariant::L,
+        ] {
+            for query in [
+                "anchor bilge",
+                "bilge anchor anchor",
+                "anchor missing bilge",
+            ] {
+                let tokens =
+                    filter_query_stopwords(tokenize_with_options(query, index.stemmed, false));
+                let params = Bm25Params::default();
+                let expected = index.search_reference(query, variant, &params, None, false);
+                let (actual, stats) = index
+                    .search_maxscore(&tokens, &candidates, variant, &params, 3)
+                    .unwrap();
+                assert!(stats.pruned > 0, "{variant:?} {query}");
+                assert_eq!(stats.scored + stats.pruned, candidates.len());
+                assert_eq!(actual.len(), 3);
+                for (actual, expected) in actual.iter().zip(&expected) {
+                    assert_eq!(actual.section_index, expected.section_index, "{query}");
+                    assert_eq!(actual.score.to_bits(), expected.score.to_bits(), "{query}");
+                }
+            }
+        }
+        assert_eq!(serde_json::to_value(&index).unwrap(), before);
+        let tokens = tokenize_with_options("anchor bilge", index.stemmed, false);
+        for params in [
+            Bm25Params {
+                coord_floor: 0.5,
+                ..Default::default()
+            },
+            Bm25Params {
+                title_weight: -1.0,
+                ..Default::default()
+            },
+            Bm25Params {
+                b: 2.0,
+                ..Default::default()
+            },
+            Bm25Params {
+                k1: f64::NAN,
+                ..Default::default()
+            },
+        ] {
+            assert!(index
+                .search_maxscore(&tokens, &candidates, SearchVariant::Classic, &params, 3)
+                .is_none());
+        }
+        let interned = index.interned.get().unwrap();
+        for i in 0..20 {
+            interned.bounds_cell([i, 0, 0, 0, 0, 0], 0);
+            assert!(interned.bounds.lock().unwrap().len() <= 8);
+        }
+    }
+
+    #[test]
+    fn maxscore_parameter_profiles_preserve_exhaustive_rankings() {
+        let sections = (0..192)
+            .map(|doc| Section {
+                title: ["anchor", "bilge", "pump"][..doc % 3 + 1].join(" "),
+                body: (0..doc % 31 + 1)
+                    .map(|i| ["anchor", "bilge", "pump", "wind", "sea"][(doc + i) % 5])
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                line_number: doc + 1,
+                filename: None,
+                entities: Vec::new(),
+            })
+            .collect();
+        let index = Bm25Index::build_with_options(sections, None, Bm25BuildOptions::default());
+        for variant in [
+            SearchVariant::Classic,
+            SearchVariant::Plus,
+            SearchVariant::L,
+        ] {
+            for (k1, b, delta, title_weight, body_weight) in [
+                (0.0, 0.0, 0.0, 0.0, 1.0),
+                (1.2, 1.0, 2.0, 1.0, 0.0),
+                (2.4, 0.35, 0.2, 0.125, 3.0),
+                (0.01, 0.99, 5.0, 4.0, 0.25),
+            ] {
+                let params = Bm25Params {
+                    k1,
+                    b,
+                    delta,
+                    title_weight,
+                    body_weight,
+                    coord_floor: 1.0,
+                };
+                for query in ["anchor bilge pump", "sea wind anchor anchor", "pump bilge"] {
+                    let expected = index.search_reference(query, variant, &params, None, false);
+                    for limit in [1, 3, 11, 100, usize::MAX] {
+                        let actual = index.search_top_k(query, variant, &params, None, limit);
+                        assert_eq!(actual.len(), expected.len().min(limit));
+                        for (actual, expected) in actual.iter().zip(&expected) {
+                            assert_eq!(
+                                actual.section_index, expected.section_index,
+                                "{variant:?} {query}"
+                            );
+                            assert_eq!(
+                                actual.score.to_bits(),
+                                expected.score.to_bits(),
+                                "{variant:?} {query}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn bounded_heap_keeps_earliest_section_on_score_ties() {
