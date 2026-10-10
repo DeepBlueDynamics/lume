@@ -230,14 +230,25 @@ impl LoadedIndex {
         let corpus_fingerprint = OnceLock::from(crate::hybrid::index_fingerprint(&bm25.sections));
         let local_vectors = crate::local_vectors::LocalVectors::open(db_path, &bm25.sections)?;
         if let Ok(model) = std::env::var("LUME_EMBED_MODEL") {
-            if local_vectors.as_ref().is_none_or(|vectors| vectors.profile.model != model) {
+            if local_vectors
+                .as_ref()
+                .is_none_or(|vectors| vectors.profile.model != model)
+            {
                 return Err("Requested embedding model does not match the local-vector index; reindex with --embed-model".to_string());
             }
         }
         if let Ok(dimensions) = std::env::var("LUME_EMBED_DIMENSIONS") {
-            let dimensions = dimensions.parse::<usize>().map_err(|_| "Invalid --embed-dimensions")?;
-            if local_vectors.as_ref().is_some_and(|vectors| vectors.profile.dimensions != dimensions) {
-                return Err("Requested embedding dimensions do not match the local-vector index".to_string());
+            let dimensions = dimensions
+                .parse::<usize>()
+                .map_err(|_| "Invalid --embed-dimensions")?;
+            if local_vectors
+                .as_ref()
+                .is_some_and(|vectors| vectors.profile.dimensions != dimensions)
+            {
+                return Err(
+                    "Requested embedding dimensions do not match the local-vector index"
+                        .to_string(),
+                );
             }
         }
         Ok(Self {

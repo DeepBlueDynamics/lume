@@ -1166,8 +1166,13 @@ fn handle_index_init(args: &[String]) -> Result<(), String> {
         if arg == "-s" || arg == "--semantic" {
             semantic_enabled = true;
             idx += 1;
-        } else if matches!(arg.as_str(), "--embed-docs" | "--embed-queries" | "--embed-query-texts") {
-            let value = args.get(idx + 1).ok_or_else(|| format!("{arg} requires a path"))?;
+        } else if matches!(
+            arg.as_str(),
+            "--embed-docs" | "--embed-queries" | "--embed-query-texts"
+        ) {
+            let value = args
+                .get(idx + 1)
+                .ok_or_else(|| format!("{arg} requires a path"))?;
             let destination = match arg.as_str() {
                 "--embed-docs" => &mut embed_imports.documents,
                 "--embed-queries" => &mut embed_imports.queries,
@@ -1889,13 +1894,19 @@ fn run_indexing(
         Ok(model) => {
             let dimensions = std::env::var("LUME_EMBED_DIMENSIONS")
                 .unwrap_or_else(|_| "768".to_string())
-                .parse::<usize>().map_err(|_| "Invalid --embed-dimensions")?;
-            Some(lume::local_vectors::EmbeddingProfile::new(model, dimensions)?)
+                .parse::<usize>()
+                .map_err(|_| "Invalid --embed-dimensions")?;
+            Some(lume::local_vectors::EmbeddingProfile::new(
+                model, dimensions,
+            )?)
         }
         Err(_) => lume::local_vectors::LocalVectors::stored_profile(db_path)?,
     };
-    if local_profile.is_none() && (embed_imports.documents.is_some()
-        || embed_imports.queries.is_some() || embed_imports.query_texts.is_some()) {
+    if local_profile.is_none()
+        && (embed_imports.documents.is_some()
+            || embed_imports.queries.is_some()
+            || embed_imports.query_texts.is_some())
+    {
         return Err("Shared vector import requires --embed-model".to_string());
     }
 
@@ -2423,9 +2434,17 @@ fn run_indexing(
         let base = lume::hybrid::get_shivvr_base_url();
         let token = lume::hybrid::load_nuts_token();
         lume::local_vectors::LocalVectors::build(
-            db_path, &sections, profile, embed_imports, &base, token.as_deref(),
+            db_path,
+            &sections,
+            profile,
+            embed_imports,
+            &base,
+            token.as_deref(),
         )?;
-        println!("[🌐] Local section vectors ready: {} sections", sections.len());
+        println!(
+            "[🌐] Local section vectors ready: {} sections",
+            sections.len()
+        );
     }
 
     let save_start = Instant::now();

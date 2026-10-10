@@ -1217,8 +1217,22 @@ pub fn execute_hybrid_search(
     query_inversion: bool,
 ) -> Result<HybridSearchResult, String> {
     execute_hybrid_search_with_local(
-        index, tagger, target_file, corpus_fingerprint, query, skg_scores, beta, alpha,
-        cache_dir, params, variant, blend_mode, shivvr_url, auth_token, query_inversion, None,
+        index,
+        tagger,
+        target_file,
+        corpus_fingerprint,
+        query,
+        skg_scores,
+        beta,
+        alpha,
+        cache_dir,
+        params,
+        variant,
+        blend_mode,
+        shivvr_url,
+        auth_token,
+        query_inversion,
+        None,
     )
 }
 
@@ -1257,8 +1271,11 @@ pub fn execute_hybrid_search_with_local(
 
     let mut semantic_cache = if local_vectors.is_some() {
         SemanticQueryCache {
-            server_url: None, corpus_path: target_file.to_string(),
-            corpus_size, corpus_mtime, queries: HashMap::new(),
+            server_url: None,
+            corpus_path: target_file.to_string(),
+            corpus_size,
+            corpus_mtime,
+            queries: HashMap::new(),
         }
     } else {
         load_semantic_cache_with_dir(target_file, corpus_size, corpus_mtime, cache_dir)
@@ -1299,7 +1316,10 @@ pub fn execute_hybrid_search_with_local(
 
     let mut semantic_results = if let Some(local) = local_vectors {
         let (results, cached) = local.search(
-            query, &base, if token.is_empty() { None } else { Some(&token) }, 100,
+            query,
+            &base,
+            if token.is_empty() { None } else { Some(&token) },
+            crate::local_vectors::candidate_depth()?,
         )?;
         is_cached = cached;
         results
