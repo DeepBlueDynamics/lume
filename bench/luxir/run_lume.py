@@ -52,8 +52,9 @@ def fetch(root):
     print("Release SHA256 verified:", h.hexdigest(), flush=True)
 
 
-def files(root, dataset, folder=None):
-    folder = folder or root / dataset / "files"
+def files(root, dataset, folder=None, with_meta=False):
+    root = Path(root)
+    folder = Path(folder) if folder else root / dataset / "files"
     folder.mkdir(parents=True, exist_ok=True)
     count = 0
     with (root / dataset / "docs.jsonl").open(encoding="utf-8") as source:
@@ -65,6 +66,22 @@ def files(root, dataset, folder=None):
             (folder / (docid + ".txt")).write_text(row["text"], encoding="utf-8")
             count += 1
     print("Staged documents:", count, flush=True)
+
+    if with_meta:
+        meta_source = root / dataset / "docs_meta.jsonl"
+        if not meta_source.exists():
+            raise FileNotFoundError(f"Missing {meta_source}; run prepare.py --with-meta first")
+        meta_target = folder / "lume.meta.jsonl"
+        written = 0
+        with meta_source.open(encoding="utf-8") as src, meta_target.open("w", encoding="utf-8", newline="\n") as out:
+            for line in src:
+                row = json.loads(line)
+                docid = row["id"]
+                fields = {k: v for k, v in row.items() if k not in ("id", "text")}
+                entry = {"path": f"{docid}.txt", "fields": fields}
+                out.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                written += 1
+        print("Wrote lume.meta.jsonl rows:", written, flush=True)
 
 
 def index(root, dataset, binary, index_dir=None, files_dir=None):
@@ -136,14 +153,18 @@ def document_hits(text):
     return sorted(scores.items(), key=lambda pair: (-pair[1], pair[0]))[:100]
 
 
-def request(url, db, query, graph, token, client=None):
+def request(url, db, query, graph, token, client=None, facets=None, facet_queries=None):
     # Ask for enough sections to collapse to 100 documents. Increasing the
     # limit does not change ranking; the server returns its own section order.
     limit = 100
     while True:
+        arguments = {"query": query, "db": db, "limit": limit, "alpha": 0, "graph": graph}
+        if facets:
+            arguments["facets"] = facets
+        if facet_queries:
+            arguments["facet_queries"] = facet_queries
         payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
-            "name": "lume_search", "arguments": {"query": query, "db": db,
-                "limit": limit, "alpha": 0, "graph": graph}}}
+            "name": "lume_search", "arguments": arguments}}
         headers = {"Content-Type": "application/json"}
         if token:
             headers["Authorization"] = "Bearer " + token
@@ -236,11 +257,12 @@ def main():
     p.add_argument("--db")
     p.add_argument("--token-file", type=Path)
     p.add_argument("--modes", nargs="+", choices=["bm25", "default"], default=["bm25", "default"])
+    p.add_argument("--with-meta", action="store_true", help="write files/lume.meta.jsonl from docs_meta.jsonl")
     args = p.parse_args()
     if args.stage == "fetch":
         fetch(args.root)
     elif args.stage == "files":
-        files(args.root, args.dataset, args.files_dir)
+        files(args.root, args.dataset, args.files_dir, with_meta=args.with_meta)
     elif args.stage == "index":
         index(args.root, args.dataset, args.binary or args.root / "bin/lume-released", args.index_dir, args.files_dir)
     elif args.stage == "serve":

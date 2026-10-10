@@ -101,6 +101,48 @@ impl MiniRoaring {
         }
     }
 
+    /// Build a MiniRoaring bitmap from a sorted slice of IDs in linear time.
+    pub fn from_sorted(ids: &[u32]) -> Self {
+        let mut containers = HashMap::new();
+        if ids.is_empty() {
+            return Self { containers };
+        }
+
+        let mut i = 0;
+        while i < ids.len() {
+            let key = (ids[i] >> 16) as u16;
+            let mut j = i + 1;
+            while j < ids.len() && ((ids[j] >> 16) as u16) == key {
+                j += 1;
+            }
+
+            let slice = &ids[i..j];
+            let mut vals: Vec<u16> = Vec::with_capacity(slice.len().min(1025));
+            for &id in slice {
+                let v = (id & 0xFFFF) as u16;
+                if vals.last().copied() != Some(v) {
+                    vals.push(v);
+                }
+            }
+
+            if vals.len() <= 1024 {
+                containers.insert(key, Container::Array(vals));
+            } else {
+                let mut bitmap = Box::new([0u64; 1024]);
+                for &v in &vals {
+                    let idx = (v >> 6) as usize;
+                    let bit = (v & 63) as u64;
+                    bitmap[idx] |= 1 << bit;
+                }
+                containers.insert(key, Container::Bitmap(bitmap));
+            }
+
+            i = j;
+        }
+
+        Self { containers }
+    }
+
     /// Check if the 32-bit ID is contained in the bitmap
     pub fn contains(&self, id: u32) -> bool {
         let key = (id >> 16) as u16;
@@ -744,5 +786,43 @@ mod tests {
             let term = format!("term_{}", i);
             assert!(overflow_filter.test_term(term.as_bytes()), "Term term_{} had false negative after overflow!", i);
         }
+    }
+
+    #[test]
+    fn test_from_sorted() {
+        // Empty
+        let empty = MiniRoaring::from_sorted(&[]);
+        assert!(empty.is_empty());
+        assert_eq!(empty.len(), 0);
+
+        // Small (Array container)
+        let small_ids = vec![1, 5, 10, 42, 100, 1000];
+        let mr_small = MiniRoaring::from_sorted(&small_ids);
+        assert_eq!(mr_small.len(), small_ids.len());
+        assert_eq!(mr_small.iter(), small_ids);
+
+        // Large (> 1024, Bitmap container)
+        let large_ids: Vec<u32> = (0..2000).map(|i| i * 2).collect();
+        let mr_large = MiniRoaring::from_sorted(&large_ids);
+        assert_eq!(mr_large.len(), large_ids.len());
+        assert_eq!(mr_large.iter(), large_ids);
+
+        // Multi-container (across 64k boundary)
+        let multi_ids = vec![10, 20, 65535, 65536, 65537, 131072, 200000];
+        let mr_multi = MiniRoaring::from_sorted(&multi_ids);
+        assert_eq!(mr_multi.len(), multi_ids.len());
+        assert_eq!(mr_multi.iter(), multi_ids);
+
+        // Equivalence with insert()
+        let mut mr_iter = MiniRoaring::new();
+        for &id in &multi_ids {
+            mr_iter.insert(id);
+        }
+        assert_eq!(mr_multi, mr_iter);
+
+        // Deduplication in input
+        let dup_ids = vec![1, 1, 2, 2, 3, 65536, 65536, 65537];
+        let mr_dup = MiniRoaring::from_sorted(&dup_ids);
+        assert_eq!(mr_dup.iter(), vec![1, 2, 3, 65536, 65537]);
     }
 }

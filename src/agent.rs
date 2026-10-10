@@ -311,6 +311,24 @@ fn execute_tool_by_name(name: &str, args: serde_json::Value, default_db: &str) -
             let shivvr_url = args.get("shivvr_url").and_then(|v| v.as_str()).map(|s| s.to_string());
 
             let index = crate::resident_index::open(db)?;
+            let mut facet_requests = Vec::new();
+            if let Some(facets_arr) = args.get("facets").and_then(|v| v.as_array()) {
+                for item in facets_arr {
+                    if let Some(s) = item.as_str() {
+                        facet_requests.push(crate::meta::parse_facet_request(s)?);
+                    }
+                }
+            }
+            if let Some(facet_q_obj) = args.get("facet_queries").and_then(|v| v.as_object()) {
+                for (name, q_val) in facet_q_obj {
+                    if let Some(q_str) = q_val.as_str() {
+                        facet_requests.push(crate::meta::FacetRequest::Query {
+                            name: name.clone(),
+                            query: q_str.to_string(),
+                        });
+                    }
+                }
+            }
             let mut opts = crate::search::SearchOptions {
                 limit,
                 spell_check,
@@ -318,6 +336,7 @@ fn execute_tool_by_name(name: &str, args: serde_json::Value, default_db: &str) -
                 graph_beta: graph,
                 shivvr_url,
                 bm25_params: crate::bm25::Bm25Params::from_env(),
+                facets: facet_requests,
                 ..Default::default()
             };
             if alpha <= 0.0 {
@@ -452,12 +471,22 @@ fn handle_mcp_request(req_val: serde_json::Value, _ti: &TiState) -> serde_json::
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
-                                    "query": { "type": "string", "description": "Search query string" },
+                                    "query": { "type": "string", "description": "Search query string. Supports term exclusions (-term, NOT term) and metadata field filters (e.g. field:value, -field:value, field:>=2020, field:2000..2020, field:a,b)" },
                                     "db": { "type": "string", "description": "Path to the persisted index metadata [default: .lume-index]" },
                                     "spell_check": { "type": "boolean", "description": "Enable spelling correction on search query" },
                                     "limit": { "type": "integer", "description": "Max number of search hits [default: 10]" },
                                     "alpha": { "type": "number", "description": "Hybrid blending weight: 0.0 (BM25 only) to 1.0 (semantic only) [default: 0.5]" },
-                                    "graph": { "type": "number", "description": "SKG entity-graph boost weight; 0 disables [default: 0.4]" }
+                                    "graph": { "type": "number", "description": "SKG entity-graph boost weight; 0 disables [default: 0.4]" },
+                                    "facets": {
+                                        "type": "array",
+                                        "items": { "type": "string" },
+                                        "description": "Field or range facet requests (e.g. ['tags', 'year:range(2000,2030,5)'])"
+                                    },
+                                    "facet_queries": {
+                                        "type": "object",
+                                        "additionalProperties": { "type": "string" },
+                                        "description": "Named query facet requests (e.g. {'cancer': 'cancer'})"
+                                    }
                                 },
                                 "required": ["query"]
                             }
@@ -1765,6 +1794,22 @@ mod http_limits_tests {
             assert!(response.starts_with(&format!("HTTP/1.1 {status}")));
             assert!(response.contains("\r\nConnection: close\r\n"));
         }
+    }
+
+    #[test]
+    fn mcp_lume_search_schema_includes_facets() {
+        let body = r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#;
+        let response = request(
+            format!(
+                "POST /mcp HTTP/1.1\r\nContent-Length: {}\r\n\r\n{body}",
+                body.len()
+            )
+            .as_bytes(),
+            true,
+        );
+        assert!(response.starts_with("HTTP/1.1 200"));
+        assert!(response.contains(r#""facets""#));
+        assert!(response.contains(r#""facet_queries""#));
     }
 
     #[test]

@@ -34,6 +34,7 @@ pub mod fast_retrieval;
 pub mod graph_search;
 pub mod http_auth;
 pub mod hybrid;
+pub mod meta;
 pub mod inversion;
 pub mod nuts_auth;
 pub mod regex;
