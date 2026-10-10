@@ -342,6 +342,68 @@ pub struct Bm25Index {
     pub stemmed: bool,
     #[serde(default)]
     pub keep_hyphens: bool,
+
+    // Derived from the saved byte-keyed maps once; never changes the JSON format.
+    #[serde(skip)]
+    interned: std::sync::OnceLock<std::sync::Arc<InternedIndex>>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct TermPosting {
+    doc: u32,
+    title_tf: usize,
+    body_tf: usize,
+}
+
+#[derive(Debug)]
+struct InternedIndex {
+    vocabulary: HashMap<Vec<u8>, u32>,
+    postings: Vec<Vec<TermPosting>>,
+}
+
+impl InternedIndex {
+    fn build(index: &Bm25Index) -> Self {
+        let mut result = Self {
+            vocabulary: HashMap::new(),
+            postings: Vec::new(),
+        };
+        for doc in 0..index.num_docs {
+            let title = &index.title_tfs[doc];
+            let body = &index.body_tfs[doc];
+            for (bytes, &title_tf) in title {
+                result.add(
+                    bytes,
+                    TermPosting {
+                        doc: doc as u32,
+                        title_tf,
+                        body_tf: body.get(bytes).copied().unwrap_or(0),
+                    },
+                );
+            }
+            for (bytes, &body_tf) in body {
+                if !title.contains_key(bytes) {
+                    result.add(
+                        bytes,
+                        TermPosting {
+                            doc: doc as u32,
+                            title_tf: 0,
+                            body_tf,
+                        },
+                    );
+                }
+            }
+        }
+        result
+    }
+
+    fn add(&mut self, bytes: &[u8], posting: TermPosting) {
+        let id = *self.vocabulary.entry(bytes.to_vec()).or_insert_with(|| {
+            let id = u32::try_from(self.postings.len()).expect("index vocabulary exceeds u32");
+            self.postings.push(Vec::new());
+            id
+        });
+        self.postings[id as usize].push(posting);
+    }
 }
 
 /// A hit returned by the search query.
@@ -662,6 +724,7 @@ impl Bm25Index {
             entity_labels,
             stemmed: stem,
             keep_hyphens: false,
+            interned: std::sync::OnceLock::new(),
         }
     }
 
@@ -774,6 +837,318 @@ impl Bm25Index {
                 parsed.positive_terms.join(" ")
             };
             let query_tags = t.tag(&tag_query);
+            for tag in &query_tags {
+                if let Some(&prime) = self.tag_prime_map.get(&tag.output) {
+                    query_tag_primes.push(prime);
+                } else {
+                    let dummy_prime =
+                        crate::fast_retrieval::get_nth_prime(self.tag_prime_map.len() + 2);
+                    query_tag_primes.push(dummy_prime);
+                }
+            }
+        }
+
+        let mut rejected_missing = 0;
+        let mut rejected_empty = 0;
+        let mut rejected_tag_mismatch = 0;
+        let mut rejected_no_token = 0;
+        let rejected_below_threshold = 0;
+        let mut rejected_not_rankable = 0;
+
+        let mut candidate_details = Vec::with_capacity(num_candidates_roaring);
+        let mut pruned_candidates = Vec::with_capacity(num_candidates_roaring);
+
+        for doc_id in candidate_ids {
+            let doc_idx = doc_id as usize;
+            if doc_idx >= self.sections.len() {
+                rejected_missing += 1;
+                candidate_details.push(RankDebug {
+                    section_id: doc_id,
+                    score: None,
+                    rejected: Some(RejectReason::MissingSection),
+                });
+                continue;
+            }
+
+            let sec = &self.sections[doc_idx];
+            if sec.title.is_empty() && sec.body.is_empty() {
+                rejected_empty += 1;
+                candidate_details.push(RankDebug {
+                    section_id: doc_id,
+                    score: None,
+                    rejected: Some(RejectReason::EmptyText),
+                });
+                continue;
+            }
+
+            if self.title_lens[doc_idx] == 0 && self.body_lens[doc_idx] == 0 {
+                rejected_not_rankable += 1;
+                candidate_details.push(RankDebug {
+                    section_id: doc_id,
+                    score: None,
+                    rejected: Some(RejectReason::FieldNotRankable),
+                });
+                continue;
+            }
+
+            let pf = &self.prime_filters[doc_idx];
+
+            // Tag signature verification: Candidate must contain all query tag outputs if present
+            let mut tag_match = true;
+            for &prime in &query_tag_primes {
+                if !pf.test_tag_prime(prime) {
+                    tag_match = false;
+                    break;
+                }
+            }
+            if !tag_match {
+                rejected_tag_mismatch += 1;
+                candidate_details.push(RankDebug {
+                    section_id: doc_id,
+                    score: None,
+                    rejected: Some(RejectReason::TagSignatureMismatch),
+                });
+                continue;
+            }
+
+            pruned_candidates.push(doc_id);
+        }
+
+        let pruning_elapsed = start_pruning.elapsed();
+        diag!(
+            "\x1B[32m[Two-Stage Pruning] Pruned candidate space from {} to {} (roaring generated: {}) sections in {:.2?}\x1B[0m",
+            self.num_docs, pruned_candidates.len(), num_candidates_roaring, pruning_elapsed
+        );
+
+        // Stage 2: Heavy Scoring on active candidates only
+        let mut hits = Vec::new();
+
+        // Distinct query terms drive the coordination factor below: a document
+        // that matches more of the distinct query terms is more relevant than
+        // one that matches a single term many times. Without this, small chunks
+        // that repeat a common term (e.g. "Dantès") outrank chunks that contain
+        // the rarer, more discriminative term the user actually cares about.
+        let distinct_query_terms: std::collections::HashSet<&[u8]> =
+            query_tokens.iter().map(|t| t.bytes.as_slice()).collect();
+        let num_distinct = distinct_query_terms.len().max(1);
+
+        let interned = self
+            .interned
+            .get_or_init(|| std::sync::Arc::new(InternedIndex::build(self)));
+        let mut totals = vec![0.0; self.num_docs];
+        let mut matched_counts = vec![0usize; self.num_docs];
+        let mut seen_terms = std::collections::HashSet::new();
+        // Visit tokens in their original order. This keeps every f64 addition,
+        // including repeated query terms, identical to document-at-a-time scoring.
+        for token in &query_tokens {
+            let Some(&term_id) = interned.vocabulary.get(token.bytes.as_slice()) else {
+                continue;
+            };
+            let first_occurrence = seen_terms.insert(term_id);
+            let mut signature = PrimeFilter::new();
+            signature.add_term(&token.bytes);
+            let title_df = self.title_dfs.get(&token.bytes).copied().unwrap_or(0) as f64;
+            let body_df = self.body_dfs.get(&token.bytes).copied().unwrap_or(0) as f64;
+            let title_idf = ((self.num_docs as f64 - title_df + 0.5) / (title_df + 0.5) + 1.0)
+                .ln()
+                .max(0.0);
+            let body_idf = ((self.num_docs as f64 - body_df + 0.5) / (body_df + 0.5) + 1.0)
+                .ln()
+                .max(0.0);
+            for posting in &interned.postings[term_id as usize] {
+                let doc = posting.doc as usize;
+                if self.prime_filters[doc].term_mask & signature.term_mask != signature.term_mask {
+                    continue;
+                }
+                let title_score = calculate_bm25_term_score(
+                    posting.title_tf as f64,
+                    self.title_lens[doc] as f64,
+                    self.avg_title_len,
+                    title_idf,
+                    variant,
+                    params,
+                );
+                let body_score = calculate_bm25_term_score(
+                    posting.body_tf as f64,
+                    self.body_lens[doc] as f64,
+                    self.avg_body_len,
+                    body_idf,
+                    variant,
+                    params,
+                );
+                totals[doc] += params.title_weight * title_score + params.body_weight * body_score;
+                if first_occurrence {
+                    matched_counts[doc] += 1;
+                }
+            }
+        }
+
+        for doc_id in pruned_candidates {
+            let doc_idx = doc_id as usize;
+            let mut total_score = totals[doc_idx];
+
+            // Coordination factor: softly down-weight documents that match only
+            // a fraction of the distinct query terms. coverage=1.0 (all terms
+            // present) leaves the score untouched; a single-term match out of
+            // three terms keeps ~2/3 of its score. For single-term queries this
+            // is always 1.0, so ordinary lookups are unaffected.
+            let coverage = matched_counts[doc_idx] as f64 / num_distinct as f64;
+            let floor = params.coord_floor;
+            let coord = floor + (1.0 - floor) * coverage;
+            total_score *= coord;
+
+            if total_score > 0.0 {
+                hits.push(SearchHit {
+                    section_index: doc_idx,
+                    score: total_score,
+                });
+                candidate_details.push(RankDebug {
+                    section_id: doc_id,
+                    score: Some(total_score),
+                    rejected: None,
+                });
+            } else {
+                rejected_no_token += 1;
+                candidate_details.push(RankDebug {
+                    section_id: doc_id,
+                    score: Some(0.0),
+                    rejected: Some(RejectReason::NoTokenMatch),
+                });
+            }
+        }
+
+        // Print high-level Rejection Accounting summary to stderr
+        diag!("\x1B[33mCandidates: {}\x1B[0m", num_candidates_roaring);
+        diag!("\x1B[33mRanked: {}\x1B[0m", hits.len());
+        diag!("\x1B[33mRejected:\x1B[0m");
+        diag!("  MissingSection: {}", rejected_missing);
+        diag!("  EmptyText: {}", rejected_empty);
+        diag!("  FieldNotRankable: {}", rejected_not_rankable);
+        diag!("  TagSignatureMismatch: {}", rejected_tag_mismatch);
+        diag!("  NoTokenMatch: {}", rejected_no_token);
+        diag!("  ScoreBelowThreshold: {}", rejected_below_threshold);
+
+        // Trigger deep diagnostic explanation if hits is empty but we had candidates
+        if hits.is_empty() && num_candidates_roaring > 0 {
+            diag!("\n\x1B[1;31m🔍 [Deep Rejection Diagnostics] Why zero ranked results?\x1B[0m");
+            for detail in &candidate_details {
+                if let Some(reason) = detail.rejected {
+                    let doc_id = detail.section_id;
+                    diag!(
+                        "  \x1B[1;33mCandidate {} rejected:\x1B[0m {:?}",
+                        doc_id,
+                        reason
+                    );
+
+                    let doc_idx = doc_id as usize;
+                    if doc_idx < self.sections.len() {
+                        let sec = &self.sections[doc_idx];
+                        diag!("     - Header: {:?}", sec.title);
+                        diag!(
+                            "     - Body Snippet: {:?}",
+                            diagnostic_body_preview(&sec.body)
+                        );
+
+                        let title_tokens =
+                            tokenize_with_options(&sec.title, self.stemmed, self.keep_hyphens);
+                        let body_tokens =
+                            tokenize_with_options(&sec.body, self.stemmed, self.keep_hyphens);
+
+                        let title_terms: Vec<String> = title_tokens
+                            .iter()
+                            .map(|t| String::from_utf8_lossy(&t.bytes).to_string())
+                            .collect();
+                        let body_terms: Vec<String> = body_tokens
+                            .iter()
+                            .map(|t| String::from_utf8_lossy(&t.bytes).to_string())
+                            .collect();
+
+                        diag!("     - Title Tokens: {:?}", title_terms);
+                        diag!("     - Body Tokens: {:?}", body_terms);
+
+                        let pf = &self.prime_filters[doc_idx];
+
+                        diag!("     - Token-by-Token Query Evaluation:");
+                        for q_tok in &query_tokens {
+                            let term_str = String::from_utf8_lossy(&q_tok.bytes);
+                            let prime_match = pf.test_term(&q_tok.bytes);
+
+                            let title_tf = self.title_tfs[doc_idx]
+                                .get(&q_tok.bytes)
+                                .copied()
+                                .unwrap_or(0);
+                            let body_tf = self.body_tfs[doc_idx]
+                                .get(&q_tok.bytes)
+                                .copied()
+                                .unwrap_or(0);
+
+                            diag!(
+                                "       * Term '{}' -> Prime Filter Match: {} | Title TF: {} | Body TF: {}",
+                                term_str, prime_match, title_tf, body_tf
+                            );
+                        }
+                    }
+                }
+            }
+            diag!();
+        }
+
+        hits.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        hits
+    }
+
+    #[cfg(test)]
+    fn search_reference(
+        &self,
+        query: &str,
+        variant: SearchVariant,
+        params: &Bm25Params,
+        tagger: Option<&Tagger>,
+        verbose: bool,
+    ) -> Vec<SearchHit> {
+        macro_rules! diag {
+            ($($arg:tt)*) => {
+                if verbose {
+                    eprintln!($($arg)*);
+                }
+            };
+        }
+        let query_tokens = filter_query_stopwords(tokenize_with_options(
+            query,
+            self.stemmed,
+            self.keep_hyphens,
+        ));
+        if query_tokens.is_empty() || self.num_docs == 0 {
+            return Vec::new();
+        }
+
+        let start_pruning = std::time::Instant::now();
+
+        // 1. Gather all candidates using union of query term roaring bitmaps
+        let mut candidate_set = MiniRoaring::new();
+        let mut first = true;
+        for q_tok in &query_tokens {
+            if let Some(list) = self.posting_lists.get(&q_tok.bytes) {
+                if first {
+                    candidate_set = list.clone();
+                    first = false;
+                } else {
+                    candidate_set = candidate_set.union(list);
+                }
+            }
+        }
+
+        let candidate_ids = candidate_set.iter();
+        let num_candidates_roaring = candidate_ids.len();
+
+        // 2. Further prune using Gödel tag signatures if query has tagged entities
+        let mut query_tag_primes = Vec::new();
+        if let Some(t) = tagger {
+            let query_tags = t.tag(query);
             for tag in &query_tags {
                 if let Some(&prime) = self.tag_prime_map.get(&tag.output) {
                     query_tag_primes.push(prime);
@@ -1423,5 +1798,80 @@ These changes include blebbing, cell shrinkage, nuclear fragmentation, and chrom
             index.search_quiet("cancer biology", SearchVariant::Classic, &params, None);
         assert_eq!(pure_query_hits.len(), 2);
         assert!(pure_query_hits[0].score > 0.0);
+    }
+}
+
+#[cfg(test)]
+mod integer_scoring_tests {
+    use super::*;
+
+    #[test]
+    fn integer_postings_preserve_reference_score_bits_and_ties() {
+        let words = ["anchor", "bilge", "pump", "wind", "sea", "café", "missing"];
+        let sections = (0..96)
+            .map(|doc| Section {
+                title: words[..doc % 5 + 1].join(" "),
+                body: (0..doc % 13 + 1)
+                    .map(|i| words[(doc + i) % 6])
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                line_number: doc + 1,
+                filename: None,
+                entities: Vec::new(),
+            })
+            .collect();
+        let index = Bm25Index::build_with_options(sections, None, Bm25BuildOptions::default());
+        for variant in [
+            SearchVariant::Classic,
+            SearchVariant::Plus,
+            SearchVariant::L,
+        ] {
+            for floor in [0.0, 0.5, 1.0] {
+                for query in [
+                    "anchor",
+                    "pump pump wind",
+                    "wind sea café",
+                    "missing bilge",
+                    "how are you",
+                    "no-such-token",
+                    "",
+                ] {
+                    let params = Bm25Params {
+                        coord_floor: floor,
+                        ..Bm25Params::default()
+                    };
+                    let expected = index.search_reference(query, variant, &params, None, false);
+                    let actual = index.search_quiet(query, variant, &params, None);
+                    assert_eq!(actual.len(), expected.len(), "{query}");
+                    for (actual, expected) in actual.iter().zip(&expected) {
+                        assert_eq!(actual.section_index, expected.section_index, "{query}");
+                        assert_eq!(actual.score.to_bits(), expected.score.to_bits(), "{query}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn derived_integer_index_does_not_change_saved_format() {
+        let index = Bm25Index::build_with_options(
+            vec![Section {
+                title: "Bilge".into(),
+                body: "bilge pump pump".into(),
+                line_number: 1,
+                filename: None,
+                entities: Vec::new(),
+            }],
+            None,
+            Bm25BuildOptions::default(),
+        );
+        let before = serde_json::to_value(&index).unwrap();
+        index.search_quiet("pump", SearchVariant::Classic, &Bm25Params::default(), None);
+        assert_eq!(serde_json::to_value(&index).unwrap(), before);
+        let reopened: Bm25Index = serde_json::from_value(before).unwrap();
+        assert!(reopened.interned.get().is_none());
+        let hits =
+            reopened.search_quiet("pump", SearchVariant::Classic, &Bm25Params::default(), None);
+        assert_eq!(hits.len(), 1);
     }
 }
