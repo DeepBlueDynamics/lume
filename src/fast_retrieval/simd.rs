@@ -118,6 +118,37 @@ pub fn galloping_array_intersect(dst: &mut Vec<u16>, small: &[u16], large: &[u16
     }
 }
 
+/// Galloping / exponential search intersection count for unbalanced array sizes (ratio > 8x).
+pub fn galloping_array_intersect_count(small: &[u16], large: &[u16]) -> usize {
+    let mut count = 0;
+    let mut base = 0;
+    for &target in small {
+        if base >= large.len() {
+            break;
+        }
+        if large[base] > target {
+            continue;
+        }
+        let mut step = 1;
+        let mut high = base;
+        while high + step < large.len() && large[high + step] <= target {
+            high += step;
+            step *= 2;
+        }
+        let end = (high + step + 1).min(large.len());
+        match large[high..end].binary_search(&target) {
+            Ok(found) => {
+                count += 1;
+                base = high + found + 1;
+            }
+            Err(ins) => {
+                base = high + ins;
+            }
+        }
+    }
+    count
+}
+
 // ─── x86_64 AVX2 Kernels ─────────────────────────────────────────────────────
 
 #[cfg(target_arch = "x86_64")]
@@ -383,6 +414,18 @@ pub fn array_intersect(dst: &mut Vec<u16>, a: &[u16], b: &[u16]) {
     }
 }
 
+/// Counts intersection of two sorted u16 slices, dispatching to galloping search
+/// if size ratio exceeds 8x.
+pub fn array_intersect_count(a: &[u16], b: &[u16]) -> usize {
+    if a.len() * 8 < b.len() {
+        galloping_array_intersect_count(a, b)
+    } else if b.len() * 8 < a.len() {
+        galloping_array_intersect_count(b, a)
+    } else {
+        scalar_array_intersect_count(a, b)
+    }
+}
+
 // ─── Tests & Verification ────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -561,6 +604,12 @@ mod tests {
             scalar_array_intersect_count(&small, &large),
             dst_scalar.len()
         );
+        assert_eq!(
+            galloping_array_intersect_count(&small, &large),
+            dst_scalar.len()
+        );
+        assert_eq!(array_intersect_count(&small, &large), dst_scalar.len());
+        assert_eq!(array_intersect_count(&large, &small), dst_scalar.len());
     }
 
     #[test]
