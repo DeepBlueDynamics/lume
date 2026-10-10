@@ -105,7 +105,6 @@ pub fn check_state_compatibility(state: &IndexState) -> Result<(), String> {
     Ok(())
 }
 
-#[derive(Debug)]
 pub struct LoadedIndex {
     pub state: Option<IndexState>,
     pub bm25: Bm25Index,
@@ -2126,22 +2125,22 @@ mod tests {
                 entities: Vec::new(),
             },
         ];
-        let bm25 = Bm25Index::build_with_options(sections, None, Bm25BuildOptions::default());
+        let bm25 = Bm25Index::build(sections, None);
 
         let mut schema = HashMap::new();
-        schema.insert("category".into(), crate::meta::ColumnType::String);
+        schema.insert("category".into(), crate::meta::FieldType::Keyword);
 
         let mut columns = HashMap::new();
         columns.insert(
             "category".into(),
-            crate::meta::ColumnData::String {
-                values: vec![
-                    Some("biology".into()),
-                    Some("medicine".into()),
-                    Some("physics".into()),
-                    None,
-                ],
+            crate::meta::Column::Keyword {
                 dict: vec!["biology".into(), "medicine".into(), "physics".into()],
+                ords: vec![Some(0), Some(1), Some(2), None],
+                bitmaps: vec![
+                    crate::fast_retrieval::MiniRoaring::from_sorted(&[0]),
+                    crate::fast_retrieval::MiniRoaring::from_sorted(&[1]),
+                    crate::fast_retrieval::MiniRoaring::from_sorted(&[2]),
+                ],
             },
         );
 

@@ -597,6 +597,7 @@ fn metadata_columns_pushdown_and_facets_equivalence() {
         meta: Some(meta),
     };
 
+    let index_arc = Arc::new(index);
     let runtime = ti_sql::surface_runtime().unwrap();
     let session = runtime
         .block_on(ti_sql::SqlSession::new(
@@ -604,7 +605,7 @@ fn metadata_columns_pushdown_and_facets_equivalence() {
             ti_sql::SqlCatalog::new(10, vec![], vec![], Default::default()).unwrap(),
         ))
         .unwrap();
-    lume::sql::register_index(&session, Arc::new(index.clone())).unwrap();
+    lume::sql::register_index(&session, Arc::clone(&index_arc)).unwrap();
     let engine = ti_sql::TiEngine::from_session(session, index_root);
 
     // 1. Native facet vs SQL GROUP BY category
@@ -615,7 +616,7 @@ fn metadata_columns_pushdown_and_facets_equivalence() {
         facets: vec![lume::meta::FacetRequest::Field("category".into())],
         ..Default::default()
     };
-    let native_res = lume::search::search(&index, "cancer", &opts).unwrap();
+    let native_res = lume::search::search(&index_arc, "cancer", &opts).unwrap();
     let native_cat_facet = native_res.facets.as_ref().unwrap().get("category").unwrap();
 
     let sql_cat = "SELECT category, count(*) AS n FROM sections WHERE match(body, 'cancer') AND category IS NOT NULL GROUP BY category ORDER BY category";
@@ -635,7 +636,7 @@ fn metadata_columns_pushdown_and_facets_equivalence() {
 
     // 2. year >= 2020 is reported Exact in EXPLAIN
     let table = lume::sql::SectionsTable {
-        index: Arc::new(index.clone()),
+        index: Arc::clone(&index_arc),
     };
     use ti_sql::datafusion::catalog::TableProvider;
     use ti_sql::datafusion::logical_expr::{col, lit, TableProviderFilterPushDown};
@@ -664,7 +665,7 @@ fn metadata_columns_pushdown_and_facets_equivalence() {
         facets: vec![lume::meta::FacetRequest::Field("tags".into())],
         ..Default::default()
     };
-    let native_res_tags = lume::search::search(&index, "cancer", &opts_tags).unwrap();
+    let native_res_tags = lume::search::search(&index_arc, "cancer", &opts_tags).unwrap();
     let native_tags_facet = native_res_tags
         .facets
         .as_ref()
