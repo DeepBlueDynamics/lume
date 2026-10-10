@@ -727,7 +727,7 @@ impl Bm25Index {
         if self.compact_forward.is_some() {
             return Ok(());
         }
-        let doc_count = u32::try_from(self.num_docs).map_err(|_| "V4 documents exceed u32")?;
+        u32::try_from(self.num_docs).map_err(|_| "V4 documents exceed u32")?;
         if self.title_tfs.len() != self.num_docs || self.body_tfs.len() != self.num_docs {
             return Err("V4 forward row count mismatch".into());
         }
