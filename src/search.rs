@@ -500,12 +500,18 @@ pub fn search(
 
     // 0. Extract field filters before spell correction and NOT parsing
     let (text_query, filters) = if let Some(ref meta) = index.meta {
-        crate::meta::extract_filters(query, Some(meta))
+        if query.contains(':') {
+            crate::meta::extract_filters(query, Some(meta))
+        } else {
+            (query.to_string(), Vec::new())
+        }
     } else {
         (query.to_string(), Vec::new())
     };
 
-    let allow = if let Some(ref meta) = index.meta {
+    let allow = if filters.is_empty() {
+        None
+    } else if let Some(ref meta) = index.meta {
         crate::meta::evaluate_filters(meta, &filters)
     } else {
         None
@@ -784,24 +790,6 @@ pub fn search(
 
     // 4. Lexical BM25 path
     let (lexical_params, lexical_variant) = (opts.bm25_params.clone(), opts.bm25_variant);
-    // Exhaustive candidate bitmap (with allow filter applied)
-    let candidate_bm =
-        index
-            .bm25
-            .candidates(&effective_query, index.tagger.as_ref(), allow.as_ref());
-    let found = candidate_bm.len();
-    let facets = if !opts.facets.is_empty() {
-        let match_ids = candidate_bm.iter();
-        Some(crate::meta::compute_facets(
-            index.meta.as_ref(),
-            &index.bm25,
-            &candidate_bm,
-            &match_ids,
-            &opts.facets,
-        ))
-    } else {
-        None
-    };
 
     // Graph and hybrid stages can reorder lexical hits. Only bound the
     // lexical collector once those stages are absent.
@@ -828,6 +816,25 @@ pub fn search(
     };
     crate::graph_search::apply_skg_boost(&mut bm25_hits, &skg_scores, beta);
     bm25_hits.truncate(opts.limit);
+
+    // Only compute exhaustive candidates/facets if facets were requested.
+    let (found, facets) = if !opts.facets.is_empty() {
+        let candidate_bm =
+            index
+                .bm25
+                .candidates(&effective_query, index.tagger.as_ref(), allow.as_ref());
+        let match_ids = candidate_bm.iter();
+        let computed = crate::meta::compute_facets(
+            index.meta.as_ref(),
+            &index.bm25,
+            &candidate_bm,
+            &match_ids,
+            &opts.facets,
+        );
+        (candidate_bm.len(), Some(computed))
+    } else {
+        (bm25_hits.len(), None)
+    };
 
     let mut hits = Vec::new();
     for (i, hit) in bm25_hits.iter().enumerate() {
