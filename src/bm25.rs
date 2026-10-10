@@ -122,6 +122,62 @@ pub fn filter_query_stopwords(tokens: Vec<crate::Token>) -> Vec<crate::Token> {
     }
 }
 
+/// Query parsed into positive terms (for candidate retrieval and BM25 scoring) and
+/// excluded NOT terms (subtracted from the candidate set via MiniRoaring::andnot).
+///
+/// Syntax:
+/// - `-term` (prefix hyphen with no whitespace between '-' and term)
+/// - `NOT term` (uppercase 'NOT' operator followed by whitespace and term)
+/// - Hyphenated words inside a term (e.g. `covid-19`) are treated as positive terms, not NOT.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ParsedQuery {
+    pub positive_terms: Vec<String>,
+    pub not_terms: Vec<String>,
+}
+
+/// Parses a query string into positive terms and excluded NOT terms.
+pub fn parse_query(query: &str) -> ParsedQuery {
+    let mut positive_terms = Vec::new();
+    let mut not_terms = Vec::new();
+    let mut next_is_not = false;
+
+    for word in query.split_whitespace() {
+        if word == "NOT" {
+            next_is_not = true;
+            continue;
+        }
+
+        if next_is_not {
+            next_is_not = false;
+            let term = word.trim_start_matches('-');
+            if !term.is_empty() {
+                not_terms.push(term.to_string());
+            }
+            continue;
+        }
+
+        if word.starts_with('-') && word.len() > 1 {
+            let term = word.trim_start_matches('-');
+            if !term.is_empty() {
+                not_terms.push(term.to_string());
+                continue;
+            }
+        }
+
+        // Lone "-" or "--" dashes are ignored as punctuation.
+        if word == "-" || word == "--" {
+            continue;
+        }
+
+        positive_terms.push(word.to_string());
+    }
+
+    ParsedQuery {
+        positive_terms,
+        not_terms,
+    }
+}
+
 /// Represents a section parsed from a Markdown document.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Section {
@@ -647,10 +703,40 @@ impl Bm25Index {
                 }
             };
         }
-        let query_tokens =
-            filter_query_stopwords(tokenize_with_options(query, self.stemmed, false));
+        let parsed = parse_query(query);
+
+        // Positive query tokens for candidate retrieval and BM25 scoring.
+        // If there are no NOT terms, tokenizing the raw query preserves exact byte-identical
+        // behavior with previous versions.
+        let query_tokens = if parsed.not_terms.is_empty() {
+            filter_query_stopwords(tokenize_with_options(query, self.stemmed, false))
+        } else {
+            let pos_query = parsed.positive_terms.join(" ");
+            filter_query_stopwords(tokenize_with_options(&pos_query, self.stemmed, false))
+        };
+
         if query_tokens.is_empty() || self.num_docs == 0 {
+            if !parsed.not_terms.is_empty() {
+                diag!("[NOT] Query contains only excluded terms; returning 0 results");
+            }
             return Vec::new();
+        }
+
+        // Excluded tokens: go through the same tokenize, stem and stopword path as normal terms.
+        // A NOT on a stopword is ignored with a diagnostic note.
+        let mut effective_not_tokens = Vec::new();
+        for not_term in &parsed.not_terms {
+            let toks = tokenize_with_options(not_term, self.stemmed, false);
+            for tok in toks {
+                if is_stopword(&tok.bytes) {
+                    diag!(
+                        "[NOT] Excluded term '{}' is a stopword and will be ignored",
+                        String::from_utf8_lossy(&tok.bytes)
+                    );
+                } else {
+                    effective_not_tokens.push(tok);
+                }
+            }
         }
 
         let start_pruning = std::time::Instant::now();
@@ -669,13 +755,25 @@ impl Bm25Index {
             }
         }
 
+        // 1b. Exclude any sections containing excluded terms using MiniRoaring::andnot
+        for not_tok in &effective_not_tokens {
+            if let Some(list) = self.posting_lists.get(&not_tok.bytes) {
+                candidate_set = candidate_set.andnot(list);
+            }
+        }
+
         let candidate_ids = candidate_set.iter();
         let num_candidates_roaring = candidate_ids.len();
 
         // 2. Further prune using Gödel tag signatures if query has tagged entities
         let mut query_tag_primes = Vec::new();
         if let Some(t) = tagger {
-            let query_tags = t.tag(query);
+            let tag_query = if parsed.not_terms.is_empty() {
+                query.to_string()
+            } else {
+                parsed.positive_terms.join(" ")
+            };
+            let query_tags = t.tag(&tag_query);
             for tag in &query_tags {
                 if let Some(&prime) = self.tag_prime_map.get(&tag.output) {
                     query_tag_primes.push(prime);
@@ -1213,5 +1311,117 @@ These changes include blebbing, cell shrinkage, nuclear fragmentation, and chrom
         );
         assert_eq!(hits_def.len(), 1);
         assert_eq!(hits_def[0].section_index, 0);
+    }
+
+    #[test]
+    fn test_parse_query() {
+        let q1 = parse_query("vitamin d -deficiency");
+        assert_eq!(q1.positive_terms, vec!["vitamin", "d"]);
+        assert_eq!(q1.not_terms, vec!["deficiency"]);
+
+        let q2 = parse_query("cancer NOT therapy");
+        assert_eq!(q2.positive_terms, vec!["cancer"]);
+        assert_eq!(q2.not_terms, vec!["therapy"]);
+
+        // Hyphenated term inside word is NOT excluded
+        let q3 = parse_query("covid-19 -vaccine");
+        assert_eq!(q3.positive_terms, vec!["covid-19"]);
+        assert_eq!(q3.not_terms, vec!["vaccine"]);
+
+        // Lone hyphen ignored
+        let q4 = parse_query("cancer - therapy");
+        assert_eq!(q4.positive_terms, vec!["cancer", "therapy"]);
+        assert!(q4.not_terms.is_empty());
+
+        // Trailing NOT ignored
+        let q5 = parse_query("cancer NOT");
+        assert_eq!(q5.positive_terms, vec!["cancer"]);
+        assert!(q5.not_terms.is_empty());
+
+        // Only NOT terms
+        let q6 = parse_query("-therapy -radiation");
+        assert!(q6.positive_terms.is_empty());
+        assert_eq!(q6.not_terms, vec!["therapy", "radiation"]);
+
+        // Multiple mixed NOT forms
+        let q7 = parse_query("cancer NOT therapy -surgery chemo");
+        assert_eq!(q7.positive_terms, vec!["cancer", "chemo"]);
+        assert_eq!(q7.not_terms, vec!["therapy", "surgery"]);
+    }
+
+    #[test]
+    fn test_search_not_operator() {
+        let sec0 = Section {
+            title: "Immunotherapy Study".to_string(),
+            body: "Cancer therapy and immunotherapy clinical trial results.".to_string(),
+            line_number: 1,
+            filename: None,
+            entities: Vec::new(),
+        };
+        let sec1 = Section {
+            title: "Genomic Sequencing".to_string(),
+            body: "Cancer biology and oncogene mutation profiles without treatment.".to_string(),
+            line_number: 10,
+            filename: None,
+            entities: Vec::new(),
+        };
+        let sec2 = Section {
+            title: "Nutrition Guide".to_string(),
+            body: "Cardiovascular health and vitamin d supplementation.".to_string(),
+            line_number: 20,
+            filename: None,
+            entities: Vec::new(),
+        };
+
+        let index = Bm25Index::build(vec![sec0, sec1, sec2], None);
+        let params = Bm25Params::default();
+
+        // Base search: "cancer" matches sec0 and sec1
+        let base_hits = index.search_quiet("cancer", SearchVariant::Classic, &params, None);
+        assert_eq!(base_hits.len(), 2);
+        let matched_indices: Vec<usize> = base_hits.iter().map(|h| h.section_index).collect();
+        assert!(matched_indices.contains(&0));
+        assert!(matched_indices.contains(&1));
+
+        // Subtraction with -therapy: sec0 must be excluded
+        let minus_hits =
+            index.search_quiet("cancer -therapy", SearchVariant::Classic, &params, None);
+        assert_eq!(minus_hits.len(), 1);
+        assert_eq!(minus_hits[0].section_index, 1);
+        assert!(
+            !index.sections[minus_hits[0].section_index]
+                .body
+                .contains("therapy")
+        );
+
+        // Subtraction with NOT therapy: sec0 must be excluded
+        let not_hits =
+            index.search_quiet("cancer NOT therapy", SearchVariant::Classic, &params, None);
+        assert_eq!(not_hits.len(), 1);
+        assert_eq!(not_hits[0].section_index, 1);
+
+        // Subtraction of absent term: both sec0 and sec1 remain
+        let absent_hits =
+            index.search_quiet("cancer -radiation", SearchVariant::Classic, &params, None);
+        assert_eq!(absent_hits.len(), 2);
+
+        // Subtraction of stopword: ignored with diagnostic note, both remain
+        let stopword_hits =
+            index.search_quiet("cancer -the", SearchVariant::Classic, &params, None);
+        assert_eq!(stopword_hits.len(), 2);
+
+        // Only NOT terms: returns empty results
+        let only_not_hits =
+            index.search_quiet("-therapy", SearchVariant::Classic, &params, None);
+        assert!(only_not_hits.is_empty());
+        let only_not_op_hits =
+            index.search_quiet("NOT therapy", SearchVariant::Classic, &params, None);
+        assert!(only_not_op_hits.is_empty());
+
+        // Byte-identical scores when no NOT terms are present
+        let pure_query_hits =
+            index.search_quiet("cancer biology", SearchVariant::Classic, &params, None);
+        assert_eq!(pure_query_hits.len(), 2);
+        assert!(pure_query_hits[0].score > 0.0);
     }
 }

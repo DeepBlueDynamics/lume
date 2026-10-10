@@ -1082,7 +1082,8 @@ ENV:
   LUME_BLEND_NORM       Set to 1 for normalized blending (bm25/max + α·sem + β·skg)
 
 ARGS:
-  <QUERY>               Search query string
+  <QUERY>               Search query string. Supports term exclusion via '-term'
+                        or 'NOT term' (e.g. 'cancer -therapy' or 'vitamin d NOT deficiency').
 "#
     );
 }
@@ -2283,8 +2284,24 @@ fn handle_search(args: &[String]) -> Result<(), String> {
                 }
             };
             idx += 2;
+        } else if arg == "--" {
+            idx += 1;
+            let remaining = args[idx..].join(" ");
+            if remaining.is_empty() {
+                return Err("Missing search query after '--'".to_string());
+            }
+            if query_opt.is_some() {
+                return Err(format!("Too many search queries specified: {}", remaining));
+            }
+            query_opt = Some(remaining);
+            break;
         } else if arg.starts_with('-') {
-            return Err(format!("Unknown option: {}", arg));
+            if query_opt.is_none() && !arg.starts_with("--") && arg.len() > 1 {
+                query_opt = Some(arg.clone());
+                idx += 1;
+            } else {
+                return Err(format!("Unknown option: {}", arg));
+            }
         } else {
             if query_opt.is_some() {
                 return Err(format!("Too many search queries specified: {}", arg));

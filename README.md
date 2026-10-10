@@ -132,10 +132,12 @@ It prompts for the key with hidden input and sends it to the Pi only over SSH st
 
 `lume search` runs BM25 over the persisted index. When the index was built with `-s` and an embedding endpoint is reachable, it blends dense semantic similarity in as well. Spelling correction (`-c`) repairs misspelled query terms against the index vocabulary.
 
-Lexical retrieval uses English stemming (Snowball) and field-aware BM25 without coordination penalty by default (`LUME_STEM=0` opts out at index time, `LUME_COORD_FLOOR` overrides coordination floor, default `1.0`). If searching an index built before default stemming, Lume prints a notice suggesting `lume index -f` to reindex.
+Lexical retrieval uses English stemming (Snowball) and field-aware BM25 without coordination penalty by default (`LUME_STEM=0` opts out at index time, `LUME_COORD_FLOOR` overrides coordination floor, default `1.0`). If searching an index built before default stemming, Lume prints a notice suggesting `lume index -f` to reindex. Term exclusion via `-term` and `NOT term` is supported (e.g. `cancer -therapy`), subtracting excluded posting lists from candidates via `MiniRoaring::andnot`.
 
 ```bash
 lume search "Edmond Dantes"                 # lexical BM25
+lume search "cancer -therapy"               # term exclusion with -term
+lume search "vitamin d NOT deficiency"      # boolean NOT exclusion
 lume search -c -a 0.5 "Edmund Dantez"       # hybrid with spell correction
 lume search -a 0 -g 0 "run_agent_loop"      # pure lexical, no graph boost
 ```
