@@ -679,7 +679,11 @@ pub fn search(
         let token_opt = opts
             .auth_token
             .clone()
-            .or_else(crate::hybrid::load_nuts_token);
+            .or_else(|| {
+                crate::hybrid::load_nuts_token_at(&crate::hybrid::resolve_shivvr_base_url(
+                    opts.shivvr_url.as_deref(),
+                ))
+            });
         let has_session = index
             .state
             .as_ref()
@@ -1101,6 +1105,7 @@ mod tests {
         index.cache_dir = Some(dir.clone());
         let (size, fingerprint) = *index.corpus_fingerprint.get().unwrap();
         let cache = crate::hybrid::SemanticQueryCache {
+            server_url: None,
             corpus_path: target.clone(),
             corpus_size: size,
             corpus_mtime: fingerprint,

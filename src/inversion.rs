@@ -32,6 +32,15 @@ pub fn invert_vector(
     max_length: Option<usize>,
     token: &str,
 ) -> Result<InvertResponse, String> {
+    invert_vector_at(embedding, max_length, token, &crate::hybrid::get_shivvr_base_url())
+}
+
+pub(crate) fn invert_vector_at(
+    embedding: &[f64],
+    max_length: Option<usize>,
+    token: &str,
+    base: &str,
+) -> Result<InvertResponse, String> {
     if embedding.len() != 768 {
         return Err(format!(
             "Invalid embedding dimension. Expected 768, got {}",
@@ -43,7 +52,7 @@ pub fn invert_vector(
         return Err("NUTS_SERVICES_TOKEN is empty or not set.".to_string());
     }
 
-    let url = format!("{}/invert", crate::hybrid::get_shivvr_base_url());
+    let url = format!("{}/invert", base);
     let auth_header = format!("Bearer {}", token);
 
     let payload = InvertRequest {

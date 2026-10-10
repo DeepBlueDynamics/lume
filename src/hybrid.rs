@@ -41,7 +41,12 @@ struct EmbedResponse {
 /// read the embedding straight off the response (the store auto-expires). Used
 /// by the inversion-steered generator to score candidates against a target.
 pub fn embed_text(text: &str, token: &str) -> Result<Vec<f64>, String> {
-    let url = format!("{}/temp/lume-embed-scratch/ingest", get_shivvr_base_url());
+    embed_text_at(text, token, &get_shivvr_base_url())
+}
+
+fn embed_text_at(text: &str, token: &str, base: &str,
+) -> Result<Vec<f64>, String> {
+    let url = format!("{}/temp/lume-embed-scratch/ingest", base);
     let auth_header = format!("Bearer {}", token);
     let payload = IngestPayload { text, source: "embed" };
     match ureq::post(&url)
@@ -150,6 +155,8 @@ pub struct SearchResponse {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SessionCache {
+    #[serde(default)]
+    pub server_url: Option<String>,
     pub corpus_path: String,
     pub corpus_mtime: u64,
     pub corpus_size: u64,
@@ -165,6 +172,8 @@ pub struct SessionCache {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SemanticQueryCache {
+    #[serde(default)]
+    pub server_url: Option<String>,
     pub corpus_path: String,
     pub corpus_mtime: u64,
     pub corpus_size: u64,
@@ -374,12 +383,17 @@ pub fn save_cached_session(corpus_path: &str, size: u64, mtime: u64, session_id:
 }
 
 pub fn save_cached_session_with_dir(corpus_path: &str, size: u64, mtime: u64, session_id: &str, ingested_hashes: Vec<String>, cache_dir: Option<&Path>) {
+    save_cached_session_with_dir_at(corpus_path, size, mtime, session_id, ingested_hashes, cache_dir, &get_shivvr_base_url());
+}
+
+fn save_cached_session_with_dir_at(corpus_path: &str, size: u64, mtime: u64, session_id: &str, ingested_hashes: Vec<String>, cache_dir: Option<&Path>, base: &str) {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
 
     let cache = SessionCache {
+        server_url: Some(base.to_string()),
         corpus_path: corpus_path.to_string(),
         corpus_mtime: mtime,
         corpus_size: size,
@@ -414,6 +428,7 @@ pub fn load_semantic_cache_with_dir(corpus_path: &str, current_size: u64, curren
         }
     }
     SemanticQueryCache {
+        server_url: None,
         corpus_path: corpus_path.to_string(),
         corpus_mtime: current_mtime,
         corpus_size: current_size,
@@ -494,8 +509,7 @@ fn build_ingest_tasks(sections: &[(String, &Section)]) -> Vec<IngestTask> {
 
 /// Pushes the prepared tasks into `sess` with a small worker pool. Returns the
 /// number of remote chunks created, or the first error encountered.
-fn ingest_tasks_concurrent(sess: &str, tasks: Vec<IngestTask>, token: &str) -> Result<usize, String> {
-    let base = get_shivvr_base_url();
+fn ingest_tasks_concurrent(sess: &str, tasks: Vec<IngestTask>, token: &str, base: &str) -> Result<usize, String> {
     let auth_header = format!("Bearer {}", token);
     let start = Instant::now();
     let total_tasks = tasks.len();
@@ -516,7 +530,6 @@ fn ingest_tasks_concurrent(sess: &str, tasks: Vec<IngestTask>, token: &str) -> R
             let chunks_total = Arc::clone(&chunks_total);
             let error_occurred = Arc::clone(&error_occurred);
             let sess = sess.to_string();
-            let base = base.clone();
             let auth_header = auth_header.clone();
 
             s.spawn(move || {
@@ -606,6 +619,18 @@ pub fn initialize_and_ingest_session_with_dir(
     token: &str,
     cache_dir: Option<&Path>,
 ) -> Result<String, String> {
+    initialize_and_ingest_session_with_dir_at(target_file, sections, corpus_size, corpus_mtime, token, cache_dir, &get_shivvr_base_url())
+}
+
+fn initialize_and_ingest_session_with_dir_at(
+    target_file: &str,
+    sections: &[Section],
+    corpus_size: u64,
+    corpus_mtime: u64,
+    token: &str,
+    cache_dir: Option<&Path>,
+    base: &str,
+) -> Result<String, String> {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -616,16 +641,16 @@ pub fn initialize_and_ingest_session_with_dir(
 
     eprintln!(
         "\x1B[1;36m[🌐] HATCHERIK semantic ingest → {} | session {} | {} sections\x1B[0m",
-        get_shivvr_base_url(), sess, total
+        base, sess, total
     );
 
     let hashed: Vec<(String, &Section)> = sections.iter().map(|s| (section_hash(s), s)).collect();
     let tasks = build_ingest_tasks(&hashed);
 
-    let chunks = match ingest_tasks_concurrent(&sess, tasks, token) {
+    let chunks = match ingest_tasks_concurrent(&sess, tasks, token, base) {
         Ok(n) => n,
         Err(err) => {
-            cleanup_session(&sess, token).ok();
+            cleanup_session_at(&sess, token, base).ok();
             delete_cached_session_with_dir(cache_dir);
             return Err(format!("Semantic store ingestion error: {}", err));
         }
@@ -639,7 +664,7 @@ pub fn initialize_and_ingest_session_with_dir(
     let mut hashes: Vec<String> = hashed.into_iter().map(|(h, _)| h).collect();
     hashes.sort();
     hashes.dedup();
-    save_cached_session_with_dir(target_file, corpus_size, corpus_mtime, &sess, hashes, cache_dir);
+    save_cached_session_with_dir_at(target_file, corpus_size, corpus_mtime, &sess, hashes, cache_dir, base);
     Ok(sess)
 }
 
@@ -661,7 +686,26 @@ pub fn ensure_semantic_session_with_dir(
     token: &str,
     cache_dir: Option<&Path>,
 ) -> Result<String, String> {
+    ensure_semantic_session_with_dir_at(target_file, sections, corpus_size, corpus_mtime, token, cache_dir, &get_shivvr_base_url())
+}
+
+fn ensure_semantic_session_with_dir_at(
+    target_file: &str,
+    sections: &[Section],
+    corpus_size: u64,
+    corpus_mtime: u64,
+    token: &str,
+    cache_dir: Option<&Path>,
+    base: &str,
+) -> Result<String, String> {
     if let Some(cache) = load_session_cache_with_dir(target_file, cache_dir) {
+        if cache.server_url.as_deref().is_some_and(|url| url != base)
+            || (cache.server_url.is_none() && base != get_shivvr_base_url())
+        {
+            return initialize_and_ingest_session_with_dir_at(
+                target_file, sections, corpus_size, corpus_mtime, token, cache_dir, base,
+            );
+        }
         if cache.corpus_size == corpus_size && cache.corpus_mtime == corpus_mtime {
             return Ok(cache.session_id);
         }
@@ -680,7 +724,7 @@ pub fn ensure_semantic_session_with_dir(
 
             if !missing.is_empty() {
                 let tasks = build_ingest_tasks(&missing);
-                if let Err(err) = ingest_tasks_concurrent(&cache.session_id, tasks, token) {
+                if let Err(err) = ingest_tasks_concurrent(&cache.session_id, tasks, token, base) {
                     delete_cached_session_with_dir(cache_dir);
                     return Err(format!("Incremental semantic ingestion error: {}", err));
                 }
@@ -690,16 +734,21 @@ pub fn ensure_semantic_session_with_dir(
             hashes.extend(missing.into_iter().map(|(h, _)| h));
             hashes.sort();
             hashes.dedup();
-            save_cached_session_with_dir(target_file, corpus_size, corpus_mtime, &cache.session_id, hashes, cache_dir);
+            save_cached_session_with_dir_at(target_file, corpus_size, corpus_mtime, &cache.session_id, hashes, cache_dir, base);
             return Ok(cache.session_id);
         }
     }
-    initialize_and_ingest_session_with_dir(target_file, sections, corpus_size, corpus_mtime, token, cache_dir)
+    initialize_and_ingest_session_with_dir_at(target_file, sections, corpus_size, corpus_mtime, token, cache_dir, base)
 }
 
 
 pub fn cleanup_session(session_id: &str, token: &str) -> Result<(), String> {
-    let url = format!("{}/temp/{}", get_shivvr_base_url(), session_id);
+    cleanup_session_at(session_id, token, &get_shivvr_base_url())
+}
+
+fn cleanup_session_at(session_id: &str, token: &str, base: &str,
+) -> Result<(), String> {
+    let url = format!("{}/temp/{}", base, session_id);
     let auth_header = format!("Bearer {}", token);
     match ureq::delete(&url)
         .set("Authorization", &auth_header)
@@ -714,8 +763,17 @@ pub fn query_semantic_search(
     query: &str,
     token: &str,
 ) -> Result<Vec<SearchResult>, String> {
+    query_semantic_search_at(session_id, query, token, &get_shivvr_base_url())
+}
+
+fn query_semantic_search_at(
+    session_id: &str,
+    query: &str,
+    token: &str,
+    base: &str,
+) -> Result<Vec<SearchResult>, String> {
     let encoded_query = percent_encode(query);
-    let url = format!("{}/temp/{}/search?q={}&n=60", get_shivvr_base_url(), session_id, encoded_query);
+    let url = format!("{}/temp/{}/search?q={}&n=60", base, session_id, encoded_query);
     let auth_header = format!("Bearer {}", token);
 
     match ureq::get(&url)
@@ -869,6 +927,15 @@ pub fn format_shivvr_error(url: &str, error_msg: String) -> String {
     }
 }
 
+pub fn resolve_shivvr_base_url(explicit: Option<&str>) -> String {
+    resolve_shivvr_base_url_with_env(explicit, std::env::var("SHIVVR_BASE_URL").ok().as_deref())
+}
+
+fn resolve_shivvr_base_url_with_env(explicit: Option<&str>, environment: Option<&str>) -> String {
+    explicit.or(environment).unwrap_or("http://localhost:8085")
+        .trim_end_matches('/').to_string()
+}
+
 pub fn get_shivvr_base_url() -> String {
     std::env::var("SHIVVR_BASE_URL")
         .unwrap_or_else(|_| "http://localhost:8085".to_string())
@@ -877,6 +944,10 @@ pub fn get_shivvr_base_url() -> String {
 }
 
 pub fn load_nuts_token() -> Option<String> {
+    load_nuts_token_at(&get_shivvr_base_url())
+}
+
+pub(crate) fn load_nuts_token_at(base: &str) -> Option<String> {
     if let Ok(tok) = std::env::var("NUTS_SERVICES_TOKEN") {
         let tok = tok.trim().to_string();
         if !tok.is_empty() {
@@ -898,7 +969,7 @@ pub fn load_nuts_token() -> Option<String> {
         }
     }
     // Automatically use a dummy token for local shivvr endpoints
-    let url = get_shivvr_base_url();
+    let url = base;
     if url.contains("localhost") || url.contains("127.0.0.1") || url.contains("host.docker.internal") || url.contains("host.docker.local") {
         return Some("local".to_string());
     }
@@ -966,13 +1037,14 @@ pub fn execute_hybrid_search(
     params: &Bm25Params,
     variant: SearchVariant,
     blend_mode: crate::search::BlendMode,
-    _shivvr_url: Option<&str>,
+    shivvr_url: Option<&str>,
     auth_token: Option<&str>,
     query_inversion: bool,
 ) -> Result<HybridSearchResult, String> {
+    let base = resolve_shivvr_base_url(shivvr_url);
     let token = match auth_token {
         Some(tok) => tok.to_string(),
-        None => match load_nuts_token() {
+        None => match load_nuts_token_at(&base) {
             Some(tok) => tok,
             None => return Err("NUTS_SERVICES_TOKEN not set for hybrid semantic search.".to_string()),
         },
@@ -981,6 +1053,12 @@ pub fn execute_hybrid_search(
     let (corpus_size, corpus_mtime) = corpus_fingerprint;
 
     let mut semantic_cache = load_semantic_cache_with_dir(target_file, corpus_size, corpus_mtime, cache_dir);
+    if semantic_cache.server_url.as_deref().is_some_and(|url| url != base)
+        || (shivvr_url.is_some() && semantic_cache.server_url.is_none())
+    {
+        semantic_cache.queries.clear();
+    }
+    semantic_cache.server_url = Some(base.clone());
 
     let query_key = query.trim().to_lowercase();
     let mut is_cached = false;
@@ -993,8 +1071,8 @@ pub fn execute_hybrid_search(
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
     if inversion_enabled {
-        if let Ok(query_vec) = embed_text(query, &token) {
-            if let Ok(inv) = crate::inversion::invert_vector(&query_vec, Some(48), &token) {
+        if let Ok(query_vec) = embed_text_at(query, &token, &base) {
+            if let Ok(inv) = crate::inversion::invert_vector_at(&query_vec, Some(48), &token, &base) {
                 println!("[🔄] Query inverts to: \"{}\" (self-similarity {:.3})", inv.text.trim(), inv.similarity);
             }
         }
@@ -1006,9 +1084,9 @@ pub fn execute_hybrid_search(
     } else {
         let mut attempts = 0;
         let results = loop {
-            let session_id = ensure_semantic_session_with_dir(target_file, &index.sections, corpus_size, corpus_mtime, &token, cache_dir)?;
+            let session_id = ensure_semantic_session_with_dir_at(target_file, &index.sections, corpus_size, corpus_mtime, &token, cache_dir, &base)?;
 
-            match query_semantic_search(&session_id, query, &token) {
+            match query_semantic_search_at(&session_id, query, &token, &base) {
                 Ok(res) => {
                     semantic_cache.queries.insert(query_key.clone(), res.clone());
                     save_semantic_cache_with_dir(&semantic_cache, cache_dir);
@@ -1055,8 +1133,8 @@ pub fn execute_hybrid_search(
         eprintln!("[⚠️] Semantic session is stale (chunk ids exceed corpus) — re-ingesting...");
         delete_cached_session_with_dir(cache_dir);
         semantic_cache.queries.clear();
-        let session_id = initialize_and_ingest_session_with_dir(target_file, &index.sections, corpus_size, corpus_mtime, &token, cache_dir)?;
-        semantic_results = query_semantic_search(&session_id, query, &token)
+        let session_id = initialize_and_ingest_session_with_dir_at(target_file, &index.sections, corpus_size, corpus_mtime, &token, cache_dir, &base)?;
+        semantic_results = query_semantic_search_at(&session_id, query, &token, &base)
             .map_err(|e| format!("Failed to retrieve semantic vector search: {}", e))?;
         semantic_cache.queries.insert(query_key.clone(), semantic_results.clone());
         save_semantic_cache_with_dir(&semantic_cache, cache_dir);
@@ -1321,6 +1399,95 @@ mod tests {
             filename: Some(filename.to_string()),
             entities: Vec::new(),
         }
+    }
+
+    #[test]
+    fn shivvr_url_precedence_is_explicit_then_environment_then_default() {
+        assert_eq!(
+            resolve_shivvr_base_url_with_env(Some("http://explicit:8085/"), Some("http://env:8085")),
+            "http://explicit:8085"
+        );
+        assert_eq!(
+            resolve_shivvr_base_url_with_env(None, Some("http://env:8085/")),
+            "http://env:8085"
+        );
+        assert_eq!(resolve_shivvr_base_url_with_env(None, None), "http://localhost:8085");
+    }
+
+    #[test]
+    fn explicit_shivvr_endpoint_receives_query_and_owns_its_cache() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let sections = vec![section("boat.txt", "Captain", "captain sailed")];
+        let index = Bm25Index::build(sections, None);
+        let fingerprint = index_fingerprint(&index.sections);
+        let dir = std::env::temp_dir().join(format!(
+            "lume-explicit-shivvr-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("absent-source").to_string_lossy().into_owned();
+        save_cached_session_with_dir_at(
+            &target, fingerprint.0, fingerprint.1, "chosen-session",
+            vec![section_hash(&index.sections[0])], Some(&dir), &base,
+        );
+        // A cached answer from another service must never hide a URL change.
+        save_semantic_cache_with_dir(&SemanticQueryCache {
+            server_url: Some("http://different-service:8085".to_string()),
+            corpus_path: target.clone(),
+            corpus_size: fingerprint.0,
+            corpus_mtime: fingerprint.1,
+            queries: HashMap::from([("captain".to_string(), vec![])]),
+        }, Some(&dir));
+        let source = section_hash(&index.sections[0]);
+        let worker = std::thread::spawn(move || {
+            listener.set_nonblocking(true).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(10);
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        assert!(Instant::now() < deadline, "explicit endpoint was not called");
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => panic!("mock accept: {error}"),
+                }
+            };
+            stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 1024];
+            while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                let count = stream.read(&mut buffer).unwrap();
+                assert!(count > 0);
+                request.extend_from_slice(&buffer[..count]);
+            }
+            let request = String::from_utf8(request).unwrap();
+            assert!(request.starts_with("GET /temp/chosen-session/search?q=captain&n=60 "));
+            assert!(request.to_ascii_lowercase().contains("authorization: bearer test-token"));
+            let body = serde_json::json!({
+                "query": "captain", "time_ms": 1,
+                "results": [{"chunk_id": "one", "score": 0.9, "text": "captain", "source": source}]
+            }).to_string();
+            write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+        });
+        let run = || execute_hybrid_search(
+            &index, None, &target, fingerprint, "captain", &HashMap::new(),
+            0.0, 0.5, Some(&dir), &Bm25Params::default(), SearchVariant::Classic,
+            crate::search::BlendMode::Multiplicative, Some(&base), Some("test-token"), false,
+        ).unwrap();
+        let first = run();
+        worker.join().unwrap();
+        assert!(!first.is_cached);
+        assert_eq!(first.semantic_results_count, 1);
+        // The listener has gone away, so this must use the selected endpoint's cache.
+        let second = run();
+        assert!(second.is_cached);
+        assert_eq!(second.hits[0].hybrid_score.to_bits(), first.hits[0].hybrid_score.to_bits());
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
