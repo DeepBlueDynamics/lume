@@ -43,6 +43,8 @@ pub struct Manifest {
     pub corpus_fingerprint: [u64; 2],
     #[serde(deserialize_with = "unique_seals")]
     pub segments: BTreeMap<String, Seal>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entity_overlay: Option<super::overlays::Head>,
 }
 
 fn unique_seals<'de, D: serde::Deserializer<'de>>(
@@ -77,6 +79,9 @@ impl Manifest {
         if self.format_version != FORMAT_VERSION || !valid_generation(&self.generation) {
             return Err("Unsupported or invalid ordinary-index generation".into());
         }
+        if let Some(head) = &self.entity_overlay {
+            head.validate()?;
+        }
         if CORE_FILES
             .iter()
             .any(|name| !self.segments.contains_key(*name))
@@ -101,7 +106,7 @@ impl Manifest {
     }
 }
 
-fn valid_generation(value: &str) -> bool {
+pub(super) fn valid_generation(value: &str) -> bool {
     value.len() == 36
         && value.bytes().enumerate().all(|(i, byte)| {
             if [8, 13, 18, 23].contains(&i) {
@@ -122,7 +127,7 @@ pub fn sha256(bytes: &[u8]) -> String {
     result
 }
 
-fn sync_directory(path: &Path) -> Result<(), String> {
+pub(super) fn sync_directory(path: &Path) -> Result<(), String> {
     #[cfg(unix)]
     {
         File::open(path)

@@ -185,6 +185,7 @@ fn publish_prepared(
         source_files: u32::try_from(build.sources.len()).map_err(|_| "Source count exceeds u32")?,
         corpus_fingerprint: [fingerprint.0, fingerprint.1],
         segments: Default::default(),
+        entity_overlay: None,
     };
     let mut staged = generation::StagedGeneration::new(root, manifest)?;
     crate::index_timing::memory_checkpoint("v4.memory.publish_start");
