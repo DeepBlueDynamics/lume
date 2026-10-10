@@ -101,14 +101,18 @@ fn cli_v4_publish_search_sql_mcp_and_reindex_with_json_neighbor() {
         normalized(&binary_reply, &v4),
         normalized(&json_reply, &json)
     );
-    let sql = command()
-        .args(["sql", "--db"])
-        .arg(&v4)
-        .arg("SELECT count(*) FROM sections")
-        .output()
-        .unwrap();
-    success(&sql);
-    assert!(!sql.stdout.is_empty());
+    // `lume sql` exists only with `--features ti`.
+    #[cfg(feature = "ti")]
+    {
+        let sql = command()
+            .args(["sql", "--db"])
+            .arg(&v4)
+            .arg("SELECT count(*) FROM sections")
+            .output()
+            .unwrap();
+        success(&sql);
+        assert!(!sql.stdout.is_empty());
+    }
     let rejected = index(&source, &v4, true, &["-o"]);
     assert!(!rejected.status.success());
     assert!(String::from_utf8_lossy(&rejected.stderr)
