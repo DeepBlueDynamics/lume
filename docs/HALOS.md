@@ -11,7 +11,7 @@ Only arm64 HaLOS and x86_64 stock Signal K are tested. The stock test was `signa
 The `marine-lume` package adds Lume TI to the Signal K server that is already on the boat. After it is installed you get:
 
 - A history of Signal K data on the Pi, kept in 10-second buckets.
-- A SQL console, an Ask tab, a Library tab, and a status page, under **Webapps → Lume TI**.
+- A SQL console, an Ask tab, a Library tab, and a status page, under **Webapps → Lume TI**. The SQL the console runs is in [Querying Lume with SQL](SQL.md).
 - A Signal K History API provider named `signalk-lume-ti`, so other apps such as Freeboard can read that history. Signal K uses one default history provider. If another provider is already the default, clients must pass `provider=signalk-lume-ti`, or an admin makes Lume the default history provider in Signal K. Installing the plugin does not change that default.
 - Lume's own health numbers, in a separate table called `telemetry_lume`. Those numbers are about Lume, not about the boat. The table appears only after the first data has been recorded.
 
@@ -97,7 +97,7 @@ curl -s -m 5 -X POST http://127.0.0.1:5863/ti/query \
   -d '{"sql":"SELECT max(ts) AS latest_ts FROM telemetry_lume"}'
 ```
 
-A JSON reply means the query service is up. That table is Lume's own counters. It is registered only after the first data has been recorded. Before that, the query says the table was not found, which is normal right after install. For boat data, open **Webapps → Lume TI**, then the SQL console, and press **Recent SOG & Wind**.
+A JSON reply means the query service is up. That table is Lume's own counters. It is registered only after the first data has been recorded. Before that, the query says the table was not found, which is normal right after install. For boat data, open **Webapps → Lume TI**, then the SQL console, and press **Recent SOG & Wind**. The statements are in [Querying Lume with SQL](SQL.md) and [SQL examples](SQL-EXAMPLES.md).
 
 ## 4. Ask tab
 
