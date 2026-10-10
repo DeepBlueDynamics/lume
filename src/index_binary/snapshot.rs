@@ -44,10 +44,14 @@ pub fn open(root: &Path, checks: OpenEnvChecks) -> Result<LoadedIndex, String> {
             .transpose()
     };
     let spelling_span = crate::index_timing::Span::new("v4.decode.spelling");
-    let spelling = decode("spelling.json")?
-        .map(serde_json::from_value)
-        .transpose()
-        .map_err(|e| format!("Invalid v4 spelling: {e}"))?;
+    let spelling = if let Some(bytes) = segments.get(super::spelling::FILE) {
+        Some(super::spelling::decode(bytes)?)
+    } else {
+        decode("spelling.json")?
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(|e| format!("Invalid v4 spelling: {e}"))?
+    };
     drop(spelling_span);
     let graph_span = crate::index_timing::Span::new("v4.decode.graph");
     let mut entity_graph = decode("entity_graph.json")?
@@ -215,8 +219,10 @@ fn publish_prepared(
     staged.write("build-state.json", |output| {
         serde_json::to_writer(output, &build).map_err(|e| e.to_string())
     })?;
-    staged.write("spelling.json", |output| {
-        serde_json::to_writer(output, spelling).map_err(|e| e.to_string())
+    staged.write(super::spelling::FILE, |output| {
+        output
+            .write_all(&super::spelling::encode(spelling)?)
+            .map_err(|e| e.to_string())
     })?;
     staged.write("entity_graph.json", |output| {
         serde_json::to_writer(output, graph).map_err(|e| e.to_string())
@@ -237,6 +243,19 @@ pub fn component<T: serde::de::DeserializeOwned>(root: &Path, name: &str) -> Res
         return crate::search::load_json(&root.join(name));
     }
     let manifest = generation::read_manifest(root)?;
+    if name == "spelling.json" && manifest.segments.contains_key(super::spelling::FILE) {
+        let seal = &manifest.segments[super::spelling::FILE];
+        let directory = generation::generation_directory(root, &manifest)?;
+        let bytes =
+            std::fs::read(directory.join(super::spelling::FILE)).map_err(|e| e.to_string())?;
+        if bytes.len() as u64 != seal.bytes || generation::sha256(&bytes) != seal.sha256 {
+            return Err("V4 spelling seal mismatch".into());
+        }
+        return serde_json::from_value(
+            serde_json::to_value(super::spelling::decode(&bytes)?).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string());
+    }
     if name == "entity_graph.json" && manifest.entity_overlay.is_some() {
         let graph = open(root, OpenEnvChecks::default())?
             .entity_graph

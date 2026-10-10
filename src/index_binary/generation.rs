@@ -21,6 +21,7 @@ pub const CORE_FILES: &[&str] = &[
 ];
 const OPTIONAL_FILES: &[&str] = &[
     "spelling.json",
+    "spelling.bin",
     "entity_graph.json",
     "meta.json",
     "local-vectors.json",
@@ -87,6 +88,10 @@ impl Manifest {
             .any(|name| !self.segments.contains_key(*name))
         {
             return Err("Ordinary-index generation is missing a core segment".into());
+        }
+        if self.segments.contains_key("spelling.json") && self.segments.contains_key("spelling.bin")
+        {
+            return Err("Ambiguous ordinary-index spelling segments".into());
         }
         for (name, seal) in &self.segments {
             if !CORE_FILES.contains(&name.as_str()) && !OPTIONAL_FILES.contains(&name.as_str()) {

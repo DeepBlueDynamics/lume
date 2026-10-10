@@ -141,6 +141,40 @@ fn published_v4_snapshot_matches_legacy_and_resident_reload() {
     );
     let refreshed = cache.open(&root).unwrap();
     assert!(!std::sync::Arc::ptr_eq(&first, &refreshed));
+    assert!(owned.segments.contains_key("spelling.bin"));
+    assert!(!owned.segments.contains_key("spelling.json"));
+    let binary_spell: lume::spelling::SpellIndex =
+        lume::index_binary::snapshot::component(&root, "spelling.json").unwrap();
+    assert_eq!(binary_spell.unique_words, spelling.unique_words);
+    assert_eq!(
+        binary_spell.avg_word_len.to_bits(),
+        spelling.avg_word_len.to_bits()
+    );
+    // Older v4 generations keep working without a binary spelling segment.
+    let mut legacy_segments = lume::index_binary::generation::read_segments(&root, &owned).unwrap();
+    legacy_segments.remove("spelling.bin");
+    legacy_segments.insert(
+        "spelling.json".into(),
+        serde_json::to_vec(&spelling).unwrap(),
+    );
+    let mut legacy_manifest = owned.clone();
+    legacy_manifest.generation = lume::uuid_v4();
+    let legacy_manifest =
+        lume::index_binary::generation::publish(&root, legacy_manifest, &legacy_segments, |_| {
+            Ok(())
+        })
+        .unwrap();
+    let legacy_loaded = LoadedIndex::open_with_checks(&root, OpenEnvChecks::default()).unwrap();
+    assert_eq!(
+        legacy_loaded.spelling.as_ref().unwrap().unique_words,
+        spelling.unique_words
+    );
+    let mut ambiguous = legacy_manifest;
+    ambiguous.segments.insert(
+        "spelling.bin".into(),
+        owned.segments["spelling.bin"].clone(),
+    );
+    assert!(ambiguous.validate().is_err());
     // A corrupt pointer fails closed even if legacy files exist.
     lume::search::save_json(&root.join("state.json"), &state).unwrap();
     std::fs::write(root.join("index.json"), b"{broken").unwrap();
