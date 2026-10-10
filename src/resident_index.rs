@@ -38,6 +38,7 @@ fn fingerprint(root: &Path, dictionary: Option<&Path>) -> Result<Vec<FileStamp>,
         "bm25.json",
         "spelling.json",
         "entity_graph.json",
+        "meta.json",
     ]
     .into_iter()
     .map(|file| stamp(root.join(file)))

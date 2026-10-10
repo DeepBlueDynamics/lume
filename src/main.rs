@@ -1339,6 +1339,11 @@ fn scan_directory(
             if is_ignored(&path, root, ignores) {
                 continue;
             }
+            if let Some(file_name) = path.file_name().and_then(|f| f.to_str()) {
+                if file_name == "lume.meta.jsonl" || file_name == "lume.schema.json" {
+                    continue;
+                }
+            }
             if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                 let ext_lower = ext.to_lowercase();
                 if matches!(
@@ -1450,7 +1455,8 @@ fn chunk_text_file_with_options(path: &Path, content: &str, use_fallback: bool) 
     let filename_str = path.to_string_lossy().to_string();
 
     if extension.to_lowercase() == "md" {
-        let raw_sections = lume::bm25::parse_markdown_with_options(content, use_fallback);
+        let (_fm, stripped) = lume::meta::extract_and_blank_frontmatter(content);
+        let raw_sections = lume::bm25::parse_markdown_with_options(&stripped, use_fallback);
         let mut sections = Vec::new();
         for sec in raw_sections {
             // Split each chapter into retrieval-sized windows (~TARGET_LINES,
@@ -1635,11 +1641,132 @@ fn collect_all_sections(cached_files: &HashMap<String, (u64, Vec<Section>)>) -> 
     all_sections
 }
 
+fn find_manifests(dir: &Path, db_dir: &Path, manifests: &mut Vec<lume::meta::DiscoveredManifest>) {
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if name == ".git"
+                || name == "target"
+                || name == ".venv"
+                || name == ".lume-index"
+                || path == db_dir
+            {
+                continue;
+            }
+            find_manifests(&path, db_dir, manifests);
+        } else if path.is_file() {
+            if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+                if file_name == "lume.meta.jsonl" {
+                    if let Ok(rows) = lume::meta::read_manifest(&path) {
+                        let manifest_dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
+                        let depth = manifest_dir.components().count();
+                        manifests.push(lume::meta::DiscoveredManifest {
+                            path,
+                            dir: manifest_dir,
+                            depth,
+                            rows,
+                        });
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn build_meta_for_current_state(
+    cached_files: &HashMap<String, (u64, Vec<Section>)>,
+    frontmatter_by_file: &HashMap<String, HashMap<String, serde_json::Value>>,
+    manifests: &[lume::meta::DiscoveredManifest],
+    schema_override: &HashMap<String, lume::meta::FieldType>,
+    generation: &str,
+) -> Option<lume::meta::MetaIndex> {
+    let mut sorted_paths: Vec<&String> = cached_files.keys().collect();
+    sorted_paths.sort();
+
+    let mut file_fields: HashMap<String, (String, HashMap<String, serde_json::Value>)> = HashMap::new();
+    let mut field_depths: HashMap<String, HashMap<String, usize>> = HashMap::new();
+
+    // 1. Initialize with frontmatter
+    for (path_str, fm_fields) in frontmatter_by_file {
+        if cached_files.contains_key(path_str) {
+            file_fields.insert(path_str.clone(), ("frontmatter".to_string(), fm_fields.clone()));
+            let mut depths = HashMap::new();
+            for k in fm_fields.keys() {
+                depths.insert(k.clone(), 0);
+            }
+            field_depths.insert(path_str.clone(), depths);
+        }
+    }
+
+    // 2. Sort manifests by depth ascending so deeper manifests evaluate later
+    let mut sorted_manifests: Vec<&lume::meta::DiscoveredManifest> = manifests.iter().collect();
+    sorted_manifests.sort_by_key(|m| m.depth);
+
+    let mut unmatched_rows = 0usize;
+
+    for manifest in sorted_manifests {
+        for row in &manifest.rows {
+            let row_rel = lume::meta::normalize_rel_path(&row.path);
+            let resolved_path = manifest.dir.join(&row_rel);
+            let resolved_norm = lume::meta::normalize_rel_path(&resolved_path.to_string_lossy());
+
+            let mut matched_cached_path = None;
+            for cached_path in cached_files.keys() {
+                let cached_norm = lume::meta::normalize_rel_path(cached_path);
+                if cached_norm == resolved_norm {
+                    matched_cached_path = Some(cached_path.clone());
+                    break;
+                }
+            }
+
+            if let Some(target_file) = matched_cached_path {
+                let entry = file_fields
+                    .entry(target_file.clone())
+                    .or_insert_with(|| ("manifest".to_string(), HashMap::new()));
+                let depths = field_depths.entry(target_file).or_default();
+
+                for (k, v) in &row.fields {
+                    let prev_depth = depths.get(k).copied().unwrap_or(0);
+                    if manifest.depth >= prev_depth || !depths.contains_key(k) {
+                        entry.1.insert(k.clone(), v.clone());
+                        depths.insert(k.clone(), manifest.depth);
+                    }
+                }
+            } else {
+                unmatched_rows += 1;
+            }
+        }
+    }
+
+    if unmatched_rows > 0 {
+        eprintln!(
+            "[⚠️] Metadata manifest: {} unmatched file rows",
+            unmatched_rows
+        );
+    }
+
+    let mut section_files = Vec::new();
+    for p in sorted_paths {
+        let sec_count = cached_files[p].1.len();
+        for _ in 0..sec_count {
+            section_files.push(p.clone());
+        }
+    }
+
+    lume::meta::build_meta_index(&section_files, &file_fields, schema_override, generation)
+}
+
 fn flush_searchable_indexes(
     cached_files: &HashMap<String, (u64, Vec<Section>)>,
     tagger: Option<&Tagger>,
     tagger_phrases: &[String],
     db_path: &Path,
+    meta: Option<&lume::meta::MetaIndex>,
 ) -> Result<usize, String> {
     let all_sections = collect_all_sections(cached_files);
     let count = all_sections.len();
@@ -1656,11 +1783,24 @@ fn flush_searchable_indexes(
     save_json(&db_path.join("bm25.json"), &bm25)?;
     save_json(&db_path.join("spelling.json"), &spelling)?;
     save_json(&db_path.join("entity_graph.json"), &entity_graph)?;
+
+    let generation = lume::uuid_v4();
+    if let Some(meta_idx) = meta {
+        let mut m = meta_idx.clone();
+        m.generation = generation.clone();
+        m.save(&db_path.join("meta.json"))?;
+    } else {
+        let meta_file = db_path.join("meta.json");
+        if meta_file.exists() {
+            let _ = fs::remove_file(&meta_file);
+        }
+    }
+
     // Publish only after every searchable table has been written.
     save_json(
         &db_path.join("manifest.json"),
         &serde_json::json!({
-            "generation": lume::uuid_v4(), "sections": count,
+            "generation": generation, "sections": count,
         }),
     )?;
     Ok(count)
@@ -1744,6 +1884,16 @@ fn run_indexing(
                 "[⚠️] Dictionary path {} does not exist. Skipping tagger.",
                 tag_dict
             );
+        }
+    }
+
+    let prev_meta = lume::meta::MetaIndex::open(&db_path.join("meta.json")).ok();
+    let mut frontmatter_by_file: HashMap<String, HashMap<String, serde_json::Value>> = HashMap::new();
+    if let Some(ref prev) = prev_meta {
+        for (p, entry) in &prev.files {
+            if entry.source == "frontmatter" && !entry.fields.is_empty() {
+                frontmatter_by_file.insert(p.clone(), entry.fields.clone());
+            }
         }
     }
 
@@ -1838,6 +1988,14 @@ fn run_indexing(
                     );
                     chunks
                 } else {
+                    if ext == "md" {
+                        let (fm, _) = lume::meta::extract_and_blank_frontmatter(&content);
+                        if !fm.is_empty() {
+                            frontmatter_by_file.insert(path_str.clone(), fm);
+                        } else {
+                            frontmatter_by_file.remove(&path_str);
+                        }
+                    }
                     let chunks = chunk_text_file(file_path, &content);
                     println!(
                         "[⚙️] {} Processing text file: {} (parsed into {} chunks)",
@@ -1876,6 +2034,7 @@ fn run_indexing(
                     tagger.as_ref(),
                     &tagger_phrases,
                     db_path,
+                    None,
                 ) {
                     Ok(n) => println!(
                         "[💾] {} Searchable index flushed mid-run ({} sections)",
@@ -1893,6 +2052,7 @@ fn run_indexing(
         if !processed_paths.contains(&path_str) {
             println!("[🗑️] Removing deleted file from index cache: {}", path_str);
             cached_files.remove(&path_str);
+            frontmatter_by_file.remove(&path_str);
         }
     }
 
@@ -1968,11 +2128,28 @@ fn run_indexing(
             .map(|v| v != "0" && v.to_lowercase() != "false")
             .unwrap_or(true)
     };
-    let format_version = if stemmed { CURRENT_FORMAT_VERSION } else { 1 };
+    let mut manifests = Vec::new();
+    find_manifests(target_path, db_path, &mut manifests);
+    let schema_override = lume::meta::load_schema_override(&target_path.join("lume.schema.json"))
+        .unwrap_or_default();
+    let current_meta = build_meta_for_current_state(
+        &cached_files,
+        &frontmatter_by_file,
+        &manifests,
+        &schema_override,
+        "init",
+    );
+    let format_version = if current_meta.is_some() {
+        3
+    } else if stemmed {
+        CURRENT_FORMAT_VERSION.min(2)
+    } else {
+        1
+    };
     let keep_hyphens = false;
     let early_flush_start = Instant::now();
     let early_count =
-        flush_searchable_indexes(&cached_files, tagger.as_ref(), &tagger_phrases, db_path)?;
+        flush_searchable_indexes(&cached_files, tagger.as_ref(), &tagger_phrases, db_path, current_meta.as_ref())?;
     let early_state = IndexState {
         format_version,
         target_dir: target_dir.to_string(),
@@ -2156,6 +2333,7 @@ fn run_indexing(
                                     tagger.as_ref(),
                                     &tagger_phrases,
                                     db_path,
+                                    current_meta.as_ref(),
                                 ) {
                                     Ok(n) => println!(
                                         "  [💾] Searchable index flushed mid-run ({} sections)",
@@ -2197,7 +2375,7 @@ fn run_indexing(
 
     let save_start = Instant::now();
     let section_count =
-        flush_searchable_indexes(&cached_files, tagger.as_ref(), &tagger_phrases, db_path)?;
+        flush_searchable_indexes(&cached_files, tagger.as_ref(), &tagger_phrases, db_path, current_meta.as_ref())?;
 
     let state = IndexState {
         format_version,

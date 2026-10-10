@@ -61,7 +61,7 @@ impl Default for SearchOptions {
     }
 }
 
-pub const CURRENT_FORMAT_VERSION: u32 = 2;
+pub const CURRENT_FORMAT_VERSION: u32 = 3;
 
 fn default_format_version() -> u32 {
     1
@@ -103,6 +103,7 @@ pub fn check_state_compatibility(state: &IndexState) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Debug)]
 pub struct LoadedIndex {
     pub state: Option<IndexState>,
     pub bm25: Bm25Index,
@@ -110,6 +111,7 @@ pub struct LoadedIndex {
     pub entity_graph: Option<EntityGraph>,
     pub tagger: Option<Tagger>,
     pub cache_dir: Option<PathBuf>,
+    pub meta: Option<crate::meta::MetaIndex>,
 }
 
 /// Optional configuration checks when loading an index from disk.
@@ -181,6 +183,28 @@ impl LoadedIndex {
             }
         }
 
+        let meta = if state.format_version >= 3 {
+            let meta_path = db_path.join("meta.json");
+            if !meta_path.exists() {
+                return Err(format!(
+                    "Index format version {} requires meta.json at {}, but it was not found; please reindex with 'lume index -f'.",
+                    state.format_version,
+                    meta_path.display()
+                ));
+            }
+            let meta_idx = crate::meta::MetaIndex::open(&meta_path)?;
+            if meta_idx.num_sections != bm25.sections.len() {
+                return Err(format!(
+                    "Index metadata section count mismatch: meta.json has {} sections but bm25.json has {}; please reindex with 'lume index -f'.",
+                    meta_idx.num_sections,
+                    bm25.sections.len()
+                ));
+            }
+            Some(meta_idx)
+        } else {
+            None
+        };
+
         Ok(Self {
             state: Some(state),
             bm25,
@@ -188,6 +212,7 @@ impl LoadedIndex {
             entity_graph,
             tagger,
             cache_dir: Some(db_path.to_path_buf()),
+            meta,
         })
     }
 
@@ -199,6 +224,7 @@ impl LoadedIndex {
             entity_graph: None,
             tagger: None,
             cache_dir: None,
+            meta: None,
         }
     }
 }
@@ -865,6 +891,7 @@ mod tests {
             entity_graph: None,
             tagger: None,
             cache_dir: None,
+            meta: None,
         };
 
         let opts = SearchOptions {
@@ -904,6 +931,7 @@ mod tests {
             entity_graph: None,
             tagger: None,
             cache_dir: None,
+            meta: None,
         };
 
         let opts = SearchOptions {
@@ -947,6 +975,7 @@ mod tests {
             entity_graph: None,
             tagger: None,
             cache_dir: None,
+            meta: None,
         };
 
         let opts = SearchOptions {
@@ -1297,6 +1326,7 @@ mod tests {
             entity_graph: None,
             tagger: None,
             cache_dir: None,
+            meta: None,
         };
 
         // 1. Lexical search with default params (coord_floor = 1.0, unpenalized)
@@ -1422,6 +1452,7 @@ mod tests {
             entity_graph: None,
             tagger: None,
             cache_dir: None,
+            meta: None,
         };
 
         let opts = SearchOptions {
@@ -1450,5 +1481,144 @@ mod tests {
             .warnings
             .iter()
             .any(|w| w.contains("query contains only excluded terms")));
+    }
+
+    #[test]
+    fn test_format_version_2_loads_with_meta_none() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "lume_test_v2_{}_{}",
+            std::process::id(),
+            crate::uuid_v4()
+        ));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let state_json = r#"{
+            "format_version": 2,
+            "target_dir": "/tmp/dummy",
+            "db_dir": ".dummy-db",
+            "semantic_enabled": false,
+            "ollama_entities": false,
+            "ollama_model": "test",
+            "ollama_url": "http://localhost:11434",
+            "tag_dict_path": null,
+            "semantic_session_id": null,
+            "cached_files": {},
+            "stemmed": true,
+            "keep_hyphens": false
+        }"#;
+        std::fs::write(temp_dir.join("state.json"), state_json).unwrap();
+
+        let sec = Section {
+            title: "Sec".to_string(),
+            body: "Body text".to_string(),
+            line_number: 1,
+            filename: Some("sec.md".to_string()),
+            entities: Vec::new(),
+        };
+        let bm25 = Bm25Index::build(vec![sec], None);
+        save_json(&temp_dir.join("bm25.json"), &bm25).unwrap();
+
+        let loaded = LoadedIndex::open(&temp_dir).unwrap();
+        assert!(loaded.meta.is_none());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_format_version_3_missing_meta_json_error() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "lume_test_v3_missing_{}_{}",
+            std::process::id(),
+            crate::uuid_v4()
+        ));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let state_json = r#"{
+            "format_version": 3,
+            "target_dir": "/tmp/dummy",
+            "db_dir": ".dummy-db",
+            "semantic_enabled": false,
+            "ollama_entities": false,
+            "ollama_model": "test",
+            "ollama_url": "http://localhost:11434",
+            "tag_dict_path": null,
+            "semantic_session_id": null,
+            "cached_files": {},
+            "stemmed": true,
+            "keep_hyphens": false
+        }"#;
+        std::fs::write(temp_dir.join("state.json"), state_json).unwrap();
+
+        let sec = Section {
+            title: "Sec".to_string(),
+            body: "Body text".to_string(),
+            line_number: 1,
+            filename: Some("sec.md".to_string()),
+            entities: Vec::new(),
+        };
+        let bm25 = Bm25Index::build(vec![sec], None);
+        save_json(&temp_dir.join("bm25.json"), &bm25).unwrap();
+
+        let err = LoadedIndex::open(&temp_dir).unwrap_err();
+        assert!(err.contains("requires meta.json"), "expected requires meta.json, got: {}", err);
+        assert!(err.contains("reindex"), "expected reindex in error, got: {}", err);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_format_version_3_section_count_mismatch_error() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "lume_test_v3_mismatch_{}_{}",
+            std::process::id(),
+            crate::uuid_v4()
+        ));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let state_json = r#"{
+            "format_version": 3,
+            "target_dir": "/tmp/dummy",
+            "db_dir": ".dummy-db",
+            "semantic_enabled": false,
+            "ollama_entities": false,
+            "ollama_model": "test",
+            "ollama_url": "http://localhost:11434",
+            "tag_dict_path": null,
+            "semantic_session_id": null,
+            "cached_files": {},
+            "stemmed": true,
+            "keep_hyphens": false
+        }"#;
+        std::fs::write(temp_dir.join("state.json"), state_json).unwrap();
+
+        let sec = Section {
+            title: "Sec".to_string(),
+            body: "Body text".to_string(),
+            line_number: 1,
+            filename: Some("sec.md".to_string()),
+            entities: Vec::new(),
+        };
+        let bm25 = Bm25Index::build(vec![sec], None);
+        save_json(&temp_dir.join("bm25.json"), &bm25).unwrap();
+
+        // Write meta.json with num_sections: 5 (mismatch with bm25.sections.len() = 1)
+        let meta_disk = crate::meta::MetaIndexOnDisk {
+            meta_version: 1,
+            num_sections: 5,
+            generation: "gen-1".to_string(),
+            schema: std::collections::HashMap::new(),
+            files: std::collections::HashMap::new(),
+            columns: std::collections::HashMap::new(),
+        };
+        save_json(&temp_dir.join("meta.json"), &meta_disk).unwrap();
+
+        let err = LoadedIndex::open(&temp_dir).unwrap_err();
+        assert!(err.contains("Index metadata section count mismatch"), "expected section count mismatch, got: {}", err);
+        assert!(err.contains("reindex"), "expected reindex in error, got: {}", err);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
