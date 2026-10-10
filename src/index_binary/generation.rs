@@ -354,40 +354,91 @@ pub fn read_segments(
     root: &Path,
     manifest: &Manifest,
 ) -> Result<BTreeMap<String, Vec<u8>>, String> {
+    read_segments_with_threads(root, manifest, super::snapshot::open_threads()?)
+}
+
+/// Read and verify every segment before exposing any bytes to the decoder.
+pub fn read_segments_with_threads(
+    root: &Path,
+    manifest: &Manifest,
+    workers: usize,
+) -> Result<BTreeMap<String, Vec<u8>>, String> {
     let directory = generation_directory(root, manifest)?;
-    let mut result = BTreeMap::new();
-    for (name, seal) in &manifest.segments {
-        let path = directory.join(name);
-        let metadata = fs::symlink_metadata(&path)
-            .map_err(|e| format!("Cannot inspect index segment {name}: {e}"))?;
-        if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() != seal.bytes
-        {
-            return Err(format!(
-                "Invalid ordinary-index segment length or type: {name}"
-            ));
-        }
-        let capacity = usize::try_from(seal.bytes).map_err(|_| "Index segment exceeds usize")?;
-        let mut bytes = Vec::new();
-        bytes
-            .try_reserve_exact(capacity)
-            .map_err(|_| format!("Cannot allocate index segment {name}"))?;
-        let read_span = crate::index_timing::FileSpan::new("v4.open.read", &path);
-        let file =
-            File::open(&path).map_err(|e| format!("Cannot open index segment {name}: {e}"))?;
-        file.take(
-            seal.bytes
-                .checked_add(1)
-                .ok_or("Index segment length overflow")?,
-        )
-        .read_to_end(&mut bytes)
-        .map_err(|e| format!("Cannot read index segment {name}: {e}"))?;
-        drop(read_span);
-        let checksum_span = crate::index_timing::FileSpan::new("v4.open.checksum", &path);
-        if bytes.len() as u64 != seal.bytes || sha256(&bytes) != seal.sha256 {
-            return Err(format!("Ordinary-index seal mismatch: {name}"));
-        }
-        drop(checksum_span);
-        result.insert(name.clone(), bytes);
+    let workers = workers.clamp(1, 4).min(manifest.segments.len().max(1));
+    if workers == 1 {
+        return manifest
+            .segments
+            .iter()
+            .map(|(name, seal)| Ok((name.clone(), read_segment(&directory, name, seal)?)))
+            .collect();
     }
-    Ok(result)
+    std::thread::scope(|scope| {
+        let mut groups: Vec<Vec<_>> = (0..workers).map(|_| Vec::new()).collect();
+        let mut sizes = vec![0_u128; workers];
+        let mut segments: Vec<_> = manifest.segments.iter().enumerate().collect();
+        // Keep the largest segment on its own worker when possible.
+        segments.sort_by_key(|(index, (_, seal))| (std::cmp::Reverse(seal.bytes), *index));
+        for (index, (name, seal)) in segments {
+            let worker = (0..workers).min_by_key(|i| sizes[*i]).unwrap();
+            sizes[worker] += u128::from(seal.bytes);
+            groups[worker].push((index, name, seal));
+        }
+        let handles: Vec<_> = groups
+            .into_iter()
+            .map(|group| {
+                let directory = &directory;
+                scope.spawn(move || {
+                    group
+                        .into_iter()
+                        .map(|(index, name, seal)| {
+                            (index, name, read_segment(directory, name, seal))
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        // Join all workers before returning either a filesystem error or a panic.
+        let joined: Vec<_> = handles.into_iter().map(|handle| handle.join()).collect();
+        let mut results = Vec::new();
+        for result in joined {
+            results.extend(result.map_err(|_| "V4 segment read worker panicked")?);
+        }
+        results.sort_by_key(|(index, _, _)| *index);
+        results
+            .into_iter()
+            .map(|(_, name, bytes)| Ok((name.clone(), bytes?)))
+            .collect()
+    })
+}
+
+fn read_segment(directory: &Path, name: &str, seal: &Seal) -> Result<Vec<u8>, String> {
+    let path = directory.join(name);
+    let metadata = fs::symlink_metadata(&path)
+        .map_err(|e| format!("Cannot inspect index segment {name}: {e}"))?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() != seal.bytes {
+        return Err(format!(
+            "Invalid ordinary-index segment length or type: {name}"
+        ));
+    }
+    let capacity = usize::try_from(seal.bytes).map_err(|_| "Index segment exceeds usize")?;
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(capacity)
+        .map_err(|_| format!("Cannot allocate index segment {name}"))?;
+    let read_span = crate::index_timing::FileSpan::new("v4.open.read", &path);
+    let file = File::open(&path).map_err(|e| format!("Cannot open index segment {name}: {e}"))?;
+    file.take(
+        seal.bytes
+            .checked_add(1)
+            .ok_or("Index segment length overflow")?,
+    )
+    .read_to_end(&mut bytes)
+    .map_err(|e| format!("Cannot read index segment {name}: {e}"))?;
+    drop(read_span);
+    let checksum_span = crate::index_timing::FileSpan::new("v4.open.checksum", &path);
+    if bytes.len() as u64 != seal.bytes || sha256(&bytes) != seal.sha256 {
+        return Err(format!("Ordinary-index seal mismatch: {name}"));
+    }
+    drop(checksum_span);
+    Ok(bytes)
 }

@@ -10,7 +10,7 @@ pub fn present(root: &Path) -> bool {
     root.join(generation::POINTER).exists()
 }
 
-fn open_threads() -> Result<usize, String> {
+pub(super) fn open_threads() -> Result<usize, String> {
     let available = std::thread::available_parallelism().map_or(1, usize::from);
     let requested = match std::env::var("LUME_OPEN_THREADS") {
         Ok(value) => value
