@@ -1899,6 +1899,28 @@ mod tests {
     }
 
     #[test]
+    fn legacy_blend_scores_preserve_existing_formulas() {
+        let lexical = [SearchHit { section_index: 0, score: 4.0 },
+                       SearchHit { section_index: 1, score: 2.0 }];
+        let semantic = [SearchResult {
+            chunk_id: "one".to_string(), score: 0.5, text: String::new(),
+            source: Some("0".to_string()),
+        }];
+        for (mode, expected) in [
+            (crate::search::BlendMode::Multiplicative, [5.0f64, 2.0]),
+            (crate::search::BlendMode::Normalized, [1.25f64, 0.5]),
+        ] {
+            let hits = blend_hybrid_scores_with_mode(
+                &lexical, &semantic, &HashMap::new(), &HashMap::new(), 0.5, 0.0, mode,
+            );
+            assert_eq!(hits[0].section_index, 0);
+            assert_eq!(hits[1].section_index, 1);
+            assert_eq!(hits[0].hybrid_score.to_bits(), expected[0].to_bits());
+            assert_eq!(hits[1].hybrid_score.to_bits(), expected[1].to_bits());
+        }
+    }
+
+    #[test]
     fn blend_resolves_hash_sources_and_drops_orphans() {
         let sections = [
             section("a.rs", "alpha", "first body"),

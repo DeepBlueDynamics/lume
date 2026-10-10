@@ -18,7 +18,7 @@ node -e 'if (Number(process.versions.node.split(".")[0]) < 18) process.exit(1)'
 # Format copies only: preserve the source until its changed hunks are reviewed.
 rustfmt --edition 2021 --config skip_children=true /bench/h2-local-format/src/*.rs /bench/h2-local-format/tests/*.rs
 status=0
-rustfmt --edition 2021 --config skip_children=true --check src/local_vectors.rs src/search.rs src/hybrid.rs src/resident_index.rs src/main.rs src/lib.rs tests/local_vectors_cli.rs || status=1
+rustfmt --edition 2021 --config skip_children=true --check src/hybrid_fusion.rs src/local_vectors.rs src/search.rs src/hybrid.rs src/resident_index.rs src/main.rs src/lib.rs tests/local_vectors_cli.rs || status=1
 cargo clippy --locked -p lume --features lume/ti -p ti-contracts -p ti-core -p ti-store -p ti-ingest -p ti-sql -p ti-sync -p ti-bench -p ti-geo --all-targets -- -D warnings || status=1
 cargo test --locked --no-fail-fast --features ti || status=1
 du -sh "$CARGO_TARGET_DIR"
