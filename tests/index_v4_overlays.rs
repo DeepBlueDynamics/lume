@@ -198,8 +198,7 @@ fn colliding_fixture_candidates_never_share_directory_ownership() {
     );
     assert_ne!(first.root, second.root);
     drop(second);
-    overlays::publish(&first.root, vec![first.record(0, &["Pump"])], |_| Ok(()))
-        .unwrap();
+    overlays::publish(&first.root, vec![first.record(0, &["Pump"])], |_| Ok(())).unwrap();
     assert_eq!(first.replay()[0].entities, ["Pump"]);
 }
 
@@ -211,10 +210,15 @@ fn overlay_filesystem_errors_identify_operation_and_path() {
         .unwrap()
         .join("overlays");
     std::fs::write(&directory, b"not a directory").unwrap();
-    let error = overlays::publish(&fixture.root, vec![fixture.record(0, &["Pump"])], |_| {
-        Ok(())
-    })
+    let error = overlays::publish(
+        &fixture.root,
+        vec![fixture.record(0, &["Pump"])],
+        |_| Ok(()),
+    )
     .unwrap_err();
-    assert!(error.contains("Cannot create entity overlay directory"), "{error}");
+    assert!(
+        error.contains("Cannot create entity overlay directory"),
+        "{error}"
+    );
     assert!(error.contains(&directory.display().to_string()), "{error}");
 }

@@ -51,10 +51,17 @@ struct Node {
 }
 
 fn validate_directory(path: &Path) -> Result<(), String> {
-    let metadata = fs::symlink_metadata(path)
-        .map_err(|e| format!("Cannot inspect entity overlay directory {}: {e}", path.display()))?;
+    let metadata = fs::symlink_metadata(path).map_err(|e| {
+        format!(
+            "Cannot inspect entity overlay directory {}: {e}",
+            path.display()
+        )
+    })?;
     if !metadata.is_dir() || metadata.file_type().is_symlink() {
-        return Err(format!("Invalid entity overlay directory {}", path.display()));
+        return Err(format!(
+            "Invalid entity overlay directory {}",
+            path.display()
+        ));
     }
     Ok(())
 }
@@ -139,8 +146,12 @@ pub fn publish(
         return Err("Entity overlay node exceeds 64 MiB".into());
     }
     let directory = generation::generation_directory(root, &manifest)?.join("overlays");
-    fs::create_dir_all(&directory)
-        .map_err(|e| format!("Cannot create entity overlay directory {}: {e}", directory.display()))?;
+    fs::create_dir_all(&directory).map_err(|e| {
+        format!(
+            "Cannot create entity overlay directory {}: {e}",
+            directory.display()
+        )
+    })?;
     validate_directory(&directory)?;
     let id = crate::uuid_v4();
     let path = directory.join(format!("{id}.json"));
@@ -189,7 +200,10 @@ pub fn read(root: &Path, manifest: &Manifest) -> Result<Vec<Replacement>, String
             || metadata.file_type().is_symlink()
             || metadata.len() > MAX_NODE_BYTES
         {
-            return Err(format!("Invalid entity overlay node type or size {}", path.display()));
+            return Err(format!(
+                "Invalid entity overlay node type or size {}",
+                path.display()
+            ));
         }
         let mut bytes = Vec::new();
         File::open(&path)
