@@ -71,12 +71,12 @@ where
 /// Minimum coordination multiplier. A document matching none of the distinct
 /// query terms beyond candidacy keeps this fraction of its score; matching all
 /// of them keeps the full score. Keeps single-term matches viable while
-/// rewarding multi-term coverage. 0.5 is a deliberately gentle setting.
-const COORD_FLOOR: f64 = 0.5;
+/// rewarding multi-term coverage. Default is 1.0 (disabling coordination penalty).
+const COORD_FLOOR: f64 = 1.0;
 
 /// Returns the effective coordination floor multiplier, configurable via
-/// the `LUME_COORD_FLOOR` environment variable. Defaults to `0.5` (unchanged).
-/// Setting `LUME_COORD_FLOOR=1.0` disables coordination down-weighting.
+/// the `LUME_COORD_FLOOR` environment variable. Defaults to `1.0`.
+/// Setting `LUME_COORD_FLOOR=0.5` restores the legacy coordination penalty.
 pub fn coord_floor() -> f64 {
     std::env::var("LUME_COORD_FLOOR")
         .ok()
@@ -160,7 +160,7 @@ impl Default for Bm25Params {
             delta: 1.0,
             title_weight: 2.0,
             body_weight: 1.0,
-            coord_floor: 0.5,
+            coord_floor: 1.0,
         }
     }
 }
@@ -198,30 +198,34 @@ impl Bm25Params {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(1.0),
-            coord_floor: std::env::var("LUME_COORD_FLOOR")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(0.5),
+            coord_floor: coord_floor(),
         }
     }
 }
 
 /// Options controlling token processing during index construction.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Bm25BuildOptions {
     pub stemmed: bool,
     pub keep_hyphens: bool,
+}
+
+impl Default for Bm25BuildOptions {
+    fn default() -> Self {
+        Self {
+            stemmed: true,
+            keep_hyphens: false,
+        }
+    }
 }
 
 impl Bm25BuildOptions {
     pub fn from_env() -> Self {
         Self {
             stemmed: std::env::var("LUME_STEM")
-                .map(|v| v == "1")
-                .unwrap_or(false),
-            keep_hyphens: std::env::var("LUME_KEEP_HYPHENS")
-                .map(|v| v == "1")
-                .unwrap_or(false),
+                .map(|v| v != "0" && v.to_lowercase() != "false")
+                .unwrap_or(true),
+            keep_hyphens: false,
         }
     }
 }
@@ -441,12 +445,11 @@ impl Bm25Index {
         let mut entity_kinds = HashMap::new();
         let mut entity_labels = HashMap::new();
         let stem = options.stemmed;
-        let keep_hyphens = options.keep_hyphens;
 
         for (doc_idx, sec) in sections.iter().enumerate() {
             let doc_id = doc_idx as u32;
-            let t_toks = tokenize_with_options(&sec.title, stem, keep_hyphens);
-            let b_toks = tokenize_with_options(&sec.body, stem, keep_hyphens);
+            let t_toks = tokenize_with_options(&sec.title, stem, false);
+            let b_toks = tokenize_with_options(&sec.body, stem, false);
 
             title_lens.push(t_toks.len());
             body_lens.push(b_toks.len());
@@ -602,7 +605,7 @@ impl Bm25Index {
             entity_kinds,
             entity_labels,
             stemmed: stem,
-            keep_hyphens,
+            keep_hyphens: false,
         }
     }
 
@@ -644,11 +647,8 @@ impl Bm25Index {
                 }
             };
         }
-        let query_tokens = filter_query_stopwords(tokenize_with_options(
-            query,
-            self.stemmed,
-            self.keep_hyphens,
-        ));
+        let query_tokens =
+            filter_query_stopwords(tokenize_with_options(query, self.stemmed, false));
         if query_tokens.is_empty() || self.num_docs == 0 {
             return Vec::new();
         }
@@ -905,10 +905,8 @@ impl Bm25Index {
                             diagnostic_body_preview(&sec.body)
                         );
 
-                        let title_tokens =
-                            tokenize_with_options(&sec.title, self.stemmed, self.keep_hyphens);
-                        let body_tokens =
-                            tokenize_with_options(&sec.body, self.stemmed, self.keep_hyphens);
+                        let title_tokens = tokenize_with_options(&sec.title, self.stemmed, false);
+                        let body_tokens = tokenize_with_options(&sec.body, self.stemmed, false);
 
                         let title_terms: Vec<String> = title_tokens
                             .iter()
@@ -1088,34 +1086,34 @@ These changes include blebbing, cell shrinkage, nuclear fragmentation, and chrom
         let default_params = Bm25Params::default();
 
         // Query with two terms where doc2 only matches one: "alpha beta"
-        // Under default coord_floor (0.5), doc2 matches 1/2 distinct terms:
-        // coverage = 0.5, coord = 0.5 + 0.5 * 0.5 = 0.75
+        // Under default coord_floor (1.0), doc2 matches 1/2 distinct terms:
+        // coverage = 0.5, coord = 1.0 (no coordination penalty by default).
         let hits_default =
             index.search("alpha beta", SearchVariant::Classic, &default_params, None);
         let hit_doc2_default = hits_default.iter().find(|h| h.section_index == 1).unwrap();
         let default_score = hit_doc2_default.score;
 
-        // With coord_floor = 1.0: coord = 1.0 + 0 * coverage = 1.0 (no penalty)
-        let no_penalty_params = Bm25Params {
-            coord_floor: 1.0,
+        // With explicit legacy coord_floor = 0.5: coord = 0.5 + 0.5 * 0.5 = 0.75 (penalized)
+        let penalized_params = Bm25Params {
+            coord_floor: 0.5,
             ..Default::default()
         };
-        let hits_no_penalty = index.search(
+        let hits_penalized = index.search(
             "alpha beta",
             SearchVariant::Classic,
-            &no_penalty_params,
+            &penalized_params,
             None,
         );
-        let hit_doc2_no_penalty = hits_no_penalty
+        let hit_doc2_penalized = hits_penalized
             .iter()
             .find(|h| h.section_index == 1)
             .unwrap();
-        let no_penalty_score = hit_doc2_no_penalty.score;
+        let penalized_score = hit_doc2_penalized.score;
 
-        // With no penalty, score is exactly unpenalized (default_score / 0.75)
-        assert!(no_penalty_score > default_score);
+        // Default score is unpenalized (penalized_score / 0.75)
+        assert!(default_score > penalized_score);
         let expected_ratio = 1.0 / 0.75;
-        let actual_ratio = no_penalty_score / default_score;
+        let actual_ratio = default_score / penalized_score;
         assert!((actual_ratio - expected_ratio).abs() < 1e-4);
     }
 
@@ -1157,15 +1155,8 @@ These changes include blebbing, cell shrinkage, nuclear fragmentation, and chrom
             "Unstemmed index should not match inflected forms for 'connect'"
         );
 
-        // Case 2: stemmed index (stemmed: true)
-        let stemmed_index = Bm25Index::build_with_options(
-            vec![sec1, sec2],
-            None,
-            Bm25BuildOptions {
-                stemmed: true,
-                keep_hyphens: false,
-            },
-        );
+        // Case 2: default index (stemmed: true by default)
+        let stemmed_index = Bm25Index::build(vec![sec1, sec2], None);
         assert!(stemmed_index.stemmed);
 
         // Searching for base form "connect" matches sec1
@@ -1194,7 +1185,7 @@ These changes include blebbing, cell shrinkage, nuclear fragmentation, and chrom
     }
 
     #[test]
-    fn test_hyphen_internal_indexing_and_search() {
+    fn test_hyphen_joining_behavior() {
         let sec1 = Section {
             title: "Pathogen Identification".to_string(),
             body: "The sample confirmed presence of SARS-CoV-2 in respiratory droplets."
@@ -1211,15 +1202,8 @@ These changes include blebbing, cell shrinkage, nuclear fragmentation, and chrom
             entities: Vec::new(),
         };
 
-        // Case 1: default (keep_hyphens: false) -> "sarscov2"
-        let def_index = Bm25Index::build_with_options(
-            vec![sec1.clone(), sec2.clone()],
-            None,
-            Bm25BuildOptions {
-                stemmed: false,
-                keep_hyphens: false,
-            },
-        );
+        // Default: hyphens are stripped/joined -> "sarscov2"
+        let def_index = Bm25Index::build(vec![sec1, sec2], None);
         assert!(!def_index.keep_hyphens);
         let hits_def = def_index.search_quiet(
             "sarscov2",
@@ -1229,24 +1213,5 @@ These changes include blebbing, cell shrinkage, nuclear fragmentation, and chrom
         );
         assert_eq!(hits_def.len(), 1);
         assert_eq!(hits_def[0].section_index, 0);
-
-        // Case 2: keep_hyphens: true -> "sars-cov-2"
-        let kept_index = Bm25Index::build_with_options(
-            vec![sec1, sec2],
-            None,
-            Bm25BuildOptions {
-                stemmed: false,
-                keep_hyphens: true,
-            },
-        );
-        assert!(kept_index.keep_hyphens);
-        let hits_kept = kept_index.search_quiet(
-            "sars-cov-2",
-            SearchVariant::Classic,
-            &Bm25Params::default(),
-            None,
-        );
-        assert_eq!(hits_kept.len(), 1);
-        assert_eq!(hits_kept[0].section_index, 0);
     }
 }

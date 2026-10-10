@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Search & ranking
+- **Default stemming and coordination floor 1.0**: Ranking change: stemming + no coordination penalty by default; reindex to benefit. Note: stemmed indexes write index format_version 2 in `state.json`; older lume binaries (v0.12.3 or earlier) ignore this setting and search stemmed indexes with unstemmed queries, so upgrade lume or reindex.
+  - Stemming (Snowball English) is now enabled by default for new indexes (`LUME_STEM=0` opts out). Existing indexes preserve their unstemmed setting in `state.json` (format version 1); searching an unstemmed index prints a notice suggesting `lume index -f` to benefit.
+  - The default coordination factor floor is now 1.0 (disabling coordination down-weighting penalties; configurable via `LUME_COORD_FLOOR`).
+  - Unknown future index format versions (`format_version > 2`) are refused with a clear "rebuild with a newer lume or reindex" message.
+  - Benchmarked across SciFact (nDCG@10 0.645 → 0.677, R_cap@100 0.873 → 0.906, MRR@10 0.608 → 0.644), TREC-COVID (nDCG@10 0.561 → 0.632, R_cap@100 0.442 → 0.485, MRR@10 0.842 → 0.911), and held-out NFCorpus (nDCG@10 0.296 → 0.314, R_cap@100 0.236 → 0.251, MRR@10 0.515 → 0.528).
+  - Legacy `keep_hyphens=true` indexes are rejected with a clear reindex error; hyphen-internal token preservation flag dropped from index construction.
+
 ### OTLP receiver & agent telemetry (Lume TI)
 - **Built-in OTLP HTTP/JSON receiver** (`POST /v1/metrics` and `POST /v1/logs`, D50):
   ingests agent telemetry (token usage, active time, tool executions, file edits)

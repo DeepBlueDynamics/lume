@@ -61,8 +61,16 @@ impl Default for SearchOptions {
     }
 }
 
+pub const CURRENT_FORMAT_VERSION: u32 = 2;
+
+fn default_format_version() -> u32 {
+    1
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct IndexState {
+    #[serde(default = "default_format_version")]
+    pub format_version: u32,
     pub target_dir: String,
     pub db_dir: String,
     pub semantic_enabled: bool,
@@ -76,6 +84,23 @@ pub struct IndexState {
     pub stemmed: bool,
     #[serde(default)]
     pub keep_hyphens: bool,
+}
+
+pub fn check_state_compatibility(state: &IndexState) -> Result<(), String> {
+    if state.format_version > CURRENT_FORMAT_VERSION {
+        return Err(format!(
+            "Index format version {} is newer than supported version {}; rebuild with a newer lume or reindex with 'lume index -f'.",
+            state.format_version,
+            CURRENT_FORMAT_VERSION
+        ));
+    }
+    if state.keep_hyphens {
+        return Err(
+            "Index was built with legacy keep_hyphens=true, which is no longer supported; please reindex with 'lume index -f'."
+                .to_string(),
+        );
+    }
+    Ok(())
 }
 
 pub struct LoadedIndex {
@@ -97,8 +122,10 @@ pub struct OpenEnvChecks {
 impl OpenEnvChecks {
     pub fn from_env() -> Self {
         Self {
-            check_stem: std::env::var("LUME_STEM").ok().map(|v| v == "1"),
-            check_keep_hyphens: std::env::var("LUME_KEEP_HYPHENS").ok().map(|v| v == "1"),
+            check_stem: std::env::var("LUME_STEM")
+                .ok()
+                .map(|v| v != "0" && v.to_lowercase() != "false"),
+            check_keep_hyphens: None,
         }
     }
 }
@@ -121,6 +148,7 @@ impl LoadedIndex {
             ));
         }
         let state: IndexState = load_json(&state_path)?;
+        check_state_compatibility(&state)?;
 
         if let Some(env_stemmed) = checks.check_stem {
             if env_stemmed != state.stemmed {
@@ -128,16 +156,6 @@ impl LoadedIndex {
                     "Stemming configuration mismatch: index was built with stemmed={}, but LUME_STEM={} was requested",
                     state.stemmed,
                     if env_stemmed { "1" } else { "0" }
-                ));
-            }
-        }
-
-        if let Some(env_keep_hyphens) = checks.check_keep_hyphens {
-            if env_keep_hyphens != state.keep_hyphens {
-                return Err(format!(
-                    "Hyphen configuration mismatch: index was built with keep_hyphens={}, but LUME_KEEP_HYPHENS={} was requested",
-                    state.keep_hyphens,
-                    if env_keep_hyphens { "1" } else { "0" }
                 ));
             }
         }
@@ -151,7 +169,7 @@ impl LoadedIndex {
         }
         let mut bm25: Bm25Index = load_json(&bm25_path)?;
         bm25.stemmed = state.stemmed;
-        bm25.keep_hyphens = state.keep_hyphens;
+        bm25.keep_hyphens = false;
         let spelling: Option<SpellIndex> = load_json(&db_path.join("spelling.json")).ok();
         let entity_graph: Option<EntityGraph> = load_json(&db_path.join("entity_graph.json")).ok();
 
@@ -421,6 +439,10 @@ pub fn search(
     opts: &SearchOptions,
 ) -> Result<SearchResults, String> {
     let mut warnings = Vec::new();
+
+    if !index.bm25.stemmed {
+        warnings.push("Notice: this index was built without stemming; run 'lume index -f' to reindex with default stemming.".to_string());
+    }
 
     // 1. Spell correction
     let (corrected_query_opt, effective_query) = if opts.spell_check {
@@ -783,6 +805,7 @@ mod tests {
     fn test_lexical_only_with_nonexistent_target_dir() {
         let bm25 = build_test_bm25();
         let state = IndexState {
+            format_version: CURRENT_FORMAT_VERSION,
             target_dir: "/nonexistent/directory/that/does/not/exist/987654321".to_string(),
             db_dir: ".dummy-db".to_string(),
             semantic_enabled: false,
@@ -792,7 +815,7 @@ mod tests {
             tag_dict_path: None,
             semantic_session_id: None,
             cached_files: HashMap::new(),
-            stemmed: false,
+            stemmed: true,
             keep_hyphens: false,
         };
         let index = LoadedIndex {
@@ -821,6 +844,7 @@ mod tests {
     fn test_hybrid_fallback_on_missing_session() {
         let bm25 = build_test_bm25();
         let state = IndexState {
+            format_version: CURRENT_FORMAT_VERSION,
             target_dir: "/dummy/target".to_string(),
             db_dir: ".dummy-db".to_string(),
             semantic_enabled: false,
@@ -830,7 +854,7 @@ mod tests {
             tag_dict_path: None,
             semantic_session_id: None,
             cached_files: HashMap::new(),
-            stemmed: false,
+            stemmed: true,
             keep_hyphens: false,
         };
         let index = LoadedIndex {
@@ -863,6 +887,7 @@ mod tests {
     fn test_hybrid_strict_fails_on_missing_session() {
         let bm25 = build_test_bm25();
         let state = IndexState {
+            format_version: CURRENT_FORMAT_VERSION,
             target_dir: "/dummy/target".to_string(),
             db_dir: ".dummy-db".to_string(),
             semantic_enabled: false,
@@ -872,7 +897,7 @@ mod tests {
             tag_dict_path: None,
             semantic_session_id: None,
             cached_files: HashMap::new(),
-            stemmed: false,
+            stemmed: true,
             keep_hyphens: false,
         };
         let index = LoadedIndex {
@@ -992,6 +1017,7 @@ mod tests {
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         let state = IndexState {
+            format_version: 1,
             target_dir: "/dummy".to_string(),
             db_dir: temp_dir.display().to_string(),
             semantic_enabled: false,
@@ -1005,7 +1031,14 @@ mod tests {
             keep_hyphens: false,
         };
         save_json(&temp_dir.join("state.json"), &state).unwrap();
-        let bm25 = Bm25Index::build(vec![], None);
+        let bm25 = Bm25Index::build_with_options(
+            vec![],
+            None,
+            crate::bm25::Bm25BuildOptions {
+                stemmed: false,
+                keep_hyphens: false,
+            },
+        );
         save_json(&temp_dir.join("bm25.json"), &bm25).unwrap();
 
         // 1. With no checks requested, opening succeeds and uses state.stemmed (false)
@@ -1028,6 +1061,7 @@ mod tests {
 
         // 3. Now test a stemmed index
         let state_stemmed = IndexState {
+            format_version: CURRENT_FORMAT_VERSION,
             stemmed: true,
             ..state
         };
@@ -1062,12 +1096,13 @@ mod tests {
     }
 
     #[test]
-    fn test_hyphen_mismatch_refusal() {
-        let temp_dir = std::env::temp_dir().join("lume_test_hyphen_mismatch");
+    fn test_legacy_keep_hyphens_refusal() {
+        let temp_dir = std::env::temp_dir().join("lume_test_legacy_hyphens");
         let _ = std::fs::remove_dir_all(&temp_dir);
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         let state = IndexState {
+            format_version: 1,
             target_dir: "/dummy".to_string(),
             db_dir: temp_dir.display().to_string(),
             semantic_enabled: false,
@@ -1077,66 +1112,123 @@ mod tests {
             tag_dict_path: None,
             semantic_session_id: None,
             cached_files: HashMap::new(),
-            stemmed: false,
+            stemmed: true,
             keep_hyphens: false,
         };
         save_json(&temp_dir.join("state.json"), &state).unwrap();
         let bm25 = Bm25Index::build(vec![], None);
         save_json(&temp_dir.join("bm25.json"), &bm25).unwrap();
 
-        // 1. With no checks requested, opening succeeds and uses state.keep_hyphens (false)
-        let loaded = LoadedIndex::open_with_checks(&temp_dir, OpenEnvChecks::default()).unwrap();
+        // 1. Index with keep_hyphens=false opens cleanly
+        let loaded = LoadedIndex::open(&temp_dir).unwrap();
         assert!(!loaded.bm25.keep_hyphens);
 
-        // 2. With check_keep_hyphens = Some(true), opening unflagged index fails with mismatch error
-        let err = match LoadedIndex::open_with_checks(
-            &temp_dir,
-            OpenEnvChecks {
-                check_stem: None,
-                check_keep_hyphens: Some(true),
-            },
-        ) {
-            Ok(_) => panic!("expected Err"),
-            Err(e) => e,
-        };
-        assert!(err.contains("Hyphen configuration mismatch"));
-        assert!(err.contains(
-            "index was built with keep_hyphens=false, but LUME_KEEP_HYPHENS=1 was requested"
-        ));
-
-        // 3. Now test an index with keep_hyphens: true
+        // 2. Index with keep_hyphens=true is refused with legacy deprecation error
         let state_hyphens = IndexState {
             keep_hyphens: true,
             ..state
         };
         save_json(&temp_dir.join("state.json"), &state_hyphens).unwrap();
 
-        // With check_keep_hyphens = Some(true), matches index
-        let loaded_hyphens = LoadedIndex::open_with_checks(
-            &temp_dir,
-            OpenEnvChecks {
-                check_stem: None,
-                check_keep_hyphens: Some(true),
-            },
-        )
-        .unwrap();
-        assert!(loaded_hyphens.bm25.keep_hyphens);
-
-        // With check_keep_hyphens = Some(false), opening hyphen index fails with mismatch error
-        let err2 = match LoadedIndex::open_with_checks(
-            &temp_dir,
-            OpenEnvChecks {
-                check_stem: None,
-                check_keep_hyphens: Some(false),
-            },
-        ) {
-            Ok(_) => panic!("expected Err"),
+        let err = match LoadedIndex::open(&temp_dir) {
+            Ok(_) => panic!("expected Err for legacy keep_hyphens=true index"),
             Err(e) => e,
         };
-        assert!(err2.contains("Hyphen configuration mismatch"));
-        assert!(err2.contains(
-            "index was built with keep_hyphens=true, but LUME_KEEP_HYPHENS=0 was requested"
+        assert!(err.contains(
+            "Index was built with legacy keep_hyphens=true, which is no longer supported; please reindex with 'lume index -f'."
         ));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_old_index_without_stemmed_field_works_unstemmed_and_prints_notice() {
+        let temp_dir = std::env::temp_dir().join("lume_test_legacy_unstemmed_notice");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        // Write a legacy state.json without the "stemmed" key
+        let legacy_state_json = r#"{
+            "target_dir": "/dummy",
+            "db_dir": "/dummy",
+            "semantic_enabled": false,
+            "ollama_entities": false,
+            "ollama_model": "",
+            "ollama_url": "",
+            "tag_dict_path": null,
+            "semantic_session_id": null,
+            "cached_files": {}
+        }"#;
+        std::fs::write(temp_dir.join("state.json"), legacy_state_json).unwrap();
+        let bm25 = build_test_bm25();
+        save_json(&temp_dir.join("bm25.json"), &bm25).unwrap();
+
+        let loaded =
+            LoadedIndex::open(&temp_dir).expect("Legacy unstemmed index should open without error");
+        assert!(
+            !loaded.bm25.stemmed,
+            "Legacy index without 'stemmed' field must be treated as unstemmed"
+        );
+
+        let opts = SearchOptions {
+            mode: SearchMode::LexicalOnly,
+            graph_beta: 0.0,
+            ..Default::default()
+        };
+        let res = search(&loaded, "captain", &opts).expect("Search should succeed");
+        assert!(
+            res.warnings
+                .iter()
+                .any(|w| w.contains("Notice: this index was built without stemming; run 'lume index -f' to reindex with default stemming.")),
+            "Expected notice when searching unstemmed index, got: {:?}",
+            res.warnings
+        );
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_default_index_and_search_uses_stemming() {
+        let temp_dir = std::env::temp_dir().join("lume_test_default_stemming");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let state = IndexState {
+            format_version: CURRENT_FORMAT_VERSION,
+            target_dir: "/dummy".to_string(),
+            db_dir: temp_dir.display().to_string(),
+            semantic_enabled: false,
+            ollama_entities: false,
+            ollama_model: String::new(),
+            ollama_url: String::new(),
+            tag_dict_path: None,
+            semantic_session_id: None,
+            cached_files: HashMap::new(),
+            stemmed: true,
+            keep_hyphens: false,
+        };
+        save_json(&temp_dir.join("state.json"), &state).unwrap();
+        let bm25 = build_test_bm25();
+        save_json(&temp_dir.join("bm25.json"), &bm25).unwrap();
+
+        let loaded = LoadedIndex::open(&temp_dir).unwrap();
+        assert!(loaded.bm25.stemmed, "Default index should be stemmed");
+
+        let opts = SearchOptions {
+            mode: SearchMode::LexicalOnly,
+            graph_beta: 0.0,
+            ..Default::default()
+        };
+        // "sailing" stems to "sail", matching "sailed" in Chapter 1
+        let res = search(&loaded, "sailing", &opts).expect("Search should succeed");
+        assert_eq!(res.hits.len(), 1);
+        assert_eq!(res.hits[0].title, "Chapter 1");
+        assert!(
+            !res.warnings
+                .iter()
+                .any(|w| w.contains("Notice: this index was built without stemming")),
+            "Stemmed index must not emit unstemmed notice"
+        );
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
@@ -1145,6 +1237,7 @@ mod tests {
     fn test_search_path_honors_explicit_bm25_params() {
         let bm25 = build_test_bm25();
         let state = IndexState {
+            format_version: CURRENT_FORMAT_VERSION,
             target_dir: "/dummy/target".to_string(),
             db_dir: ".dummy-db".to_string(),
             semantic_enabled: false,
@@ -1154,7 +1247,7 @@ mod tests {
             tag_dict_path: None,
             semantic_session_id: None,
             cached_files: HashMap::new(),
-            stemmed: false,
+            stemmed: true,
             keep_hyphens: false,
         };
         let index = LoadedIndex {
@@ -1166,7 +1259,7 @@ mod tests {
             cache_dir: None,
         };
 
-        // 1. Lexical search with default params (coord_floor = 0.5)
+        // 1. Lexical search with default params (coord_floor = 1.0, unpenalized)
         let default_opts = SearchOptions {
             mode: SearchMode::LexicalOnly,
             graph_beta: 0.0,
@@ -1176,23 +1269,23 @@ mod tests {
         assert!(!default_res.hits.is_empty());
         let default_score = default_res.hits[0].score;
 
-        // 2. Lexical search with explicit coord_floor = 1.0 (no penalty)
-        let custom_params = Bm25Params {
-            coord_floor: 1.0,
+        // 2. Lexical search with explicit coord_floor = 0.5 (penalized)
+        let penalized_params = Bm25Params {
+            coord_floor: 0.5,
             ..Default::default()
         };
-        let custom_opts = SearchOptions {
+        let penalized_opts = SearchOptions {
             mode: SearchMode::LexicalOnly,
             graph_beta: 0.0,
-            bm25_params: custom_params,
+            bm25_params: penalized_params,
             ..Default::default()
         };
-        let custom_res = search(&index, "captain treasure", &custom_opts).unwrap();
-        assert!(!custom_res.hits.is_empty());
-        let custom_score = custom_res.hits[0].score;
+        let penalized_res = search(&index, "captain treasure", &penalized_opts).unwrap();
+        assert!(!penalized_res.hits.is_empty());
+        let penalized_score = penalized_res.hits[0].score;
 
-        assert!(custom_score > default_score);
-        let ratio = custom_score / default_score;
+        assert!(default_score > penalized_score);
+        let ratio = default_score / penalized_score;
         assert!((ratio - (1.0 / 0.75)).abs() < 1e-4);
 
         // 3. HybridOrFallback mode (falls back to lexical due to None semantic_session_id)
@@ -1206,18 +1299,62 @@ mod tests {
         let fb_default_res = search(&index, "captain treasure", &fb_default_opts).unwrap();
         assert_eq!(fb_default_res.hits[0].score, default_score);
 
-        // With explicit custom params in HybridOrFallback mode, score must match custom_score
-        let fb_custom_opts = SearchOptions {
+        // With explicit custom params in HybridOrFallback mode, score must match penalized_score
+        let fb_penalized_opts = SearchOptions {
             mode: SearchMode::HybridOrFallback,
             alpha: 0.5,
             graph_beta: 0.0,
             bm25_params: Bm25Params {
-                coord_floor: 1.0,
+                coord_floor: 0.5,
                 ..Default::default()
             },
             ..Default::default()
         };
-        let fb_custom_res = search(&index, "captain treasure", &fb_custom_opts).unwrap();
-        assert_eq!(fb_custom_res.hits[0].score, custom_score);
+        let fb_penalized_res = search(&index, "captain treasure", &fb_penalized_opts).unwrap();
+        assert_eq!(fb_penalized_res.hits[0].score, penalized_score);
+    }
+
+    #[test]
+    fn test_unknown_higher_format_version_refusal() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "lume_test_higher_version_{}_{}",
+            std::process::id(),
+            crate::uuid_v4()
+        ));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let higher_version_state_json = r#"{
+            "format_version": 99,
+            "target_dir": "/tmp/dummy",
+            "db_dir": ".dummy-db",
+            "semantic_enabled": false,
+            "ollama_entities": false,
+            "ollama_model": "test",
+            "ollama_url": "http://localhost:11434",
+            "tag_dict_path": null,
+            "semantic_session_id": null,
+            "cached_files": {},
+            "stemmed": true,
+            "keep_hyphens": false
+        }"#;
+        std::fs::write(temp_dir.join("state.json"), higher_version_state_json).unwrap();
+
+        let err = match LoadedIndex::open(&temp_dir) {
+            Ok(_) => panic!("expected Err for higher format_version index"),
+            Err(e) => e,
+        };
+        assert!(
+            err.contains("rebuild with a newer lume or reindex"),
+            "expected 'rebuild with a newer lume or reindex' in error, got: {}",
+            err
+        );
+        assert!(
+            err.contains("format version 99"),
+            "expected format version 99 in error, got: {}",
+            err
+        );
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
