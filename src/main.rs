@@ -7,8 +7,9 @@ use std::time::{Instant, SystemTime};
 
 use lume::bm25::{Bm25Index, Bm25Params, SearchVariant, Section};
 use lume::search::{
-    correct_query, format_cli_output, load_json, load_tagger_csv, save_json, search, BlendMode,
-    IndexState, LoadedIndex, SearchMode, SearchOptions,
+    check_state_compatibility, correct_query, format_cli_output, load_json, load_tagger_csv,
+    save_json, search, BlendMode, IndexState, LoadedIndex, SearchMode, SearchOptions,
+    CURRENT_FORMAT_VERSION,
 };
 use lume::semantic_mesh::EntityGraph;
 use lume::spelling::SpellIndex;
@@ -1187,7 +1188,11 @@ fn handle_index_init(args: &[String]) -> Result<(), String> {
     let mut cached_files = HashMap::new();
     if state_file_path.exists() {
         if let Ok(state) = load_json::<IndexState>(&state_file_path) {
-            if state.target_dir == dir {
+            if let Err(e) = check_state_compatibility(&state) {
+                if !force {
+                    return Err(e);
+                }
+            } else if state.target_dir == dir {
                 cached_files = state.cached_files;
             }
         }
@@ -1256,6 +1261,7 @@ fn handle_index_update(args: &[String]) -> Result<(), String> {
     }
 
     let state: IndexState = load_json(&state_file_path)?;
+    check_state_compatibility(&state)?;
 
     println!("Updating index for target directory: {}", state.target_dir);
 
@@ -1948,16 +1954,26 @@ fn run_indexing(
 
     // Make the db searchable (and the semantic session visible to the search
     // gate) before the slow extraction pass begins.
-    let stemmed = std::env::var("LUME_STEM")
-        .map(|v| v == "1")
-        .unwrap_or(false);
-    let keep_hyphens = std::env::var("LUME_KEEP_HYPHENS")
-        .map(|v| v == "1")
-        .unwrap_or(false);
+    let stemmed = if !force && db_path.join("state.json").exists() {
+        if let Ok(prev_state) = load_json::<IndexState>(&db_path.join("state.json")) {
+            prev_state.stemmed
+        } else {
+            std::env::var("LUME_STEM")
+                .map(|v| v != "0" && v.to_lowercase() != "false")
+                .unwrap_or(true)
+        }
+    } else {
+        std::env::var("LUME_STEM")
+            .map(|v| v != "0" && v.to_lowercase() != "false")
+            .unwrap_or(true)
+    };
+    let format_version = if stemmed { CURRENT_FORMAT_VERSION } else { 1 };
+    let keep_hyphens = false;
     let early_flush_start = Instant::now();
     let early_count =
         flush_searchable_indexes(&cached_files, tagger.as_ref(), &tagger_phrases, db_path)?;
     let early_state = IndexState {
+        format_version,
         target_dir: target_dir.to_string(),
         db_dir: db_dir.to_string(),
         semantic_enabled,
@@ -2116,6 +2132,7 @@ fn run_indexing(
                             // session id) so an interrupted run resumes from
                             // the last completed chunk.
                             let temp_state = IndexState {
+                                format_version,
                                 target_dir: target_dir.to_string(),
                                 db_dir: db_dir.to_string(),
                                 semantic_enabled,
@@ -2182,6 +2199,7 @@ fn run_indexing(
         flush_searchable_indexes(&cached_files, tagger.as_ref(), &tagger_phrases, db_path)?;
 
     let state = IndexState {
+        format_version,
         target_dir: target_dir.to_string(),
         db_dir: db_dir.to_string(),
         semantic_enabled,
@@ -2440,6 +2458,7 @@ fn handle_eval(args: &[String]) -> Result<(), String> {
     }
     lume::hybrid::set_cache_dir(db_path);
     let state: IndexState = load_json(&state_file_path)?;
+    check_state_compatibility(&state)?;
     let bm25: Bm25Index = load_json(&db_path.join("bm25.json"))?;
     let spelling: SpellIndex = load_json(&db_path.join("spelling.json"))?;
     let graph: Option<EntityGraph> = load_json(&db_path.join("entity_graph.json")).ok();
@@ -2700,7 +2719,8 @@ fn handle_stream(args: &[String]) -> Result<(), String> {
         ));
     }
     lume::hybrid::set_cache_dir(db_path);
-    let _state: IndexState = load_json(&state_file_path)?;
+    let state: IndexState = load_json(&state_file_path)?;
+    check_state_compatibility(&state)?;
     let bm25: Bm25Index = load_json(&db_path.join("bm25.json"))?;
 
     // Quiet candidate retrieval per query (BM25 + optional SKG), unioned with
