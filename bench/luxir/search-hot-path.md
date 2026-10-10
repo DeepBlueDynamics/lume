@@ -58,3 +58,18 @@ Verified build: source `58ec10e`, version 0.12.3, rustc 1.96.1, features ti, thi
 | maxscore-f3-f2 | trec-covid | 8.16 | 10.62 | 14.69 | 529.42 | 540.27 |
 
 All four timed runs preserve byte-identical rankings and have zero errors at concurrency 8 and 16. TREC-COVID F3+F2 p50 improves 9.11→8.16 ms (10.4%) and QPS8 303.29→529.42 (74.6%); both TREC profiles meet the <10 ms p50 target. F3+F2 p99 rises 12.44→14.69 ms, so this is not a uniform tail-latency improvement. End-to-end QPS remains client-bound. Fixed network/JSON overhead is a hypothesis pending paired stage measurements. Full values are in search-hot-path-step3.json; raw runs use lume-maxscore-*.
+
+## Final candidate API measurement
+
+The public candidate bitmap is exhaustive and accepts an optional allow bitmap; filtered top-k keeps whole-index scoring statistics. Neither candidate generation nor filtering uses top-k pruning to decide membership.
+
+| Profile | Corpus | p50 ms | p95 ms | p99 ms | QPS 8 | QPS 16 |
+|---|---|---:|---:|---:|---:|---:|
+| candidate-off | scifact | 2.64 | 3.63 | 3.86 | 561.10 | 580.60 |
+| candidate-off | trec-covid | 5.79 | 7.80 | 8.76 | 474.66 | 479.11 |
+| candidate-f3-f2 | scifact | 2.34 | 3.11 | 3.40 | 589.25 | 582.88 |
+| candidate-f3-f2 | trec-covid | 6.77 | 9.01 | 12.09 | 575.34 | 574.30 |
+
+All four saved timing summaries report ranking parity. The lead reports four direct quality checks against MaxScore passing. TREC-COVID F3+F2 p50 is 6.77 ms, below the 10 ms target; the timing difference from MaxScore is not attributed solely to the API change without repeated paired measurements. Exact values and binary provenance are in search-hot-path-candidate.json.
+
+Candidate source 830394d passed 90/90 library tests twice, touched-file formatting and strict root clippy in the build run. The full TI gate rerun is pending: its first attempt stopped because the image lacked clippy. The gate script now installs rustfmt and clippy before checking. No Rust source changed after the measured binary build.
