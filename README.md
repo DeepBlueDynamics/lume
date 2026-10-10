@@ -453,9 +453,24 @@ Merged as PR #8 after v0.12.3; it ships in the next release. Stemming plus a coo
 
 NFCorpus (3.6k documents, 323 queries) was not used to choose the change. Luxir is still ahead there (0.321 vs 0.314). On the sets that were tuned, Lume is ahead on TREC-COVID (0.632 vs 0.605) and close on SciFact (0.677 vs 0.679).
 
-### In progress, not released
+### Hybrid search
 
-Integer term ids, Step 1 on branch `perf/search-hot-path`. Unreleased, measured on branch. With the new defaults, TREC-COVID p50 is 10.07 ms and SciFact p50 is 2.60 ms. Rankings on that branch stayed byte-identical.
+Local-vector hybrid search is on main and documented in [docs/HYBRID.md](docs/HYBRID.md). It is not in v0.12.3. Both engines use the same EmbeddingGemma 2 vectors, 768 dimensions. Lume loads that cache and makes no Shivvr calls. nDCG@10:
+
+| | SciFact | NFCorpus (held out) |
+|---|---:|---:|
+| Lume normalized-v2, alpha 2.0, depth 100 | 0.853 | 0.373 |
+| Luxir hybrid, RRF | 0.779 | 0.370 |
+
+Alpha 2.0 was chosen on SciFact. There Lume leads by 0.074. Dense-only on those same vectors scores 0.845, and this is the SciFact blend that beats dense-only. NFCorpus was not used to choose alpha. Held out, it is a tie (0.373 vs 0.370). Recall@100 and MRR@10 stay within 0.001 to 0.003: Lume 0.343 and 0.576, Luxir 0.344 and 0.577.
+
+### Facets and index build
+
+Typed metadata, filters, and facets are on main and documented in [docs/FACETS.md](docs/FACETS.md). They are not in v0.12.3. TREC-COVID p50 on the facets build is 6.27 ms, measured after facet work stopped running on queries that do not ask for facets.
+
+The TREC-COVID index build drops from 90.4 s to 56.0 s with one BM25 build and flush instead of four. Peak RSS on that pair of runs drops from 2.70 GB to 2.43 GB.
+
+Integer term ids (Step 1) are on main and not in v0.12.3. With the new defaults, TREC-COVID p50 is 10.07 ms and SciFact p50 is 2.60 ms. Rankings stayed byte-identical.
 
 ### Vector inversion
 
