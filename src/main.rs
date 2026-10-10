@@ -2504,7 +2504,14 @@ fn run_indexing(
                                 stemmed,
                                 keep_hyphens,
                             };
-                            let _ = save_json(&db_path.join("state.json"), &temp_state);
+                            let state_path = db_path.join("state.json");
+                            if let Err(e) = save_json(&state_path, &temp_state) {
+                                eprintln!(
+                                    "  [⚠️] Warning: failed to save index checkpoint {}: {}",
+                                    state_path.display(),
+                                    e
+                                );
+                            }
 
                             // Periodically rewrite the searchable indexes so
                             // long extraction runs can be queried mid-flight.
