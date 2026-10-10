@@ -43,9 +43,9 @@ Accelerates `MiniRoaring` container operations (`intersect`, `union`, `andnot`, 
 ### 2. ARM Hardware Verification (Raspberry Pi 5, aarch64 Cortex-A76)
 - **SIMD Differential Tests**: 3/3 tests PASS on physical NEON hardware.
 - **Microbenchmark (10,000 iterations × 8 KiB container)**:
-  - `bitmap_and`: Scalar 3.33 ms vs NEON 4.45 ms (**0.75x** — scalar faster; routed to scalar)
-  - `bitmap_popcount`: Scalar 5.24 ms vs NEON 4.43 ms (**1.18x speedup** — NEON retained)
-  - `and_popcount`: Scalar 6.76 ms vs NEON 5.67 ms (**1.19x speedup** — NEON retained)
+  - `bitmap_and`: Scalar 3.37 ms vs SIMD 3.37 ms (**1.00x** — routed to scalar by design)
+  - `bitmap_popcount`: Scalar 5.22 ms vs NEON 4.36 ms (**1.20x speedup** — NEON retained)
+  - `and_popcount`: Scalar 7.27 ms vs NEON 5.50 ms (**1.32x speedup** — NEON retained)
 - **SciFact End-to-End Parity**:
   - 300 queries on `f3-f2` verified via standalone parity harness: **BYTE PARITY PASS** (run SHA256: `8f7e3d53…42b4`).
 
