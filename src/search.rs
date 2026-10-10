@@ -479,7 +479,8 @@ pub fn search(
         }
     }
     if !parsed_query.not_terms.is_empty() && parsed_query.positive_terms.is_empty() {
-        warnings.push("Notice: query contains only excluded terms; returning 0 results.".to_string());
+        warnings
+            .push("Notice: query contains only excluded terms; returning 0 results.".to_string());
     }
 
     // 2. SKG graph walk
