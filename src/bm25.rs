@@ -343,17 +343,22 @@ pub struct Bm25Index {
     #[serde(default)]
     pub keep_hyphens: bool,
 
+    #[serde(skip)]
+    compact_forward: Option<std::sync::Arc<CompactForward>>,
+
     // Derived from the saved byte-keyed maps once; never changes the JSON format.
     #[serde(skip)]
     interned: std::sync::OnceLock<std::sync::Arc<InternedIndex>>,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct TermPosting {
-    doc: u32,
-    title_tf: usize,
-    body_tf: usize,
+#[derive(Debug)]
+struct CompactForward {
+    vocabulary: HashMap<Vec<u8>, u32>,
+    title: crate::index_binary::csr::ForwardCsr,
+    body: crate::index_binary::csr::ForwardCsr,
 }
+
+type TermPosting = crate::index_binary::postings::Posting;
 
 struct SearchRun<'a> {
     verbose: bool,
@@ -369,15 +374,24 @@ type ProfileBounds = HashMap<u32, BoundsCell>;
 struct InternedIndex {
     vocabulary: HashMap<Vec<u8>, u32>,
     postings: Vec<Vec<TermPosting>>,
+    flat_postings: Option<crate::index_binary::postings::PostingsCsr>,
     bounds: std::sync::Mutex<HashMap<BoundsKey, ProfileBounds>>,
 }
 
 impl InternedIndex {
+    fn postings(&self, term: u32) -> &[TermPosting] {
+        match &self.flat_postings {
+            Some(flat) => flat.row(term).unwrap_or(&[]),
+            None => &self.postings[term as usize],
+        }
+    }
+
     fn build(index: &Bm25Index) -> Self {
         let _timing = crate::index_timing::Span::new("open.bm25_reconstruct_postings");
         let mut result = Self {
             vocabulary: HashMap::new(),
             postings: Vec::new(),
+            flat_postings: None,
             bounds: std::sync::Mutex::new(HashMap::new()),
         };
         for doc in 0..index.num_docs {
@@ -388,8 +402,8 @@ impl InternedIndex {
                     bytes,
                     TermPosting {
                         doc: doc as u32,
-                        title_tf,
-                        body_tf: body.get(bytes).copied().unwrap_or(0),
+                        title_tf: title_tf as u64,
+                        body_tf: body.get(bytes).copied().unwrap_or(0) as u64,
                     },
                 );
             }
@@ -400,7 +414,7 @@ impl InternedIndex {
                         TermPosting {
                             doc: doc as u32,
                             title_tf: 0,
-                            body_tf,
+                            body_tf: body_tf as u64,
                         },
                     );
                 }
@@ -654,6 +668,108 @@ pub fn parse_markdown(content: &str) -> Vec<Section> {
 }
 
 impl Bm25Index {
+    /// Replace legacy forward maps with checked flat rows and prebuilt postings.
+    /// This is an in-memory conversion; it never writes or migrates an index.
+    pub fn compact_for_v4(&mut self) -> Result<(), String> {
+        if self.compact_forward.is_some() {
+            return Ok(());
+        }
+        let doc_count = u32::try_from(self.num_docs).map_err(|_| "V4 documents exceed u32")?;
+        if self.title_tfs.len() != self.num_docs || self.body_tfs.len() != self.num_docs {
+            return Err("V4 forward row count mismatch".into());
+        }
+        let mut words: Vec<Vec<u8>> = self
+            .title_tfs
+            .iter()
+            .chain(&self.body_tfs)
+            .flat_map(|row| row.keys().cloned())
+            .collect();
+        words.sort_unstable();
+        words.dedup();
+        let term_count = u32::try_from(words.len()).map_err(|_| "V4 terms exceed u32")?;
+        let vocabulary: HashMap<Vec<u8>, u32> = words
+            .into_iter()
+            .enumerate()
+            .map(|(id, word)| (word, id as u32))
+            .collect();
+        let forward = |rows: &[HashMap<Vec<u8>, usize>]| {
+            let mut offsets = Vec::with_capacity(rows.len() + 1);
+            let mut entries = Vec::new();
+            offsets.push(0);
+            for row in rows {
+                let start = entries.len();
+                for (word, &tf) in row {
+                    entries.push(crate::index_binary::csr::ForwardEntry {
+                        term: vocabulary[word],
+                        tf: tf as u64,
+                    });
+                }
+                entries[start..].sort_unstable_by_key(|entry| entry.term);
+                offsets.push(entries.len() as u64);
+            }
+            crate::index_binary::csr::ForwardCsr::new(term_count, offsets, entries)
+        };
+        let title = forward(&self.title_tfs)?;
+        let body = forward(&self.body_tfs)?;
+        let mut postings = vec![Vec::new(); term_count as usize];
+        for doc in 0..self.num_docs {
+            for entry in title.row(doc).unwrap() {
+                postings[entry.term as usize].push(TermPosting {
+                    doc: doc as u32,
+                    title_tf: entry.tf,
+                    body_tf: body.get(doc, entry.term),
+                });
+            }
+            for entry in body.row(doc).unwrap() {
+                if title.get(doc, entry.term) == 0 {
+                    postings[entry.term as usize].push(TermPosting {
+                        doc: doc as u32,
+                        title_tf: 0,
+                        body_tf: entry.tf,
+                    });
+                }
+            }
+        }
+        let flat_postings = crate::index_binary::postings::PostingsCsr::new(doc_count, postings)?;
+        let interned = InternedIndex {
+            vocabulary: vocabulary.clone(),
+            postings: Vec::new(),
+            flat_postings: Some(flat_postings),
+            bounds: std::sync::Mutex::new(HashMap::new()),
+        };
+        self.compact_forward = Some(std::sync::Arc::new(CompactForward {
+            vocabulary,
+            title,
+            body,
+        }));
+        self.interned = std::sync::OnceLock::from(std::sync::Arc::new(interned));
+        self.title_tfs = Vec::new();
+        self.body_tfs = Vec::new();
+        Ok(())
+    }
+
+    fn field_tf(&self, doc: usize, term: &[u8], title: bool) -> u64 {
+        if let Some(compact) = &self.compact_forward {
+            let Some(&id) = compact.vocabulary.get(term) else {
+                return 0;
+            };
+            return if title {
+                compact.title.get(doc, id)
+            } else {
+                compact.body.get(doc, id)
+            };
+        }
+        let rows = if title {
+            &self.title_tfs
+        } else {
+            &self.body_tfs
+        };
+        rows.get(doc)
+            .and_then(|row| row.get(term))
+            .copied()
+            .unwrap_or(0) as u64
+    }
+
     /// Constructs a search index over a collection of Markdown sections.
     /// Constructs a search index over a collection of Markdown sections, reading options from environment.
     pub fn build(sections: Vec<Section>, tagger: Option<&Tagger>) -> Self {
@@ -874,6 +990,7 @@ impl Bm25Index {
             entity_labels,
             stemmed: stem,
             keep_hyphens: false,
+            compact_forward: None,
             interned: std::sync::OnceLock::new(),
         }
     }
@@ -985,7 +1102,7 @@ impl Bm25Index {
             let body_idf = ((self.num_docs as f64 - body_df + 0.5) / (body_df + 0.5) + 1.0)
                 .ln()
                 .max(0.0);
-            let postings = &interned.postings[term_id as usize];
+            let postings = interned.postings(term_id);
             let cell = interned.bounds_cell(key, term_id);
             let maximum = (*cell.get_or_init(|| {
                 let mut maximum: f64 = 0.0;
@@ -1381,7 +1498,7 @@ impl Bm25Index {
             let body_idf = ((self.num_docs as f64 - body_df + 0.5) / (body_df + 0.5) + 1.0)
                 .ln()
                 .max(0.0);
-            for posting in &interned.postings[term_id as usize] {
+            for posting in interned.postings(term_id) {
                 let doc = posting.doc as usize;
                 if self.prime_filters[doc].term_mask & signature.term_mask != signature.term_mask {
                     continue;
@@ -1505,14 +1622,8 @@ impl Bm25Index {
                             let term_str = String::from_utf8_lossy(&q_tok.bytes);
                             let prime_match = pf.test_term(&q_tok.bytes);
 
-                            let title_tf = self.title_tfs[doc_idx]
-                                .get(&q_tok.bytes)
-                                .copied()
-                                .unwrap_or(0);
-                            let body_tf = self.body_tfs[doc_idx]
-                                .get(&q_tok.bytes)
-                                .copied()
-                                .unwrap_or(0);
+                            let title_tf = self.field_tf(doc_idx, &q_tok.bytes, true);
+                            let body_tf = self.field_tf(doc_idx, &q_tok.bytes, false);
 
                             diag!(
                                 "       * Term '{}' -> Prime Filter Match: {} | Title TF: {} | Body TF: {}",
@@ -1690,8 +1801,8 @@ impl Bm25Index {
             for q_tok in &query_tokens {
                 let tok_bytes = &q_tok.bytes;
                 if pf.test_term(tok_bytes)
-                    && (self.title_tfs[doc_idx].contains_key(tok_bytes)
-                        || self.body_tfs[doc_idx].contains_key(tok_bytes))
+                    && (self.field_tf(doc_idx, tok_bytes, true) > 0
+                        || self.field_tf(doc_idx, tok_bytes, false) > 0)
                 {
                     matched_terms.insert(tok_bytes.as_slice());
                 }
@@ -1700,8 +1811,7 @@ impl Bm25Index {
                 let title_score = {
                     // Check prime filter first for fast signature membership test
                     if pf.test_term(tok_bytes) {
-                        let tf =
-                            self.title_tfs[doc_idx].get(tok_bytes).copied().unwrap_or(0) as f64;
+                        let tf = self.field_tf(doc_idx, tok_bytes, true) as f64;
                         if tf > 0.0 {
                             let df = self.title_dfs.get(tok_bytes).copied().unwrap_or(0);
 
@@ -1727,7 +1837,7 @@ impl Bm25Index {
                 let body_score = {
                     // Check prime filter first for fast signature membership test
                     if pf.test_term(tok_bytes) {
-                        let tf = self.body_tfs[doc_idx].get(tok_bytes).copied().unwrap_or(0) as f64;
+                        let tf = self.field_tf(doc_idx, tok_bytes, false) as f64;
                         if tf > 0.0 {
                             let df = self.body_dfs.get(tok_bytes).copied().unwrap_or(0);
 
@@ -1836,14 +1946,8 @@ impl Bm25Index {
                             let term_str = String::from_utf8_lossy(&q_tok.bytes);
                             let prime_match = pf.test_term(&q_tok.bytes);
 
-                            let title_tf = self.title_tfs[doc_idx]
-                                .get(&q_tok.bytes)
-                                .copied()
-                                .unwrap_or(0);
-                            let body_tf = self.body_tfs[doc_idx]
-                                .get(&q_tok.bytes)
-                                .copied()
-                                .unwrap_or(0);
+                            let title_tf = self.field_tf(doc_idx, &q_tok.bytes, true);
+                            let body_tf = self.field_tf(doc_idx, &q_tok.bytes, false);
 
                             diag!(
                                 "       * Term '{}' -> Prime Filter Match: {} | Title TF: {} | Body TF: {}",
@@ -2237,6 +2341,69 @@ These changes include blebbing, cell shrinkage, nuclear fragmentation, and chrom
 #[cfg(test)]
 mod integer_scoring_tests {
     use super::*;
+
+    #[test]
+    fn compact_forward_and_postings_preserve_all_score_bits() {
+        let sections = (0..144)
+            .map(|doc| Section {
+                title: ["anchor", "bilge", "pump"][..doc % 3 + 1].join(" "),
+                body: format!(
+                    "{} {}",
+                    "wind ".repeat(doc % 13 + 1),
+                    if doc % 5 == 0 {
+                        "pump café"
+                    } else {
+                        "anchor sea"
+                    }
+                ),
+                line_number: doc + 1,
+                filename: None,
+                entities: Vec::new(),
+            })
+            .collect();
+        let legacy = Bm25Index::build_with_options(sections, None, Bm25BuildOptions::default());
+        let mut compact = legacy.clone();
+        compact.compact_for_v4().unwrap();
+        compact.compact_for_v4().unwrap();
+        assert!(compact.title_tfs.is_empty() && compact.body_tfs.is_empty());
+        assert!(compact.interned.get().unwrap().postings.is_empty());
+        for variant in [
+            SearchVariant::Classic,
+            SearchVariant::Plus,
+            SearchVariant::L,
+        ] {
+            for floor in [0.0, 0.5, 1.0] {
+                let params = Bm25Params {
+                    coord_floor: floor,
+                    ..Default::default()
+                };
+                for query in [
+                    "anchor",
+                    "wind pump café",
+                    "pump pump wind",
+                    "anchor NOT pump",
+                    "missing",
+                ] {
+                    for limit in [0, 1, 7, 100, usize::MAX] {
+                        let expected = legacy.search_top_k(query, variant, &params, None, limit);
+                        let actual = compact.search_top_k(query, variant, &params, None, limit);
+                        assert_eq!(actual.len(), expected.len());
+                        for (actual, expected) in actual.iter().zip(&expected) {
+                            assert_eq!(actual.section_index, expected.section_index);
+                            assert_eq!(actual.score.to_bits(), expected.score.to_bits(), "{query}");
+                        }
+                    }
+                    let expected = legacy.search_reference(query, variant, &params, None, false);
+                    let actual = compact.search_reference(query, variant, &params, None, false);
+                    assert_eq!(actual.len(), expected.len());
+                    for (actual, expected) in actual.iter().zip(&expected) {
+                        assert_eq!(actual.section_index, expected.section_index);
+                        assert_eq!(actual.score.to_bits(), expected.score.to_bits());
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn filtered_top_k_preserves_global_scores_and_exhaustive_candidates() {
