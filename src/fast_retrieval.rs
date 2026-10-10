@@ -1,3 +1,5 @@
+pub mod simd;
+
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 
