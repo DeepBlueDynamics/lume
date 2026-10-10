@@ -143,7 +143,12 @@ fn lume_main() {
             }
         }
         "index" => {
-            if args.len() >= 3 && args[2] == "update" {
+            if args.len() >= 3 && args[2] == "gc" {
+                if let Err(error) = handle_index_gc(&args[3..]) {
+                    eprintln!("Error: {error}");
+                    std::process::exit(1);
+                }
+            } else if args.len() >= 3 && args[2] == "update" {
                 if let Err(e) = handle_index_update(&args[3..]) {
                     eprintln!("Error: {}", e);
                     std::process::exit(1);
@@ -1260,6 +1265,62 @@ fn handle_index_init(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn handle_index_gc(args: &[String]) -> Result<(), String> {
+    let mut options = lume::index_binary::gc::Options::default();
+    let mut db = String::from(".lume-index");
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "-h" | "--help" => {
+                println!("lume index gc --db <index> [--keep-generations N] [--gc-grace-secs S] [--dry-run] [--include-unknown]");
+                println!("Keep current plus N previous generations (default 1, max 100); grace defaults to 600 seconds.");
+                println!("Unknown generations are listed and kept unless --include-unknown. Concurrent writers are unsupported.");
+                return Ok(());
+            }
+            "--dry-run" => options.dry_run = true,
+            "--include-unknown" => options.include_unknown = true,
+            "--db" | "--keep-generations" | "--gc-grace-secs" => {
+                let key = &args[index];
+                index += 1;
+                let value = args
+                    .get(index)
+                    .ok_or_else(|| format!("Missing value for {key}"))?;
+                match key.as_str() {
+                    "--db" => db = value.clone(),
+                    "--keep-generations" => {
+                        options.keep_previous =
+                            value.parse().map_err(|_| "Invalid keep-generations")?
+                    }
+                    _ => options.grace_secs = value.parse().map_err(|_| "Invalid gc-grace-secs")?,
+                }
+            }
+            argument => return Err(format!("Unknown GC argument: {argument}")),
+        }
+        index += 1;
+    }
+    let report = lume::index_binary::gc::collect(Path::new(&db), &options)?;
+    for path in &report.unknown {
+        println!("Unknown generation: {}", path.display());
+    }
+    for path in &report.eligible {
+        println!(
+            "{}: {}",
+            if options.dry_run {
+                "Would remove"
+            } else if report.removed.contains(path) {
+                "Removed"
+            } else {
+                "Skipped"
+            },
+            path.display()
+        );
+    }
+    for warning in report.warnings {
+        eprintln!("[⚠️] Generation GC: {warning}");
+    }
+    Ok(())
+}
+
 fn handle_index_update(args: &[String]) -> Result<(), String> {
     if args.iter().any(|a| a == "-h" || a == "--help") {
         print_index_help();
@@ -1960,12 +2021,6 @@ fn run_indexing(
     let db_path = Path::new(db_dir);
     let binary_format = std::env::var("LUME_INDEX_FORMAT").as_deref() == Ok("4")
         || lume::index_binary::snapshot::present(db_path);
-    if binary_format && !force && !ollama_entities {
-        return Err("LUME_INDEX_FORMAT=4 requires lume index -f".into());
-    }
-    if !force && !ollama_entities && lume::index_binary::snapshot::present(db_path) {
-        return Err("V4 index updates currently require lume index -f".into());
-    }
     fs::create_dir_all(db_path).map_err(|e| format!("Failed to create db dir: {}", e))?;
     // Session/semantic caches live with the index, not in the process cwd.
     lume::hybrid::set_cache_dir(db_path);
@@ -2030,11 +2085,27 @@ fn run_indexing(
         }
     }
 
-    let prev_meta = lume::meta::MetaIndex::open(&db_path.join("meta.json")).ok();
+    let previous_files = if lume::index_binary::snapshot::present(db_path) {
+        let manifest = lume::index_binary::generation::read_manifest(db_path)?;
+        if manifest.segments.contains_key("meta.json") {
+            let disk: lume::meta::MetaIndexOnDisk =
+                lume::index_binary::snapshot::component(db_path, "meta.json")?;
+            if disk.meta_version != 1 || disk.num_sections != manifest.sections as usize {
+                return Err("Invalid v4 metadata version or section count".into());
+            }
+            Some(disk.files)
+        } else {
+            None
+        }
+    } else {
+        lume::meta::MetaIndex::open(&db_path.join("meta.json"))
+            .ok()
+            .map(|meta| meta.files)
+    };
     let mut frontmatter_by_file: HashMap<String, HashMap<String, serde_json::Value>> =
         HashMap::new();
-    if let Some(ref prev) = prev_meta {
-        for (p, entry) in &prev.files {
+    if let Some(ref files) = previous_files {
+        for (p, entry) in files {
             if entry.source == "frontmatter" && !entry.fields.is_empty() {
                 frontmatter_by_file.insert(p.clone(), entry.fields.clone());
             }
@@ -2176,10 +2247,13 @@ fn run_indexing(
             if !force {
                 if let Some((_, cached_sections)) = cached_files.get(&path_str) {
                     for sec in &mut sections {
-                        if let Some(matching_cached) = cached_sections
-                            .iter()
-                            .find(|cs| cs.title == sec.title && cs.line_number == sec.line_number)
-                        {
+                        if let Some(matching_cached) = cached_sections.iter().find(|cs| {
+                            cs.title == sec.title
+                                && cs.line_number == sec.line_number
+                                && (!binary_format
+                                    || lume::index_binary::overlays::source_hash(cs)
+                                        == lume::index_binary::overlays::source_hash(sec))
+                        }) {
                             if !matching_cached.entities.is_empty() {
                                 sec.entities = matching_cached.entities.clone();
                             }
