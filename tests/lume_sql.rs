@@ -437,3 +437,63 @@ fn monte_cristo_match_and_not_match() {
         );
     }
 }
+
+#[test]
+fn monte_cristo_lume_sql_reuses_resident_index() {
+    let fixture = Fixture::new();
+    let root = fixture.index();
+    let runtime = ti_sql::surface_runtime().unwrap();
+
+    let engine1 = runtime.block_on(lume::sql::open(&root)).unwrap();
+    let cached1 = lume::resident_index::open(&root).unwrap();
+
+    let reply1 = runtime
+        .block_on(engine1.query("SELECT count(*) AS n FROM sections", 500))
+        .unwrap();
+    assert!(reply1["rows"][0]["n"].as_u64().unwrap() > 0);
+
+    let engine2 = runtime.block_on(lume::sql::open(&root)).unwrap();
+    let cached2 = lume::resident_index::open(&root).unwrap();
+    assert!(
+        Arc::ptr_eq(&cached1, &cached2),
+        "engine open must reuse the in-memory resident index"
+    );
+
+    let reply2 = runtime
+        .block_on(engine2.query("SELECT count(*) AS n FROM sections", 500))
+        .unwrap();
+    assert_eq!(reply2["rows"], reply1["rows"]);
+
+    // MCP call interface
+    let reply_mcp1: Value = serde_json::from_str(
+        &lume::sql::call(
+            json!({"sql": "SELECT count(*) AS n FROM sections", "db": root}),
+            "unused",
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(reply_mcp1["rows"], reply1["rows"]);
+
+    let cached3 = lume::resident_index::open(&root).unwrap();
+    assert!(
+        Arc::ptr_eq(&cached1, &cached3),
+        "MCP call must reuse the in-memory resident index"
+    );
+
+    let reply_mcp2: Value = serde_json::from_str(
+        &lume::sql::call(
+            json!({"sql": "SELECT count(*) AS n FROM sections", "db": root}),
+            "unused",
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(reply_mcp2["rows"], reply1["rows"]);
+
+    let cached4 = lume::resident_index::open(&root).unwrap();
+    assert!(
+        Arc::ptr_eq(&cached1, &cached4),
+        "Subsequent MCP call must reuse the in-memory resident index"
+    );
+}

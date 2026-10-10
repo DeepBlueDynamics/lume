@@ -255,7 +255,7 @@ pub fn register_index(session: &ti_sql::SqlSession, index: Arc<LoadedIndex>) -> 
     Ok(())
 }
 pub fn register(session: &ti_sql::SqlSession, root: &Path) -> Result<()> {
-    register_index(session, Arc::new(LoadedIndex::open(root).map_err(error)?))
+    register_index(session, crate::resident_index::open(root).map_err(error)?)
 }
 pub async fn open(root: &Path) -> Result<ti_sql::TiEngine> {
     let session = ti_sql::SqlSession::new(
