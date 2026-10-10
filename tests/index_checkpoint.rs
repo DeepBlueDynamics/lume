@@ -37,7 +37,11 @@ fn failed_scan_keeps_published_generation_and_resumes_frontmatter() {
     let doc = fixture.0.join("docs/boat.md");
     std::fs::write(
         &doc,
-        "---\ncategory: manual\n---\n# Pump\nOld bilge instructions.",
+        concat!(
+            "---\ncategory: manual\n---\n# Pump\nOld bilge instructions. ",
+            "Inspect the strainer, check the hose clamps, test the float switch, ",
+            "and confirm the discharge outlet is clear before operating the pump."
+        ),
     )
     .unwrap();
     let built = fixture.index(&[]);
@@ -47,6 +51,23 @@ fn failed_scan_keeps_published_generation_and_resumes_frontmatter() {
         String::from_utf8_lossy(&built.stderr)
     );
     let db = fixture.0.join("index");
+    let initial = lume::search::LoadedIndex::open(&db).unwrap();
+    assert!(
+        initial
+            .bm25
+            .sections
+            .iter()
+            .any(|section| section.body.contains("Old bilge")),
+        "fixture must be indexed before testing interruption"
+    );
+    let hits = initial.bm25.search_quiet(
+        "bilge",
+        lume::bm25::SearchVariant::Classic,
+        &lume::bm25::Bm25Params::default(),
+        None,
+    );
+    assert!(!hits.is_empty(), "old fixture must be searchable");
+    drop(initial);
     let files = [
         "manifest.json",
         "state.json",
@@ -60,7 +81,11 @@ fn failed_scan_keeps_published_generation_and_resumes_frontmatter() {
         .collect();
     std::fs::write(
         &doc,
-        "---\ncategory: safety\n---\n# Pump\nNew emergency pump instructions.",
+        concat!(
+            "---\ncategory: safety\n---\n# Pump\nNew emergency pump instructions. ",
+            "Close the leaking seacock, start the backup pump, check the battery ",
+            "supply, and keep monitoring the bilge level until the leak is stopped."
+        ),
     )
     .unwrap();
     let missing = fixture.0.join("missing-vectors.jsonl");
