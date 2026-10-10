@@ -1355,6 +1355,284 @@ pub fn evaluate_filters(meta: &MetaIndex, filters: &[FilterClause]) -> Option<Mi
     allow
 }
 
+// ─── Native Facet Primitives ────────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FacetRequest {
+    Field(String),
+    Range {
+        field: String,
+        start: f64,
+        end: f64,
+        gap: f64,
+    },
+    Query {
+        name: String,
+        query: String,
+    },
+}
+
+pub fn parse_facet_request(s: &str) -> Result<FacetRequest, String> {
+    let s = s.trim();
+    if let Some(pos) = s.find(":range(") {
+        if !s.ends_with(')') {
+            return Err(format!("Malformed range facet '{}': missing closing ')'", s));
+        }
+        let field = s[..pos].trim().to_string();
+        let inner = &s[pos + 7..s.len() - 1];
+        let parts: Vec<&str> = inner.split(',').collect();
+        if parts.len() != 3 {
+            return Err(format!("Range facet requires start, end, gap; got '{}'", inner));
+        }
+        let start: f64 = parts[0].trim().parse().map_err(|e| format!("Invalid start in range facet '{}': {}", parts[0], e))?;
+        let end: f64 = parts[1].trim().parse().map_err(|e| format!("Invalid end in range facet '{}': {}", parts[1], e))?;
+        let gap: f64 = parts[2].trim().parse().map_err(|e| format!("Invalid gap in range facet '{}': {}", parts[2], e))?;
+        if gap <= 0.0 {
+            return Err("Range facet gap must be > 0".to_string());
+        }
+        Ok(FacetRequest::Range { field, start, end, gap })
+    } else {
+        Ok(FacetRequest::Field(s.to_string()))
+    }
+}
+
+pub fn parse_facet_query_request(s: &str) -> Result<FacetRequest, String> {
+    let s = s.trim();
+    let pos = s.find('=').ok_or_else(|| format!("Facet query requires name=query; got '{}'", s))?;
+    let name = s[..pos].trim().to_string();
+    let query = s[pos + 1..].trim().to_string();
+    if name.is_empty() || query.is_empty() {
+        return Err("Facet query name and query cannot be empty".to_string());
+    }
+    Ok(FacetRequest::Query { name, query })
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum FacetResult {
+    Field {
+        buckets: Vec<FieldBucket>,
+        missing: usize,
+    },
+    Range {
+        buckets: Vec<RangeBucket>,
+        before: usize,
+        after: usize,
+        missing: usize,
+    },
+    Query {
+        count: usize,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FieldBucket {
+    pub val: String,
+    pub count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RangeBucket {
+    pub from: f64,
+    pub to: f64,
+    pub count: usize,
+}
+
+pub type Facets = HashMap<String, FacetResult>;
+
+pub fn compute_facets(
+    meta: Option<&MetaIndex>,
+    bm25: &crate::bm25::Bm25Index,
+    match_bitmap: &MiniRoaring,
+    match_ids: &[u32],
+    requests: &[FacetRequest],
+) -> Facets {
+    let mut facets = HashMap::new();
+
+    for req in requests {
+        match req {
+            FacetRequest::Field(field) => {
+                let meta = match meta {
+                    Some(m) => m,
+                    None => continue,
+                };
+                let col = match meta.columns.get(field) {
+                    Some(c) => c,
+                    None => continue,
+                };
+                match col {
+                    Column::Keyword { dict, ords, bitmaps } => {
+                        let v = dict.len();
+                        let mut counts = vec![0usize; v];
+                        let mut missing = 0usize;
+
+                        if match_ids.len() < v * 2048 {
+                            for &id in match_ids {
+                                if let Some(ord_opt) = ords.get(id as usize) {
+                                    if let Some(ord) = *ord_opt {
+                                        if (ord as usize) < v {
+                                            counts[ord as usize] += 1;
+                                            continue;
+                                        }
+                                    }
+                                }
+                                missing += 1;
+                            }
+                        } else {
+                            let mut present_sum = 0usize;
+                            for (idx, bm) in bitmaps.iter().enumerate() {
+                                let c = match_bitmap.intersection_count(bm);
+                                counts[idx] = c;
+                                present_sum += c;
+                            }
+                            missing = match_ids.len().saturating_sub(present_sum);
+                        }
+
+                        let mut buckets = Vec::new();
+                        for (i, &cnt) in counts.iter().enumerate() {
+                            if cnt > 0 {
+                                buckets.push(FieldBucket {
+                                    val: dict[i].clone(),
+                                    count: cnt,
+                                });
+                            }
+                        }
+                        buckets.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.val.cmp(&b.val)));
+
+                        facets.insert(field.clone(), FacetResult::Field { buckets, missing });
+                    }
+                    Column::KeywordList { dict, offsets, ords, bitmaps } => {
+                        let v = dict.len();
+                        let mut counts = vec![0usize; v];
+                        let mut missing = 0usize;
+
+                        if match_ids.len() < v * 2048 {
+                            for &id in match_ids {
+                                let id_usize = id as usize;
+                                if id_usize + 1 < offsets.len() {
+                                    let start = offsets[id_usize];
+                                    let end = offsets[id_usize + 1].min(ords.len());
+                                    if start == end {
+                                        missing += 1;
+                                    } else {
+                                        for &ord in &ords[start..end] {
+                                            if (ord as usize) < v {
+                                                counts[ord as usize] += 1;
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    missing += 1;
+                                }
+                            }
+                        } else {
+                            for (idx, bm) in bitmaps.iter().enumerate() {
+                                counts[idx] = match_bitmap.intersection_count(bm);
+                            }
+                            for &id in match_ids {
+                                let id_usize = id as usize;
+                                if id_usize + 1 < offsets.len() {
+                                    if offsets[id_usize] == offsets[id_usize + 1] {
+                                        missing += 1;
+                                    }
+                                } else {
+                                    missing += 1;
+                                }
+                            }
+                        }
+
+                        let mut buckets = Vec::new();
+                        for (i, &cnt) in counts.iter().enumerate() {
+                            if cnt > 0 {
+                                buckets.push(FieldBucket {
+                                    val: dict[i].clone(),
+                                    count: cnt,
+                                });
+                            }
+                        }
+                        buckets.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.val.cmp(&b.val)));
+
+                        facets.insert(field.clone(), FacetResult::Field { buckets, missing });
+                    }
+                    _ => {}
+                }
+            }
+            FacetRequest::Range { field, start, end, gap } => {
+                let meta = match meta {
+                    Some(m) => m,
+                    None => continue,
+                };
+                let mut intervals = Vec::new();
+                let mut cur = *start;
+                while cur < *end {
+                    let nxt = (cur + *gap).min(*end);
+                    intervals.push((cur, nxt));
+                    cur = nxt;
+                }
+                let mut bucket_counts = vec![0usize; intervals.len()];
+                let mut before = 0usize;
+                let mut after = 0usize;
+                let mut missing = 0usize;
+
+                for &id in match_ids {
+                    let id_usize = id as usize;
+                    let val_opt = match meta.field_type(field) {
+                        Some(FieldType::Integer) => meta.get_integer(field, id_usize).map(|i| i as f64),
+                        Some(FieldType::Float) => meta.get_float(field, id_usize),
+                        Some(FieldType::Date) => meta.get_date(field, id_usize).map(|i| i as f64),
+                        _ => None,
+                    };
+                    if let Some(v) = val_opt {
+                        if v < *start {
+                            before += 1;
+                        } else if v >= *end {
+                            after += 1;
+                        } else {
+                            let idx = ((v - *start) / *gap).floor() as usize;
+                            if idx < bucket_counts.len() {
+                                bucket_counts[idx] += 1;
+                            } else if let Some(last) = bucket_counts.last_mut() {
+                                *last += 1;
+                            }
+                        }
+                    } else {
+                        missing += 1;
+                    }
+                }
+
+                let buckets = intervals
+                    .into_iter()
+                    .zip(bucket_counts)
+                    .map(|((from, to), count)| RangeBucket { from, to, count })
+                    .collect();
+
+                facets.insert(
+                    field.clone(),
+                    FacetResult::Range {
+                        buckets,
+                        before,
+                        after,
+                        missing,
+                    },
+                );
+            }
+            FacetRequest::Query { name, query: facet_q } => {
+                let tokens = crate::tokenize_with_options(facet_q, bm25.stemmed, false);
+                let mut query_bm = MiniRoaring::new();
+                for tok in tokens {
+                    if let Some(pl) = bm25.posting_lists.get(&tok.bytes) {
+                        query_bm = query_bm.union(pl);
+                    }
+                }
+                let count = match_bitmap.intersection_count(&query_bm);
+                facets.insert(name.clone(), FacetResult::Query { count });
+            }
+        }
+    }
+
+    facets
+}
+
 // ─── Unit Tests ─────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -1810,5 +2088,97 @@ Line 11 content here.
         let (_, filters_comb) = extract_filters("category:biology year:>=2020", Some(&meta));
         let allow_comb = evaluate_filters(&meta, &filters_comb).unwrap();
         assert_eq!(allow_comb.iter(), vec![0]);
+    }
+
+    #[test]
+    fn test_facets_computation() {
+        let mut files = HashMap::new();
+        let mut f0 = HashMap::new();
+        f0.insert("category".to_string(), serde_json::json!("bio"));
+        f0.insert("tags".to_string(), serde_json::json!(["dna", "rna"]));
+        f0.insert("year".to_string(), serde_json::json!(2015));
+        files.insert("d0.txt".to_string(), ("manifest".to_string(), f0));
+
+        let mut f1 = HashMap::new();
+        f1.insert("category".to_string(), serde_json::json!("bio"));
+        f1.insert("tags".to_string(), serde_json::json!(["dna"]));
+        f1.insert("year".to_string(), serde_json::json!(2025));
+        files.insert("d1.txt".to_string(), ("manifest".to_string(), f1));
+
+        let mut f2 = HashMap::new();
+        f2.insert("category".to_string(), serde_json::json!("phys"));
+        f2.insert("tags".to_string(), serde_json::json!(["quantum"]));
+        f2.insert("year".to_string(), serde_json::json!(2035));
+        files.insert("d2.txt".to_string(), ("manifest".to_string(), f2));
+
+        let mut f3 = HashMap::new();
+        // Missing category and year, but has tags
+        f3.insert("tags".to_string(), serde_json::json!(["general"]));
+        files.insert("d3.txt".to_string(), ("manifest".to_string(), f3));
+
+        let sec_files = vec!["d0.txt".to_string(), "d1.txt".to_string(), "d2.txt".to_string(), "d3.txt".to_string()];
+        let meta = build_meta_index(&sec_files, &files, &HashMap::new(), "gen-facets").unwrap();
+
+        let sec0 = crate::bm25::Section { title: "D0".into(), body: "cancer cells dna".into(), line_number: 1, filename: Some("d0.txt".into()), entities: vec![] };
+        let sec1 = crate::bm25::Section { title: "D1".into(), body: "cancer therapy dna".into(), line_number: 1, filename: Some("d1.txt".into()), entities: vec![] };
+        let sec2 = crate::bm25::Section { title: "D2".into(), body: "quantum physics".into(), line_number: 1, filename: Some("d2.txt".into()), entities: vec![] };
+        let sec3 = crate::bm25::Section { title: "D3".into(), body: "cancer overview".into(), line_number: 1, filename: Some("d3.txt".into()), entities: vec![] };
+        let bm25 = crate::bm25::Bm25Index::build(vec![sec0, sec1, sec2, sec3], None);
+
+        // Match set: 0, 1, 3 (all with "cancer")
+        let match_ids = vec![0, 1, 3];
+        let match_bm = MiniRoaring::from_sorted(&match_ids);
+
+        // 1. Field facet: category
+        let req_field = FacetRequest::Field("category".to_string());
+        let facets = compute_facets(Some(&meta), &bm25, &match_bm, &match_ids, &[req_field]);
+        if let Some(FacetResult::Field { buckets, missing }) = facets.get("category") {
+            assert_eq!(buckets.len(), 1);
+            assert_eq!(buckets[0].val, "bio");
+            assert_eq!(buckets[0].count, 2); // d0 and d1
+            assert_eq!(*missing, 1); // d3 is missing category
+        } else {
+            panic!("Expected field facet");
+        }
+
+        // 2. Multi-valued sums >= found
+        let req_tags = FacetRequest::Field("tags".to_string());
+        let facets_tags = compute_facets(Some(&meta), &bm25, &match_bm, &match_ids, &[req_tags]);
+        if let Some(FacetResult::Field { buckets, missing }) = facets_tags.get("tags") {
+            let sum: usize = buckets.iter().map(|b| b.count).sum();
+            assert!(sum >= match_ids.len()); // d0 has dna+rna, d1 has dna, d3 has general -> sum = 4 >= found (3)
+            assert_eq!(*missing, 0);
+        } else {
+            panic!("Expected tags facet");
+        }
+
+        // 3. Range facet: year:range(2020, 2030, 5) -> [2020, 2025), [2025, 2030)
+        // d0: 2015 (< 2020 -> before), d1: 2025 (in [2025, 2030)), d3: missing
+        let req_range = FacetRequest::Range {
+            field: "year".to_string(),
+            start: 2020.0,
+            end: 2030.0,
+            gap: 5.0,
+        };
+        let facets_range = compute_facets(Some(&meta), &bm25, &match_bm, &match_ids, &[req_range]);
+        if let Some(FacetResult::Range { buckets, before, after, missing }) = facets_range.get("year") {
+            assert_eq!(*before, 1); // d0
+            assert_eq!(*after, 0);
+            assert_eq!(*missing, 1); // d3
+            assert_eq!(buckets.len(), 2);
+            assert_eq!(buckets[0].count, 0); // [2020, 2025)
+            assert_eq!(buckets[1].count, 1); // [2025, 2030): d1
+        } else {
+            panic!("Expected range facet");
+        }
+
+        // 4. Query facet: dna=dna
+        let req_q = FacetRequest::Query { name: "dna".to_string(), query: "dna".to_string() };
+        let facets_q = compute_facets(Some(&meta), &bm25, &match_bm, &match_ids, &[req_q]);
+        if let Some(FacetResult::Query { count }) = facets_q.get("dna") {
+            assert_eq!(*count, 2); // d0 and d1 contain "dna"
+        } else {
+            panic!("Expected query facet");
+        }
     }
 }

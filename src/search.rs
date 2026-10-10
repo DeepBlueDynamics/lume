@@ -39,6 +39,7 @@ pub struct SearchOptions {
     pub auth_token: Option<String>,
     pub query_inversion: bool,
     pub max_snippet_chars: usize,
+    pub facets: Vec<crate::meta::FacetRequest>,
 }
 
 impl Default for SearchOptions {
@@ -57,6 +58,7 @@ impl Default for SearchOptions {
             auth_token: None,
             query_inversion: false,
             max_snippet_chars: 6000,
+            facets: Vec::new(),
         }
     }
 }
@@ -254,6 +256,10 @@ pub struct SearchResults {
     pub graph_beta: f64,
     pub hits: Vec<SearchResultHit>,
     pub total_sections: usize,
+    #[serde(default)]
+    pub found: usize,
+    #[serde(default)]
+    pub facets: Option<crate::meta::Facets>,
     pub skg_seeds: Vec<String>,
     pub skg_neighbors: Vec<(String, f64)>,
     pub warnings: Vec<String>,
@@ -491,7 +497,20 @@ pub fn search(
 
     // Filter-only query: if text_query has no text terms, return filtered sections in id order with score 0
     if text_query.trim().is_empty() && !filters.is_empty() {
-        let matching_ids: Vec<u32> = allow.map(|bm| bm.iter()).unwrap_or_default();
+        let matching_ids: Vec<u32> = allow.clone().map(|bm| bm.iter()).unwrap_or_default();
+        let found = matching_ids.len();
+        let facets = if !opts.facets.is_empty() {
+            let match_bm = allow.unwrap_or_default();
+            Some(crate::meta::compute_facets(
+                index.meta.as_ref(),
+                &index.bm25,
+                &match_bm,
+                &matching_ids,
+                &opts.facets,
+            ))
+        } else {
+            None
+        };
         let limit = opts.limit.min(matching_ids.len());
         let mut hits = Vec::new();
         for (i, &sec_id) in matching_ids[..limit].iter().enumerate() {
@@ -526,6 +545,8 @@ pub fn search(
             graph_beta: opts.graph_beta,
             hits,
             total_sections: index.bm25.sections.len(),
+            found,
+            facets,
             skg_seeds: Vec::new(),
             skg_neighbors: Vec::new(),
             warnings,
@@ -675,6 +696,21 @@ pub fn search(
                     if let Some(ref allow_bm) = allow {
                         h_results.hits.retain(|h| allow_bm.contains(h.section_index as u32));
                     }
+                    let found = h_results.hits.len();
+                    let facets = if !opts.facets.is_empty() {
+                        let mut match_ids: Vec<u32> = h_results.hits.iter().map(|h| h.section_index as u32).collect();
+                        match_ids.sort();
+                        let match_bm = crate::fast_retrieval::MiniRoaring::from_sorted(&match_ids);
+                        Some(crate::meta::compute_facets(
+                            index.meta.as_ref(),
+                            &index.bm25,
+                            &match_bm,
+                            &match_ids,
+                            &opts.facets,
+                        ))
+                    } else {
+                        None
+                    };
                     h_results.hits.truncate(opts.limit);
                     let mut hits = Vec::new();
                     for h in h_results.hits {
@@ -707,6 +743,8 @@ pub fn search(
                         graph_beta: beta,
                         hits,
                         total_sections: index.bm25.sections.len(),
+                        found,
+                        facets,
                         skg_seeds,
                         skg_neighbors,
                         warnings,
@@ -724,6 +762,26 @@ pub fn search(
 
     // 4. Lexical BM25 path
     let (lexical_params, lexical_variant) = (opts.bm25_params.clone(), opts.bm25_variant);
+    // Exhaustive candidate bitmap (with allow filter applied)
+    let candidate_bm = index.bm25.candidates(
+        &effective_query,
+        index.tagger.as_ref(),
+        allow.as_ref(),
+    );
+    let found = candidate_bm.len();
+    let facets = if !opts.facets.is_empty() {
+        let match_ids = candidate_bm.iter();
+        Some(crate::meta::compute_facets(
+            index.meta.as_ref(),
+            &index.bm25,
+            &candidate_bm,
+            &match_ids,
+            &opts.facets,
+        ))
+    } else {
+        None
+    };
+
     // Graph and hybrid stages can reorder lexical hits. Only bound the
     // lexical collector once those stages are absent.
     let mut bm25_hits = if beta == 0.0 || skg_scores.is_empty() {
@@ -788,6 +846,8 @@ pub fn search(
         graph_beta: beta,
         hits,
         total_sections: index.bm25.sections.len(),
+        found,
+        facets,
         skg_seeds,
         skg_neighbors,
         warnings,
@@ -900,6 +960,47 @@ pub fn format_cli_output(
                     hit.line_number
                 ));
                 stdout.push_str(&format!("{}\n\n", hit.snippet));
+            }
+        }
+    }
+
+    // 6. Facets (if requested)
+    if let Some(ref facets) = results.facets {
+        stdout.push_str("Facets:\n");
+        for (name, facet) in facets {
+            match facet {
+                crate::meta::FacetResult::Field { buckets, missing } => {
+                    stdout.push_str(&format!("  {}:\n", name));
+                    for b in buckets {
+                        stdout.push_str(&format!("    {}: {}\n", b.val, b.count));
+                    }
+                    if *missing > 0 {
+                        stdout.push_str(&format!("    (missing): {}\n", missing));
+                    }
+                }
+                crate::meta::FacetResult::Range {
+                    buckets,
+                    before,
+                    after,
+                    missing,
+                } => {
+                    stdout.push_str(&format!("  {}:\n", name));
+                    if *before > 0 {
+                        stdout.push_str(&format!("    before: {}\n", before));
+                    }
+                    for b in buckets {
+                        stdout.push_str(&format!("    [{}, {}): {}\n", b.from, b.to, b.count));
+                    }
+                    if *after > 0 {
+                        stdout.push_str(&format!("    after: {}\n", after));
+                    }
+                    if *missing > 0 {
+                        stdout.push_str(&format!("    (missing): {}\n", missing));
+                    }
+                }
+                crate::meta::FacetResult::Query { count } => {
+                    stdout.push_str(&format!("  {} (query): {}\n", name, count));
+                }
             }
         }
     }
@@ -1779,5 +1880,180 @@ mod tests {
         assert_eq!(res_comb.hits.len(), 1);
         assert_eq!(res_comb.hits[0].section_index, 0);
         assert_eq!(res_comb.hits[0].score.to_bits(), score_sec0.to_bits());
+    }
+
+    #[test]
+    fn test_facets_invariance_and_oracle() {
+        let sec0 = Section {
+            title: "Sec 0".into(),
+            body: "cancer biology dna genetics".into(),
+            line_number: 1,
+            filename: Some("d0.txt".into()),
+            entities: vec![],
+        };
+        let sec1 = Section {
+            title: "Sec 1".into(),
+            body: "cancer therapy dna clinical".into(),
+            line_number: 1,
+            filename: Some("d1.txt".into()),
+            entities: vec![],
+        };
+        let sec2 = Section {
+            title: "Sec 2".into(),
+            body: "astronomy stars telescope".into(),
+            line_number: 1,
+            filename: Some("d2.txt".into()),
+            entities: vec![],
+        };
+        let sec3 = Section {
+            title: "Sec 3".into(),
+            body: "cancer overview epidemiology".into(),
+            line_number: 1,
+            filename: Some("d3.txt".into()),
+            entities: vec![],
+        };
+        let bm25 = Bm25Index::build(vec![sec0, sec1, sec2, sec3], None);
+
+        let mut schema = HashMap::new();
+        schema.insert("category".into(), crate::meta::FieldType::Keyword);
+        schema.insert("tags".into(), crate::meta::FieldType::KeywordList);
+        schema.insert("year".into(), crate::meta::FieldType::Integer);
+
+        let mut columns = HashMap::new();
+        columns.insert(
+            "category".into(),
+            crate::meta::Column::Keyword {
+                dict: vec!["biology".into(), "medicine".into()],
+                ords: vec![Some(0), Some(1), None, None],
+                bitmaps: vec![
+                    crate::fast_retrieval::MiniRoaring::from_sorted(&[0]),
+                    crate::fast_retrieval::MiniRoaring::from_sorted(&[1]),
+                ],
+            },
+        );
+        columns.insert(
+            "tags".into(),
+            crate::meta::Column::KeywordList {
+                dict: vec!["dna".into(), "rna".into(), "general".into()],
+                offsets: vec![0, 2, 3, 3, 4],
+                ords: vec![0, 1, 0, 2],
+                bitmaps: vec![
+                    crate::fast_retrieval::MiniRoaring::from_sorted(&[0, 1]),
+                    crate::fast_retrieval::MiniRoaring::from_sorted(&[0]),
+                    crate::fast_retrieval::MiniRoaring::from_sorted(&[3]),
+                ],
+            },
+        );
+        columns.insert(
+            "year".into(),
+            crate::meta::Column::Integer {
+                present_runs: vec![[0, 3]],
+                values: vec![Some(2015), Some(2025), Some(2022), None],
+            },
+        );
+
+        let meta = crate::meta::MetaIndex {
+            meta_version: 1,
+            num_sections: 4,
+            generation: "gen1".into(),
+            schema,
+            files: HashMap::new(),
+            columns,
+        };
+
+        let index = LoadedIndex {
+            state: None,
+            bm25,
+            spelling: None,
+            entity_graph: None,
+            tagger: None,
+            cache_dir: None,
+            meta: Some(meta),
+        };
+
+        let facet_reqs = vec![
+            crate::meta::FacetRequest::Field("category".into()),
+            crate::meta::FacetRequest::Field("tags".into()),
+            crate::meta::FacetRequest::Range {
+                field: "year".into(),
+                start: 2020.0,
+                end: 2030.0,
+                gap: 5.0,
+            },
+            crate::meta::FacetRequest::Query {
+                name: "therapy".into(),
+                query: "therapy".into(),
+            },
+        ];
+
+        // 1. Run search with -l 1
+        let opts_l1 = SearchOptions {
+            limit: 1,
+            mode: SearchMode::LexicalOnly,
+            graph_beta: 0.0,
+            facets: facet_reqs.clone(),
+            ..Default::default()
+        };
+        let res_l1 = search(&index, "cancer", &opts_l1).unwrap();
+
+        // 2. Run search with -l 1000
+        let opts_l1000 = SearchOptions {
+            limit: 1000,
+            mode: SearchMode::LexicalOnly,
+            graph_beta: 0.0,
+            facets: facet_reqs.clone(),
+            ..Default::default()
+        };
+        let res_l1000 = search(&index, "cancer", &opts_l1000).unwrap();
+
+        // Check limit invariance
+        assert_eq!(res_l1.hits.len(), 1);
+        assert_eq!(res_l1000.hits.len(), 3);
+        assert_eq!(res_l1.found, 3);
+        assert_eq!(res_l1000.found, 3);
+        assert_eq!(res_l1.facets, res_l1000.facets);
+
+        // Check brute-force equivalence
+        let facets = res_l1.facets.unwrap();
+        // Category: sec0 is biology, sec1 is medicine, sec3 is missing
+        if let Some(crate::meta::FacetResult::Field { buckets, missing }) = facets.get("category") {
+            assert_eq!(*missing, 1);
+            let bio = buckets.iter().find(|b| b.val == "biology").unwrap();
+            assert_eq!(bio.count, 1);
+            let med = buckets.iter().find(|b| b.val == "medicine").unwrap();
+            assert_eq!(med.count, 1);
+        } else {
+            panic!("Expected field facet category");
+        }
+
+        // Tags multi-valued sum >= found
+        if let Some(crate::meta::FacetResult::Field { buckets, missing }) = facets.get("tags") {
+            assert_eq!(*missing, 0);
+            let sum: usize = buckets.iter().map(|b| b.count).sum();
+            assert!(sum >= res_l1.found);
+            let dna = buckets.iter().find(|b| b.val == "dna").unwrap();
+            assert_eq!(dna.count, 2);
+        } else {
+            panic!("Expected field facet tags");
+        }
+
+        // Year range: [2020, 2025), [2025, 2030)
+        // Matching hits: sec0 (2015 -> before), sec1 (2025 -> bucket 1), sec3 (missing)
+        if let Some(crate::meta::FacetResult::Range { buckets, before, after, missing }) = facets.get("year") {
+            assert_eq!(*before, 1);
+            assert_eq!(*after, 0);
+            assert_eq!(*missing, 1);
+            assert_eq!(buckets[0].count, 0);
+            assert_eq!(buckets[1].count, 1);
+        } else {
+            panic!("Expected range facet year");
+        }
+
+        // Query facet: therapy
+        if let Some(crate::meta::FacetResult::Query { count }) = facets.get("therapy") {
+            assert_eq!(*count, 1);
+        } else {
+            panic!("Expected query facet therapy");
+        }
     }
 }

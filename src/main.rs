@@ -1076,6 +1076,8 @@ OPTIONS:
   -g, --graph <VAL>     SKG entity-graph boost weight; 0 disables [default: 0.4, env GRAPH_ALPHA]
   --scoring <MODE>      SKG edge weighting: 'relatedness' (significance, default) or 'jaccard' (overlap)
   --shivvr-url <URL>    Shivvr endpoint URL [default: http://localhost:8085]
+  --facet <SPEC>        Field facet ('tags') or range facet ('year:range(2000,2030,5)')
+  --facet-query <SPEC>  Named query facet ('name=query', e.g. 'cancer=cancer')
 
 ENV:
   LUME_QUERY_INVERSION  Set to 1 to print the query's embedding inversion (debug; costs an extra round-trip)
@@ -2424,6 +2426,7 @@ fn handle_search(args: &[String]) -> Result<(), String> {
     let mut graph_beta: Option<f64> = None;
     // SKG edge scoring: significance (default) vs legacy Jaccard.
     let mut use_relatedness = true;
+    let mut facets = Vec::new();
     let mut query_opt: Option<String> = None;
 
     let mut idx = 0;
@@ -2463,6 +2466,14 @@ fn handle_search(args: &[String]) -> Result<(), String> {
                     ))
                 }
             };
+            idx += 2;
+        } else if arg == "--facet" && idx + 1 < args.len() {
+            let req = crate::meta::parse_facet_request(&args[idx + 1])?;
+            facets.push(req);
+            idx += 2;
+        } else if arg == "--facet-query" && idx + 1 < args.len() {
+            let req = crate::meta::parse_facet_query_request(&args[idx + 1])?;
+            facets.push(req);
             idx += 2;
         } else if arg == "--" {
             idx += 1;
@@ -2538,6 +2549,7 @@ fn handle_search(args: &[String]) -> Result<(), String> {
         auth_token: None,
         query_inversion,
         max_snippet_chars: 6000,
+        facets,
     };
 
     let results = search(&index, &query, &opts)?;
