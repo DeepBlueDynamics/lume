@@ -1813,11 +1813,15 @@ fn flush_searchable_indexes(
     db_path: &Path,
     meta: Option<&lume::meta::MetaIndex>,
 ) -> Result<usize, String> {
+    let _timing = lume::index_timing::Span::new("index.flush_total");
     let all_sections = collect_all_sections(cached_files);
     let count = all_sections.len();
     let bm25 = Bm25Index::build(all_sections, tagger);
     let corpus_terms: Vec<Vec<u8>> = bm25.posting_lists.keys().cloned().collect();
-    let spelling = SpellIndex::build(tagger_phrases, &corpus_terms);
+    let spelling = {
+        let _timing = lume::index_timing::Span::new("index.spelling");
+        SpellIndex::build(tagger_phrases, &corpus_terms)
+    };
     let entity_graph = EntityGraph::build(
         &bm25.entity_posting_lists,
         &bm25.entity_kinds,
@@ -1849,6 +1853,55 @@ fn flush_searchable_indexes(
         }),
     )?;
     Ok(count)
+}
+
+/// A scan checkpoint is deliberately outside the published index generation.
+/// In particular, state.json must keep describing the old searchable tables
+/// until the new scan and optional vector work have completed.
+#[derive(serde::Deserialize)]
+struct ScanCheckpoint {
+    version: u32,
+    target_dir: String,
+    published_manifest: Option<serde_json::Value>,
+    cached_files: HashMap<String, (u64, Vec<Section>)>,
+    frontmatter_by_file: HashMap<String, HashMap<String, serde_json::Value>>,
+}
+
+fn published_manifest(db_path: &Path) -> Result<Option<serde_json::Value>, String> {
+    let path = db_path.join("manifest.json");
+    if path.exists() {
+        load_json(&path).map(Some)
+    } else {
+        Ok(None)
+    }
+}
+
+fn save_scan_checkpoint(
+    db_path: &Path,
+    target_dir: &str,
+    manifest: &Option<serde_json::Value>,
+    cached_files: &HashMap<String, (u64, Vec<Section>)>,
+    frontmatter_by_file: &HashMap<String, HashMap<String, serde_json::Value>>,
+) -> Result<(), String> {
+    #[derive(serde::Serialize)]
+    struct BorrowedCheckpoint<'a> {
+        version: u32,
+        target_dir: &'a str,
+        published_manifest: &'a Option<serde_json::Value>,
+        cached_files: &'a HashMap<String, (u64, Vec<Section>)>,
+        frontmatter_by_file: &'a HashMap<String, HashMap<String, serde_json::Value>>,
+    }
+    let _timing = lume::index_timing::Span::new("index.scan_checkpoint");
+    save_json(
+        &db_path.join("index-scan-checkpoint.json"),
+        &BorrowedCheckpoint {
+            version: 1,
+            target_dir,
+            published_manifest: manifest,
+            cached_files,
+            frontmatter_by_file,
+        },
+    )
 }
 
 /// Minimum time between mid-run searchable-index flushes.
@@ -1884,6 +1937,7 @@ fn run_indexing(
     chunk_range: Option<(usize, usize)>,
     embed_imports: &lume::local_vectors::ImportPaths,
 ) -> Result<(), String> {
+    let _timing = lume::index_timing::Span::new("index.total");
     let total_start = Instant::now();
     let target_path = Path::new(target_dir);
     if !target_path.exists() {
@@ -1924,8 +1978,11 @@ fn run_indexing(
         );
     }
     let mut files = Vec::new();
-    scan_directory(target_path, target_path, db_path, &ignores, &mut files)
-        .map_err(|e| format!("Failed to scan directory: {}", e))?;
+    {
+        let _walk_timing = lume::index_timing::Span::new("index.walk");
+        scan_directory(target_path, target_path, db_path, &ignores, &mut files)
+            .map_err(|e| format!("Failed to scan directory: {}", e))?;
+    }
     let scan_duration = scan_start.elapsed();
     let total_files = files.len();
     println!(
@@ -1963,12 +2020,35 @@ fn run_indexing(
         }
     }
 
+    let scan_manifest = published_manifest(db_path)?;
+    if !force && !ollama_entities {
+        let checkpoint_path = db_path.join("index-scan-checkpoint.json");
+        if checkpoint_path.exists() {
+            match load_json::<ScanCheckpoint>(&checkpoint_path) {
+                Ok(checkpoint)
+                    if checkpoint.version == 1
+                        && checkpoint.target_dir == target_dir
+                        && checkpoint.published_manifest == scan_manifest =>
+                {
+                    cached_files = checkpoint.cached_files;
+                    frontmatter_by_file = checkpoint.frontmatter_by_file;
+                    println!("[💾] Resuming unpublished source scan checkpoint");
+                }
+                Ok(_) => eprintln!("[⚠️] Ignoring stale source scan checkpoint"),
+                Err(error) => eprintln!("[⚠️] Ignoring unreadable source scan checkpoint: {error}"),
+            }
+        }
+    }
+
     let mut processed_paths = std::collections::HashSet::new();
     let mut last_flush = Instant::now();
     let mut files_indexed = 0usize;
     let mut files_skipped_binary = 0usize;
     let mut files_skipped_documents = 0usize;
     let mut units_skipped_documents = 0usize;
+    let mut read_timing = lume::index_timing::Aggregate::new("index.read");
+    let mut parse_timing = lume::index_timing::Aggregate::new("index.parse_sections");
+    let mut document_timing = lume::index_timing::Aggregate::new("index.document_extract");
 
     for (file_num, file_path) in files.iter().enumerate() {
         let file_progress = format!("[file {}/{}]", file_num + 1, total_files);
@@ -2005,10 +2085,12 @@ fn run_indexing(
             let mut sections = if ext == "pdf" || ext == "epub" {
                 println!("[⚙️] {} Processing document: {}", file_progress, path_str);
                 let script = find_extractor_script();
-                match lume::document_extract::extract(
-                    file_path,
-                    if ext == "pdf" { Some(&script) } else { None },
-                ) {
+                match document_timing.measure(|| {
+                    lume::document_extract::extract(
+                        file_path,
+                        if ext == "pdf" { Some(&script) } else { None },
+                    )
+                }) {
                     Ok(report) => {
                         units_skipped_documents += report.skipped_units;
                         if report.skipped_units > 0 {
@@ -2032,7 +2114,7 @@ fn run_indexing(
                     }
                 }
             } else {
-                let content = match read_text_tolerant(file_path)? {
+                let content = match read_timing.measure(|| read_text_tolerant(file_path))? {
                     Some(c) => c,
                     None => {
                         println!(
@@ -2043,34 +2125,36 @@ fn run_indexing(
                         continue;
                     }
                 };
-                if ext == "html" || ext == "htm" {
-                    let (_title, cleaned) = lume::crawl::clean_html_to_markdown(&content);
-                    let chunks = chunk_text_file(file_path, &cleaned);
-                    println!(
-                        "[⚙️] {} Processing HTML file (cleaned): {} (parsed into {} chunks)",
-                        file_progress,
-                        path_str,
-                        chunks.len()
-                    );
-                    chunks
-                } else {
-                    if ext == "md" {
-                        let (fm, _) = lume::meta::extract_and_blank_frontmatter(&content);
-                        if !fm.is_empty() {
-                            frontmatter_by_file.insert(path_str.clone(), fm);
-                        } else {
-                            frontmatter_by_file.remove(&path_str);
+                parse_timing.measure(|| {
+                    if ext == "html" || ext == "htm" {
+                        let (_title, cleaned) = lume::crawl::clean_html_to_markdown(&content);
+                        let chunks = chunk_text_file(file_path, &cleaned);
+                        println!(
+                            "[⚙️] {} Processing HTML file (cleaned): {} (parsed into {} chunks)",
+                            file_progress,
+                            path_str,
+                            chunks.len()
+                        );
+                        chunks
+                    } else {
+                        if ext == "md" {
+                            let (fm, _) = lume::meta::extract_and_blank_frontmatter(&content);
+                            if !fm.is_empty() {
+                                frontmatter_by_file.insert(path_str.clone(), fm);
+                            } else {
+                                frontmatter_by_file.remove(&path_str);
+                            }
                         }
+                        let chunks = chunk_text_file(file_path, &content);
+                        println!(
+                            "[⚙️] {} Processing text file: {} (parsed into {} chunks)",
+                            file_progress,
+                            path_str,
+                            chunks.len()
+                        );
+                        chunks
                     }
-                    let chunks = chunk_text_file(file_path, &content);
-                    println!(
-                        "[⚙️] {} Processing text file: {} (parsed into {} chunks)",
-                        file_progress,
-                        path_str,
-                        chunks.len()
-                    );
-                    chunks
-                }
+                })
             };
 
             let parse_duration = file_start.elapsed();
@@ -2095,23 +2179,40 @@ fn run_indexing(
             files_indexed += 1;
 
             if last_flush.elapsed() >= FLUSH_INTERVAL {
-                match flush_searchable_indexes(
-                    &cached_files,
-                    tagger.as_ref(),
-                    &tagger_phrases,
+                // Only slow Ollama extraction needs periodic searchable flushes.
+                // Ordinary scans checkpoint progress without publishing partial
+                // tables or rebuilding the entire BM25 index every 30 seconds.
+                if ollama_entities {
+                    match flush_searchable_indexes(
+                        &cached_files,
+                        tagger.as_ref(),
+                        &tagger_phrases,
+                        db_path,
+                        None,
+                    ) {
+                        Ok(n) => println!(
+                            "[💾] {} Searchable index flushed mid-run ({} sections)",
+                            file_progress, n
+                        ),
+                        Err(e) => eprintln!("[⚠️] Mid-run index flush failed: {}", e),
+                    }
+                } else if let Err(error) = save_scan_checkpoint(
                     db_path,
-                    None,
+                    target_dir,
+                    &scan_manifest,
+                    &cached_files,
+                    &frontmatter_by_file,
                 ) {
-                    Ok(n) => println!(
-                        "[💾] {} Searchable index flushed mid-run ({} sections)",
-                        file_progress, n
-                    ),
-                    Err(e) => eprintln!("[⚠️] Mid-run index flush failed: {}", e),
+                    eprintln!("[⚠️] Source scan checkpoint failed: {error}");
                 }
                 last_flush = Instant::now();
             }
         }
     }
+
+    drop(read_timing);
+    drop(parse_timing);
+    drop(document_timing);
 
     let cached_paths: Vec<String> = cached_files.keys().cloned().collect();
     for path_str in cached_paths {
@@ -2128,6 +2229,16 @@ fn run_indexing(
             files_skipped_documents, units_skipped_documents
         );
     }
+    if !ollama_entities {
+        save_scan_checkpoint(
+            db_path,
+            target_dir,
+            &scan_manifest,
+            &cached_files,
+            &frontmatter_by_file,
+        )?;
+    }
+
     let all_sections = collect_all_sections(&cached_files);
 
     println!(
@@ -2174,8 +2285,8 @@ fn run_indexing(
         }
     }
 
-    // Make the db searchable (and the semantic session visible to the search
-    // gate) before the slow extraction pass begins.
+    // Determine the analyzer and metadata before publishing searchable tables.
+    // The slow Ollama pass publishes early; ordinary scans publish only at the end.
     let stemmed = if !force && db_path.join("state.json").exists() {
         if let Ok(prev_state) = load_json::<IndexState>(&db_path.join("state.json")) {
             prev_state.stemmed
@@ -2208,36 +2319,40 @@ fn run_indexing(
         FORMAT_VERSION_UNSTEMMED
     };
     let keep_hyphens = false;
-    let early_flush_start = Instant::now();
-    let early_count = flush_searchable_indexes(
-        &cached_files,
-        tagger.as_ref(),
-        &tagger_phrases,
-        db_path,
-        current_meta.as_ref(),
-    )?;
-    let early_state = IndexState {
-        format_version,
-        target_dir: target_dir.to_string(),
-        db_dir: db_dir.to_string(),
-        semantic_enabled,
-        ollama_entities,
-        ollama_model: ollama_model.clone(),
-        ollama_url: ollama_url.clone(),
-        tag_dict_path: tag_dict_path.clone(),
-        semantic_session_id: semantic_session_id.clone(),
-        cached_files: cached_files.clone(),
-        stemmed,
-        keep_hyphens,
-    };
-    save_json(&db_path.join("state.json"), &early_state)?;
-    println!(
-        "[💾] Index searchable: {} sections written to {} in {:?}",
-        early_count,
-        db_dir,
-        early_flush_start.elapsed()
-    );
-    last_flush = Instant::now();
+    // Publish early only for the slow Ollama pass. Ordinary indexing builds
+    // searchable tables once, after all source/vector work succeeds.
+    if ollama_entities {
+        let early_flush_start = Instant::now();
+        let early_count = flush_searchable_indexes(
+            &cached_files,
+            tagger.as_ref(),
+            &tagger_phrases,
+            db_path,
+            current_meta.as_ref(),
+        )?;
+        let early_state = IndexState {
+            format_version,
+            target_dir: target_dir.to_string(),
+            db_dir: db_dir.to_string(),
+            semantic_enabled,
+            ollama_entities,
+            ollama_model: ollama_model.clone(),
+            ollama_url: ollama_url.clone(),
+            tag_dict_path: tag_dict_path.clone(),
+            semantic_session_id: semantic_session_id.clone(),
+            cached_files: cached_files.clone(),
+            stemmed,
+            keep_hyphens,
+        };
+        save_json(&db_path.join("state.json"), &early_state)?;
+        println!(
+            "[💾] Index searchable: {} sections written to {} in {:?}",
+            early_count,
+            db_dir,
+            early_flush_start.elapsed()
+        );
+        last_flush = Instant::now();
+    }
 
     // ── Pass 3: corpus-wide entity extraction ──
     // One worklist across every file keeps all workers busy even when the
@@ -2481,6 +2596,12 @@ fn run_indexing(
         keep_hyphens,
     };
     save_json(&db_path.join("state.json"), &state)?;
+    let checkpoint_path = db_path.join("index-scan-checkpoint.json");
+    if checkpoint_path.exists() {
+        if let Err(error) = fs::remove_file(&checkpoint_path) {
+            eprintln!("[⚠️] Cannot remove completed source scan checkpoint: {error}");
+        }
+    }
     println!(
         "[💾] Index files written to {} ({} sections) in {:?}",
         db_dir,
