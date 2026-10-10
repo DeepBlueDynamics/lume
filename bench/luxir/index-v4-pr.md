@@ -1,0 +1,7 @@
+Ordinary indexing rebuilt the full BM25 index during periodic source-scan flushes and again before final publication. It now checkpoints scan progress separately and builds searchable tables once at the end. Slow Ollama entity extraction retains its early and periodic searchable flushes.
+
+Opt-in `LUME_TIMING=1` diagnostics report walking, reading, section parsing, tokenization, tagging, BM25, spelling, JSON I/O and cold-open costs. An interrupted ordinary scan leaves the published generation untouched; resume accepts its checkpoint only when the source target and published generation match, including saved frontmatter.
+
+On the same TREC corpus and Linux Docker storage, rustc 1.96 release thin LTO/CGU 1: build time fell from **90.44 to 55.99 seconds (38.1%)**, full flushes from three to one, and peak child RSS from **2.70 to 2.43 GB**. BM25 and state stored values match canonically (only the validated output directory differs); spelling matches after remapping its existing randomized word IDs to words. This does not claim literal JSON byte equality or a new hot-query matrix.
+
+Validation: host full gate passed at the rebased head, including strict clippy, formatting, 26 Rust test binaries and Python suites. New regressions cover failure before publication, checkpoint resume with frontmatter, stale-checkpoint rejection, and one BM25 build for ordinary indexing. Cold-open binary-format work follows separately.
