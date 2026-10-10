@@ -115,6 +115,20 @@ pub struct LoadedIndex {
     pub meta: Option<crate::meta::MetaIndex>,
 }
 
+impl std::fmt::Debug for LoadedIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoadedIndex")
+            .field("state", &self.state)
+            .field("bm25", &self.bm25)
+            .field("spelling", &self.spelling)
+            .field("entity_graph", &self.entity_graph)
+            .field("tagger", &self.tagger.as_ref().map(|_| "<Tagger>"))
+            .field("cache_dir", &self.cache_dir)
+            .field("meta", &self.meta)
+            .finish()
+    }
+}
+
 /// Optional configuration checks when loading an index from disk.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct OpenEnvChecks {
@@ -1730,7 +1744,9 @@ mod tests {
         let bm25 = Bm25Index::build(vec![sec], None);
         save_json(&temp_dir.join("bm25.json"), &bm25).unwrap();
 
-        let err = LoadedIndex::open(&temp_dir).unwrap_err();
+        let err = LoadedIndex::open(&temp_dir)
+            .err()
+            .expect("expected error loading index without meta.json");
         assert!(
             err.contains("requires meta.json"),
             "expected requires meta.json, got: {}",
@@ -1792,7 +1808,9 @@ mod tests {
         };
         save_json(&temp_dir.join("meta.json"), &meta_disk).unwrap();
 
-        let err = LoadedIndex::open(&temp_dir).unwrap_err();
+        let err = LoadedIndex::open(&temp_dir)
+            .err()
+            .expect("expected error loading index with section count mismatch");
         assert!(
             err.contains("Index metadata section count mismatch"),
             "expected section count mismatch, got: {}",

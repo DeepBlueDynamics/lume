@@ -2468,11 +2468,11 @@ fn handle_search(args: &[String]) -> Result<(), String> {
             };
             idx += 2;
         } else if arg == "--facet" && idx + 1 < args.len() {
-            let req = crate::meta::parse_facet_request(&args[idx + 1])?;
+            let req = lume::meta::parse_facet_request(&args[idx + 1])?;
             facets.push(req);
             idx += 2;
         } else if arg == "--facet-query" && idx + 1 < args.len() {
-            let req = crate::meta::parse_facet_query_request(&args[idx + 1])?;
+            let req = lume::meta::parse_facet_query_request(&args[idx + 1])?;
             facets.push(req);
             idx += 2;
         } else if arg == "--" {
