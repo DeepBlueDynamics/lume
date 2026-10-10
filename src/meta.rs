@@ -1122,6 +1122,23 @@ pub enum FilterClause {
     },
 }
 
+impl FilterClause {
+    pub fn negate(self) -> Self {
+        match self {
+            FilterClause::Keyword { field, values, negated } => FilterClause::Keyword {
+                field,
+                values,
+                negated: !negated,
+            },
+            FilterClause::Range { field, op, negated } => FilterClause::Range {
+                field,
+                op,
+                negated: !negated,
+            },
+        }
+    }
+}
+
 pub fn parse_range_op(raw_val: &str, is_date: bool) -> Option<RangeOp> {
     let raw = raw_val.trim();
     if raw.contains("..") {

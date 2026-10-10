@@ -1,21 +1,26 @@
 //! Read-only SQL over ordinary Lume indexes, sharing the TI DataFusion session.
+use crate::meta::{FieldType, FilterClause, RangeOp};
 use crate::search::{search, LoadedIndex, SearchMode, SearchOptions};
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::{Debug, Formatter};
 use std::path::Path;
 use std::sync::Arc;
 use ti_sql::datafusion::{
     arrow::{
-        array::{ArrayRef, Float64Array, StringArray, UInt64Array},
-        datatypes::{DataType, Field, Schema, SchemaRef},
+        array::{
+            builder::{ListBuilder, StringBuilder},
+            new_null_array, ArrayRef, Float64Array, Int64Array, StringArray,
+            TimestampMillisecondArray, UInt64Array,
+        },
+        datatypes::{DataType, Field, Schema, SchemaRef, TimeUnit},
         record_batch::RecordBatch,
     },
     catalog::{Session, TableProvider},
     common::{DataFusionError, Result, ScalarValue},
     datasource::MemTable,
-    logical_expr::{Expr, TableProviderFilterPushDown, TableType},
+    logical_expr::{Expr, Operator, TableProviderFilterPushDown, TableType},
     physical_plan::ExecutionPlan,
 };
 fn error(e: impl ToString) -> DataFusionError {
@@ -24,16 +29,281 @@ fn error(e: impl ToString) -> DataFusionError {
 fn strings(v: Vec<Option<String>>) -> ArrayRef {
     Arc::new(StringArray::from(v))
 }
-fn schema() -> SchemaRef {
-    Arc::new(Schema::new(vec![
-        Field::new("id", DataType::UInt64, false),
-        Field::new("file", DataType::Utf8, true),
-        Field::new("title", DataType::Utf8, false),
-        Field::new("line", DataType::UInt64, false),
-        Field::new("body", DataType::Utf8, false),
-        Field::new("score", DataType::Float64, true),
-    ]))
+
+fn column(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Column(c) => Some(&c.name),
+        Expr::Cast(c) => column(&c.expr),
+        _ => None,
+    }
 }
+
+fn literal(expr: &Expr) -> Option<ScalarValue> {
+    match expr {
+        Expr::Literal(v, _) => Some(v.clone()),
+        Expr::Cast(c) => literal(&c.expr),
+        Expr::Negative(e) => match literal(e)? {
+            ScalarValue::Int64(Some(v)) => v.checked_neg().map(|v| ScalarValue::Int64(Some(v))),
+            ScalarValue::Int32(Some(v)) => v.checked_neg().map(|v| ScalarValue::Int32(Some(v))),
+            ScalarValue::Float64(Some(v)) => Some(ScalarValue::Float64(Some(-v))),
+            ScalarValue::Float32(Some(v)) => Some(ScalarValue::Float32(Some(-v))),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn scalar_to_string(scalar: &ScalarValue) -> Option<String> {
+    match scalar {
+        ScalarValue::Utf8(Some(s)) | ScalarValue::LargeUtf8(Some(s)) => Some(s.clone()),
+        ScalarValue::Int64(Some(v)) => Some(v.to_string()),
+        ScalarValue::Int32(Some(v)) => Some(v.to_string()),
+        _ => None,
+    }
+}
+
+fn scalar_to_f64(scalar: &ScalarValue) -> Option<f64> {
+    match scalar {
+        ScalarValue::Int8(Some(v)) => Some(*v as f64),
+        ScalarValue::Int16(Some(v)) => Some(*v as f64),
+        ScalarValue::Int32(Some(v)) => Some(*v as f64),
+        ScalarValue::Int64(Some(v)) => Some(*v as f64),
+        ScalarValue::UInt8(Some(v)) => Some(*v as f64),
+        ScalarValue::UInt16(Some(v)) => Some(*v as f64),
+        ScalarValue::UInt32(Some(v)) => Some(*v as f64),
+        ScalarValue::UInt64(Some(v)) => Some(*v as f64),
+        ScalarValue::Float32(Some(v)) => Some(*v as f64),
+        ScalarValue::Float64(Some(v)) => Some(*v),
+        ScalarValue::TimestampMillisecond(Some(v), _) => Some(*v as f64),
+        ScalarValue::TimestampSecond(Some(v), _) => Some((*v * 1000) as f64),
+        ScalarValue::TimestampMicrosecond(Some(v), _) => Some((*v / 1000) as f64),
+        ScalarValue::TimestampNanosecond(Some(v), _) => Some((*v / 1_000_000) as f64),
+        ScalarValue::Date32(Some(days)) => Some((*days as i64 * 86_400_000) as f64),
+        ScalarValue::Date64(Some(ms)) => Some(*ms as f64),
+        ScalarValue::Utf8(Some(s)) => {
+            if let Ok(num) = s.parse::<f64>() {
+                Some(num)
+            } else if let Some(ms) = crate::meta::parse_date_to_epoch_ms(s) {
+                Some(ms as f64)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+fn to_filter_clause(expr: &Expr, schema: &HashMap<String, FieldType>) -> Option<FilterClause> {
+    match expr {
+        Expr::BinaryExpr(b) => {
+            if let (Some(col), Some(lit)) = (column(&b.left), literal(&b.right)) {
+                let ft = schema.get(col)?;
+                match b.op {
+                    Operator::Eq => match ft {
+                        FieldType::Keyword | FieldType::KeywordList => {
+                            let s = scalar_to_string(&lit)?;
+                            Some(FilterClause::Keyword {
+                                field: col.to_string(),
+                                values: vec![s],
+                                negated: false,
+                            })
+                        }
+                        FieldType::Integer | FieldType::Float | FieldType::Date => {
+                            let v = scalar_to_f64(&lit)?;
+                            Some(FilterClause::Range {
+                                field: col.to_string(),
+                                op: RangeOp::Between(v, v),
+                                negated: false,
+                            })
+                        }
+                    },
+                    Operator::NotEq => match ft {
+                        FieldType::Keyword | FieldType::KeywordList => {
+                            let s = scalar_to_string(&lit)?;
+                            Some(FilterClause::Keyword {
+                                field: col.to_string(),
+                                values: vec![s],
+                                negated: true,
+                            })
+                        }
+                        FieldType::Integer | FieldType::Float | FieldType::Date => {
+                            let v = scalar_to_f64(&lit)?;
+                            Some(FilterClause::Range {
+                                field: col.to_string(),
+                                op: RangeOp::Between(v, v),
+                                negated: true,
+                            })
+                        }
+                    },
+                    Operator::Gt => {
+                        let v = scalar_to_f64(&lit)?;
+                        Some(FilterClause::Range {
+                            field: col.to_string(),
+                            op: RangeOp::Gt(v),
+                            negated: false,
+                        })
+                    }
+                    Operator::GtEq => {
+                        let v = scalar_to_f64(&lit)?;
+                        Some(FilterClause::Range {
+                            field: col.to_string(),
+                            op: RangeOp::Gte(v),
+                            negated: false,
+                        })
+                    }
+                    Operator::Lt => {
+                        let v = scalar_to_f64(&lit)?;
+                        Some(FilterClause::Range {
+                            field: col.to_string(),
+                            op: RangeOp::Lt(v),
+                            negated: false,
+                        })
+                    }
+                    Operator::LtEq => {
+                        let v = scalar_to_f64(&lit)?;
+                        Some(FilterClause::Range {
+                            field: col.to_string(),
+                            op: RangeOp::Lte(v),
+                            negated: false,
+                        })
+                    }
+                    _ => None,
+                }
+            } else if let (Some(col), Some(lit)) = (column(&b.right), literal(&b.left)) {
+                let ft = schema.get(col)?;
+                match b.op {
+                    Operator::Eq => match ft {
+                        FieldType::Keyword | FieldType::KeywordList => {
+                            let s = scalar_to_string(&lit)?;
+                            Some(FilterClause::Keyword {
+                                field: col.to_string(),
+                                values: vec![s],
+                                negated: false,
+                            })
+                        }
+                        FieldType::Integer | FieldType::Float | FieldType::Date => {
+                            let v = scalar_to_f64(&lit)?;
+                            Some(FilterClause::Range {
+                                field: col.to_string(),
+                                op: RangeOp::Between(v, v),
+                                negated: false,
+                            })
+                        }
+                    },
+                    Operator::NotEq => match ft {
+                        FieldType::Keyword | FieldType::KeywordList => {
+                            let s = scalar_to_string(&lit)?;
+                            Some(FilterClause::Keyword {
+                                field: col.to_string(),
+                                values: vec![s],
+                                negated: true,
+                            })
+                        }
+                        FieldType::Integer | FieldType::Float | FieldType::Date => {
+                            let v = scalar_to_f64(&lit)?;
+                            Some(FilterClause::Range {
+                                field: col.to_string(),
+                                op: RangeOp::Between(v, v),
+                                negated: true,
+                            })
+                        }
+                    },
+                    Operator::Gt => {
+                        let v = scalar_to_f64(&lit)?;
+                        Some(FilterClause::Range {
+                            field: col.to_string(),
+                            op: RangeOp::Lt(v),
+                            negated: false,
+                        })
+                    }
+                    Operator::GtEq => {
+                        let v = scalar_to_f64(&lit)?;
+                        Some(FilterClause::Range {
+                            field: col.to_string(),
+                            op: RangeOp::Lte(v),
+                            negated: false,
+                        })
+                    }
+                    Operator::Lt => {
+                        let v = scalar_to_f64(&lit)?;
+                        Some(FilterClause::Range {
+                            field: col.to_string(),
+                            op: RangeOp::Gt(v),
+                            negated: false,
+                        })
+                    }
+                    Operator::LtEq => {
+                        let v = scalar_to_f64(&lit)?;
+                        Some(FilterClause::Range {
+                            field: col.to_string(),
+                            op: RangeOp::Gte(v),
+                            negated: false,
+                        })
+                    }
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        }
+        Expr::Between(b) => {
+            let col = column(&b.expr)?;
+            let _ft = schema.get(col)?;
+            let low = scalar_to_f64(&literal(&b.low)?)?;
+            let high = scalar_to_f64(&literal(&b.high)?)?;
+            Some(FilterClause::Range {
+                field: col.to_string(),
+                op: RangeOp::Between(low, high),
+                negated: b.negated,
+            })
+        }
+        Expr::InList(list) => {
+            let col = column(&list.expr)?;
+            let ft = schema.get(col)?;
+            match ft {
+                FieldType::Keyword | FieldType::KeywordList => {
+                    let mut values = Vec::new();
+                    for item in &list.list {
+                        values.push(scalar_to_string(&literal(item)?)?);
+                    }
+                    Some(FilterClause::Keyword {
+                        field: col.to_string(),
+                        values,
+                        negated: list.negated,
+                    })
+                }
+                _ => None,
+            }
+        }
+        Expr::ScalarFunction(f) => {
+            if (f.name().eq_ignore_ascii_case("array_has")
+                || f.name().eq_ignore_ascii_case("array_contains"))
+                && f.args.len() == 2
+            {
+                let col = column(&f.args[0])?;
+                let ft = schema.get(col)?;
+                if *ft == FieldType::KeywordList || *ft == FieldType::Keyword {
+                    let val = scalar_to_string(&literal(&f.args[1])?)?;
+                    Some(FilterClause::Keyword {
+                        field: col.to_string(),
+                        values: vec![val],
+                        negated: false,
+                    })
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+        Expr::Not(inner) => {
+            let clause = to_filter_clause(inner, schema)?;
+            Some(clause.negate())
+        }
+        _ => None,
+    }
+}
+
 enum MatchFilter<'a> {
     Positive(&'a str),
     Negative(&'a str),
@@ -61,7 +331,7 @@ fn match_filter(e: &Expr) -> Option<MatchFilter<'_>> {
     }
 }
 pub struct SectionsTable {
-    index: Arc<LoadedIndex>,
+    pub index: Arc<LoadedIndex>,
 }
 impl Debug for SectionsTable {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -77,10 +347,44 @@ pub fn lexical_options(limit: usize) -> SearchOptions {
         ..Default::default()
     }
 }
+impl SectionsTable {
+    pub fn schema_for(index: &LoadedIndex) -> SchemaRef {
+        let mut fields = vec![
+            Field::new("id", DataType::UInt64, false),
+            Field::new("file", DataType::Utf8, true),
+            Field::new("title", DataType::Utf8, false),
+            Field::new("line", DataType::UInt64, false),
+            Field::new("body", DataType::Utf8, false),
+            Field::new("score", DataType::Float64, true),
+        ];
+        if let Some(ref meta) = index.meta {
+            let mut meta_cols: Vec<_> = meta.schema.keys().collect();
+            meta_cols.sort();
+            for col_name in meta_cols {
+                if let Some(ft) = meta.schema.get(col_name) {
+                    let dt = match ft {
+                        FieldType::Keyword => DataType::Utf8,
+                        FieldType::KeywordList => {
+                            DataType::List(Arc::new(Field::new("item", DataType::Utf8, true)))
+                        }
+                        FieldType::Integer => DataType::Int64,
+                        FieldType::Float => DataType::Float64,
+                        FieldType::Date => {
+                            DataType::Timestamp(TimeUnit::Millisecond, Some("UTC".into()))
+                        }
+                    };
+                    fields.push(Field::new(col_name, dt, true));
+                }
+            }
+        }
+        Arc::new(Schema::new(fields))
+    }
+}
+
 #[async_trait]
 impl TableProvider for SectionsTable {
     fn schema(&self) -> SchemaRef {
-        schema()
+        Self::schema_for(&self.index)
     }
     fn table_type(&self) -> TableType {
         TableType::View
@@ -89,11 +393,18 @@ impl TableProvider for SectionsTable {
         &self,
         filters: &[&Expr],
     ) -> Result<Vec<TableProviderFilterPushDown>> {
+        let schema = self.index.meta.as_ref().map(|m| &m.schema);
         Ok(filters
             .iter()
             .map(|e| {
                 if match_filter(e).is_some() {
                     TableProviderFilterPushDown::Exact
+                } else if let Some(meta_schema) = schema {
+                    if to_filter_clause(e, meta_schema).is_some() {
+                        TableProviderFilterPushDown::Exact
+                    } else {
+                        TableProviderFilterPushDown::Unsupported
+                    }
                 } else {
                     TableProviderFilterPushDown::Unsupported
                 }
@@ -116,20 +427,53 @@ impl TableProvider for SectionsTable {
                 MatchFilter::Negative(q) => negative_queries.push(q),
             }
         }
+
+        let mut meta_clauses = Vec::new();
+        if let Some(ref meta) = self.index.meta {
+            for f in filters {
+                if match_filter(f).is_none() {
+                    if let Some(clause) = to_filter_clause(f, &meta.schema) {
+                        meta_clauses.push(clause);
+                    }
+                }
+            }
+        }
+        let allow_meta = if let Some(ref meta) = self.index.meta {
+            if !meta_clauses.is_empty() {
+                crate::meta::evaluate_filters(meta, &meta_clauses)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let mut selected: BTreeMap<usize, Option<f64>> = match positive_queries.first() {
-            Some(q) => search(
-                &self.index,
-                q,
-                &lexical_options(self.index.bm25.sections.len()),
-            )
-            .map_err(error)?
-            .hits
-            .into_iter()
-            .map(|h| (h.section_index, Some(h.score)))
-            .collect(),
-            None => (0..self.index.bm25.sections.len())
-                .map(|i| (i, None))
-                .collect(),
+            Some(q) => {
+                let mut hits: BTreeMap<usize, Option<f64>> = search(
+                    &self.index,
+                    q,
+                    &lexical_options(self.index.bm25.sections.len()),
+                )
+                .map_err(error)?
+                .hits
+                .into_iter()
+                .map(|h| (h.section_index, Some(h.score)))
+                .collect();
+                if let Some(ref allow) = allow_meta {
+                    hits.retain(|id, _| allow.contains(*id as u32));
+                }
+                hits
+            }
+            None => {
+                if let Some(ref allow) = allow_meta {
+                    allow.iter().into_iter().map(|i| (i as usize, None)).collect()
+                } else {
+                    (0..self.index.bm25.sections.len())
+                        .map(|i| (i, None))
+                        .collect()
+                }
+            }
         };
         for q in positive_queries.iter().skip(1) {
             let keep: std::collections::BTreeSet<_> = search(
@@ -163,11 +507,10 @@ impl TableProvider for SectionsTable {
             .map(|id| &self.index.bm25.sections[*id])
             .collect();
         let full = self.schema();
-        // Build only projected text columns: COUNT(*) need not copy the entire book.
-        let columns = projection.cloned().unwrap_or_else(|| (0..6).collect());
+        let columns = projection.cloned().unwrap_or_else(|| (0..full.fields().len()).collect());
         let arrays: Vec<ArrayRef> = columns
             .iter()
-            .map(|column| match column {
+            .map(|&column| match column {
                 0 => Arc::new(UInt64Array::from(
                     ids.iter().map(|i| *i as u64).collect::<Vec<_>>(),
                 )) as ArrayRef,
@@ -183,7 +526,78 @@ impl TableProvider for SectionsTable {
                 5 => Arc::new(Float64Array::from(
                     ids.iter().map(|i| selected[i]).collect::<Vec<_>>(),
                 )),
-                _ => unreachable!("validated projection"),
+                col_idx => {
+                    let field = full.field(col_idx);
+                    let col_name = field.name();
+                    if let Some(ref meta) = self.index.meta {
+                        if let Some(meta_col) = meta.columns.get(col_name) {
+                            match meta_col {
+                                crate::meta::Column::Keyword { dict, ords, .. } => {
+                                    let vals: Vec<Option<String>> = ids
+                                        .iter()
+                                        .map(|&id| {
+                                            ords.get(id)
+                                                .copied()
+                                                .flatten()
+                                                .and_then(|ord| dict.get(ord as usize).cloned())
+                                        })
+                                        .collect();
+                                    Arc::new(StringArray::from(vals)) as ArrayRef
+                                }
+                                crate::meta::Column::KeywordList { dict, offsets, ords, .. } => {
+                                    let mut builder = ListBuilder::new(StringBuilder::new());
+                                    for &id in &ids {
+                                        if id + 1 < offsets.len() {
+                                            let start = offsets[id];
+                                            let end = offsets[id + 1];
+                                            if start == end {
+                                                builder.append(false);
+                                            } else {
+                                                for &ord in &ords[start..end] {
+                                                    if let Some(val) = dict.get(ord as usize) {
+                                                        builder.values().append_value(val);
+                                                    }
+                                                }
+                                                builder.append(true);
+                                            }
+                                        } else {
+                                            builder.append(false);
+                                        }
+                                    }
+                                    Arc::new(builder.finish()) as ArrayRef
+                                }
+                                crate::meta::Column::Integer { values, .. } => {
+                                    let vals: Vec<Option<i64>> = ids
+                                        .iter()
+                                        .map(|&id| values.get(id).copied().flatten())
+                                        .collect();
+                                    Arc::new(Int64Array::from(vals)) as ArrayRef
+                                }
+                                crate::meta::Column::Float { values, .. } => {
+                                    let vals: Vec<Option<f64>> = ids
+                                        .iter()
+                                        .map(|&id| values.get(id).copied().flatten())
+                                        .collect();
+                                    Arc::new(Float64Array::from(vals)) as ArrayRef
+                                }
+                                crate::meta::Column::Date { values, .. } => {
+                                    let vals: Vec<Option<i64>> = ids
+                                        .iter()
+                                        .map(|&id| values.get(id).copied().flatten())
+                                        .collect();
+                                    Arc::new(
+                                        TimestampMillisecondArray::from(vals)
+                                            .with_timezone("UTC"),
+                                    ) as ArrayRef
+                                }
+                            }
+                        } else {
+                            new_null_array(field.data_type(), ids.len())
+                        }
+                    } else {
+                        new_null_array(field.data_type(), ids.len())
+                    }
+                }
             })
             .collect();
         let projected = Arc::new(full.project(&columns)?);
