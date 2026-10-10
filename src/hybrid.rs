@@ -456,6 +456,22 @@ pub fn section_hash(sec: &Section) -> String {
     format!("{:016x}", fnv1a64(&[filename, &sec.title, &sec.body]))
 }
 
+/// Stable fingerprint of the loaded sections. Reindex/reload replaces this
+/// snapshot; query execution never consults the source directory.
+pub fn index_fingerprint(sections: &[Section]) -> (u64, u64) {
+    let mut size = 0u64;
+    let mut hash = 0xcbf29ce484222325u64;
+    for section in sections {
+        size = size.saturating_add(section.title.len() as u64);
+        size = size.saturating_add(section.body.len() as u64);
+        for byte in section_hash(section).bytes() {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+    }
+    (size, hash)
+}
+
 struct IngestTask {
     /// Section content hash — becomes the remote chunk's `source`, which is
     /// how search results map back to local sections.
@@ -941,6 +957,7 @@ pub fn execute_hybrid_search(
     index: &Bm25Index,
     tagger: Option<&Tagger>,
     target_file: &str,
+    corpus_fingerprint: (u64, u64),
     query: &str,
     skg_scores: &HashMap<usize, f64>,
     beta: f64,
@@ -961,9 +978,7 @@ pub fn execute_hybrid_search(
         },
     };
 
-    let path = std::path::Path::new(target_file);
-    let (corpus_size, corpus_mtime) = get_corpus_metadata(path)
-        .map_err(|e| format!("Failed to read metadata for {}: {}", target_file, e))?;
+    let (corpus_size, corpus_mtime) = corpus_fingerprint;
 
     let mut semantic_cache = load_semantic_cache_with_dir(target_file, corpus_size, corpus_mtime, cache_dir);
 

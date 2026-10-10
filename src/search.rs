@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use crate::bm25::{filter_query_stopwords, Bm25Index, Bm25Params, SearchVariant, Section};
 use crate::semantic_mesh::EntityGraph;
@@ -116,6 +117,8 @@ pub struct LoadedIndex {
     pub tagger: Option<Tagger>,
     pub cache_dir: Option<PathBuf>,
     pub meta: Option<crate::meta::MetaIndex>,
+    /// Fingerprint of this immutable index snapshot, not the live source tree.
+    pub corpus_fingerprint: OnceLock<(u64, u64)>,
 }
 
 impl std::fmt::Debug for LoadedIndex {
@@ -223,7 +226,9 @@ impl LoadedIndex {
             None
         };
 
+        let corpus_fingerprint = OnceLock::from(crate::hybrid::index_fingerprint(&bm25.sections));
         Ok(Self {
+            corpus_fingerprint,
             state: Some(state),
             bm25,
             spelling,
@@ -235,7 +240,9 @@ impl LoadedIndex {
     }
 
     pub fn from_parts(bm25: Bm25Index) -> Self {
+        let corpus_fingerprint = OnceLock::from(crate::hybrid::index_fingerprint(&bm25.sections));
         Self {
+            corpus_fingerprint,
             state: None,
             bm25,
             spelling: None,
@@ -700,6 +707,9 @@ pub fn search(
                 &index.bm25,
                 index.tagger.as_ref(),
                 target_dir,
+                *index.corpus_fingerprint.get_or_init(|| {
+                    crate::hybrid::index_fingerprint(&index.bm25.sections)
+                }),
                 &effective_query,
                 &skg_scores,
                 beta,
@@ -1061,6 +1071,76 @@ mod tests {
     }
 
     #[test]
+    fn resident_hybrid_search_does_not_walk_the_source_tree() {
+        let dir = std::env::temp_dir().join(format!(
+            "lume-hybrid-no-walk-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let missing_source = dir.join("source-no-longer-mounted");
+        let target = missing_source.to_string_lossy().into_owned();
+        let mut index = LoadedIndex::from_parts(build_test_bm25());
+        index.state = Some(IndexState {
+            format_version: CURRENT_FORMAT_VERSION,
+            target_dir: target.clone(),
+            db_dir: dir.to_string_lossy().into_owned(),
+            semantic_enabled: true,
+            ollama_entities: false,
+            ollama_model: "test".to_string(),
+            ollama_url: "http://localhost:11434".to_string(),
+            tag_dict_path: None,
+            semantic_session_id: Some("cached-session".to_string()),
+            cached_files: HashMap::new(),
+            stemmed: false,
+            keep_hyphens: false,
+        });
+        index.cache_dir = Some(dir.clone());
+        let (size, fingerprint) = *index.corpus_fingerprint.get().unwrap();
+        let cache = crate::hybrid::SemanticQueryCache {
+            corpus_path: target.clone(),
+            corpus_size: size,
+            corpus_mtime: fingerprint,
+            queries: HashMap::from([(
+                "captain".to_string(),
+                vec![crate::hybrid::SearchResult {
+                    chunk_id: "cached-chunk".to_string(),
+                    score: 0.8,
+                    text: "The brave captain".to_string(),
+                    source: Some(crate::hybrid::section_hash(&index.bm25.sections[0])),
+                }],
+            )]),
+        };
+        crate::hybrid::save_semantic_cache_with_dir(&cache, Some(&dir));
+        let opts = SearchOptions {
+            mode: SearchMode::HybridStrict,
+            graph_beta: 0.0,
+            auth_token: Some("test-token".to_string()),
+            ..Default::default()
+        };
+        for _ in 0..2 {
+            let results = search(&index, "captain", &opts).unwrap();
+            assert_eq!(results.executed_mode, SearchMode::HybridStrict);
+            assert_eq!(results.hits[0].title, "Chapter 1");
+            assert!(!missing_source.exists());
+        }
+
+        // A replacement snapshot changes the fingerprint even at equal byte size.
+        let mut replacement = index.bm25.sections.clone();
+        replacement[0].body = replacement[0].body.replace("brave", "stern");
+        let changed = crate::hybrid::index_fingerprint(&replacement);
+        assert_eq!(changed.0, size);
+        assert_ne!(changed.1, fingerprint);
+        assert!(crate::hybrid::load_semantic_cache_with_dir(
+            &target, changed.0, changed.1, Some(&dir)
+        ).queries.is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn test_lexical_only_with_nonexistent_target_dir() {
         let bm25 = build_test_bm25();
         let state = IndexState {
@@ -1085,6 +1165,7 @@ mod tests {
             tagger: None,
             cache_dir: None,
             meta: None,
+            corpus_fingerprint: OnceLock::new(),
         };
 
         let opts = SearchOptions {
@@ -1125,6 +1206,7 @@ mod tests {
             tagger: None,
             cache_dir: None,
             meta: None,
+            corpus_fingerprint: OnceLock::new(),
         };
 
         let opts = SearchOptions {
@@ -1169,6 +1251,7 @@ mod tests {
             tagger: None,
             cache_dir: None,
             meta: None,
+            corpus_fingerprint: OnceLock::new(),
         };
 
         let opts = SearchOptions {
@@ -1520,6 +1603,7 @@ mod tests {
             tagger: None,
             cache_dir: None,
             meta: None,
+            corpus_fingerprint: OnceLock::new(),
         };
 
         // 1. Lexical search with default params (coord_floor = 1.0, unpenalized)
@@ -1646,6 +1730,7 @@ mod tests {
             tagger: None,
             cache_dir: None,
             meta: None,
+            corpus_fingerprint: OnceLock::new(),
         };
 
         let opts = SearchOptions {
