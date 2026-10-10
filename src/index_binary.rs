@@ -3,3 +3,6 @@
 pub mod codec;
 pub mod csr;
 pub mod postings;
+pub mod profiles;
+pub mod sections;
+pub mod terms;

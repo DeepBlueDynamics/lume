@@ -76,6 +76,9 @@ impl PostingsCsr {
         Ok(())
     }
 
+    pub fn doc_count(&self) -> u32 {
+        self.doc_count
+    }
     pub fn len(&self) -> usize {
         self.terms.len()
     }

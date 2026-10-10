@@ -55,6 +55,12 @@ impl ForwardCsr {
             entries,
         })
     }
+    pub fn term_count(&self) -> u32 {
+        self.term_count
+    }
+    pub fn entry_count(&self) -> usize {
+        self.entries.len()
+    }
     pub fn len(&self) -> usize {
         self.offsets.len() - 1
     }

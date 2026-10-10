@@ -4,6 +4,11 @@ use crate::Tagger;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+#[path = "index_binary/bm25_codec.rs"]
+mod binary;
+#[path = "index_binary/serialization.rs"]
+mod serialization;
+
 pub fn serialize_u8_map<S, T>(map: &HashMap<Vec<u8>, T>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
@@ -287,7 +292,7 @@ impl Bm25BuildOptions {
 }
 
 /// A parsed, in-memory index of Markdown sections.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Bm25Index {
     pub sections: Vec<Section>,
     pub num_docs: usize,
@@ -668,6 +673,16 @@ pub fn parse_markdown(content: &str) -> Vec<Section> {
 }
 
 impl Bm25Index {
+    pub fn v4_segments(&mut self) -> Result<std::collections::BTreeMap<String, Vec<u8>>, String> {
+        binary::encode(self)
+    }
+
+    pub fn from_v4_segments(
+        segments: &std::collections::BTreeMap<String, Vec<u8>>,
+    ) -> Result<Self, String> {
+        binary::decode(segments)
+    }
+
     /// Replace legacy forward maps with checked flat rows and prebuilt postings.
     /// This is an in-memory conversion; it never writes or migrates an index.
     pub fn compact_for_v4(&mut self) -> Result<(), String> {
