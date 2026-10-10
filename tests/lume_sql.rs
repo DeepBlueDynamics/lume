@@ -392,7 +392,9 @@ fn monte_cristo_match_and_not_match() {
     for r in rows_not {
         let id = r["id"].as_u64().unwrap();
         let score = r["score"].as_f64().unwrap();
-        let original_score = pos_scores.get(&id).expect("row must exist in positive hits");
+        let original_score = pos_scores
+            .get(&id)
+            .expect("row must exist in positive hits");
         assert!(
             (score - original_score).abs() < 1e-9,
             "score for id {id} changed: {score} vs {original_score}"
@@ -632,12 +634,18 @@ fn metadata_columns_pushdown_and_facets_equivalence() {
     }
 
     // 2. year >= 2020 is reported Exact in EXPLAIN
-    let table = lume::sql::SectionsTable { index: Arc::new(index.clone()) };
+    let table = lume::sql::SectionsTable {
+        index: Arc::new(index.clone()),
+    };
     use ti_sql::datafusion::catalog::TableProvider;
     use ti_sql::datafusion::logical_expr::{col, lit, TableProviderFilterPushDown};
     let year_filter = col("year").gt_eq(lit(2020i64));
     let pushdown = table.supports_filters_pushdown(&[&year_filter]).unwrap();
-    assert_eq!(pushdown, vec![TableProviderFilterPushDown::Exact], "year >= 2020 must be reported Exact");
+    assert_eq!(
+        pushdown,
+        vec![TableProviderFilterPushDown::Exact],
+        "year >= 2020 must be reported Exact"
+    );
 
     let explain_reply = runtime
         .block_on(engine.query("EXPLAIN SELECT id FROM sections WHERE year >= 2020", 500))
@@ -657,7 +665,12 @@ fn metadata_columns_pushdown_and_facets_equivalence() {
         ..Default::default()
     };
     let native_res_tags = lume::search::search(&index, "cancer", &opts_tags).unwrap();
-    let native_tags_facet = native_res_tags.facets.as_ref().unwrap().get("tags").unwrap();
+    let native_tags_facet = native_res_tags
+        .facets
+        .as_ref()
+        .unwrap()
+        .get("tags")
+        .unwrap();
 
     let sql_tags = "SELECT tag, count(*) AS n FROM (SELECT unnest(tags) AS tag FROM sections WHERE match(body, 'cancer')) GROUP BY tag ORDER BY tag";
     let reply_tags = runtime.block_on(engine.query(sql_tags, 500)).unwrap();
@@ -680,7 +693,9 @@ fn metadata_columns_pushdown_and_facets_equivalence() {
     assert_eq!(reply_no_match["rows"][0]["n"].as_u64().unwrap(), 2); // sec1 (2025) and sec2 (2022)
 
     let sql_no_match_rows = "SELECT id, score, year FROM sections WHERE year >= 2020 ORDER BY id";
-    let reply_rows = runtime.block_on(engine.query(sql_no_match_rows, 500)).unwrap();
+    let reply_rows = runtime
+        .block_on(engine.query(sql_no_match_rows, 500))
+        .unwrap();
     let rows = reply_rows["rows"].as_array().unwrap();
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0]["id"].as_u64().unwrap(), 1);

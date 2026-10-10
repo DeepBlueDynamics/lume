@@ -694,11 +694,17 @@ pub fn search(
             match hybrid_res {
                 Ok(mut h_results) => {
                     if let Some(ref allow_bm) = allow {
-                        h_results.hits.retain(|h| allow_bm.contains(h.section_index as u32));
+                        h_results
+                            .hits
+                            .retain(|h| allow_bm.contains(h.section_index as u32));
                     }
                     let found = h_results.hits.len();
                     let facets = if !opts.facets.is_empty() {
-                        let mut match_ids: Vec<u32> = h_results.hits.iter().map(|h| h.section_index as u32).collect();
+                        let mut match_ids: Vec<u32> = h_results
+                            .hits
+                            .iter()
+                            .map(|h| h.section_index as u32)
+                            .collect();
                         match_ids.sort();
                         let match_bm = crate::fast_retrieval::MiniRoaring::from_sorted(&match_ids);
                         Some(crate::meta::compute_facets(
@@ -763,11 +769,10 @@ pub fn search(
     // 4. Lexical BM25 path
     let (lexical_params, lexical_variant) = (opts.bm25_params.clone(), opts.bm25_variant);
     // Exhaustive candidate bitmap (with allow filter applied)
-    let candidate_bm = index.bm25.candidates(
-        &effective_query,
-        index.tagger.as_ref(),
-        allow.as_ref(),
-    );
+    let candidate_bm =
+        index
+            .bm25
+            .candidates(&effective_query, index.tagger.as_ref(), allow.as_ref());
     let found = candidate_bm.len();
     let facets = if !opts.facets.is_empty() {
         let match_ids = candidate_bm.iter();
@@ -1727,8 +1732,16 @@ mod tests {
         save_json(&temp_dir.join("bm25.json"), &bm25).unwrap();
 
         let err = LoadedIndex::open(&temp_dir).unwrap_err();
-        assert!(err.contains("requires meta.json"), "expected requires meta.json, got: {}", err);
-        assert!(err.contains("reindex"), "expected reindex in error, got: {}", err);
+        assert!(
+            err.contains("requires meta.json"),
+            "expected requires meta.json, got: {}",
+            err
+        );
+        assert!(
+            err.contains("reindex"),
+            "expected reindex in error, got: {}",
+            err
+        );
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
@@ -1781,8 +1794,16 @@ mod tests {
         save_json(&temp_dir.join("meta.json"), &meta_disk).unwrap();
 
         let err = LoadedIndex::open(&temp_dir).unwrap_err();
-        assert!(err.contains("Index metadata section count mismatch"), "expected section count mismatch, got: {}", err);
-        assert!(err.contains("reindex"), "expected reindex in error, got: {}", err);
+        assert!(
+            err.contains("Index metadata section count mismatch"),
+            "expected section count mismatch, got: {}",
+            err
+        );
+        assert!(
+            err.contains("reindex"),
+            "expected reindex in error, got: {}",
+            err
+        );
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
@@ -1842,8 +1863,18 @@ mod tests {
         // 1. Unfiltered query
         let res_unfiltered = search(&index, "cancer", &opts).unwrap();
         assert_eq!(res_unfiltered.hits.len(), 2);
-        let score_sec0 = res_unfiltered.hits.iter().find(|h| h.section_index == 0).unwrap().score;
-        let score_sec1 = res_unfiltered.hits.iter().find(|h| h.section_index == 1).unwrap().score;
+        let score_sec0 = res_unfiltered
+            .hits
+            .iter()
+            .find(|h| h.section_index == 0)
+            .unwrap()
+            .score;
+        let score_sec1 = res_unfiltered
+            .hits
+            .iter()
+            .find(|h| h.section_index == 1)
+            .unwrap()
+            .score;
 
         // 2. Positive filter: category:biology
         let res_bio = search(&index, "cancer category:biology", &opts).unwrap();
@@ -2039,7 +2070,13 @@ mod tests {
 
         // Year range: [2020, 2025), [2025, 2030)
         // Matching hits: sec0 (2015 -> before), sec1 (2025 -> bucket 1), sec3 (missing)
-        if let Some(crate::meta::FacetResult::Range { buckets, before, after, missing }) = facets.get("year") {
+        if let Some(crate::meta::FacetResult::Range {
+            buckets,
+            before,
+            after,
+            missing,
+        }) = facets.get("year")
+        {
             assert_eq!(*before, 1);
             assert_eq!(*after, 0);
             assert_eq!(*missing, 1);
@@ -2142,7 +2179,11 @@ mod tests {
 
         // Compare score with unfiltered cancer search hit for doc 0
         let res_unfiltered = search(&index, "cancer", &opts).unwrap();
-        let doc0_unfiltered = res_unfiltered.hits.iter().find(|h| h.section_index == 0).unwrap();
+        let doc0_unfiltered = res_unfiltered
+            .hits
+            .iter()
+            .find(|h| h.section_index == 0)
+            .unwrap();
         assert_eq!(res.hits[0].score.to_bits(), doc0_unfiltered.score.to_bits());
 
         // Negative filter -category:biology

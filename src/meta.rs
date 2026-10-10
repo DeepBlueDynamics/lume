@@ -1,8 +1,8 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
 
 use crate::fast_retrieval::MiniRoaring;
 
@@ -227,7 +227,9 @@ fn parse_yaml_inline_list(raw: &str) -> Vec<serde_json::Value> {
 
 /// Extracts YAML frontmatter from markdown content and blanks out the frontmatter lines,
 /// preserving exact line counts and offsets for markdown sectioning.
-pub fn extract_and_blank_frontmatter(content: &str) -> (HashMap<String, serde_json::Value>, String) {
+pub fn extract_and_blank_frontmatter(
+    content: &str,
+) -> (HashMap<String, serde_json::Value>, String) {
     let mut lines: Vec<&str> = content.split('\n').collect();
     if lines.is_empty() {
         return (HashMap::new(), content.to_string());
@@ -279,7 +281,11 @@ pub fn extract_and_blank_frontmatter(content: &str) -> (HashMap<String, serde_js
         }
 
         // List item under active list key: `- item`
-        if trimmed.starts_with('-') && (trimmed.len() == 1 || trimmed[1..].starts_with(' ') || trimmed[1..].starts_with('\t')) {
+        if trimmed.starts_with('-')
+            && (trimmed.len() == 1
+                || trimmed[1..].starts_with(' ')
+                || trimmed[1..].starts_with('\t'))
+        {
             let item_str = trimmed[1..].trim();
             if let Some(ref key) = active_list_key {
                 let item_val = parse_yaml_scalar(item_str);
@@ -340,17 +346,30 @@ pub fn normalize_rel_path(path_str: &str) -> String {
 }
 
 pub fn read_manifest(path: &Path) -> Result<Vec<ManifestRow>, String> {
-    let file = File::open(path).map_err(|e| format!("Failed to open manifest {}: {}", path.display(), e))?;
+    let file = File::open(path)
+        .map_err(|e| format!("Failed to open manifest {}: {}", path.display(), e))?;
     let reader = BufReader::new(file);
     let mut rows = Vec::new();
     for (line_no, line_res) in reader.lines().enumerate() {
-        let line = line_res.map_err(|e| format!("Error reading {} line {}: {}", path.display(), line_no + 1, e))?;
+        let line = line_res.map_err(|e| {
+            format!(
+                "Error reading {} line {}: {}",
+                path.display(),
+                line_no + 1,
+                e
+            )
+        })?;
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
         let row: ManifestRow = serde_json::from_str(trimmed).map_err(|e| {
-            format!("Invalid JSON in manifest {} line {}: {}", path.display(), line_no + 1, e)
+            format!(
+                "Invalid JSON in manifest {} line {}: {}",
+                path.display(),
+                line_no + 1,
+                e
+            )
         })?;
         rows.push(row);
     }
@@ -470,7 +489,9 @@ impl MetaIndex {
             let col = match ft {
                 FieldType::Keyword => {
                     let col_disk: KeywordColumnOnDisk = serde_json::from_value(col_val.clone())
-                        .map_err(|e| format!("Failed to parse keyword column '{}': {}", col_name, e))?;
+                        .map_err(|e| {
+                            format!("Failed to parse keyword column '{}': {}", col_name, e)
+                        })?;
                     let mut postings = vec![Vec::new(); col_disk.dict.len()];
                     for (sec_idx, ord_opt) in col_disk.ords.iter().enumerate() {
                         if let Some(ord) = *ord_opt {
@@ -491,7 +512,9 @@ impl MetaIndex {
                 }
                 FieldType::KeywordList => {
                     let col_disk: KeywordListColumnOnDisk = serde_json::from_value(col_val.clone())
-                        .map_err(|e| format!("Failed to parse keyword[] column '{}': {}", col_name, e))?;
+                        .map_err(|e| {
+                            format!("Failed to parse keyword[] column '{}': {}", col_name, e)
+                        })?;
                     let mut postings = vec![Vec::new(); col_disk.dict.len()];
                     if col_disk.offsets.len() >= 2 {
                         for sec_idx in 0..col_disk.offsets.len() - 1 {
@@ -516,8 +539,10 @@ impl MetaIndex {
                     }
                 }
                 FieldType::Integer => {
-                    let col_disk: NumericColumnOnDisk<i64> = serde_json::from_value(col_val.clone())
-                        .map_err(|e| format!("Failed to parse integer column '{}': {}", col_name, e))?;
+                    let col_disk: NumericColumnOnDisk<i64> =
+                        serde_json::from_value(col_val.clone()).map_err(|e| {
+                            format!("Failed to parse integer column '{}': {}", col_name, e)
+                        })?;
                     let mut values = vec![None; disk.num_sections];
                     let mut val_idx = 0;
                     for run in &col_disk.present_runs {
@@ -536,8 +561,10 @@ impl MetaIndex {
                     }
                 }
                 FieldType::Float => {
-                    let col_disk: NumericColumnOnDisk<f64> = serde_json::from_value(col_val.clone())
-                        .map_err(|e| format!("Failed to parse float column '{}': {}", col_name, e))?;
+                    let col_disk: NumericColumnOnDisk<f64> =
+                        serde_json::from_value(col_val.clone()).map_err(|e| {
+                            format!("Failed to parse float column '{}': {}", col_name, e)
+                        })?;
                     let mut values = vec![None; disk.num_sections];
                     let mut val_idx = 0;
                     for run in &col_disk.present_runs {
@@ -556,8 +583,10 @@ impl MetaIndex {
                     }
                 }
                 FieldType::Date => {
-                    let col_disk: NumericColumnOnDisk<i64> = serde_json::from_value(col_val.clone())
-                        .map_err(|e| format!("Failed to parse date column '{}': {}", col_name, e))?;
+                    let col_disk: NumericColumnOnDisk<i64> =
+                        serde_json::from_value(col_val.clone()).map_err(|e| {
+                            format!("Failed to parse date column '{}': {}", col_name, e)
+                        })?;
                     let mut values = vec![None; disk.num_sections];
                     let mut val_idx = 0;
                     for run in &col_disk.present_runs {
@@ -598,20 +627,24 @@ impl MetaIndex {
         let mut columns_map = HashMap::new();
         for (col_name, col) in &self.columns {
             let val = match col {
-                Column::Keyword { dict, ords, .. } => {
-                    serde_json::to_value(KeywordColumnOnDisk {
-                        dict: dict.clone(),
-                        ords: ords.clone(),
-                    })
-                }
-                Column::KeywordList { dict, offsets, ords, .. } => {
-                    serde_json::to_value(KeywordListColumnOnDisk {
-                        dict: dict.clone(),
-                        offsets: offsets.clone(),
-                        ords: ords.clone(),
-                    })
-                }
-                Column::Integer { present_runs, values } => {
+                Column::Keyword { dict, ords, .. } => serde_json::to_value(KeywordColumnOnDisk {
+                    dict: dict.clone(),
+                    ords: ords.clone(),
+                }),
+                Column::KeywordList {
+                    dict,
+                    offsets,
+                    ords,
+                    ..
+                } => serde_json::to_value(KeywordListColumnOnDisk {
+                    dict: dict.clone(),
+                    offsets: offsets.clone(),
+                    ords: ords.clone(),
+                }),
+                Column::Integer {
+                    present_runs,
+                    values,
+                } => {
                     let mut dense_values = Vec::new();
                     for run in present_runs {
                         for sec_idx in run[0]..run[1].min(values.len()) {
@@ -625,7 +658,10 @@ impl MetaIndex {
                         values: dense_values,
                     })
                 }
-                Column::Float { present_runs, values } => {
+                Column::Float {
+                    present_runs,
+                    values,
+                } => {
                     let mut dense_values = Vec::new();
                     for run in present_runs {
                         for sec_idx in run[0]..run[1].min(values.len()) {
@@ -639,7 +675,10 @@ impl MetaIndex {
                         values: dense_values,
                     })
                 }
-                Column::Date { present_runs, values } => {
+                Column::Date {
+                    present_runs,
+                    values,
+                } => {
                     let mut dense_values = Vec::new();
                     for run in present_runs {
                         for sec_idx in run[0]..run[1].min(values.len()) {
@@ -705,7 +744,9 @@ impl MetaIndex {
     pub fn get_float(&self, field: &str, sec_id: usize) -> Option<f64> {
         match self.columns.get(field)? {
             Column::Float { values, .. } => values.get(sec_id).copied().flatten(),
-            Column::Integer { values, .. } => values.get(sec_id).copied().flatten().map(|i| i as f64),
+            Column::Integer { values, .. } => {
+                values.get(sec_id).copied().flatten().map(|i| i as f64)
+            }
             _ => None,
         }
     }
@@ -726,15 +767,27 @@ pub fn load_schema_override(path: &Path) -> Result<HashMap<String, FieldType>, S
     }
     let val: serde_json::Value = crate::search::load_json(path)?;
     let obj = val.as_object().ok_or_else(|| {
-        format!("Schema override at {} must be a JSON object", path.display())
+        format!(
+            "Schema override at {} must be a JSON object",
+            path.display()
+        )
     })?;
     let mut map = HashMap::new();
     for (k, v) in obj {
         let type_str = v.as_str().ok_or_else(|| {
-            format!("Schema type for field '{}' in {} must be a string", k, path.display())
+            format!(
+                "Schema type for field '{}' in {} must be a string",
+                k,
+                path.display()
+            )
         })?;
         let ft = FieldType::from_str_opt(type_str).ok_or_else(|| {
-            format!("Invalid field type '{}' for field '{}' in {}", type_str, k, path.display())
+            format!(
+                "Invalid field type '{}' for field '{}' in {}",
+                type_str,
+                k,
+                path.display()
+            )
         })?;
         map.insert(k.clone(), ft);
     }
@@ -1125,7 +1178,11 @@ pub enum FilterClause {
 impl FilterClause {
     pub fn negate(self) -> Self {
         match self {
-            FilterClause::Keyword { field, values, negated } => FilterClause::Keyword {
+            FilterClause::Keyword {
+                field,
+                values,
+                negated,
+            } => FilterClause::Keyword {
                 field,
                 values,
                 negated: !negated,
@@ -1312,7 +1369,11 @@ pub fn evaluate_filters(meta: &MetaIndex, filters: &[FilterClause]) -> Option<Mi
 
     for clause in filters {
         match clause {
-            FilterClause::Keyword { field, values, negated } => {
+            FilterClause::Keyword {
+                field,
+                values,
+                negated,
+            } => {
                 let mut union_bm = MiniRoaring::new();
                 for val in values {
                     if let Some(bm) = meta.keyword_bitmap(field, val) {
@@ -1339,7 +1400,9 @@ pub fn evaluate_filters(meta: &MetaIndex, filters: &[FilterClause]) -> Option<Mi
                 let mut matching_ids = Vec::new();
                 for sec_id in 0..meta.num_sections {
                     let val_opt = match meta.field_type(field) {
-                        Some(FieldType::Integer) => meta.get_integer(field, sec_id).map(|i| i as f64),
+                        Some(FieldType::Integer) => {
+                            meta.get_integer(field, sec_id).map(|i| i as f64)
+                        }
                         Some(FieldType::Float) => meta.get_float(field, sec_id),
                         Some(FieldType::Date) => meta.get_date(field, sec_id).map(|i| i as f64),
                         _ => None,
@@ -1393,21 +1456,41 @@ pub fn parse_facet_request(s: &str) -> Result<FacetRequest, String> {
     let s = s.trim();
     if let Some(pos) = s.find(":range(") {
         if !s.ends_with(')') {
-            return Err(format!("Malformed range facet '{}': missing closing ')'", s));
+            return Err(format!(
+                "Malformed range facet '{}': missing closing ')'",
+                s
+            ));
         }
         let field = s[..pos].trim().to_string();
         let inner = &s[pos + 7..s.len() - 1];
         let parts: Vec<&str> = inner.split(',').collect();
         if parts.len() != 3 {
-            return Err(format!("Range facet requires start, end, gap; got '{}'", inner));
+            return Err(format!(
+                "Range facet requires start, end, gap; got '{}'",
+                inner
+            ));
         }
-        let start: f64 = parts[0].trim().parse().map_err(|e| format!("Invalid start in range facet '{}': {}", parts[0], e))?;
-        let end: f64 = parts[1].trim().parse().map_err(|e| format!("Invalid end in range facet '{}': {}", parts[1], e))?;
-        let gap: f64 = parts[2].trim().parse().map_err(|e| format!("Invalid gap in range facet '{}': {}", parts[2], e))?;
+        let start: f64 = parts[0]
+            .trim()
+            .parse()
+            .map_err(|e| format!("Invalid start in range facet '{}': {}", parts[0], e))?;
+        let end: f64 = parts[1]
+            .trim()
+            .parse()
+            .map_err(|e| format!("Invalid end in range facet '{}': {}", parts[1], e))?;
+        let gap: f64 = parts[2]
+            .trim()
+            .parse()
+            .map_err(|e| format!("Invalid gap in range facet '{}': {}", parts[2], e))?;
         if gap <= 0.0 {
             return Err("Range facet gap must be > 0".to_string());
         }
-        Ok(FacetRequest::Range { field, start, end, gap })
+        Ok(FacetRequest::Range {
+            field,
+            start,
+            end,
+            gap,
+        })
     } else {
         Ok(FacetRequest::Field(s.to_string()))
     }
@@ -1415,7 +1498,9 @@ pub fn parse_facet_request(s: &str) -> Result<FacetRequest, String> {
 
 pub fn parse_facet_query_request(s: &str) -> Result<FacetRequest, String> {
     let s = s.trim();
-    let pos = s.find('=').ok_or_else(|| format!("Facet query requires name=query; got '{}'", s))?;
+    let pos = s
+        .find('=')
+        .ok_or_else(|| format!("Facet query requires name=query; got '{}'", s))?;
     let name = s[..pos].trim().to_string();
     let query = s[pos + 1..].trim().to_string();
     if name.is_empty() || query.is_empty() {
@@ -1478,7 +1563,11 @@ pub fn compute_facets(
                     None => continue,
                 };
                 match col {
-                    Column::Keyword { dict, ords, bitmaps } => {
+                    Column::Keyword {
+                        dict,
+                        ords,
+                        bitmaps,
+                    } => {
                         let v = dict.len();
                         let mut counts = vec![0usize; v];
                         let mut missing = 0usize;
@@ -1514,11 +1603,17 @@ pub fn compute_facets(
                                 });
                             }
                         }
-                        buckets.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.val.cmp(&b.val)));
+                        buckets
+                            .sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.val.cmp(&b.val)));
 
                         facets.insert(field.clone(), FacetResult::Field { buckets, missing });
                     }
-                    Column::KeywordList { dict, offsets, ords, bitmaps } => {
+                    Column::KeywordList {
+                        dict,
+                        offsets,
+                        ords,
+                        bitmaps,
+                    } => {
                         let v = dict.len();
                         let mut counts = vec![0usize; v];
                         let mut missing = 0usize;
@@ -1567,14 +1662,20 @@ pub fn compute_facets(
                                 });
                             }
                         }
-                        buckets.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.val.cmp(&b.val)));
+                        buckets
+                            .sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.val.cmp(&b.val)));
 
                         facets.insert(field.clone(), FacetResult::Field { buckets, missing });
                     }
                     _ => {}
                 }
             }
-            FacetRequest::Range { field, start, end, gap } => {
+            FacetRequest::Range {
+                field,
+                start,
+                end,
+                gap,
+            } => {
                 let meta = match meta {
                     Some(m) => m,
                     None => continue,
@@ -1594,7 +1695,9 @@ pub fn compute_facets(
                 for &id in match_ids {
                     let id_usize = id as usize;
                     let val_opt = match meta.field_type(field) {
-                        Some(FieldType::Integer) => meta.get_integer(field, id_usize).map(|i| i as f64),
+                        Some(FieldType::Integer) => {
+                            meta.get_integer(field, id_usize).map(|i| i as f64)
+                        }
                         Some(FieldType::Float) => meta.get_float(field, id_usize),
                         Some(FieldType::Date) => meta.get_date(field, id_usize).map(|i| i as f64),
                         _ => None,
@@ -1633,7 +1736,10 @@ pub fn compute_facets(
                     },
                 );
             }
-            FacetRequest::Query { name, query: facet_q } => {
+            FacetRequest::Query {
+                name,
+                query: facet_q,
+            } => {
                 let tokens = crate::tokenize_with_options(facet_q, bm25.stemmed, false);
                 let mut query_bm = MiniRoaring::new();
                 for tok in tokens {
@@ -1700,7 +1806,10 @@ Line 11 content here.
 "#;
 
         let (fields, blanked) = extract_and_blank_frontmatter(md);
-        assert_eq!(fields.get("title").unwrap().as_str().unwrap(), "Document Title");
+        assert_eq!(
+            fields.get("title").unwrap().as_str().unwrap(),
+            "Document Title"
+        );
         assert_eq!(fields.get("category").unwrap().as_str().unwrap(), "biology");
         assert_eq!(fields.get("year").unwrap().as_i64().unwrap(), 2024);
 
@@ -1719,8 +1828,14 @@ Line 11 content here.
         let blanked_lines: Vec<&str> = blanked.split('\n').collect();
         assert_eq!(orig_lines.len(), blanked_lines.len());
 
-        let sec_orig = orig_lines.iter().position(|l| l.starts_with("# Section 1")).unwrap();
-        let sec_blanked = blanked_lines.iter().position(|l| l.starts_with("# Section 1")).unwrap();
+        let sec_orig = orig_lines
+            .iter()
+            .position(|l| l.starts_with("# Section 1"))
+            .unwrap();
+        let sec_blanked = blanked_lines
+            .iter()
+            .position(|l| l.starts_with("# Section 1"))
+            .unwrap();
         assert_eq!(sec_orig, sec_blanked);
         assert_eq!(sec_blanked, 9); // 0-indexed line 9 = line 10 in 1-indexed
 
@@ -1761,7 +1876,13 @@ Line 11 content here.
         date_files.insert("d1.txt".to_string(), ("frontmatter".to_string(), d1));
         date_files.insert("d2.txt".to_string(), ("frontmatter".to_string(), d2));
 
-        let meta = build_meta_index(&["d1.txt".to_string(), "d2.txt".to_string()], &date_files, &HashMap::new(), "gen1").unwrap();
+        let meta = build_meta_index(
+            &["d1.txt".to_string(), "d2.txt".to_string()],
+            &date_files,
+            &HashMap::new(),
+            "gen1",
+        )
+        .unwrap();
         assert_eq!(meta.schema.get("pub"), Some(&FieldType::Date));
 
         // 4. Conflicting type fallback to Keyword
@@ -1773,7 +1894,13 @@ Line 11 content here.
         conf_files.insert("c1.txt".to_string(), ("frontmatter".to_string(), c1));
         conf_files.insert("c2.txt".to_string(), ("frontmatter".to_string(), c2));
 
-        let meta = build_meta_index(&["c1.txt".to_string(), "c2.txt".to_string()], &conf_files, &HashMap::new(), "gen1").unwrap();
+        let meta = build_meta_index(
+            &["c1.txt".to_string(), "c2.txt".to_string()],
+            &conf_files,
+            &HashMap::new(),
+            "gen1",
+        )
+        .unwrap();
         assert_eq!(meta.schema.get("mixed"), Some(&FieldType::Keyword));
     }
 
@@ -1846,7 +1973,11 @@ Line 11 content here.
                 "category": "tech"
             }
         });
-        std::fs::write(temp_dir.join("lume.meta.jsonl"), format!("{}\n", shallow_manifest)).unwrap();
+        std::fs::write(
+            temp_dir.join("lume.meta.jsonl"),
+            format!("{}\n", shallow_manifest),
+        )
+        .unwrap();
 
         // 3. Deeper manifest in temp_dir/sub/lume.meta.jsonl (depth 2): author: Charlie
         let deep_manifest = serde_json::json!({
@@ -1855,7 +1986,11 @@ Line 11 content here.
                 "author": "Charlie"
             }
         });
-        std::fs::write(sub_dir.join("lume.meta.jsonl"), format!("{}\n", deep_manifest)).unwrap();
+        std::fs::write(
+            sub_dir.join("lume.meta.jsonl"),
+            format!("{}\n", deep_manifest),
+        )
+        .unwrap();
 
         // Read manifests
         let mut manifests = Vec::new();
@@ -1889,7 +2024,8 @@ Line 11 content here.
         };
         cached_files.insert(doc_path.to_string_lossy().to_string(), (100u64, vec![sec]));
 
-        let mut file_fields: HashMap<String, (String, HashMap<String, serde_json::Value>)> = HashMap::new();
+        let mut file_fields: HashMap<String, (String, HashMap<String, serde_json::Value>)> =
+            HashMap::new();
         let mut field_depths: HashMap<String, HashMap<String, usize>> = HashMap::new();
 
         for (path_str, fm) in &frontmatter_by_file {
@@ -1949,13 +2085,22 @@ Line 11 content here.
     #[test]
     fn test_version_3_only_when_fields_exist() {
         // No metadata fields -> build_meta_index returns None
-        let empty_files: HashMap<String, (String, HashMap<String, serde_json::Value>)> = HashMap::new();
-        assert!(build_meta_index(&["a.txt".to_string()], &empty_files, &HashMap::new(), "gen").is_none());
+        let empty_files: HashMap<String, (String, HashMap<String, serde_json::Value>)> =
+            HashMap::new();
+        assert!(
+            build_meta_index(&["a.txt".to_string()], &empty_files, &HashMap::new(), "gen")
+                .is_none()
+        );
 
         // Files with empty fields -> None
         let mut no_fields = HashMap::new();
-        no_fields.insert("a.txt".to_string(), ("frontmatter".to_string(), HashMap::new()));
-        assert!(build_meta_index(&["a.txt".to_string()], &no_fields, &HashMap::new(), "gen").is_none());
+        no_fields.insert(
+            "a.txt".to_string(),
+            ("frontmatter".to_string(), HashMap::new()),
+        );
+        assert!(
+            build_meta_index(&["a.txt".to_string()], &no_fields, &HashMap::new(), "gen").is_none()
+        );
 
         // Files with at least one field -> Some(MetaIndex)
         let mut with_fields = HashMap::new();
@@ -1986,8 +2131,12 @@ Line 11 content here.
         fields1.insert("category".to_string(), serde_json::json!("biology"));
         files_meta1.insert(doc_name.clone(), ("manifest".to_string(), fields1));
 
-        let meta1 = build_meta_index(&[doc_name.clone()], &files_meta1, &HashMap::new(), "gen-1").unwrap();
-        assert_eq!(meta1.keyword_bitmap("category", "biology").unwrap().iter(), vec![0]);
+        let meta1 =
+            build_meta_index(&[doc_name.clone()], &files_meta1, &HashMap::new(), "gen-1").unwrap();
+        assert_eq!(
+            meta1.keyword_bitmap("category", "biology").unwrap().iter(),
+            vec![0]
+        );
 
         // Run 2: Manifest edited to category: chemistry, cached_files UNTOUCHED
         let mut files_meta2 = HashMap::new();
@@ -1995,8 +2144,15 @@ Line 11 content here.
         fields2.insert("category".to_string(), serde_json::json!("chemistry"));
         files_meta2.insert(doc_name.clone(), ("manifest".to_string(), fields2));
 
-        let meta2 = build_meta_index(&[doc_name.clone()], &files_meta2, &HashMap::new(), "gen-2").unwrap();
-        assert_eq!(meta2.keyword_bitmap("category", "chemistry").unwrap().iter(), vec![0]);
+        let meta2 =
+            build_meta_index(&[doc_name.clone()], &files_meta2, &HashMap::new(), "gen-2").unwrap();
+        assert_eq!(
+            meta2
+                .keyword_bitmap("category", "chemistry")
+                .unwrap()
+                .iter(),
+            vec![0]
+        );
         assert!(meta2.keyword_bitmap("category", "biology").is_none());
     }
 
@@ -2011,7 +2167,11 @@ Line 11 content here.
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         std::fs::write(temp_dir.join("guide.md"), "# Guide\nContent").unwrap();
-        std::fs::write(temp_dir.join("lume.meta.jsonl"), r#"{"path":"guide.md","fields":{"cat":"docs"}}"#).unwrap();
+        std::fs::write(
+            temp_dir.join("lume.meta.jsonl"),
+            r#"{"path":"guide.md","fields":{"cat":"docs"}}"#,
+        )
+        .unwrap();
         std::fs::write(temp_dir.join("lume.schema.json"), r#"{"cat":"keyword"}"#).unwrap();
 
         let mut files = Vec::new();
@@ -2063,11 +2223,18 @@ Line 11 content here.
         f2.insert("pub".to_string(), serde_json::json!("2018-10-20"));
         files.insert("doc2.txt".to_string(), ("manifest".to_string(), f2));
 
-        let sec_files = vec!["doc0.txt".to_string(), "doc1.txt".to_string(), "doc2.txt".to_string()];
+        let sec_files = vec![
+            "doc0.txt".to_string(),
+            "doc1.txt".to_string(),
+            "doc2.txt".to_string(),
+        ];
         let meta = build_meta_index(&sec_files, &files, &HashMap::new(), "gen-filters").unwrap();
 
         // 1. Unknown prefix treated as text
-        let (text, filters) = extract_filters("cancer 3:1 http://foo unknown:bar category:biology", Some(&meta));
+        let (text, filters) = extract_filters(
+            "cancer 3:1 http://foo unknown:bar category:biology",
+            Some(&meta),
+        );
         assert_eq!(text, "cancer 3:1 http://foo unknown:bar");
         assert_eq!(filters.len(), 1);
 
@@ -2133,13 +2300,42 @@ Line 11 content here.
         f3.insert("tags".to_string(), serde_json::json!(["general"]));
         files.insert("d3.txt".to_string(), ("manifest".to_string(), f3));
 
-        let sec_files = vec!["d0.txt".to_string(), "d1.txt".to_string(), "d2.txt".to_string(), "d3.txt".to_string()];
+        let sec_files = vec![
+            "d0.txt".to_string(),
+            "d1.txt".to_string(),
+            "d2.txt".to_string(),
+            "d3.txt".to_string(),
+        ];
         let meta = build_meta_index(&sec_files, &files, &HashMap::new(), "gen-facets").unwrap();
 
-        let sec0 = crate::bm25::Section { title: "D0".into(), body: "cancer cells dna".into(), line_number: 1, filename: Some("d0.txt".into()), entities: vec![] };
-        let sec1 = crate::bm25::Section { title: "D1".into(), body: "cancer therapy dna".into(), line_number: 1, filename: Some("d1.txt".into()), entities: vec![] };
-        let sec2 = crate::bm25::Section { title: "D2".into(), body: "quantum physics".into(), line_number: 1, filename: Some("d2.txt".into()), entities: vec![] };
-        let sec3 = crate::bm25::Section { title: "D3".into(), body: "cancer overview".into(), line_number: 1, filename: Some("d3.txt".into()), entities: vec![] };
+        let sec0 = crate::bm25::Section {
+            title: "D0".into(),
+            body: "cancer cells dna".into(),
+            line_number: 1,
+            filename: Some("d0.txt".into()),
+            entities: vec![],
+        };
+        let sec1 = crate::bm25::Section {
+            title: "D1".into(),
+            body: "cancer therapy dna".into(),
+            line_number: 1,
+            filename: Some("d1.txt".into()),
+            entities: vec![],
+        };
+        let sec2 = crate::bm25::Section {
+            title: "D2".into(),
+            body: "quantum physics".into(),
+            line_number: 1,
+            filename: Some("d2.txt".into()),
+            entities: vec![],
+        };
+        let sec3 = crate::bm25::Section {
+            title: "D3".into(),
+            body: "cancer overview".into(),
+            line_number: 1,
+            filename: Some("d3.txt".into()),
+            entities: vec![],
+        };
         let bm25 = crate::bm25::Bm25Index::build(vec![sec0, sec1, sec2, sec3], None);
 
         // Match set: 0, 1, 3 (all with "cancer")
@@ -2178,7 +2374,13 @@ Line 11 content here.
             gap: 5.0,
         };
         let facets_range = compute_facets(Some(&meta), &bm25, &match_bm, &match_ids, &[req_range]);
-        if let Some(FacetResult::Range { buckets, before, after, missing }) = facets_range.get("year") {
+        if let Some(FacetResult::Range {
+            buckets,
+            before,
+            after,
+            missing,
+        }) = facets_range.get("year")
+        {
             assert_eq!(*before, 1); // d0
             assert_eq!(*after, 0);
             assert_eq!(*missing, 1); // d3
@@ -2190,7 +2392,10 @@ Line 11 content here.
         }
 
         // 4. Query facet: dna=dna
-        let req_q = FacetRequest::Query { name: "dna".to_string(), query: "dna".to_string() };
+        let req_q = FacetRequest::Query {
+            name: "dna".to_string(),
+            query: "dna".to_string(),
+        };
         let facets_q = compute_facets(Some(&meta), &bm25, &match_bm, &match_ids, &[req_q]);
         if let Some(FacetResult::Query { count }) = facets_q.get("dna") {
             assert_eq!(*count, 2); // d0 and d1 contain "dna"

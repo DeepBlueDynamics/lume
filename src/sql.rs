@@ -467,7 +467,11 @@ impl TableProvider for SectionsTable {
             }
             None => {
                 if let Some(ref allow) = allow_meta {
-                    allow.iter().into_iter().map(|i| (i as usize, None)).collect()
+                    allow
+                        .iter()
+                        .into_iter()
+                        .map(|i| (i as usize, None))
+                        .collect()
                 } else {
                     (0..self.index.bm25.sections.len())
                         .map(|i| (i, None))
@@ -507,7 +511,9 @@ impl TableProvider for SectionsTable {
             .map(|id| &self.index.bm25.sections[*id])
             .collect();
         let full = self.schema();
-        let columns = projection.cloned().unwrap_or_else(|| (0..full.fields().len()).collect());
+        let columns = projection
+            .cloned()
+            .unwrap_or_else(|| (0..full.fields().len()).collect());
         let arrays: Vec<ArrayRef> = columns
             .iter()
             .map(|&column| match column {
@@ -544,7 +550,12 @@ impl TableProvider for SectionsTable {
                                         .collect();
                                     Arc::new(StringArray::from(vals)) as ArrayRef
                                 }
-                                crate::meta::Column::KeywordList { dict, offsets, ords, .. } => {
+                                crate::meta::Column::KeywordList {
+                                    dict,
+                                    offsets,
+                                    ords,
+                                    ..
+                                } => {
                                     let mut builder = ListBuilder::new(StringBuilder::new());
                                     for &id in &ids {
                                         if id + 1 < offsets.len() {
@@ -586,8 +597,7 @@ impl TableProvider for SectionsTable {
                                         .map(|&id| values.get(id).copied().flatten())
                                         .collect();
                                     Arc::new(
-                                        TimestampMillisecondArray::from(vals)
-                                            .with_timezone("UTC"),
+                                        TimestampMillisecondArray::from(vals).with_timezone("UTC"),
                                     ) as ArrayRef
                                 }
                             }

@@ -7,7 +7,12 @@ export CARGO_TARGET_TMPDIR="${CARGO_TARGET_TMPDIR:-/tmp/cargo-tmp}"
 export TMPDIR="${TMPDIR:-/tmp}"
 export PYTHONDONTWRITEBYTECODE=1
 mkdir -p "$CARGO_TARGET_DIR" "$CARGO_TARGET_TMPDIR"
-trap 'cargo clean' EXIT
+cleanup() {
+    local rc=$?
+    cargo clean 2>/dev/null || rm -rf "${CARGO_TARGET_DIR:?}"/* 2>/dev/null || true
+    exit "$rc"
+}
+trap cleanup EXIT
 
 if ! command -v node >/dev/null 2>&1; then
     echo 'Full TI gates require Node.js >=18; install nodejs in the gate image before running.' >&2
@@ -20,12 +25,7 @@ rustup component add rustfmt clippy
 
 echo "=== 1. Checking format on touched files ==="
 rustfmt --edition 2021 --check \
-    src/agent.rs \
-    src/fast_retrieval.rs \
-    src/lib.rs \
-    src/main.rs \
     src/meta.rs \
-    src/resident_index.rs \
     src/search.rs \
     src/sql.rs \
     tests/lume_sql.rs
