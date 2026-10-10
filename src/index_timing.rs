@@ -11,9 +11,45 @@ pub fn emit(phase: &str, file: Option<&Path>, elapsed: Duration) {
     let row = serde_json::json!({
         "phase": phase, "file": file.map(|path| path.to_string_lossy()),
         "ms": elapsed.as_secs_f64() * 1000.0,
+        "memory": resident_memory(),
     });
     // Diagnostic failures must not turn successful indexing into an error.
     let _ = writeln!(io::stderr().lock(), "LUME_TIMING {row}");
+}
+
+// Linux reports both live RSS and the process high-water mark. These opt-in
+// diagnostics distinguish retained buffers from peaks inside an operation.
+fn resident_memory() -> Option<(u64, u64)> {
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|status| parse_resident_memory(&status))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn parse_resident_memory(status: &str) -> Option<(u64, u64)> {
+    let bytes = |name: &str| {
+        let value = status.lines().find_map(|line| line.strip_prefix(name))?;
+        let mut fields = value.split_whitespace();
+        let kib = fields.next()?.parse::<u64>().ok()?;
+        if fields.next()? != "kB" || fields.next().is_some() {
+            return None;
+        }
+        kib.checked_mul(1024)
+    };
+    Some((bytes("VmRSS:")?, bytes("VmHWM:")?))
+}
+
+pub fn memory_checkpoint(phase: &'static str) {
+    if enabled() {
+        emit(phase, None, Duration::ZERO);
+    }
 }
 
 pub struct Span {
@@ -135,6 +171,22 @@ impl TimedIo<std::fs::File> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn resident_memory_requires_exact_units_and_checked_sizes() {
+        assert_eq!(
+            parse_resident_memory("Name: lume\nVmRSS: 123 kB\nVmHWM: 456 kB\n"),
+            Some((123 * 1024, 456 * 1024))
+        );
+        for invalid in [
+            "VmRSS: 123 kB",
+            "VmRSS: 123 MB\nVmHWM: 456 kB",
+            "VmRSS: 123 kB extra\nVmHWM: 456 kB",
+            "VmRSS: 18446744073709551615 kB\nVmHWM: 456 kB",
+        ] {
+            assert_eq!(parse_resident_memory(invalid), None);
+        }
+    }
+
     #[test]
     fn timed_io_preserves_bytes_and_errors() {
         let mut writer = TimedIo::new(Vec::new(), true);

@@ -766,6 +766,7 @@ impl Bm25Index {
         };
         let title = forward(&self.title_tfs)?;
         let body = forward(&self.body_tfs)?;
+        crate::index_timing::memory_checkpoint("v4.memory.forward_with_legacy");
         let mut postings = vec![Vec::new(); term_count as usize];
         for doc in 0..self.num_docs {
             for entry in title.row(doc).unwrap() {
@@ -785,7 +786,9 @@ impl Bm25Index {
                 }
             }
         }
+        crate::index_timing::memory_checkpoint("v4.memory.posting_rows");
         let flat_postings = crate::index_binary::postings::PostingsCsr::new(doc_count, postings)?;
+        crate::index_timing::memory_checkpoint("v4.memory.flat_postings");
         let interned = InternedIndex {
             vocabulary: vocabulary.clone(),
             postings: Vec::new(),
@@ -803,6 +806,7 @@ impl Bm25Index {
         self.interned = std::sync::OnceLock::from(std::sync::Arc::new(interned));
         self.title_tfs = Vec::new();
         self.body_tfs = Vec::new();
+        crate::index_timing::memory_checkpoint("v4.memory.compact_complete");
         Ok(())
     }
 

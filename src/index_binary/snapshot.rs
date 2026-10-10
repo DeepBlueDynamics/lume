@@ -151,7 +151,9 @@ pub fn publish(
 ) -> Result<generation::Manifest, String> {
     let build = BuildState::from_legacy(state, &bm25.sections)?;
     let fingerprint = crate::hybrid::index_fingerprint(&bm25.sections);
+    crate::index_timing::memory_checkpoint("v4.memory.publish_start");
     let mut segments = bm25.v4_segments()?;
+    crate::index_timing::memory_checkpoint("v4.memory.core_buffers");
     segments.insert(
         "build-state.json".into(),
         serde_json::to_vec(&build).map_err(|e| e.to_string())?,
@@ -181,6 +183,7 @@ pub fn publish(
             std::fs::read(vectors).map_err(|e| e.to_string())?,
         );
     }
+    crate::index_timing::memory_checkpoint("v4.memory.all_buffers");
     generation::publish(
         root,
         generation::Manifest {

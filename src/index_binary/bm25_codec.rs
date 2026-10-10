@@ -58,7 +58,9 @@ pub fn encode(index: &mut Bm25Index) -> Result<BTreeMap<String, Vec<u8>>, String
             entities: section.entities.clone(),
         })
         .collect();
+    crate::index_timing::memory_checkpoint("v4.memory.section_clones");
     let (section_table, text) = sections::encode(&section_text)?;
+    crate::index_timing::memory_checkpoint("v4.memory.text_buffer");
     if index.title_lens.len() != index.num_docs
         || index.body_lens.len() != index.num_docs
         || index.prime_filters.len() != index.num_docs
