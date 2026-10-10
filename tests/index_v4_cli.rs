@@ -113,17 +113,6 @@ fn cli_v4_publish_search_sql_mcp_and_reindex_with_json_neighbor() {
         success(&sql);
         assert!(!sql.stdout.is_empty());
     }
-    let rejected = index(&source, &v4, true, &["-o"]);
-    assert!(!rejected.status.success());
-    assert!(String::from_utf8_lossy(&rejected.stderr)
-        .contains("entity-overlay publication is not yet implemented"));
-    assert_eq!(
-        lume::index_binary::generation::read_manifest(&v4)
-            .unwrap()
-            .generation,
-        old.generation
-    );
-
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     drop(listener);

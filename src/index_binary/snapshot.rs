@@ -13,7 +13,7 @@ pub fn present(root: &Path) -> bool {
 pub fn open(root: &Path, checks: OpenEnvChecks) -> Result<LoadedIndex, String> {
     let manifest = generation::read_manifest(root)?;
     let segments = generation::read_segments(root, &manifest)?;
-    let bm25 = Bm25Index::from_v4_segments_for_open(&segments)?;
+    let mut bm25 = Bm25Index::from_v4_segments_for_open(&segments)?;
     let build_span = crate::index_timing::Span::new("v4.decode.build_state");
     let build: BuildState = serde_json::from_slice(&segments["build-state.json"])
         .map_err(|e| format!("Invalid v4 build state: {e}"))?;
@@ -50,7 +50,7 @@ pub fn open(root: &Path, checks: OpenEnvChecks) -> Result<LoadedIndex, String> {
         .map_err(|e| format!("Invalid v4 spelling: {e}"))?;
     drop(spelling_span);
     let graph_span = crate::index_timing::Span::new("v4.decode.graph");
-    let entity_graph = decode("entity_graph.json")?
+    let mut entity_graph = decode("entity_graph.json")?
         .map(serde_json::from_value)
         .transpose()
         .map_err(|e| format!("Invalid v4 entity graph: {e}"))?;
@@ -69,6 +69,17 @@ pub fn open(root: &Path, checks: OpenEnvChecks) -> Result<LoadedIndex, String> {
         .tag_dict_path
         .as_ref()
         .and_then(|path| crate::search::load_tagger_csv(Path::new(path)).ok());
+    if manifest.entity_overlay.is_some() {
+        super::overlays::apply(&mut bm25.sections, &super::overlays::read(root, &manifest)?)?;
+        bm25.refresh_entities(tagger.as_ref());
+        entity_graph = Some(crate::semantic_mesh::EntityGraph::build(
+            &bm25.entity_posting_lists,
+            &bm25.entity_kinds,
+            &bm25.entity_labels,
+            0.1,
+            bm25.sections.len(),
+        ));
+    }
     let local_vectors = crate::local_vectors::LocalVectors::open(&directory, &bm25.sections)?;
     if let Ok(model) = std::env::var("LUME_EMBED_MODEL") {
         if local_vectors
@@ -128,16 +139,16 @@ pub fn load_bm25(root: &Path) -> Result<Bm25Index, String> {
     if !present(root) {
         return crate::search::load_json(&root.join("bm25.json"));
     }
-    let manifest = generation::read_manifest(root)?;
-    Bm25Index::from_v4_segments_for_open(&generation::read_segments(root, &manifest)?)
+    Ok(open(root, OpenEnvChecks::default())?.bm25)
 }
 
 pub fn restore_state(root: &Path) -> Result<IndexState, String> {
     let manifest = generation::read_manifest(root)?;
     let segments = generation::read_segments(root, &manifest)?;
-    let bm25 = Bm25Index::from_v4_segments_for_open(&segments)?;
+    let mut bm25 = Bm25Index::from_v4_segments_for_open(&segments)?;
     let build: BuildState = serde_json::from_slice(&segments["build-state.json"])
         .map_err(|e| format!("Invalid v4 build state: {e}"))?;
+    super::overlays::apply(&mut bm25.sections, &super::overlays::read(root, &manifest)?)?;
     build.restore_cached_files(&bm25.sections)
 }
 
@@ -226,6 +237,13 @@ pub fn component<T: serde::de::DeserializeOwned>(root: &Path, name: &str) -> Res
         return crate::search::load_json(&root.join(name));
     }
     let manifest = generation::read_manifest(root)?;
+    if name == "entity_graph.json" && manifest.entity_overlay.is_some() {
+        let graph = open(root, OpenEnvChecks::default())?
+            .entity_graph
+            .ok_or("Missing overlaid entity graph")?;
+        return serde_json::from_value(serde_json::to_value(graph).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string());
+    }
     let seal = manifest
         .segments
         .get(name)

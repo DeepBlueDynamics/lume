@@ -149,6 +149,7 @@ fn checkpoint_bytes_include_pointer_and_scale_linearly() {
     }
     let n = bytes(32);
     let twice = bytes(64);
+    println!("checkpoint bytes including pointers: n=32 {n}, 2n=64 {twice}");
     assert!(twice >= n * 2, "{n} vs {twice}");
     assert!(
         twice <= n * 21 / 10,

@@ -50,6 +50,14 @@ struct Node {
     replacements: Vec<Replacement>,
 }
 
+fn validate_directory(path: &Path) -> Result<(), String> {
+    let metadata = fs::symlink_metadata(path).map_err(|e| e.to_string())?;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err("Invalid entity overlay directory".into());
+    }
+    Ok(())
+}
+
 fn valid_hash(value: &str) -> bool {
     value.len() == 64
         && value
@@ -131,6 +139,7 @@ pub fn publish(
     }
     let directory = generation::generation_directory(root, &manifest)?.join("overlays");
     fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+    validate_directory(&directory)?;
     let id = crate::uuid_v4();
     let path = directory.join(format!("{id}.json"));
     let mut file = OpenOptions::new()
@@ -162,6 +171,9 @@ pub fn publish(
 /// Validate the complete predecessor chain before returning any replacements.
 pub fn read(root: &Path, manifest: &Manifest) -> Result<Vec<Replacement>, String> {
     let directory = generation::generation_directory(root, manifest)?.join("overlays");
+    if manifest.entity_overlay.is_some() {
+        validate_directory(&directory)?;
+    }
     let mut head = manifest.entity_overlay.clone();
     let mut batches = Vec::new();
     while let Some(current) = head {

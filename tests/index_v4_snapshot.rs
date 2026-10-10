@@ -78,6 +78,42 @@ fn published_v4_snapshot_matches_legacy_and_resident_reload() {
     let first = cache.open(&root).unwrap();
     let second = cache.open(&root).unwrap();
     assert!(std::sync::Arc::ptr_eq(&first, &second));
+    // Same text generation, new head: every reader must observe replacement entities.
+    let replacement = |entities: &[&str]| lume::index_binary::overlays::Replacement {
+        section: 0,
+        source_hash: lume::index_binary::overlays::source_hash(&index.sections[0]),
+        entities: entities.iter().map(|value| value.to_string()).collect(),
+    };
+    lume::index_binary::overlays::publish(&root, vec![replacement(&["Lagoon"])], |_| Ok(()))
+        .unwrap();
+    let overlaid = cache.open(&root).unwrap();
+    assert!(!std::sync::Arc::ptr_eq(&first, &overlaid));
+    assert_eq!(overlaid.bm25.entity_posting_lists["lagoon"].len(), 1);
+    assert_eq!(
+        lume::index_binary::snapshot::load_bm25(&root)
+            .unwrap()
+            .sections[0]
+            .entities,
+        ["Lagoon"]
+    );
+    let graph: lume::semantic_mesh::EntityGraph =
+        lume::index_binary::snapshot::component(&root, "entity_graph.json").unwrap();
+    assert!(graph.nodes.iter().any(|node| node.id == "lagoon"));
+    assert_eq!(
+        serde_json::to_value(lume::search::search(&before, "bilge", &options).unwrap()).unwrap(),
+        serde_json::to_value(lume::search::search(&overlaid, "bilge", &options).unwrap()).unwrap()
+    );
+    lume::index_binary::overlays::publish(&root, vec![replacement(&[])], |_| Ok(())).unwrap();
+    let emptied = cache.open(&root).unwrap();
+    assert!(!emptied.bm25.entity_posting_lists.contains_key("lagoon"));
+    assert_eq!(
+        lume::index_binary::snapshot::restore_state(&root)
+            .unwrap()
+            .cached_files["boat.txt"]
+            .1[0]
+            .entities,
+        ["__LUME_PROCESSED__"]
+    );
     let owned = lume::index_binary::snapshot::publish_owned(
         &root,
         state.clone(),
