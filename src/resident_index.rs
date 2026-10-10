@@ -33,6 +33,13 @@ fn stamp(path: PathBuf) -> Result<FileStamp, String> {
 }
 
 fn fingerprint(root: &Path, dictionary: Option<&Path>) -> Result<Vec<FileStamp>, String> {
+    if crate::index_binary::snapshot::present(root) {
+        let mut result = vec![stamp(root.join(crate::index_binary::generation::POINTER))?];
+        if let Some(dictionary) = dictionary {
+            result.push(stamp(dictionary.to_path_buf())?);
+        }
+        return Ok(result);
+    }
     let mut result = [
         "state.json",
         "bm25.json",
@@ -84,8 +91,7 @@ impl ResidentIndexCache {
         for _ in 0..3 {
             // Discover the external dictionary before loading it. This extra
             // state read happens only on a cold load or refresh, never warm.
-            let state: crate::search::IndexState =
-                crate::search::load_json(&root.join("state.json"))?;
+            let state: crate::search::IndexState = crate::index_binary::snapshot::settings(&root)?;
             let before_dictionary = state.tag_dict_path.as_ref().map(PathBuf::from);
             drop(state);
             let before = fingerprint(&root, before_dictionary.as_deref())?;

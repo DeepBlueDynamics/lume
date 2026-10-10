@@ -257,7 +257,9 @@ fn execute_tool_by_name(name: &str, args: serde_json::Value, default_db: &str) -
 
             let db_path = std::path::Path::new(db);
             let state_json_path = db_path.join("state.json");
-            let is_update = state_json_path.exists() && !force;
+            let is_update = (state_json_path.exists()
+                || crate::index_binary::snapshot::present(db_path))
+                && !force;
 
             if is_update {
                 cli_args.push("update".to_string());
@@ -1406,14 +1408,13 @@ pub fn summarize_document(
     hits_per_query: usize,
     verbose: bool,
 ) -> Result<(), String> {
-    let state_path = std::path::Path::new(db_dir).join("state.json");
-    if !state_path.exists() {
-        return Err(format!("Lume index state file not found at {}. Index a directory first.", state_path.display()));
-    }
-    let file_content = std::fs::read_to_string(&state_path)
-        .map_err(|e| format!("Failed to read state.json: {}", e))?;
-    let state: serde_json::Value = serde_json::from_str(&file_content)
-        .map_err(|e| format!("Failed to parse state.json: {}", e))?;
+    let root = std::path::Path::new(db_dir);
+    let typed_state = if crate::index_binary::snapshot::present(root) {
+        crate::index_binary::snapshot::restore_state(root)?
+    } else {
+        crate::index_binary::snapshot::settings(root)?
+    };
+    let state = serde_json::to_value(typed_state).map_err(|e| e.to_string())?;
 
     let cached_files = state.get("cached_files")
         .and_then(|v| v.as_object())
@@ -1454,7 +1455,15 @@ pub fn summarize_document(
 
     // Read the entity graph to find key concepts/entities
     let mut top_entities = Vec::new();
-    let graph_path = std::path::Path::new(db_dir).join("entity_graph.json");
+    let graph_root = if crate::index_binary::snapshot::present(root) {
+        crate::index_binary::generation::generation_directory(
+            root,
+            &crate::index_binary::generation::read_manifest(root)?,
+        )?
+    } else {
+        root.to_path_buf()
+    };
+    let graph_path = graph_root.join("entity_graph.json");
     if graph_path.exists() {
         if let Ok(graph_content) = std::fs::read_to_string(&graph_path) {
             if let Ok(graph_val) = serde_json::from_str::<serde_json::Value>(&graph_content) {

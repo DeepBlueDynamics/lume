@@ -1226,8 +1226,8 @@ fn handle_index_init(args: &[String]) -> Result<(), String> {
     let db_path = Path::new(&db_dir);
     let state_file_path = db_path.join("state.json");
     let mut cached_files = HashMap::new();
-    if state_file_path.exists() {
-        if let Ok(state) = load_json::<IndexState>(&state_file_path) {
+    if state_file_path.exists() || lume::index_binary::snapshot::present(db_path) {
+        if let Ok(state) = lume::index_binary::snapshot::settings(db_path) {
             if let Err(e) = check_state_compatibility(&state) {
                 if !force {
                     return Err(e);
@@ -1294,14 +1294,14 @@ fn handle_index_update(args: &[String]) -> Result<(), String> {
 
     let db_path = Path::new(&db_dir);
     let state_file_path = db_path.join("state.json");
-    if !state_file_path.exists() {
+    if !state_file_path.exists() && !lume::index_binary::snapshot::present(db_path) {
         return Err(format!(
             "Index state file not found at {}. Run 'lume index <DIR>' first.",
             state_file_path.display()
         ));
     }
 
-    let state: IndexState = load_json(&state_file_path)?;
+    let state = lume::index_binary::snapshot::settings(db_path)?;
     check_state_compatibility(&state)?;
 
     println!("Updating index for target directory: {}", state.target_dir);
@@ -1868,7 +1868,11 @@ struct ScanCheckpoint {
 }
 
 fn published_manifest(db_path: &Path) -> Result<Option<serde_json::Value>, String> {
-    let path = db_path.join("manifest.json");
+    let path = if lume::index_binary::snapshot::present(db_path) {
+        db_path.join("index.json")
+    } else {
+        db_path.join("manifest.json")
+    };
     if path.exists() {
         load_json(&path).map(Some)
     } else {
@@ -1945,6 +1949,16 @@ fn run_indexing(
     }
 
     let db_path = Path::new(db_dir);
+    let binary_format = std::env::var("LUME_INDEX_FORMAT").as_deref() == Ok("4");
+    if binary_format && ollama_entities {
+        return Err("V4 entity-overlay publication is not yet implemented".into());
+    }
+    if binary_format && !force {
+        return Err("LUME_INDEX_FORMAT=4 requires lume index -f".into());
+    }
+    if !force && lume::index_binary::snapshot::present(db_path) {
+        return Err("V4 index updates currently require lume index -f".into());
+    }
     fs::create_dir_all(db_path).map_err(|e| format!("Failed to create db dir: {}", e))?;
     // Session/semantic caches live with the index, not in the process cwd.
     lume::hybrid::set_cache_dir(db_path);
@@ -2573,13 +2587,17 @@ fn run_indexing(
     }
 
     let save_start = Instant::now();
-    let section_count = flush_searchable_indexes(
-        &cached_files,
-        tagger.as_ref(),
-        &tagger_phrases,
-        db_path,
-        current_meta.as_ref(),
-    )?;
+    let section_count = if binary_format {
+        collect_all_sections(&cached_files).len()
+    } else {
+        flush_searchable_indexes(
+            &cached_files,
+            tagger.as_ref(),
+            &tagger_phrases,
+            db_path,
+            current_meta.as_ref(),
+        )?
+    };
 
     let state = IndexState {
         format_version,
@@ -2595,7 +2613,32 @@ fn run_indexing(
         stemmed,
         keep_hyphens,
     };
-    save_json(&db_path.join("state.json"), &state)?;
+    if binary_format {
+        let sections = collect_all_sections(&state.cached_files);
+        let bm25 = Bm25Index::build(sections, tagger.as_ref());
+        let terms: Vec<Vec<u8>> = bm25.posting_lists.keys().cloned().collect();
+        let spelling = SpellIndex::build(&tagger_phrases, &terms);
+        let graph = EntityGraph::build(
+            &bm25.entity_posting_lists,
+            &bm25.entity_kinds,
+            &bm25.entity_labels,
+            0.1,
+            bm25.sections.len(),
+        );
+        lume::index_binary::snapshot::publish(
+            db_path,
+            &state,
+            bm25,
+            &spelling,
+            &graph,
+            current_meta.as_ref(),
+        )?;
+    } else {
+        save_json(&db_path.join("state.json"), &state)?;
+        if lume::index_binary::snapshot::present(db_path) {
+            fs::remove_file(db_path.join("index.json")).map_err(|e| e.to_string())?;
+        }
+    }
     let checkpoint_path = db_path.join("index-scan-checkpoint.json");
     if checkpoint_path.exists() {
         if let Err(error) = fs::remove_file(&checkpoint_path) {
@@ -2865,18 +2908,19 @@ fn handle_eval(args: &[String]) -> Result<(), String> {
     // Load the index.
     let db_path = Path::new(&db_dir);
     let state_file_path = db_path.join("state.json");
-    if !state_file_path.exists() {
+    if !state_file_path.exists() && !lume::index_binary::snapshot::present(db_path) {
         return Err(format!(
             "Index state file not found at {}. Index the corpus first.",
             state_file_path.display()
         ));
     }
     lume::hybrid::set_cache_dir(db_path);
-    let state: IndexState = load_json(&state_file_path)?;
+    let state = lume::index_binary::snapshot::settings(db_path)?;
     check_state_compatibility(&state)?;
-    let bm25: Bm25Index = load_json(&db_path.join("bm25.json"))?;
-    let spelling: SpellIndex = load_json(&db_path.join("spelling.json"))?;
-    let graph: Option<EntityGraph> = load_json(&db_path.join("entity_graph.json")).ok();
+    let bm25 = lume::index_binary::snapshot::load_bm25(db_path)?;
+    let spelling: SpellIndex = lume::index_binary::snapshot::component(db_path, "spelling.json")?;
+    let graph: Option<EntityGraph> =
+        lume::index_binary::snapshot::component(db_path, "entity_graph.json").ok();
 
     let mut tagger = None;
     if let Some(ref tag_dict) = state.tag_dict_path {
@@ -3127,21 +3171,21 @@ fn handle_stream(args: &[String]) -> Result<(), String> {
 
     let db_path = Path::new(&db_dir);
     let state_file_path = db_path.join("state.json");
-    if !state_file_path.exists() {
+    if !state_file_path.exists() && !lume::index_binary::snapshot::present(db_path) {
         return Err(format!(
             "Index state file not found at {}. Index the corpus first.",
             state_file_path.display()
         ));
     }
     lume::hybrid::set_cache_dir(db_path);
-    let state: IndexState = load_json(&state_file_path)?;
+    let state = lume::index_binary::snapshot::settings(db_path)?;
     check_state_compatibility(&state)?;
-    let bm25: Bm25Index = load_json(&db_path.join("bm25.json"))?;
+    let bm25 = lume::index_binary::snapshot::load_bm25(db_path)?;
 
     // Quiet candidate retrieval per query (BM25 + optional SKG), unioned with
     // overlap membership. Nothing here touches stdout (the NDJSON channel).
     let graph: Option<EntityGraph> = if beta > 0.0 {
-        load_json(&db_path.join("entity_graph.json")).ok()
+        lume::index_binary::snapshot::component(db_path, "entity_graph.json").ok()
     } else {
         None
     };
@@ -3281,16 +3325,16 @@ fn handle_answer(args: &[String]) -> Result<(), String> {
     }
 
     let db_path = Path::new(&db_dir);
-    if !db_path.join("state.json").exists() {
+    if !db_path.join("state.json").exists() && !lume::index_binary::snapshot::present(db_path) {
         return Err(format!(
             "Index not found at {}. Index the corpus first.",
             db_dir
         ));
     }
     lume::hybrid::set_cache_dir(db_path);
-    let bm25: Bm25Index = load_json(&db_path.join("bm25.json"))?;
+    let bm25 = lume::index_binary::snapshot::load_bm25(db_path)?;
     let graph: Option<EntityGraph> = if beta > 0.0 {
-        load_json(&db_path.join("entity_graph.json")).ok()
+        lume::index_binary::snapshot::component(db_path, "entity_graph.json").ok()
     } else {
         None
     };
@@ -3565,15 +3609,15 @@ fn handle_generate(args: &[String]) -> Result<(), String> {
 
     let db_path = Path::new(&db_dir);
     let state_file_path = db_path.join("state.json");
-    if !state_file_path.exists() {
+    if !state_file_path.exists() && !lume::index_binary::snapshot::present(db_path) {
         return Err(format!(
             "Index state file not found at {}. Index the directory first.",
             state_file_path.display()
         ));
     }
 
-    let state: IndexState = load_json(&state_file_path)?;
-    let bm25: Bm25Index = load_json(&db_path.join("bm25.json"))?;
+    let state = lume::index_binary::snapshot::settings(db_path)?;
+    let bm25 = lume::index_binary::snapshot::load_bm25(db_path)?;
 
     let mut tagger = None;
     if let Some(ref tag_dict) = state.tag_dict_path {
@@ -3682,7 +3726,9 @@ fn run_inversion_steered_generate(
     // Build an ordered pool of SKG-graph neighbors of the target's entities to
     // mutate the steer set across attempts ("steer with other words").
     let mut neighbor_pool: Vec<String> = Vec::new();
-    if let Ok(graph) = load_json::<EntityGraph>(&db_path.join("entity_graph.json")) {
+    if let Ok(graph) =
+        lume::index_binary::snapshot::component::<EntityGraph>(db_path, "entity_graph.json")
+    {
         let walk = lume::graph_search::compute_skg_scores(
             bm25,
             &graph,
