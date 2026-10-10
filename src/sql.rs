@@ -34,6 +34,11 @@ fn schema() -> SchemaRef {
         Field::new("score", DataType::Float64, true),
     ]))
 }
+enum MatchFilter<'a> {
+    Positive(&'a str),
+    Negative(&'a str),
+}
+
 fn match_query(e: &Expr) -> Option<&str> {
     let Expr::ScalarFunction(f) = e else {
         return None;
@@ -46,6 +51,13 @@ fn match_query(e: &Expr) -> Option<&str> {
             Some(q)
         }
         _ => None,
+    }
+}
+
+fn match_filter(e: &Expr) -> Option<MatchFilter<'_>> {
+    match e {
+        Expr::Not(inner) => match_query(inner).map(MatchFilter::Negative),
+        _ => match_query(e).map(MatchFilter::Positive),
     }
 }
 pub struct SectionsTable {
@@ -80,7 +92,7 @@ impl TableProvider for SectionsTable {
         Ok(filters
             .iter()
             .map(|e| {
-                if match_query(e).is_some() {
+                if match_filter(e).is_some() {
                     TableProviderFilterPushDown::Exact
                 } else {
                     TableProviderFilterPushDown::Unsupported
@@ -95,8 +107,16 @@ impl TableProvider for SectionsTable {
         filters: &[Expr],
         limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        let queries: Vec<_> = filters.iter().filter_map(match_query).collect();
-        let mut selected: BTreeMap<usize, Option<f64>> = match queries.first() {
+        let match_filters: Vec<_> = filters.iter().filter_map(match_filter).collect();
+        let mut positive_queries = Vec::new();
+        let mut negative_queries = Vec::new();
+        for f in match_filters {
+            match f {
+                MatchFilter::Positive(q) => positive_queries.push(q),
+                MatchFilter::Negative(q) => negative_queries.push(q),
+            }
+        }
+        let mut selected: BTreeMap<usize, Option<f64>> = match positive_queries.first() {
             Some(q) => search(
                 &self.index,
                 q,
@@ -111,7 +131,7 @@ impl TableProvider for SectionsTable {
                 .map(|i| (i, None))
                 .collect(),
         };
-        for q in queries.iter().skip(1) {
+        for q in positive_queries.iter().skip(1) {
             let keep: std::collections::BTreeSet<_> = search(
                 &self.index,
                 q,
@@ -123,6 +143,19 @@ impl TableProvider for SectionsTable {
             .map(|h| h.section_index)
             .collect();
             selected.retain(|id, _| keep.contains(id));
+        }
+        for q in negative_queries {
+            let exclude: std::collections::HashSet<_> = search(
+                &self.index,
+                q,
+                &lexical_options(self.index.bm25.sections.len()),
+            )
+            .map_err(error)?
+            .hits
+            .into_iter()
+            .map(|h| h.section_index)
+            .collect();
+            selected.retain(|id, _| !exclude.contains(id));
         }
         let ids: Vec<_> = selected.keys().copied().collect();
         let sections: Vec<_> = ids

@@ -354,3 +354,86 @@ fn entity_graph_tables_and_argument_shapes() {
     .unwrap();
     assert_eq!(ti.docs_index, Some(PathBuf::from("index")));
 }
+
+#[test]
+fn monte_cristo_match_and_not_match() {
+    let fixture = Fixture::new();
+    let root = fixture.index();
+    let runtime = ti_sql::surface_runtime().unwrap();
+    let engine = runtime.block_on(lume::sql::open(&root)).unwrap();
+
+    let sql_pos =
+        "SELECT id, score FROM sections WHERE match(body, 'dantes') ORDER BY score DESC, id";
+    let reply_pos = runtime.block_on(engine.query(sql_pos, 500)).unwrap();
+    let rows_pos = reply_pos["rows"].as_array().unwrap();
+    let count_pos = rows_pos.len();
+    assert!(count_pos > 0);
+
+    let pos_scores: std::collections::BTreeMap<u64, f64> = rows_pos
+        .iter()
+        .map(|r| (r["id"].as_u64().unwrap(), r["score"].as_f64().unwrap()))
+        .collect();
+
+    let sql_not = "SELECT id, score FROM sections WHERE match(body, 'dantes') AND NOT match(body, 'prison') ORDER BY score DESC, id";
+    let reply_not = runtime.block_on(engine.query(sql_not, 500)).unwrap();
+    let rows_not = reply_not["rows"].as_array().unwrap();
+    let count_not = rows_not.len();
+
+    assert!(
+        count_not < count_pos,
+        "NOT match() should exclude sections containing negated term"
+    );
+    assert!(count_not > 0, "should still have hits for positive term");
+
+    // Edge case 3: scores of remaining rows must equal scores from positive match alone
+    for r in rows_not {
+        let id = r["id"].as_u64().unwrap();
+        let score = r["score"].as_f64().unwrap();
+        let original_score = pos_scores.get(&id).expect("row must exist in positive hits");
+        assert!(
+            (score - original_score).abs() < 1e-9,
+            "score for id {id} changed: {score} vs {original_score}"
+        );
+    }
+
+    // Edge case 1: WHERE NOT match(body, 'x') with no positive match
+    // Returns every section except matches, with score IS NULL
+    let sql_prison = "SELECT count(*) AS n FROM sections WHERE match(body, 'prison')";
+    let reply_prison = runtime.block_on(engine.query(sql_prison, 500)).unwrap();
+    let count_prison = reply_prison["rows"][0]["n"].as_u64().unwrap();
+
+    let sql_total = "SELECT count(*) AS n FROM sections";
+    let reply_total = runtime.block_on(engine.query(sql_total, 500)).unwrap();
+    let count_total = reply_total["rows"][0]["n"].as_u64().unwrap();
+
+    let sql_only_not = "SELECT count(*) AS n FROM sections WHERE NOT match(body, 'prison')";
+    let reply_only_not = runtime.block_on(engine.query(sql_only_not, 500)).unwrap();
+    let count_only_not = reply_only_not["rows"][0]["n"].as_u64().unwrap();
+    assert_eq!(
+        count_only_not,
+        count_total - count_prison,
+        "NOT match() without positive match should return all non-matching sections"
+    );
+
+    let sql_only_not_score = "SELECT score FROM sections WHERE NOT match(body, 'prison') LIMIT 1";
+    let reply_only_not_score = runtime
+        .block_on(engine.query(sql_only_not_score, 500))
+        .unwrap();
+    assert!(
+        reply_only_not_score["rows"][0]["score"].is_null(),
+        "score must be NULL when there is no positive match"
+    );
+
+    // Edge case 2: match() under OR is not a top-level conjunct and must error clearly
+    for bad_sql in [
+        "SELECT id FROM sections WHERE match(body, 'dantes') OR NOT match(body, 'prison')",
+        "SELECT id FROM sections WHERE match(body, 'dantes') OR match(body, 'prison')",
+    ] {
+        let err = runtime.block_on(engine.query(bad_sql, 500)).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("match() is only supported as a top-level AND filter"),
+            "expected clear error message for OR query '{bad_sql}', got: {err}"
+        );
+    }
+}
