@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.14.0 — 2026-10-10
+
+### Binary index format v4 (opt-in, #23)
+Indexes built with `LUME_INDEX_FORMAT=4 lume index -f` use a new checked binary format, published as immutable, sealed generations. **JSON stays the default**, and existing indexes keep working unchanged.
+
+| TREC-COVID (171k files) | JSON | v4 |
+|---|---:|---:|
+| Index on disk | 1,022 MB | **368 MB (−64%)** |
+| Index open | 6.25 s | **1.26 s (4.9× faster)** |
+| Whole-process cold start | 9.2–9.7 s | **1.4–1.55 s** |
+| Hot query p50 | 8.7 ms | 8.6 ms |
+
+Search replies are **byte-identical** to the JSON index: complete raw MCP replies for every TREC-COVID query, at both coordination floors.
+
+- Postings and per-document term frequencies are stored as compact CSR rows, with rare terms inline.
+- Each per-term candidate bitmap is built lazily on first use. This is deterministic under concurrent queries.
+- Opening an index runs fast structural checks (checksums, counts, offsets, ordering, UTF-8). `LUME_INDEX_VERIFY=full` adds the deep semantic cross-check.
+- An interrupted or failed build never replaces the previously published generation.
+- Every reader detects the format: `lume search`, `lume sql`, `lume serve`/MCP, the agent, the resident index and the TI docs watcher.
+- **Known limitations:**
+  - Building a v4 index currently takes longer and uses more memory than a JSON build (about 78 s and 4.4 GB on TREC-COVID, against 56 s and 2.4 GB). A fix is in progress.
+  - `lume index -o` (Ollama entities) isn't supported with v4 yet, and is rejected with a clear message.
+
+### Indexing (#21, refs #3)
+- Machine-read index files (`state.json`, `bm25.json`, `spelling.json`, `entity_graph.json`, `meta.json`) are now written as **compact JSON**. On a SciFact index that cut the files by **41%**: bm25.json shrank 43%, spelling.json 62% and state.json 6%. Existing pretty-printed indexes still load, and an index shrinks the next time it's written.
+- A failed periodic checkpoint save now prints a warning naming the file and the error. Before, it was silently discarded. Indexing continues either way.
+
+### Docs (#22)
+- The README opening now leads with the question at sea: one store for the numbers and the words.
+
 ## 0.13.1 — 2026-10-10
 
 ### Performance
