@@ -276,26 +276,64 @@ Needs Rust stable. `cargo build --release` puts the binary at `target/release/lu
 
 Maintainers cut a release from **Actions → Bump version and release**.
 
-## CLI reference
+## Using Lume: documents
 
-| Command | Purpose | Key options |
-|---|---|---|
-| `lume index <dir>` | Index text, markdown, code and PDFs | `--db`, `-s` semantic, `-o` LLM entities, `--tag-dict`, `-f` force, `--ollama-model` |
-| `lume search <query>` | Lexical, hybrid or graph-boosted search | `--db`, `-l` limit (10), `-a` alpha (0.5), `-g` graph (0.4), `-c` spell check, `--scoring` |
-| `lume sql` | Read-only SQL over an ordinary index | `--db`, `--format`, `repl`. |
-| `lume eval <qna.json>` | Retrieval quality metrics | `--db`, `-k`, `-g`, `--scoring`, `-t`, `-n`, `--compare` |
-| `lume agent <question>` | Autonomous tool-calling research loop | Ollama model and URL |
-| `lume summarize <file>` | Graph-guided document summary | `--ollama-model` |
-| `lume answer <question>` | Cited answer, streamed | `--model` |
-| `lume generate <seed>` | Style-faithful generation | `--steer` |
-| `lume crawl <url>` | Save a page as Markdown | `GRUB_BASE_URL`, `NUTS_SERVICES_TOKEN` |
-| `lume serve` | MCP, TI HTTP, OTLP and pgwire server | `-p`/`--port` (5863), `--ti-store`, `--http-token-file`, `--otlp`, `--otlp-token-file`, `--pg`, `--pg-bind` |
-| `lume sql <query>` | Read-only SQL over plain index (`sections`, `entities`) | `--db`, `--format table\|csv\|json` (needs `--features ti`) |
-| `lume ti otlp` | Standalone OTLP metrics & logs receiver | `--store`, `--bind` (127.0.0.1), `--port` (4318), `--otlp-token-file` |
-| `lume ti <cmd>` | Telemetry SQL: `repl`, `query`, `explain`, `status`, `import-docs`, `ingest`, `otlp`, `verify` | `--store`, `--json`, `--width` (needs `--features ti`) |
-| `lume stream <query>` | NDJSON search dynamics for `viz/` | |
+**Index a folder.** Text, Markdown, code, PDFs and EPUBs all work. Re-running the command picks up added, changed and deleted files.
 
-Run `lume <command> --help` for the full option list.
+```bash
+lume index ~/manuals                      # writes .lume-index/
+lume index ~/manuals --db ~/indexes/boat  # keep several indexes side by side
+lume index ~/manuals -o                   # also extract entities with Ollama
+LUME_INDEX_FORMAT=4 lume index ~/manuals  # binary index: smaller and faster to open
+```
+
+**Search it.** Results blend keyword scoring, optional vectors and the entity graph. Misspellings are corrected, and `-term` excludes a word.
+
+```bash
+lume search "bilge pump wiring"
+lume search "bilge pump -manual" -l 20   # NOT, more results
+lume search "pump" --facet category      # counts by a frontmatter field
+lume search "fuel filter" -a 0.7 -g 0.4  # vector weight, graph weight
+```
+
+**Query it with SQL.** The tables are `sections`, `entities` and `entity_edges`, and `match()` gives each row a BM25 `score`.
+
+```bash
+lume sql --db .lume-index "SELECT title, score FROM sections WHERE match(body, 'impeller') ORDER BY score DESC LIMIT 5"
+lume sql repl --db .lume-index
+```
+
+**Give it to agents.** `lume serve` starts an MCP server on `127.0.0.1:5863` with search, index and SQL tools.
+
+**Ask questions** (needs [Ollama](#ollama-setup)):
+
+```bash
+lume answer "How do I winterize the watermaker?"     # cited answer
+lume agent "What maintenance is overdue?"            # multi-step research
+lume summarize ~/manuals/engine.pdf
+```
+
+**Add web pages.** `lume crawl <url>` saves a page as Markdown, ready to index. When a [Grubcrawler](deploy/halos/marine-grubcrawler-container/README.md) is running on `localhost:6792`, Lume uses it to render JavaScript pages. Otherwise it fetches the page directly.
+
+```bash
+docker run -d -p 127.0.0.1:6792:6792 -e DISABLE_AUTH=true deepbluedynamics/grubcrawler:latest-lite
+```
+
+**Measure it.** `lume eval qna.json` reports Hit@k, MRR and nDCG@k against a question-and-answer file.
+
+| Command | What it does |
+|---|---|
+| `lume index <dir>` | Build or update an index (`--db`, `-o` entities, `-f` full rebuild) |
+| `lume index gc` | Remove old copies of a binary index (`--dry-run`) |
+| `lume search <query>` | Search (`-l` limit, `-a` alpha, `-g` graph, `-c` spell check, `--facet`) |
+| `lume sql [repl]` | SQL over an index |
+| `lume serve` | MCP server for agents, plus the TI HTTP, OTLP and pgwire services |
+| `lume answer` / `lume agent` / `lume summarize` | Answers, research and summaries with Ollama |
+| `lume crawl <url>` | Save a web page as Markdown |
+| `lume eval <qna.json>` | Retrieval quality metrics |
+| `lume generate <seed>` / `lume stream <query>` | Text generation; NDJSON search dynamics for `viz/` |
+
+Run `lume <command> --help` for every option.
 
 ## Lume TI: Telemetry Index
 
@@ -303,7 +341,7 @@ Lume TI keeps **documents and time series in one store** and lets one SQL query 
 
 It reads **[Signal K](https://signalk.org/) out of the box**, live from the server's WebSocket stream and historically from `signalk-parquet` files, and it runs on the boat's Raspberry Pi beside Signal K and OpenCPN with no internet connection. The engine itself is generic: anything that becomes *(entity, metric, time, value)* (sensor fleets, robots, industrial historians) fits the same store. A column-mapped reader for arbitrary time-series Parquet is the next input after Signal K.
 
-Build it with `cargo build --release --features ti`.
+The release binaries include it.
 
 ### One store, two kinds of data
 
@@ -353,40 +391,46 @@ WHERE match(notes, 'leak OR water')
 
 ### Use it
 
+**Load data.** Stream live Signal K, backfill history from Parquet, and add your documents:
+
 ```bash
-cargo build --release --features ti
-
-# Backfill signalk-parquet history (telemetry plus notes/logbook/alerts) into a store
-cargo run --release -p ti-ingest --example backfill_store -- <data>/tier=raw <store>
-
-lume ti repl --store <store>                      # interactive SQL: .help, .examples, .schema, .explain
-lume ti query "SELECT vessel, count(*) FROM telemetry GROUP BY vessel" --store <store> [--json]
-lume ti query "SELECT vessel, max(\"lume.ingest.valuesPerSecond@mean\") AS vps FROM telemetry_lume GROUP BY vessel" --store <store>
-lume ti explain "<sql>" --store <store>           # which filters ran as bitmaps
-lume ti status --store <store>
-lume ti import-docs <docs_dir> --store <store>
-lume ti verify --store <store> --corpus tests/golden
-
-# Standalone OTLP-only receiver (POST /v1/metrics and /v1/logs; all other routes return 404)
-lume ti otlp --store <store> [--bind 127.0.0.1] [--port 4318] [--otlp-token-file <path>]
-
-# MCP tools, /ti HTTP endpoints, OTLP receiver and PostgreSQL wire access
-lume serve --ti-store <store> [--bind <IP>] [--otlp] [--pg 5864]
-
-# Stream live Signal K deltas into the store with supervised HTTP, OTLP and pgwire
-lume ti ingest --signalk ws://127.0.0.1:3000 --store <store> --serve --otlp --pg 5864
+lume ti ingest --signalk ws://127.0.0.1:3000 --store ~/lume-ti --serve      # live Signal K, with HTTP on 5863
+lume ti backfill --parquet '<data>/*.parquet' --entity vessel --time ts --wide --store ~/lume-ti
+lume ti import-docs ~/logbook --store ~/lume-ti                              # notes, logbook, alerts
 ```
 
-`lume serve --ti-store` adds five MCP tools for agents:
-- `ti_resolve`: plain words → the right column;
-- `ti_query`, `ti_schema`, `ti_explain`, `ti_status`.
+`lume ti backfill` reads any time-series Parquet, not only Signal K's. It takes long format (`--metric`/`--value`) or wide format (`--wide`).
 
-It also adds HTTP endpoints:
-- `POST /ti/query`, answering in Arrow IPC or, with `Accept: application/json`, JSON;
-- `GET /ti/schema`, `POST /ti/explain`, `GET /ti/status`, `GET /ti/resolve?q=`;
-- With `--otlp`: `POST /v1/metrics` and `POST /v1/logs` (HTTP/JSON).
+**Query it.**
 
-With `--pg <port>`, it exposes read-only PostgreSQL protocol access (pgwire) for psql and Grafana, with SCRAM authentication configured via `--pg-auth-config <path>` and optional TLS. Results on HTTP are capped at 500 rows and 64 KiB, with a hint to aggregate or narrow the time range. The server listens on `127.0.0.1` and sends no wildcard CORS headers; a non-loopback `--bind` requires `--nuts-auth` or `--http-token-file`.
+```bash
+lume ti repl --store ~/lume-ti            # interactive SQL: .help, .examples, .schema, .explain
+lume ti query "SELECT vessel, count(*) FROM telemetry GROUP BY vessel" --store ~/lume-ti
+lume ti explain "<sql>" --store ~/lume-ti # which filters ran as bitmaps
+lume ti status --store ~/lume-ti          # coverage, shards, ingest lag
+```
+
+**Serve it.** `lume serve --ti-store <store>` adds the following:
+- MCP tools for agents: `ti_resolve` (plain words → the right column), `ti_query`, `ti_schema`, `ti_explain` and `ti_status`.
+- HTTP endpoints:
+  - `POST /ti/query`, answering in Arrow IPC or, with `Accept: application/json`, JSON;
+  - `GET /ti/schema`, `POST /ti/explain`, `GET /ti/status` and `GET /ti/resolve?q=`.
+- `--otlp`: an OpenTelemetry receiver at `POST /v1/metrics` and `POST /v1/logs`.
+- `--pg <port>`: read-only PostgreSQL wire access for psql and Grafana, with SCRAM authentication (`--pg-auth-config`) and optional TLS.
+
+HTTP results are capped at 500 rows and 64 KiB. Everything listens on `127.0.0.1`. A non-loopback `--bind` requires `--nuts-auth` or `--http-token-file`.
+
+| Command | What it does |
+|---|---|
+| `lume ti ingest` | Stream a live Signal K server into a store (`--serve`, `--otlp`, `--pg`) |
+| `lume ti backfill` | Load time-series Parquet (Signal K or any column layout) |
+| `lume ti import-docs <dir>` | Add notes, logbook entries and alerts |
+| `lume ti repl` / `query` / `explain` | SQL over telemetry and documents |
+| `lume ti status` | Store coverage, shards and ingest lag |
+| `lume ti rules list` / `test <name>` | Alert rules |
+| `lume ti otlp` | Standalone OTLP receiver (`--port` 4318) |
+| `lume ti sync --to <url>` | Ship sealed shards to a shore node |
+| `lume ti verify --corpus tests/golden` | Check answers against the golden SQL corpus |
 
 ### Agent telemetry & Grafana dashboards
 
@@ -416,8 +460,6 @@ TI is checked against an independent DuckDB oracle: 58 of 58 golden SQL queries 
 
 ### Next
 
-- **Any time-series Parquet:** a column-mapped reader (`--entity`, `--time`, long or wide format) next to the Signal K one.
-- **Fleet sync:** resumable, hash-verified shard shipping from boat to shore, and a shore node that queries the whole fleet.
 - **On-device numbers:** Pi 5 ingest and query benchmarks, and Q1–Q8 p95 against DuckDB on the reference machine.
 
 ## Performance
@@ -466,7 +508,7 @@ python lib/lume_extractor.py qna my_doc.txt output_qna.json --model gemma4:31b-c
 
 ## Roadmap
 
-- Lume TI: a column-mapped reader for any time-series Parquet, fleet sync to shore, and Pi 5 benchmarks.
+- Lume TI: Pi 5 ingest and query benchmarks, and a shore node that queries a whole fleet.
 - Specs from documents: extract operating limits from manuals and datasheets in the document index and monitor telemetry against them.
 - On-the-fly fine-tuning of open embedding models, so the semantic space adapts to your corpus.
 
