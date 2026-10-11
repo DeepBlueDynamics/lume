@@ -150,6 +150,7 @@ pub enum PublishStep {
     SyncedSegment,
     SyncedGeneration,
     PublishedPointer,
+    RetentionSaved,
 }
 
 pub fn publish(
@@ -203,8 +204,11 @@ pub fn publish(
     sync_directory(&directory)?;
     sync_directory(&generations)?;
     checkpoint(PublishStep::SyncedGeneration)?;
+    super::gc::before_publish(root)?;
+    checkpoint(PublishStep::RetentionSaved)?;
     crate::search::save_json(&root.join(POINTER), &manifest)?;
     checkpoint(PublishStep::PublishedPointer)?;
+    super::gc::after_publish(root);
     Ok(manifest)
 }
 
@@ -297,7 +301,9 @@ impl StagedGeneration {
         self.manifest.validate()?;
         sync_directory(&self.directory)?;
         sync_directory(&self.root.join("generations"))?;
+        super::gc::before_publish(&self.root)?;
         crate::search::save_json(&self.root.join(POINTER), &self.manifest)?;
+        super::gc::after_publish(&self.root);
         Ok(self.manifest)
     }
 }

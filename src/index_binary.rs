@@ -3,6 +3,7 @@
 pub mod build_state;
 pub mod codec;
 pub mod csr;
+pub mod gc;
 pub mod generation;
 pub mod overlays;
 pub mod postings;

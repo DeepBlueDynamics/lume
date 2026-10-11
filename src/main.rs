@@ -143,7 +143,12 @@ fn lume_main() {
             }
         }
         "index" => {
-            if args.len() >= 3 && args[2] == "update" {
+            if args.len() >= 3 && args[2] == "gc" {
+                if let Err(error) = handle_index_gc(&args[3..]) {
+                    eprintln!("Error: {error}");
+                    std::process::exit(1);
+                }
+            } else if args.len() >= 3 && args[2] == "update" {
                 if let Err(e) = handle_index_update(&args[3..]) {
                     eprintln!("Error: {}", e);
                     std::process::exit(1);
@@ -1257,6 +1262,62 @@ fn handle_index_init(args: &[String]) -> Result<(), String> {
         &embed_imports,
     )?;
 
+    Ok(())
+}
+
+fn handle_index_gc(args: &[String]) -> Result<(), String> {
+    let mut options = lume::index_binary::gc::Options::default();
+    let mut db = String::from(".lume-index");
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "-h" | "--help" => {
+                println!("lume index gc --db <index> [--keep-generations N] [--gc-grace-secs S] [--dry-run] [--include-unknown]");
+                println!("Keep current plus N previous generations (default 1, max 100); grace defaults to 600 seconds.");
+                println!("Unknown generations are listed and kept unless --include-unknown. Concurrent writers are unsupported.");
+                return Ok(());
+            }
+            "--dry-run" => options.dry_run = true,
+            "--include-unknown" => options.include_unknown = true,
+            "--db" | "--keep-generations" | "--gc-grace-secs" => {
+                let key = &args[index];
+                index += 1;
+                let value = args
+                    .get(index)
+                    .ok_or_else(|| format!("Missing value for {key}"))?;
+                match key.as_str() {
+                    "--db" => db = value.clone(),
+                    "--keep-generations" => {
+                        options.keep_previous =
+                            value.parse().map_err(|_| "Invalid keep-generations")?
+                    }
+                    _ => options.grace_secs = value.parse().map_err(|_| "Invalid gc-grace-secs")?,
+                }
+            }
+            argument => return Err(format!("Unknown GC argument: {argument}")),
+        }
+        index += 1;
+    }
+    let report = lume::index_binary::gc::collect(Path::new(&db), &options)?;
+    for path in &report.unknown {
+        println!("Unknown generation: {}", path.display());
+    }
+    for path in &report.eligible {
+        println!(
+            "{}: {}",
+            if options.dry_run {
+                "Would remove"
+            } else if report.removed.contains(path) {
+                "Removed"
+            } else {
+                "Skipped"
+            },
+            path.display()
+        );
+    }
+    for warning in report.warnings {
+        eprintln!("[⚠️] Generation GC: {warning}");
+    }
     Ok(())
 }
 
