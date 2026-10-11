@@ -29,7 +29,9 @@ try {
     $zip = Join-Path $tmp "$name.zip"
     Invoke-WebRequest "$base/$name.zip" -OutFile $zip
     $sums = Invoke-WebRequest "$base/SHA256SUMS" -UseBasicParsing
-    $line = ($sums.Content -split "`n") | Where-Object { $_ -match "\s$([regex]::Escape("$name.zip"))\s*$" } | Select-Object -First 1
+    # GitHub serves SHA256SUMS as application/octet-stream, so PowerShell 7 returns bytes.
+    $sumsText = if ($sums.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($sums.Content) } else { [string]$sums.Content }
+    $line = ($sumsText -split "`n") | Where-Object { $_ -match "\s$([regex]::Escape("$name.zip"))\s*$" } | Select-Object -First 1
     if (-not $line) { throw "lume install: $name.zip is not listed in SHA256SUMS" }
     $expected = ($line -split '\s+')[0].ToLower()
     $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
