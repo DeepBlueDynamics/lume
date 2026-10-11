@@ -96,6 +96,10 @@ fn lume_main() {
         }
         #[cfg(feature = "ti")]
         "ti" => {
+            if args.len() == 2 || matches!(args[2].as_str(), "-h" | "--help" | "help") {
+                print_ti_help();
+                return;
+            }
             if args.len() >= 3 && args[2] == "otlp" {
                 if let Err(e) = lume::ti_otlp::run(&args[3..]) {
                     eprintln!("Error: {e}");
@@ -1006,7 +1010,7 @@ fn print_global_help() {
   | |____| |__| | |  | | |____
   |______|\____/|_|  |_|______|  v{}
 
-High-performance, stateful FST-backed tagger & BM25 hybrid search engine suite.
+Documents and time-series telemetry in one store: search, SQL, and MCP tools for agents.
 
 USAGE:
   lume [FLAGS] <SUBCOMMAND>
@@ -1018,7 +1022,7 @@ FLAGS:
   --embed-model <NAME> Opt in to local section vectors via Shivvr /embed
   --embed-dimensions N Vector width for the selected model [default: 768]
 
-SUBCOMMANDS:
+DOCUMENTS:
   index      Index a directory (supports code, text, and PDF files)
   search     Query the persisted index using lexical, semantic, or hybrid search
   generate   Generate style-faithful text from the indexed corpus
@@ -1028,20 +1032,60 @@ SUBCOMMANDS:
   crawl      Stealth crawl webpage content and save to personal search collection
   eval       Measure retrieval quality (Hit@k, MRR, nDCG@k) against a Q&A file
   stream     Stream the live phase/Weber search relaxation as NDJSON for the 3D visualizer
-  answer     Agentic plan→retrieve→answer loop with citations, streamed for the visualizer
-"#,
+  answer     Agentic plan→retrieve→answer loop with citations, streamed for the visualizer"#,
         env!("CARGO_PKG_VERSION")
     );
     #[cfg(feature = "ti")]
     println!(
         r#"  sql        Read-only SQL over a Lume index (sql --help)
 
-TIME SERIES (Lume TI):
-  ti query   SQL over telemetry, documents and alerts in one store (ti --help)
-  ti repl    Interactive SQL shell over a TI store
-  ti ingest  Stream a live Signal K server into a store (--serve adds HTTP, --pg adds pgwire)
-  ti status  Store coverage, shards and ingest lag"#
+TIME SERIES (Lume TI), run `lume ti --help` for every command and flag:
+  ti ingest       Stream a live Signal K server into a store
+  ti backfill     Load time-series Parquet (Signal K or any column layout)
+  ti import-docs  Add notes, logbook entries and alerts
+  ti repl         Interactive SQL shell over a store
+  ti query        One SQL statement over telemetry, documents and alerts
+  ti explain      Show which filters ran as bitmaps
+  ti status       Store coverage, shards and ingest lag
+  ti rules        List or test alert rules
+  ti otlp         Standalone OpenTelemetry receiver
+  ti sync         Ship sealed shards to a shore node
+  ti verify       Check answers against the golden SQL corpus"#
     );
+}
+
+#[cfg(feature = "ti")]
+fn print_ti_help() {
+    println!(
+        r#"Lume TI: telemetry, documents and alerts in one store, queried with SQL.
+
+LOAD DATA:
+  ti ingest       Stream a live Signal K server into a store (--serve adds HTTP, --pg adds pgwire)
+  ti backfill     Load time-series Parquet: Signal K or any column layout (long, or --wide)
+  ti import-docs  Add notes, logbook entries and alerts from a folder or from Parquet
+
+QUERY:
+  ti repl         Interactive SQL shell (.help, .examples, .schema, .explain)
+  ti query        Run one SQL statement over telemetry, documents and alerts
+  ti explain      Show which filters ran as bitmaps
+  ti status       Store coverage, shards and ingest lag
+  ti rules        List or test alert rules
+
+SERVE AND SHIP:
+  ti otlp         Standalone OpenTelemetry receiver (POST /v1/metrics, /v1/logs)
+  ti sync         Ship sealed shards to a shore node
+  ti verify       Check answers against the golden SQL corpus
+  serve --ti-store <store>   MCP tools, /ti HTTP endpoints, --otlp and --pg for a store
+
+USAGE:"#
+    );
+    println!("{}", ti_sql::cli::USAGE);
+    println!("{}", lume::ti_parquet::USAGE);
+    println!("{}", lume::ti_rules::USAGE);
+    println!("lume ti ingest --signalk <url> --store <root> [--serve] [--otlp] [--pg <port>]   (ti ingest --help for every flag)");
+    println!("lume ti otlp --store <root> [--bind 127.0.0.1] [--port 4318] [--otlp-token-file <path>]");
+    println!("lume ti sync --to <url> --store <root> [--token-file <path>]   (ti sync --help for every flag)");
+    println!("lume ti verify (--fixture snapshot.json | --store <root>) --corpus tests/golden");
 }
 
 fn print_index_help() {
