@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.15.2 — 2026-10-11
+
+Lume 0.15.2 is out.
+
+- **`lume ti --help` shows every telemetry command.** It lists loading (`ingest`, `backfill`, `import-docs`), querying (`repl`, `query`, `explain`, `status`, `rules`) and serving and shipping (`otlp`, `sync`, `verify`), each with its usage line, so you can find the right command without reading the source.
+- **`lume --help` is grouped into documents and time series**, and points to `lume ti --help` for the details.
+- **The Windows installer works again.** `irm …/install.ps1 | iex` installs cleanly in PowerShell 7.
+
 ## 0.15.1 — 2026-10-11
 
 Lume 0.15.1 is out. The binary index (`LUME_INDEX_FORMAT=4`) is now practical for libraries that change: a third the size on disk, opening in well under a second, and now kept up to date like any other index.
