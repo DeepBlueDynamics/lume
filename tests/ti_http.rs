@@ -15,7 +15,6 @@ mod library_tests;
 mod pg_extended_tests;
 #[path = "support/pg.rs"]
 mod pg_tests;
-use library_tests::rebuild_manual;
 static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 struct Server {
     child: Child,
@@ -64,6 +63,28 @@ impl Server {
         pg_bind: Option<&str>,
         external_auth: bool,
         docs: bool,
+    ) -> Self {
+        Self::start_with_docs_format(
+            bind,
+            pg,
+            verifier,
+            history,
+            pg_bind,
+            external_auth,
+            docs,
+            "json",
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn start_with_docs_format(
+        bind: Option<&str>,
+        pg: bool,
+        verifier: Option<&str>,
+        history: bool,
+        pg_bind: Option<&str>,
+        external_auth: bool,
+        docs: bool,
+        format: &str,
     ) -> Self {
         let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!(
             "http-{}-{}",
@@ -195,7 +216,7 @@ impl Server {
             let dir = root.join("manual");
             std::fs::create_dir_all(&dir).unwrap();
             std::fs::write(dir.join("manual.md"), "## Bilge manual\n\nA bilge pump original procedure. Inspect the inlet, strainer, float switch and discharge hose. Test operation and keep the boat safe before departure.\n").unwrap();
-            rebuild_manual(&root);
+            library_tests::rebuild_manual_format(&root, format);
         }
         // Snapshot tests deliberately rename the live catalog. Do not race that
         // operation against the optional startup warm-up's Windows file handles.

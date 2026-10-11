@@ -30,53 +30,77 @@ fn cli_import_and_hybrid_search_use_preloaded_vectors_offline() {
     listener.set_nonblocking(true).unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     let binary = env!("CARGO_BIN_EXE_lume");
-    let result = Command::new(binary)
-        .arg("index")
-        .arg(fixture.0.join("docs"))
-        .arg("--db")
-        .arg(fixture.0.join("index"))
-        .args([
-            "--embed-model",
-            "embeddinggemma-2",
-            "--embed-dimensions",
-            "2",
-        ])
-        .arg("--embed-docs")
-        .arg(&documents)
-        .arg("--embed-queries")
-        .arg(&queries)
-        .arg("--embed-query-texts")
-        .arg(&texts)
-        .args(["--shivvr-url", &base])
-        .env("LUME_STEM", "0")
-        .env_remove("LUME_QUERY_INVERSION")
-        .output()
-        .unwrap();
-    assert!(
-        result.status.success(),
-        "{}\n{}",
-        String::from_utf8_lossy(&result.stdout),
-        String::from_utf8_lossy(&result.stderr)
-    );
-    let result = Command::new(binary)
-        .args(["search", "captain", "--alpha", "1", "--graph", "0"])
-        .arg("--db")
-        .arg(fixture.0.join("index"))
-        .args(["--shivvr-url", &base])
-        .env("LUME_BLEND_NORM", "1")
-        .env("LUME_STEM", "0")
-        .env_remove("LUME_EMBED_MODEL")
-        .env_remove("LUME_EMBED_DIMENSIONS")
-        .output()
-        .unwrap();
-    assert!(
-        result.status.success(),
-        "{}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-    let output = String::from_utf8(result.stdout).unwrap();
-    assert!(output.contains("Hybrid Score:"), "{output}");
-    assert!(output.contains("a.txt"), "{output}");
+    let mut replies = Vec::new();
+    for format in ["json", "4"] {
+        let db = fixture.0.join(format!("index-{format}"));
+        let result = Command::new(binary)
+            .arg("index")
+            .arg(fixture.0.join("docs"))
+            .arg("--db")
+            .arg(&db)
+            .args([
+                "--embed-model",
+                "embeddinggemma-2",
+                "--embed-dimensions",
+                "2",
+            ])
+            .arg("--embed-docs")
+            .arg(&documents)
+            .arg("--embed-queries")
+            .arg(&queries)
+            .arg("--embed-query-texts")
+            .arg(&texts)
+            .args(["--shivvr-url", &base])
+            .env("LUME_STEM", "0")
+            .env("LUME_INDEX_FORMAT", format)
+            .env_remove("LUME_QUERY_INVERSION")
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let result = Command::new(binary)
+            .args(["search", "captain", "--alpha", "1", "--graph", "0"])
+            .arg("--db")
+            .arg(&db)
+            .args(["--shivvr-url", &base])
+            .env("LUME_BLEND_NORM", "1")
+            .env("LUME_STEM", "0")
+            .env_remove("LUME_EMBED_MODEL")
+            .env_remove("LUME_EMBED_DIMENSIONS")
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let output = String::from_utf8(result.stdout).unwrap();
+        assert!(output.contains("Hybrid Score:"), "{output}");
+        assert!(output.contains("a.txt"), "{output}");
+        replies.push(output.replacen(db.to_str().unwrap(), "<DB>", 1));
+        for (key, value) in [
+            ("LUME_EMBED_MODEL", "wrong-model"),
+            ("LUME_EMBED_DIMENSIONS", "3"),
+        ] {
+            let rejected = Command::new(binary)
+                .args(["search", "captain", "--alpha", "1", "--graph", "0", "--db"])
+                .arg(&db)
+                .env("LUME_STEM", "0")
+                .env_remove("LUME_EMBED_MODEL")
+                .env_remove("LUME_EMBED_DIMENSIONS")
+                .env(key, value)
+                .output()
+                .unwrap();
+            assert!(!rejected.status.success(), "{format}: {key}");
+            let error = String::from_utf8_lossy(&rejected.stderr);
+            assert!(error.contains("match"), "{error}");
+        }
+    }
+    assert_eq!(replies[0], replies[1]);
     assert_eq!(
         listener.accept().unwrap_err().kind(),
         std::io::ErrorKind::WouldBlock
