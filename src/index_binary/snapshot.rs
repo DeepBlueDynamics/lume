@@ -160,6 +160,14 @@ pub fn restore_state(root: &Path) -> Result<IndexState, String> {
     let mut bm25 = Bm25Index::from_v4_segments_for_open(&segments)?;
     let build: BuildState = serde_json::from_slice(&segments["build-state.json"])
         .map_err(|e| format!("Invalid v4 build state: {e}"))?;
+    if manifest.sections as usize != bm25.sections.len()
+        || manifest.source_files as usize != build.sources.len()
+        || build.settings.keep_hyphens
+        || bm25.keep_hyphens
+        || build.settings.stemmed != bm25.stemmed
+    {
+        return Err("V4 build state disagrees with the sealed snapshot".into());
+    }
     super::overlays::apply(&mut bm25.sections, &super::overlays::read(root, &manifest)?)?;
     build.restore_cached_files(&bm25.sections)
 }
