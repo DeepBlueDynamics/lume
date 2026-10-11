@@ -16,20 +16,23 @@
 
 ---
 
-A boat at sea has no internet. It has a logbook, a shelf of manuals, a year
-of sensor telemetry — and the questions that matter cross all three at once:
-what was the engine doing every time that alarm fired this month? Every
-tool you've used answers a third of that question and hands you three tabs.
-Lume answers the whole thing.
+Your measurements live in a database. Your explanations live in documents. Your incident history lives in logs. The questions that matter cross all three:
 
-Lume keeps documents and time-series telemetry in one store, searchable and
-queryable together, in one fast Rust binary. Documents get BM25, dense
-semantic embeddings, and a knowledge graph computed from the index itself.
-Telemetry gets a bitmap-indexed SQL engine that reads Signal K out of the
-box. One query crosses both. All of it runs on one small computer with no
-internet connection, because that's where boats are. That's exactly what
-any sovereign AI builder needs: your data, your models and your answers
-stay on hardware you control, with nothing phoning home.
+*What was the system doing when this error appeared, and what did we learn the last time it happened?*
+
+Lume brings documents and time-series telemetry into one queryable system, running on hardware you control. Search the words, filter the measurements, and join events to what happened during them. One Rust binary, with SQL for analysis and MCP tools for agents.
+
+The retrieval engine combines keyword search, optional semantic search, and an entity-relationship graph. Search, dictionary-based graph construction, and telemetry SQL work without a language model. Add a model for conversational answers and agent workflows, not because the database needs one to find your data.
+
+For people building and operating agents, Lume also receives OpenTelemetry metrics and logs, makes those events searchable, and exposes a read-only PostgreSQL interface for tools such as Grafana. The same system can hold the operational numbers and the written evidence needed to investigate them.
+
+### Built for places where the cloud is optional
+
+Marine systems are a strong application, not a separate promise. Lume already reads live Signal K telemetry and historical Signal K Parquet files, connects measurements with logbook entries and alerts, and runs on a Raspberry Pi alongside the existing onboard software. Its Signal K plugin provides a SQL console, document library, and an Ask interface.
+
+On a boat, the question becomes: *What was the engine doing each time this alarm appeared?* The same underlying problem exists ashore: the measurements and the written history need to be queried together.
+
+**Built for the boat. Useful well beyond it.**
 
 An open source project from [DeepBlue Dynamics](https://github.com/deepbluedynamics/),
 which builds open source agentic tooling for the marine electronics market.
