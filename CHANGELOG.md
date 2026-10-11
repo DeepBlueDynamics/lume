@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.15.1 — 2026-10-11
+
+Lume 0.15.1 is out. The binary index (`LUME_INDEX_FORMAT=4`) is now practical for libraries that change: a third the size on disk, opening in well under a second, and now kept up to date like any other index.
+
+- **Keep your library current without rebuilding it.** Re-run `lume index <dir>` (or `lume index-update`) after adding, editing, deleting or renaming files. Lume re-reads only what changed, so updates stay quick even on a large library.
+- **Search never breaks mid-update.** People and agents searching while an update runs keep getting answers from the current index. The new one swaps in only when it's complete. If an update is interrupted (power cut, crash, Ctrl-C), nothing is lost: run it again and it picks up where it stopped.
+- **The disk doesn't fill up behind you.** Lume keeps the current index plus one previous copy to roll back to, and removes older copies on its own. `lume index gc --dry-run` shows what it would remove. That matters on a boat computer or a Pi with a small card.
+- **Your tags and metadata survive edits.** Markdown frontmatter fields and entity tags from `lume index -o` carry through every update, so filters, facets and the entity graph stay accurate.
+- **Faster start-up.** Search servers and agents load a binary index sooner, because its files are read in parallel.
+
+JSON is still the default index format. Set `LUME_INDEX_FORMAT=4` when building a new index to use the binary one.
+
 ## 0.15.0 — 2026-10-10
 
 ### Binary index format v4: faster, smaller, and resumable entity tagging
