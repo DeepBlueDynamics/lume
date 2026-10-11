@@ -16,20 +16,23 @@
 
 ---
 
-A boat at sea has no internet. It has a logbook, a shelf of manuals, a year
-of sensor telemetry — and the questions that matter cross all three at once:
-what was the engine doing every time that alarm fired this month? Every
-tool you've used answers a third of that question and hands you three tabs.
-Lume answers the whole thing.
+Your measurements live in a database. Your explanations live in documents. Your incident history lives in logs. The questions that matter cross all three:
 
-Lume keeps documents and time-series telemetry in one store, searchable and
-queryable together, in one fast Rust binary. Documents get BM25, dense
-semantic embeddings, and a knowledge graph computed from the index itself.
-Telemetry gets a bitmap-indexed SQL engine that reads Signal K out of the
-box. One query crosses both. All of it runs on one small computer with no
-internet connection, because that's where boats are. That's exactly what
-any sovereign AI builder needs: your data, your models and your answers
-stay on hardware you control, with nothing phoning home.
+*What was the system doing when this error appeared, and what did we learn the last time it happened?*
+
+Lume brings documents and time-series telemetry into one queryable system, running on hardware you control. Search the words, filter the measurements, and join events to what happened during them. One Rust binary, with SQL for analysis and MCP tools for agents.
+
+The retrieval engine combines keyword search, optional semantic search, and an entity-relationship graph. Search, dictionary-based graph construction, and telemetry SQL work without a language model. Add a model for conversational answers and agent workflows, not because the database needs one to find your data.
+
+For people building and operating agents, Lume also receives OpenTelemetry metrics and logs, makes those events searchable, and exposes a read-only PostgreSQL interface for tools such as Grafana. The same system can hold the operational numbers and the written evidence needed to investigate them.
+
+### Built for places where the cloud is optional
+
+Marine systems are a strong application, not a separate promise. Lume already reads live Signal K telemetry and historical Signal K Parquet files, connects measurements with logbook entries and alerts, and runs on a Raspberry Pi alongside the existing onboard software. Its Signal K plugin provides a SQL console, document library, and an Ask interface.
+
+On a boat, the question becomes: *What was the engine doing each time this alarm appeared?* The same underlying problem exists ashore: the measurements and the written history need to be queried together.
+
+**Built for the boat. Useful well beyond it.**
 
 An open source project from [DeepBlue Dynamics](https://github.com/deepbluedynamics/),
 which builds open source agentic tooling for the marine electronics market.
@@ -137,7 +140,7 @@ It prompts for the key with hidden input and sends it to the Pi only over SSH st
 - sets **Chat API Key File Path** in the plugin config;
 - restarts Signal K.
 
-`--check` shows the file's owner, mode and size, never its contents. To use a laptop's local models as a fallback, set **Chat Ollama API URLs** in the plugin config to, for example, `https://ollama.com,http://192.168.68.58:11434`. Manual steps are in [plan/SETUP.md §13](plan/SETUP.md).
+`--check` shows the file's owner, mode and size, never its contents. To use a laptop's local models as a fallback, set **Chat Ollama API URLs** in the plugin config to, for example, `https://ollama.com,http://192.168.68.58:11434`.
 
 ## Features
 
@@ -193,11 +196,11 @@ lume serve --bind 127.0.0.1 --port 8080
 
 This exposes `lume_index`, `lume_search`, `lume_generate` and `lume_not_found` as MCP tools over HTTP. Search runs in-process through the `lume::search` library API. Built with `--features ti`, `lume serve --ti-store <store>` adds the [Lume TI](#lume-ti-telemetry-index) tools, OTLP ingestion (`--otlp`), and PostgreSQL wire access (`--pg`).
 
-All serve paths default to `127.0.0.1`, including plain `lume serve`. An explicit non-loopback bind requires `--nuts-auth` or `--http-token-file`. See the [operator manual](docs/OPERATIONS.md#1-network-exposure) for LAN access, authentication and Signal K deployment.
+All serve paths default to `127.0.0.1`, including plain `lume serve`. An explicit non-loopback bind requires `--nuts-auth` or `--http-token-file`.
 
 Use `--nuts-auth --nuts-allow sailor@example.com,user-17` on plain/TI `serve` or `ti ingest --serve`. The optional auth URL defaults to `https://auth.nuts.services`; an allowlist may also be supplied as `--nuts-allow @/path/to/allowlist`. Send a nuts RS256 JWT or an `ahp_` token in `Authorization: Bearer <token>`. JWTs verify offline using startup/12-hour JWKS refresh and a public-key cache at `<store>/auth/jwks.json` (plain serve: `.lume-index/auth/jwks.json`); AHP tokens exchange online and cache their verified JWT in memory until expiry. Allowlist membership is mandatory. Read scope covers TI/MCP/SSE; write covers OTLP and indexing (MCP indexing needs both). GET `/health` is public when nuts auth is on. No key cache plus no network refuses startup.
 
-`--http-token-file /path/to/token` remains a full-access static alternative, checked in constant time. It may coexist with nuts auth. Configured sync/OTLP tokens override global auth on their own routes. Missing, wrong or unauthorized credentials return empty-body 401. Never put credentials in a URL; use HTTPS through a trusted reverse proxy for remote access. Loopback without either flag retains local access. See [D51](plan/decisions/D51-http-auth.md) for the policy and bounds.
+`--http-token-file /path/to/token` remains a full-access static alternative, checked in constant time. It may coexist with nuts auth. Configured sync/OTLP tokens override global auth on their own routes. Missing, wrong or unauthorized credentials return empty-body 401. Never put credentials in a URL; use HTTPS through a trusted reverse proxy for remote access. Loopback without either flag retains local access.
 
 The OTLP bearer protects ingestion routes only on a shared server; it does not authenticate TI or MCP. Standalone `lume ti otlp` exposes only its two ingestion endpoints.
 
@@ -279,7 +282,7 @@ Maintainers cut a release from **Actions → Bump version and release**.
 |---|---|---|
 | `lume index <dir>` | Index text, markdown, code and PDFs | `--db`, `-s` semantic, `-o` LLM entities, `--tag-dict`, `-f` force, `--ollama-model` |
 | `lume search <query>` | Lexical, hybrid or graph-boosted search | `--db`, `-l` limit (10), `-a` alpha (0.5), `-g` graph (0.4), `-c` spell check, `--scoring` |
-| `lume sql` | Read-only SQL over an ordinary index | `--db`, `--format`, `repl`. [Querying with SQL](docs/SQL.md) |
+| `lume sql` | Read-only SQL over an ordinary index | `--db`, `--format`, `repl`. |
 | `lume eval <qna.json>` | Retrieval quality metrics | `--db`, `-k`, `-g`, `--scoring`, `-t`, `-n`, `--compare` |
 | `lume agent <question>` | Autonomous tool-calling research loop | Ollama model and URL |
 | `lume summarize <file>` | Graph-guided document summary | `--ollama-model` |
@@ -300,7 +303,7 @@ Lume TI keeps **documents and time series in one store** and lets one SQL query 
 
 It reads **[Signal K](https://signalk.org/) out of the box**, live from the server's WebSocket stream and historically from `signalk-parquet` files, and it runs on the boat's Raspberry Pi beside Signal K and OpenCPN with no internet connection. The engine itself is generic: anything that becomes *(entity, metric, time, value)* (sensor fleets, robots, industrial historians) fits the same store. A column-mapped reader for arbitrary time-series Parquet is the next input after Signal K.
 
-Build it with `cargo build --release --features ti`. The design and spec are in [`plan/`](plan/README.md).
+Build it with `cargo build --release --features ti`.
 
 ### One store, two kinds of data
 
@@ -374,8 +377,6 @@ lume serve --ti-store <store> [--bind <IP>] [--otlp] [--pg 5864]
 lume ti ingest --signalk ws://127.0.0.1:3000 --store <store> --serve --otlp --pg 5864
 ```
 
-The statements, which table to use, and what is pushed down are in [Querying Lume with SQL](docs/SQL.md). Copy-paste examples are in [SQL examples](docs/SQL-EXAMPLES.md).
-
 `lume serve --ti-store` adds five MCP tools for agents:
 - `ti_resolve`: plain words → the right column;
 - `ti_query`, `ti_schema`, `ti_explain`, `ti_status`.
@@ -411,30 +412,7 @@ Maintainer scripts, not the boat install: `scripts/provision-pi.sh`, `scripts/de
 
 ### Measured
 
-Every number below comes from a test or command in this repository, run on an x86 Windows development host with release builds. The dataset is the deterministic generated fleet from `ti-bench gen`: 5 vessels × 90 days around Monterey Bay, 95.9 M values in 11,500 `signalk-parquet` files, plus 1,610 notes, logbook entries and alerts. Being deterministic means every answer can be checked exactly against an independent DuckDB run over the same files. Numbers cite [`plan/bench/benchmark-report.md`](plan/bench/benchmark-report.md).
-
-**Correctness**
-
-| Check | Result | Source |
-|---|---|---|
-| Golden SQL corpus vs an independent DuckDB oracle over the raw Parquet: telemetry, text, geo, `intervals()`, joins | **58 of 58 runnable queries match** (4 more wait on contract questions) | `lume ti verify --corpus tests/golden` |
-| 24-hour stream replay vs an independent oracle | **153,374 / 153,374** bucket records match | `crates/ti-ingest/tests/m2_gate.rs` |
-| Re-ingesting the full 95.9 M-value set into the same store | all 65 sealed shards **byte-identical** | `m2_gate.rs`, `test_m2_parquet_backfill_idempotence` |
-| Crash safety: 1,000 seeded `kill -9` runs during ingest | **0 lost, 0 duplicated** acknowledged records | `crates/ti-store/tests/crash_recovery.rs` |
-| Same input, same shard bytes and hash, for every field type | identical | `crates/ti-store/tests/seal_determinism.rs` |
-| Plain words → column (`ti_resolve`), 100 phrases over 488 columns | right column in the top 3 for **93 / 100** | `tests/ti_resolve.rs` |
-
-**Speed and size**
-
-| Measurement | Result | Source |
-|---|---|---|
-| Year-long "max wind per vessel per day" (5 vessel-years, 15.8 M buckets) | **40.3 ms**, vs 2.92 s for DataFusion materializing the same rows: **72× faster**, identical results | `crates/ti-sql/tests/m4.rs`, `synthetic_year_benchmark` |
-| Bit-sliced range compare over a full 65,536-bucket shard | **41 µs** | `crates/ti-core/examples/compare_baseline.rs` |
-| Live ingest pipeline (decode → normalize → bucket → store) | **181,783 values/s**; 72 MB peak RSS on Linux | `m2_gate.rs`, `test_m2_throughput_and_rss` |
-| Parquet backfill of 95.9 M values | **389 s, 246,730 values/s** | `crates/ti-ingest/examples/backfill_store.rs` |
-| Index size | **554 MB, 0.29× the raw Parquet** (about 450 MB per vessel-year) | `backfill_store` |
-| Open the store and answer `lume ti status` | **2.2 s** cold | `lume ti status` |
-| `count(*)` over the whole fleet store | 3.0 s | `crates/ti-sql/examples/open_timing.rs` |
+TI is checked against an independent DuckDB oracle: 58 of 58 golden SQL queries match, and 1,000 seeded `kill -9` runs during ingest lose or duplicate nothing. A year-long "max wind per vessel per day" query takes 40.3 ms. Full numbers are in [Benchmarks](docs/BENCHMARKS.md#lume-ti-telemetry).
 
 ### Next
 
@@ -444,68 +422,29 @@ Every number below comes from a test or command in this repository, run on an x8
 
 ## Performance
 
-Search numbers below are a comparison with Luxir 0.1.0, a separate search engine. Luxir is not part of Lume. The full table, the capability list, and the bugs found are in [bench/luxir_vs_lume_summary.md](bench/luxir_vs_lume_summary.md). Lume TI timings are a different workload and stay in [Measured](#measured).
+Measured against Luxir, a fast standalone BM25 engine, on BEIR datasets under identical conditions:
 
-Setup for every search number here: Docker with 8 CPU and 8 GiB, indexes on Linux volumes, one `python:3.12-slim` client on a shared Docker network, a warm server (one warmup pass, then 3 timed passes, median of the three). The time is client wall-clock. BEIR SciFact is 5,183 documents and 300 queries. TREC-COVID is 171,332 documents and 50 queries.
-
-### Released in v0.12.3
-
-`lume serve` keeps the index resident. Rankings match v0.12.2. Median latency:
-
-| | SciFact p50 | TREC-COVID p50 |
+| | Lume | Luxir |
 |---|---:|---:|
-| Lume v0.12.2 | 286 ms | 7,892 ms |
-| Lume v0.12.3 | 5.7 ms | 99 ms |
-| Luxir 0.1.0 BM25 | 0.36 ms | 1.26 ms |
+| TREC-COVID nDCG@10 (BM25) | **0.632** | 0.605 |
+| SciFact nDCG@10 (hybrid, same vectors) | **0.853** | 0.779 |
+| TREC-COVID p50, warm server | 5.88 ms | **1.26 ms** |
+| TREC-COVID index on disk (binary index) | 354 MB | **183 MB** |
+| ARM64 / Raspberry Pi | **Yes** | No |
 
-On SciFact that is 286 ms to 5.7 ms. On TREC-COVID that is 7,892 ms to 99 ms. At this released speed Luxir is about 16× faster on SciFact and about 80× faster on TREC-COVID.
-
-### In v0.13.0
-
-Stemming plus a coordination floor of 1.0 is in v0.13.0. It is the default for new indexes; existing indexes keep their recorded mode until reindexed (`lume index -f`). nDCG@10:
-
-| | SciFact | TREC-COVID | NFCorpus (held out) |
-|---|---:|---:|---:|
-| Lume before | 0.645 | 0.561 | 0.296 |
-| Lume after | 0.677 | 0.632 | 0.314 |
-| Luxir BM25 | 0.679 | 0.605 | 0.321 |
-
-NFCorpus (3.6k documents, 323 queries) was not used to choose the change. Luxir is still ahead there (0.321 vs 0.314). On the sets that were tuned, Lume is ahead on TREC-COVID (0.632 vs 0.605) and close on SciFact (0.677 vs 0.679).
-
-### Hybrid search
-
-Local-vector hybrid search is in v0.13.0 and documented in [docs/HYBRID.md](docs/HYBRID.md). Both engines use the same EmbeddingGemma 2 vectors, 768 dimensions. Lume loads that cache and makes no Shivvr calls. nDCG@10:
-
-| | SciFact | NFCorpus (held out) |
-|---|---:|---:|
-| Lume normalized-v2, alpha 2.0, depth 100 | 0.853 | 0.373 |
-| Luxir hybrid, RRF | 0.779 | 0.370 |
-
-Alpha 2.0 was chosen on SciFact. There Lume leads by 0.074. Dense-only on those same vectors scores 0.845, and this is the SciFact blend that beats dense-only. NFCorpus was not used to choose alpha. Held out, it is a tie (0.373 vs 0.370). Recall@100 and MRR@10 stay within 0.001 to 0.003: Lume 0.343 and 0.576, Luxir 0.344 and 0.577.
-
-### Facets and index build
-
-Typed metadata, filters, and facets are in v0.13.0 and documented in [docs/FACETS.md](docs/FACETS.md). TREC-COVID p50 on the facets build is 6.27 ms, measured after facet work stopped running on queries that do not ask for facets.
-
-In v0.13.0 the TREC-COVID index build drops from 90.4 s to 56.0 s with one BM25 build and flush instead of four. Peak RSS on that pair of runs drops from 2.70 GB to 2.43 GB.
-
-With byte-identical rankings, v0.13.0 hot-server speed on the default profile is TREC-COVID p50 111.6 ms to 6.27 ms, p99 231.0 ms to 11.77 ms, and 60 to 609 QPS. SciFact p50 is 9.05 ms to 2.19 ms. The starting points are the resident 0.12.x path in the v0.13.0 release notes, not the v0.12.3 table above.
-
-### Vector inversion
-
-GTR-T5 vectors can be inverted back to text through Shivvr's `/invert` (about 0.88 self-similarity round-trip). The steered generator uses this to hill-climb toward a target.
+Method, every dataset, the Pi 5 numbers and the Lume TI results are in [Benchmarks](docs/BENCHMARKS.md).
 
 ## Development
 
 ```bash
 cargo build                    # default build: 4 runtime dependencies
-cargo test                     # 46 tests
+cargo test
 cargo build --features ti      # include the Lume TI crates (DataFusion; slow cold build)
 cargo test --features ti       # root tests including the TI CLI, MCP and HTTP surfaces
 cargo test -p ti-sql           # any TI crate: ti-contracts, ti-core, ti-store, ti-ingest, ti-sql, ti-geo, ti-bench
 ```
 
-TI crates are held to `cargo clippy -p <crate> --all-targets -- -D warnings` and `cargo fmt -p <crate> --check`. Contributor workflow, test data and conventions are in [`plan/SETUP.md`](plan/SETUP.md).
+TI crates are held to `cargo clippy -p <crate> --all-targets -- -D warnings` and `cargo fmt -p <crate> --check`.
 
 ### Repository layout
 
@@ -516,8 +455,7 @@ TI crates are held to `cargo clippy -p <crate> --all-targets -- -D warnings` and
 | `lib/lume_extractor.py` | PDF text extraction and Q&A dataset generation |
 | `viz/` | Live 3D visualizer for search dynamics |
 | `tests/` | Golden search outputs and the TI SQL golden corpus |
-| `plan/` | Lume TI spec, lanes, design notes and status |
-| `docs/` | Sample corpora and blog posts |
+| `docs/` | HaLOS install guide, benchmarks, sample books |
 
 ### Python extractor
 
@@ -530,7 +468,6 @@ python lib/lume_extractor.py qna my_doc.txt output_qna.json --model gemma4:31b-c
 
 - Lume TI: a column-mapped reader for any time-series Parquet, fleet sync to shore, and Pi 5 benchmarks.
 - Specs from documents: extract operating limits from manuals and datasheets in the document index and monitor telemetry against them.
-- [`lume sql`](docs/SQL.md): the same DataFusion engine over any ordinary Lume index (`sections`, `entities`, `entity_edges`). Examples are in [docs/SQL-EXAMPLES.md](docs/SQL-EXAMPLES.md).
 - On-the-fly fine-tuning of open embedding models, so the semantic space adapts to your corpus.
 
 ## License
