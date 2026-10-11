@@ -24,5 +24,4 @@ EPUB or TI engine code. Generated text does not represent complex font encodings
 multi-column books or image/OCR fidelity. Container-relative CPU comparisons do
 not establish Pi absolute times or an aarch64 build.
 
-Results are recorded in [results.json](results.json) and the
-[D43 record](../../plan/decisions/D43-library-extraction.md).
+Results are recorded in [results.json](results.json).

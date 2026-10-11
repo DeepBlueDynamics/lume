@@ -2,16 +2,16 @@
 
 This is the install guide for a boat computer. HaLOS comes first. A plain 64-bit Linux Signal K server is in [section 9](#9-install-on-other-64-bit-linux-signal-k-servers).
 
-The current release used below is **v0.13.0**. For a later release, change `0.13.0` in the download and install lines. The HaLOS package file always ends in `-1_arm64.deb`. Sentences that still name v0.12.2 are the version those checks used. v0.13.0 has not been install-tested on a Pi or on the stock server.
+The current release used below is **v0.15.1**. For a later release, change `0.15.1` in the download and install lines. The HaLOS package file always ends in `-1_arm64.deb`.
 
-Only arm64 HaLOS and x86_64 stock Signal K are tested. The stock test was `signalk/signalk-server:latest`, Signal K 2.33.0, on x86_64 with glibc 2.39, using v0.12.2.
+Supported targets are arm64 HaLOS and x86_64 stock Signal K (`signalk/signalk-server`).
 
 ## 1. What you get
 
 The `marine-lume` package adds Lume TI to the Signal K server that is already on the boat. After it is installed you get:
 
 - A history of Signal K data on the Pi, kept in 10-second buckets.
-- A SQL console, an Ask tab, a Library tab, and a status page, under **Webapps → Lume TI**. The SQL the console runs is in [Querying Lume with SQL](SQL.md).
+- A SQL console, an Ask tab, a Library tab, and a status page, under **Webapps → Lume TI**.
 - A Signal K History API provider named `signalk-lume-ti`, so other apps such as Freeboard can read that history. Signal K uses one default history provider. If another provider is already the default, clients must pass `provider=signalk-lume-ti`, or an admin makes Lume the default history provider in Signal K. Installing the plugin does not change that default.
 - Lume's own health numbers, in a separate table called `telemetry_lume`. Those numbers are about Lume, not about the boat. The table appears only after the first data has been recorded.
 
@@ -28,7 +28,7 @@ Do this from the directory where the two downloaded files are, after you copy th
 On a computer that has the GitHub `gh` command:
 
 ```sh
-VERSION=0.13.0
+VERSION=0.15.1
 gh release download "v${VERSION}" -R DeepBlueDynamics/lume \
   -p 'marine-lume_*_arm64.deb' -p SHA256SUMS
 scp "marine-lume_${VERSION}-1_arm64.deb" SHA256SUMS pi@halos.local:
@@ -36,12 +36,12 @@ scp "marine-lume_${VERSION}-1_arm64.deb" SHA256SUMS pi@halos.local:
 
 `pi@halos.local` is the example login used in this repo. Use your own Pi login if it is different. If `gh` is already on the Pi, run the `gh release download` line there and skip `scp`.
 
-Or, in a browser, open the [v0.13.0 release](https://github.com/DeepBlueDynamics/lume/releases/tag/v0.13.0) and download both `marine-lume_0.13.0-1_arm64.deb` (22,576,686 bytes) and `SHA256SUMS`. Copy those two files to the Pi with `scp`.
+Or, in a browser, open the [v0.15.1 release](https://github.com/DeepBlueDynamics/lume/releases/tag/v0.15.1) and download both `marine-lume_0.15.1-1_arm64.deb` (22,806,288 bytes) and `SHA256SUMS`. Copy those two files to the Pi with `scp`.
 
 On the Pi, check the file, then install it:
 
 ```sh
-VERSION=0.13.0
+VERSION=0.15.1
 grep "marine-lume_${VERSION}-1_arm64.deb$" SHA256SUMS | sha256sum -c -
 sudo apt install "./marine-lume_${VERSION}-1_arm64.deb"
 ```
@@ -78,7 +78,7 @@ On the Pi:
 dpkg -s marine-lume
 ```
 
-The version line should say `0.13.0-1`.
+The version line should say `0.15.1-1`.
 
 In Signal K admin, the Lume TI plugin status should start with `Running` and show a process id, lag, how much has been ingested, and disk use. After you approve access and the boat is sending data, `Ingested` rises above 0. If Lume is in its own container instead, the line says `External server (marine-lume-container) answering on 127.0.0.1:5863`.
 
@@ -97,7 +97,7 @@ curl -s -m 5 -X POST http://127.0.0.1:5863/ti/query \
   -d '{"sql":"SELECT max(ts) AS latest_ts FROM telemetry_lume"}'
 ```
 
-A JSON reply means the query service is up. That table is Lume's own counters. It is registered only after the first data has been recorded. Before that, the query says the table was not found, which is normal right after install. For boat data, open **Webapps → Lume TI**, then the SQL console, and press **Recent SOG & Wind**. The statements are in [Querying Lume with SQL](SQL.md) and [SQL examples](SQL-EXAMPLES.md).
+A JSON reply means the query service is up. That table is Lume's own counters. It is registered only after the first data has been recorded. Before that, the query says the table was not found, which is normal right after install. For boat data, open **Webapps → Lume TI**, then the SQL console, and press **Recent SOG & Wind**.
 
 ## 4. Ask tab
 
@@ -124,7 +124,7 @@ To use a model on the boat or on a computer on the boat network instead, set **C
 `marine-lume-container` runs Lume in a separate app so it has its own memory limit. The image is **not** published to a registry. You build it on a computer that has Docker, from a Lume release. Details and the memory numbers are in [the container README](../deploy/halos/marine-lume-container/README.md).
 
 ```sh
-scripts/build-lume-container.sh v0.13.0 --pi pi@halos.local
+scripts/build-lume-container.sh v0.15.1 --pi pi@halos.local
 ```
 
 Installing that app switches **Query Server Mode** to `external` and restarts Signal K. The plugin still owns the Ask tab and the Library. History stays in the same place.
@@ -151,7 +151,7 @@ Upgrade with the newer package, the same way as the first install: check `SHA256
 sudo apt install ./marine-lume_NEWER-1_arm64.deb
 ```
 
-Replace `NEWER` with the new version, for example `0.13.1`. That number is only an example of a later release. An upgrade restarts Signal K. It keeps the history store and the settings you already saved, including the Ask key file path.
+Replace `NEWER` with the new version, for example `0.15.2`. That number is only an example of a later release. An upgrade restarts Signal K. It keeps the history store and the settings you already saved, including the Ask key file path.
 
 To remove the plugin and keep the history:
 
@@ -191,18 +191,18 @@ If it reports no key file, run the same command without `--check`. A local model
 
 ## 9. Install on other 64-bit Linux Signal K servers
 
-This is the shorter path for a Signal K server that is not the HaLOS package. It was tested on `signalk/signalk-server:latest` (Signal K 2.33.0, x86_64, glibc 2.39) with the v0.12.2 plugin. Only that stock server, and arm64 HaLOS, are tested.
+This is the shorter path for a Signal K server that is not the HaLOS package.
 
-You need 64-bit Linux, x86_64 or arm64, with glibc 2.35 or newer. In the v0.12.2 plugin tarball, `bin/manifest.json` records `glibc_max` `2.35` for both binaries. The packager refuses anything above 2.39. Signal K must be 2.31 or newer, and Node.js must be 18 or newer. The tested server already had Node.
+You need 64-bit Linux, x86_64 or arm64, with glibc 2.35 or newer. In the plugin tarball, `bin/manifest.json` records `glibc_max` `2.35` for both binaries. The packager refuses anything above 2.39. Signal K must be 2.31 or newer, and Node.js must be 18 or newer. The tested server already had Node.
 
 Not supported: 32-bit Raspberry Pi OS, Victron Venus OS (armv7), macOS, and Windows. The plugin package is Linux arm64 and x64 only. Lume's own command-line downloads for other systems are a different install, on the main README.
 
-The v0.13.0 file `signalk-lume-ti-0.13.0.tgz` is 70,877,263 bytes, about 71 MB, because it bundles both the arm64 and the x64 programs. The v0.12.2 tarball used in the test unpacked to 191,819,263 bytes, about 183 MiB, and that install was about 184 MB.
+The v0.15.1 file `signalk-lume-ti-0.15.1.tgz` is 71,510,973 bytes, about 72 MB, because it bundles both the arm64 and the x64 programs.
 
 On a computer that has `gh`:
 
 ```sh
-VERSION=0.13.0
+VERSION=0.15.1
 gh release download "v${VERSION}" -R DeepBlueDynamics/lume \
   -p "signalk-lume-ti-${VERSION}.tgz" -p SHA256SUMS
 grep "signalk-lume-ti-${VERSION}.tgz$" SHA256SUMS | sha256sum -c -
@@ -214,10 +214,10 @@ Open a shell as the user Signal K runs as, in that user's `~/.signalk`. In the o
 
 ```sh
 cd ~/.signalk
-npm install "/path/signalk-lume-ti-0.13.0.tgz"
+npm install "/path/signalk-lume-ti-0.15.1.tgz"
 ```
 
-Use the real path of the file you checked. On the v0.12.2 test server this finished in about 5 seconds. npm records a `file:` dependency in `~/.signalk/package.json`, so a later install looks for that same `.tgz`.
+Use the real path of the file you checked. npm records a `file:` dependency in `~/.signalk/package.json`, so a later install looks for that same `.tgz`.
 
 Restart Signal K the way you usually restart it. Then enable **Lume TI** in **Server → Plugin Config**. This path does not enable the plugin for you. The HaLOS package does.
 
