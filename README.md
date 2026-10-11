@@ -26,9 +26,10 @@ Lume keeps documents and time-series telemetry in one store, searchable and
 queryable together, in one fast Rust binary. Documents get BM25, dense
 semantic embeddings, and a knowledge graph computed from the index itself.
 Telemetry gets a bitmap-indexed SQL engine that reads Signal K out of the
-box. One query crosses both. Search, the knowledge graph and the telemetry
-SQL run on the boat's Raspberry Pi with no internet connection — because
-that's where boats are.
+box. One query crosses both. All of it runs on one small computer with no
+internet connection, because that's where boats are. That's exactly what
+any sovereign AI builder needs: your data, your models and your answers
+stay on hardware you control, with nothing phoning home.
 
 An open source project from [DeepBlue Dynamics](https://github.com/deepbluedynamics/),
 which builds open source agentic tooling for the marine electronics market.
@@ -49,41 +50,41 @@ The default build has **four runtime dependencies** (`tantivy-fst`, `ureq`, `ser
 - **Postgres wire & Grafana:** native read-only pgwire protocol (`--pg`) with SCRAM-SHA-256 for psql and Grafana, with prebuilt dashboards for agent telemetry.
 - **Measured quality:** `lume eval` reports Hit@k, MRR and nDCG@k against Q&A files, without hand labels.
 
-## Install
+## Quick start
 
-**Install on HaLOS:** on the boat's Pi, install the `marine-lume` package. A plain 64-bit Linux Signal K server uses the plugin tarball instead. Both are in [Install Lume on HaLOS](docs/HALOS.md).
-
-Prebuilt binaries (with Lume TI) for Linux x64/arm64, macOS Intel/Apple Silicon and Windows x64 are on [GitHub Releases](https://github.com/DeepBlueDynamics/lume/releases), each with `SHA256SUMS`.
+Install the binary. Prebuilt releases cover Linux x64/arm64, macOS (Intel and Apple Silicon) and Windows x64.
 
 ```bash
-# Linux / macOS: installs to ~/.local/bin (set LUME_INSTALL_DIR to change, LUME_VERSION to pin)
+# Linux / macOS (installs to ~/.local/bin)
 curl -fsSL https://github.com/DeepBlueDynamics/lume/releases/latest/download/install.sh | sh
 ```
 
 ```powershell
-# Windows: installs to %LOCALAPPDATA%\Programs\lume and adds it to your user PATH
+# Windows (installs to %LOCALAPPDATA%\Programs\lume and adds it to PATH)
 irm https://github.com/DeepBlueDynamics/lume/releases/latest/download/install.ps1 | iex
 ```
 
-The Signal K plugin tarball (`signalk-lume-ti-<version>.tgz`, bundling the Linux arm64 and x64 binaries) is attached to the same release. Maintainers cut a release from **Actions → Bump version and release** (patch, minor, major or an explicit version). It updates `Cargo.toml`, `Cargo.lock` and the plugin's `package.json`, tags `vX.Y.Z`, and builds everything.
-
-## Quick start
-
-**Requirements:** Rust stable. Optional: [Ollama](https://ollama.com/) for entity extraction, agents and summaries; a [Shivvr](#semantic-search) endpoint for dense embeddings; Python 3.10+ with `requests` and `pypdf` for PDF extraction.
+Grab a book, index it and search it:
 
 ```bash
-git clone https://github.com/DeepBlueDynamics/lume.git
-cd lume
-cargo build --release          # binary at target/release/lume
+mkdir books && cd books
+curl -fsSLO https://raw.githubusercontent.com/DeepBlueDynamics/lume/main/docs/monte_cristo/book.md
+cd ..
 
-# Index a folder of text, markdown, code or PDFs
-./target/release/lume index docs/monte_cristo
-
-# Search it
-./target/release/lume search "Edmond Dantès prison escape"
+lume index books
+lume search "Edmond Dantès prison escape"
 ```
 
-The index is written to `.lume-index/` by default. Use `--db <dir>` to keep several indexes side by side.
+Or ask it questions in SQL:
+
+```bash
+lume sql repl --db .lume-index
+```
+```sql
+sql> SELECT title, score FROM sections WHERE match(body, 'dantes escape') ORDER BY score DESC LIMIT 3;
+```
+
+That's it. Point `lume index` at any folder of text, Markdown, code or PDFs. The index goes to `.lume-index/`; use `--db <dir>` to keep several side by side.
 
 ## Ollama setup
 
@@ -265,6 +266,12 @@ graph LR
     M --> R[Hits]
     R --> A[agent · summarize · answer · MCP]
 ```
+
+## Build from source
+
+Needs Rust stable. `cargo build --release` puts the binary at `target/release/lume`; add `--features ti` for the telemetry engine and `lume sql`. Optional: [Ollama](https://ollama.com/) for entity extraction, agents and summaries; a [Shivvr](#semantic-search) endpoint for dense embeddings; Python 3.10+ with `requests` and `pypdf` for PDF extraction.
+
+Maintainers cut a release from **Actions → Bump version and release**.
 
 ## CLI reference
 
