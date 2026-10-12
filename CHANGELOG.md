@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.15.4 — 2026-10-12
+
+**Lume is one small Rust binary that keeps your documents and your time-series telemetry in the same store.** Search the words, query the numbers with SQL, and give agents all of it as MCP tools, on hardware you own.
+
+**Why 0.15.4 matters:** `lume serve` finally keeps quiet. MCP clients expect a server's output streams to stay clean, and Lume was chattering through every search. Agents that wire Lume in through a stdio shim, like nemesis8 does, now see nothing but answers.
+
+### `lume serve` speaks only MCP (#47)
+
+Every `lume_search` call used to spill the search engine's inner monologue onto stderr: how many candidates it pruned, how many it ranked, and a tally of rejections down to `ScoreBelowThreshold: 0`. Add a startup banner on stdout and status chatter from hybrid search, and an MCP client had a lot of noise to wade through.
+
+- **Silent by default.** `lume serve` writes nothing to stdout or stderr while it runs. Results travel over MCP, where they belong.
+- **Chatty on request.** Set `LUME_DEBUG=1` to get the banner and the full diagnostics back when you're debugging.
+- **Tools still talk.** `lume_index` and `lume_generate` still return their full output as the tool result.
+- **The CLI is unchanged.** `lume search` on the command line keeps its diagnostics.
+
+### Under the hood
+
+- A new test starts `lume serve`, runs MCP initialize, tools/list and two searches, and checks that both output streams stay empty.
+
+Coming from further back? [v0.15.3](https://github.com/DeepBlueDynamics/lume/releases/tag/v0.15.3) made indexing respect `.gitignore` and kept Lume TI steady under bursty telemetry.
+
 ## 0.15.3 — 2026-10-12
 
 Lume stops reading your junk drawer, and Lume TI stops tripping over its own feet. Indexing now honours `.gitignore`, and `lume serve --ti-store --otlp` no longer bricks itself when an agent sends telemetry in bursts. Grab it with the install one-liner, or `LUME_VERSION=v0.15.3` if you pin.
