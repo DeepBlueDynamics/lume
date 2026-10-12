@@ -1107,6 +1107,9 @@ FLAGS:
   --embed-query-texts TSV  id<TAB>query text for --embed-queries
   -o, --ollama-entities    Enable AI entity extraction via local Gemma on Ollama
   -f, --force              Force re-indexing of all files (ignoring modification times)
+  --no-gitignore           Do not apply the index root's .gitignore (.lumeignore still applies)
+                           Skipped by default: ._* and .DS_Store files and node_modules/;
+                           .gitignore then .lumeignore at the root add rules (globs, !negation)
 
 OPTIONS:
   --db <PATH>            Path to store the persisted index metadata [default: .lume-index]
@@ -1206,6 +1209,7 @@ fn handle_index_init(args: &[String]) -> Result<(), String> {
     let mut ollama_model = String::from("gpt-4o-mini:latest");
     let mut ollama_url = String::from("http://localhost:11434");
     let mut force = false;
+    let mut use_gitignore = true;
     let mut dir_to_index: Option<String> = None;
     let mut chunk_range: Option<(usize, usize)> = None;
 
@@ -1234,6 +1238,9 @@ fn handle_index_init(args: &[String]) -> Result<(), String> {
             idx += 1;
         } else if arg == "-f" || arg == "--force" {
             force = true;
+            idx += 1;
+        } else if arg == "--no-gitignore" {
+            use_gitignore = false;
             idx += 1;
         } else if arg == "--db" && idx + 1 < args.len() {
             db_dir = args[idx + 1].clone();
@@ -1304,6 +1311,7 @@ fn handle_index_init(args: &[String]) -> Result<(), String> {
         cached_files,
         chunk_range,
         &embed_imports,
+        use_gitignore,
     )?;
 
     Ok(())
@@ -1373,6 +1381,7 @@ fn handle_index_update(args: &[String]) -> Result<(), String> {
 
     let mut db_dir = String::from(".lume-index");
     let mut force = false;
+    let mut use_gitignore = true;
 
     let mut chunk_range: Option<(usize, usize)> = None;
 
@@ -1381,6 +1390,9 @@ fn handle_index_update(args: &[String]) -> Result<(), String> {
         let arg = &args[idx];
         if arg == "-f" || arg == "--force" {
             force = true;
+            idx += 1;
+        } else if arg == "--no-gitignore" {
+            use_gitignore = false;
             idx += 1;
         } else if arg == "--db" && idx + 1 < args.len() {
             db_dir = args[idx + 1].clone();
@@ -1432,42 +1444,17 @@ fn handle_index_update(args: &[String]) -> Result<(), String> {
         state.cached_files,
         chunk_range,
         &lume::local_vectors::ImportPaths::default(),
+        use_gitignore,
     )?;
 
     Ok(())
-}
-
-/// Reads `.lumeignore` from the target directory root: one entry per line,
-/// either a bare name (matches any dir/file with that name) or a path
-/// relative to the target root. `#` lines and blanks are skipped.
-fn load_lumeignore(root: &Path) -> Vec<String> {
-    let Ok(content) = fs::read_to_string(root.join(".lumeignore")) else {
-        return Vec::new();
-    };
-    content
-        .lines()
-        .map(|l| l.trim().trim_end_matches('/').replace('\\', "/"))
-        .filter(|l| !l.is_empty() && !l.starts_with('#'))
-        .collect()
-}
-
-fn is_ignored(path: &Path, root: &Path, ignores: &[String]) -> bool {
-    if ignores.is_empty() {
-        return false;
-    }
-    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    let rel = path
-        .strip_prefix(root)
-        .map(|p| p.to_string_lossy().replace('\\', "/"))
-        .unwrap_or_default();
-    ignores.iter().any(|pat| name == pat || rel == *pat)
 }
 
 fn scan_directory(
     dir: &Path,
     root: &Path,
     db_dir: &Path,
-    ignores: &[String],
+    ignores: &lume::index_ignore::IgnoreRules,
     files: &mut Vec<PathBuf>,
 ) -> io::Result<()> {
     if !dir.is_dir() {
@@ -1486,12 +1473,12 @@ fn scan_directory(
             {
                 continue;
             }
-            if is_ignored(&path, root, ignores) {
+            if ignores.is_ignored(&path, root, true) {
                 continue;
             }
             scan_directory(&path, root, db_dir, ignores, files)?;
         } else if path.is_file() {
-            if is_ignored(&path, root, ignores) {
+            if ignores.is_ignored(&path, root, false) {
                 continue;
             }
             if let Some(file_name) = path.file_name().and_then(|f| f.to_str()) {
@@ -2054,6 +2041,7 @@ fn run_indexing(
     mut cached_files: HashMap<String, (u64, Vec<Section>)>,
     chunk_range: Option<(usize, usize)>,
     embed_imports: &lume::local_vectors::ImportPaths,
+    use_gitignore: bool,
 ) -> Result<(), String> {
     let _timing = lume::index_timing::Span::new("index.total");
     let total_start = Instant::now();
@@ -2089,14 +2077,14 @@ fn run_indexing(
     }
 
     let scan_start = Instant::now();
-    let ignores = load_lumeignore(target_path);
-    if !ignores.is_empty() {
-        println!(
-            "[🚫] .lumeignore active ({} patterns): {}",
-            ignores.len(),
-            ignores.join(", ")
-        );
-    }
+    let ignores = lume::index_ignore::IgnoreRules::load(target_path, use_gitignore);
+    let sources: Vec<String> = ignores
+        .sources
+        .iter()
+        .filter(|(_, count)| *count > 0)
+        .map(|(source, count)| format!("{source} {count}"))
+        .collect();
+    println!("[🚫] Ignore rules: {}", sources.join(", "));
     let mut files = Vec::new();
     {
         let _walk_timing = lume::index_timing::Span::new("index.walk");
