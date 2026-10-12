@@ -159,6 +159,14 @@ build_marine_lume() {
     find "${dest_plugin_dir}" -type f -exec chmod 644 {} +
     chmod 755 "${dest_plugin_dir}/bin/linux-arm64/lume"
 
+    # 4b. App icon and AppStream metadata: the HaLOS app list shows the package
+    # with its icon only when these exist (the same layout container apps get).
+    mkdir -p "${stage_dir}/usr/share/pixmaps" "${stage_dir}/usr/share/metainfo"
+    install -m 644 "${pkg_dir}/icon.svg" "${stage_dir}/usr/share/pixmaps/marine-lume.svg"
+    sed -e "s/@VERSION@/${deb_version}/" -e "s/@DATE@/$(date -u +%Y-%m-%d)/" \
+        "${pkg_dir}/marine-lume.metainfo.xml" > "${stage_dir}/usr/share/metainfo/marine-lume.metainfo.xml"
+    chmod 644 "${stage_dir}/usr/share/metainfo/marine-lume.metainfo.xml"
+
     # 5. Build debian package
     local out_deb="${DIST_DIR}/${deb_filename}"
     rm -f "$out_deb"

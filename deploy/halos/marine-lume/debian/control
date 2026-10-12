@@ -5,6 +5,7 @@ Priority: optional
 Architecture: arm64
 Maintainer: DeepBlue Dynamics <kord@deepbluedynamics.com>
 Depends: marine-signalk-server-container
+Tag: role::plugin, field::marine, interface::daemon, x-display-name::Lume TI
 Description: Records Signal K history on the Pi and lets you query it with SQL or plain-English questions.
  Records Signal K history on the Pi and lets you query it with SQL or
  plain-English questions. It integrates directly with the HaLOS Marine
