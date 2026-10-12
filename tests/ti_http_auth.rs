@@ -37,10 +37,11 @@ impl Server {
         let mut command = Command::new(env!("CARGO_BIN_EXE_lume"));
         match mode {
             "plain" => {
-                command.arg("serve");
+                command.env("LUME_DEBUG", "1").arg("serve");
             }
             "ti" => {
                 command
+                    .env("LUME_DEBUG", "1")
                     .args(["serve", "--ti-store"])
                     .arg(&store_root)
                     .arg("--otlp");

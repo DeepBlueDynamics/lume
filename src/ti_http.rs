@@ -151,7 +151,7 @@ impl TiServer {
         let control = match self.engine.read().unwrap().query_cache_control() {
             Ok(control) => control,
             Err(error) => {
-                eprintln!("TI cache warm-up could not start: {error}");
+                crate::note!("TI cache warm-up could not start: {error}");
                 return;
             }
         };
@@ -159,15 +159,15 @@ impl TiServer {
         // The worker owns only the cache control and path, never the engine/query gate.
         if let Err(error) = std::thread::Builder::new().name("ti-cache-warm".into()).spawn(move || {
             match control.warm(&root, limits.warm_budget_bytes, &limits.warm_fields) {
-                Ok(report) => eprintln!(
+                Ok(report) => crate::note!(
                     "TI cache warm-up: {} shards, {} fields, {} bytes in {:.1} ms (budget {} bytes, stopped_at_budget={})",
                     report.shards, report.fields, report.bytes, report.elapsed_ms,
                     report.budget_bytes, report.stopped_at_budget
                 ),
-                Err(error) => eprintln!("TI cache warm-up failed: {error}"),
+                Err(error) => crate::note!("TI cache warm-up failed: {error}"),
             }
         }) {
-            eprintln!("TI cache warm-up could not start: {error}");
+            crate::note!("TI cache warm-up could not start: {error}");
         }
     }
 
@@ -236,7 +236,7 @@ impl TiServer {
                 }
             }
             Err(error) => {
-                eprintln!("Library index reload failed; retaining previous snapshot: {error}");
+                crate::note!("Library index reload failed; retaining previous snapshot: {error}");
                 if let Ok(mut index) = self.docs_index.as_ref().unwrap().lock() {
                     // Retry when a subsequent publication changes the marker.
                     index.acknowledge();
@@ -530,7 +530,7 @@ impl TiServer {
                     return Ok(Reply::error(400, &error))
                 }
                 Err(error) => {
-                    eprintln!("OTLP ingest failed: {error}");
+                    crate::note!("OTLP ingest failed: {error}");
                     return Ok(Reply::error(
                         503,
                         "OTLP persistence failed; retry the batch",

@@ -1192,7 +1192,7 @@ impl Bm25Index {
             params,
             tagger,
             SearchRun {
-                verbose: true,
+                verbose: !crate::console::quiet(),
                 limit: None,
                 allow: None,
             },
@@ -1561,7 +1561,7 @@ impl Bm25Index {
             params,
             tagger,
             SearchRun {
-                verbose: true,
+                verbose: !crate::console::quiet(),
                 limit: Some(limit),
                 allow,
             },

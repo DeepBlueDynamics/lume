@@ -96,6 +96,7 @@ fn ten_seconds_baseline_and_load_against_real_ti_and_fake_signalk() {
     )
     .unwrap();
     let mut child = Command::new(env!("CARGO_BIN_EXE_lume"))
+        .env("LUME_DEBUG", "1")
         .args(["serve", "--port", "0", "--ti-store"])
         .arg(&store_root)
         .stdout(Stdio::piped())

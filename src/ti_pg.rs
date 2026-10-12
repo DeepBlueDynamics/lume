@@ -1448,7 +1448,7 @@ pub fn start_with_options(
             drop(keep_handler);
         })
         .map_err(|e| e.to_string())?;
-    println!("Lume Postgres server listening on {address}");
+    crate::say!("Lume Postgres server listening on {address}");
     Ok(Listener {
         address,
         stop: Some(stop),

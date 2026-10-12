@@ -227,6 +227,7 @@ impl Server {
         std::fs::write(config_path, config).unwrap();
         let mut command = Command::new(env!("CARGO_BIN_EXE_lume"));
         command
+            .env("LUME_DEBUG", "1")
             .args(["serve", "--port", "0", "--ti-store"])
             .arg(&store_root);
         if docs {

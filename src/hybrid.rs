@@ -603,7 +603,7 @@ fn ingest_tasks_concurrent(
     let auth_header = format!("Bearer {}", token);
     let start = Instant::now();
     let total_tasks = tasks.len();
-    eprintln!(
+    crate::note!(
         "[🌐] Prepared {} sub-chunks for concurrent ingestion...",
         total_tasks
     );
@@ -667,7 +667,7 @@ fn ingest_tasks_concurrent(
                             if total_lock.is_multiple_of(100) || current_idx == total_tasks - 1 {
                                 let elapsed = start.elapsed().as_secs_f64();
                                 let rate = if elapsed > 0.0 { *total_lock as f64 / elapsed } else { 0.0 };
-                                eprintln!(
+                                crate::note!(
                                     "\x1B[36m  [📤] Progress: {}/{} tasks │ {} total chunks │ {:.0}s ({:.1}/s)\x1B[0m",
                                     current_idx + 1, total_tasks, *total_lock, elapsed, rate
                                 );
@@ -747,7 +747,7 @@ fn initialize_and_ingest_session_with_dir_at(
     let total = sections.len();
     let start = Instant::now();
 
-    eprintln!(
+    crate::note!(
         "\x1B[1;36m[🌐] HATCHERIK semantic ingest → {} | session {} | {} sections\x1B[0m",
         base, sess, total
     );
@@ -764,7 +764,7 @@ fn initialize_and_ingest_session_with_dir_at(
         }
     };
 
-    eprintln!(
+    crate::note!(
         "\x1B[1;32m[✅] Semantic ingest complete: {} chunks from {} sections in {:.1}s → session {}\x1B[0m",
         chunks, total, start.elapsed().as_secs_f64(), sess
     );
@@ -855,7 +855,7 @@ fn ensure_semantic_session_with_dir_at(
                 .filter(|(h, _)| !ingested.contains(h.as_str()))
                 .collect();
 
-            eprintln!(
+            crate::note!(
                 "\x1B[1;36m[🌐] Incremental semantic ingest: {} of {} sections new/changed → session {}\x1B[0m",
                 missing.len(), sections.len(), cache.session_id
             );
@@ -1321,7 +1321,7 @@ pub fn execute_hybrid_search_with_local(
         if let Ok(query_vec) = embed_text_at(query, &token, &base) {
             if let Ok(inv) = crate::inversion::invert_vector_at(&query_vec, Some(48), &token, &base)
             {
-                println!(
+                crate::say!(
                     "[🔄] Query inverts to: \"{}\" (self-similarity {:.3})",
                     inv.text.trim(),
                     inv.similarity
@@ -1402,7 +1402,7 @@ pub fn execute_hybrid_search_with_local(
         })
     };
     if is_stale(&semantic_results) {
-        eprintln!("[⚠️] Semantic session is stale (chunk ids exceed corpus) — re-ingesting...");
+        crate::note!("[⚠️] Semantic session is stale (chunk ids exceed corpus) — re-ingesting...");
         delete_cached_session_with_dir(cache_dir);
         semantic_cache.queries.clear();
         let session_id = initialize_and_ingest_session_with_dir_at(
@@ -1644,31 +1644,31 @@ impl HybridSearchResult {
     }
 
     pub fn print_cli(&self) {
-        println!("\x1B[1;34m========================================================================\x1B[0m");
-        println!("\x1B[1;34m🔍  QUERY: \"{}\"\x1B[0m", self.query);
-        println!("\x1B[1;34m========================================================================\x1B[0m");
-        println!("\x1B[1;32mTIMINGS:\x1B[0m");
+        crate::say!("\x1B[1;34m========================================================================\x1B[0m");
+        crate::say!("\x1B[1;34m🔍  QUERY: \"{}\"\x1B[0m", self.query);
+        crate::say!("\x1B[1;34m========================================================================\x1B[0m");
+        crate::say!("\x1B[1;32mTIMINGS:\x1B[0m");
         if self.is_cached {
-            println!("  Remote Semantic Search (ONNX):  \x1B[1;32m[CACHED OFFLINE]\x1B[0m (returned {} docs)", self.semantic_results_count);
+            crate::say!("  Remote Semantic Search (ONNX):  \x1B[1;32m[CACHED OFFLINE]\x1B[0m (returned {} docs)", self.semantic_results_count);
         } else {
-            println!(
+            crate::say!(
                 "  Remote Semantic Search (ONNX):  \x1B[36m{:.2?}\x1B[0m (returned {} docs)",
                 self.sem_elapsed, self.semantic_results_count
             );
         }
-        println!(
+        crate::say!(
             "  Local Lexical BM25 Search:      \x1B[36m{:.2?}\x1B[0m (returned {} docs)",
             self.lex_elapsed, self.bm25_results_count
         );
-        println!(
+        crate::say!(
             "  HATCHERIK Semantic Boosting:     \x1B[36m{:.2?}\x1B[0m",
             self.blend_elapsed
         );
-        println!();
+        crate::say!();
 
-        println!("\x1B[1;4m1. PURE LEXICAL BM25 TOP MATCHES:\x1B[0m");
+        crate::say!("\x1B[1;4m1. PURE LEXICAL BM25 TOP MATCHES:\x1B[0m");
         if self.lexical_top_hits.is_empty() {
-            println!("  (No matches)");
+            crate::say!("  (No matches)");
         } else {
             for (r, hit) in self.lexical_top_hits.iter().enumerate() {
                 let title_to_show = if let Some(ref filename) = hit.filename {
@@ -1676,7 +1676,7 @@ impl HybridSearchResult {
                 } else {
                     hit.title.clone()
                 };
-                println!(
+                crate::say!(
                     "  [{}] Score: \x1B[35m{:.4}\x1B[0m | \x1B[1m{}\x1B[0m",
                     r + 1,
                     hit.score,
@@ -1684,14 +1684,14 @@ impl HybridSearchResult {
                 );
             }
         }
-        println!();
+        crate::say!();
 
-        println!("\x1B[1;4m2. PURE SEMANTIC (ONNX) TOP MATCHES:\x1B[0m");
+        crate::say!("\x1B[1;4m2. PURE SEMANTIC (ONNX) TOP MATCHES:\x1B[0m");
         if self.semantic_top_hits.is_empty() {
-            println!("  (No matches)");
+            crate::say!("  (No matches)");
         } else {
             for (r, res) in self.semantic_top_hits.iter().enumerate() {
-                println!(
+                crate::say!(
                     "  [{}] Sim: \x1B[35m{:.4}\x1B[0m | \x1B[1m{}\x1B[0m",
                     r + 1,
                     res.score,
@@ -1699,11 +1699,11 @@ impl HybridSearchResult {
                 );
             }
         }
-        println!();
+        crate::say!();
 
-        println!("\x1B[1;4;33m3. HATCHERIK SEMANTIC BOOSTED HYBRID TOP MATCHES:\x1B[0m");
+        crate::say!("\x1B[1;4;33m3. HATCHERIK SEMANTIC BOOSTED HYBRID TOP MATCHES:\x1B[0m");
         if self.hits.is_empty() {
-            println!("  (No matches)");
+            crate::say!("  (No matches)");
         } else {
             for hit in self.hits.iter().take(5) {
                 let boost_indicator = if hit.boosted {
@@ -1728,14 +1728,14 @@ impl HybridSearchResult {
                 } else {
                     hit.title.clone()
                 };
-                println!(
+                crate::say!(
                     "  [{}] Hybrid Score: \x1B[1;33m{:.4}\x1B[0m (BM25: {:.4}) | \x1B[1m{}\x1B[0m",
                     hit.rank, hit.hybrid_score, hit.bm25_score, title_to_show
                 );
-                println!("      └─ {}", boost_indicator);
+                crate::say!("      └─ {}", boost_indicator);
             }
         }
-        println!("\x1B[1;34m========================================================================\x1B[0m\n");
+        crate::say!("\x1B[1;34m========================================================================\x1B[0m\n");
     }
 }
 
