@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"
+     viewBox="0 0 1024 1024" fill="none" role="img"
+     aria-labelledby="lume-title lume-description">
+  <title id="lume-title">Lume</title>
+  <desc id="lume-description">Time and search in one. A luminous blue and aqua
+    clock inside a magnifying glass, with its handle at the upper left.
+    The clock reads 5:03 PM (17:03).</desc>
+  <defs>
+    <linearGradient id="lume-ring" x1="268" y1="887" x2="795" y2="247"
+                    gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0960FF"/>
+      <stop offset="0.40" stop-color="#10A8F2"/>
+      <stop offset="0.73" stop-color="#13DAEB"/>
+      <stop offset="1" stop-color="#4AFFDF"/>
+    </linearGradient>
+    <linearGradient id="lume-hands" x1="570" y1="418" x2="610" y2="675"
+                    gradientUnits="userSpaceOnUse">
+      <stop stop-color="#18FFF0"/>
+      <stop offset="1" stop-color="#09BFFF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- The handle joins the upper-left side of the lens. -->
+  <path d="M 348 348 L 211 211" stroke="url(#lume-ring)"
+        stroke-width="116" stroke-linecap="round"/>
+
+  <!-- Three arcs form the luminous bezel; no raster images or filters. -->
+  <g fill="url(#lume-ring)" stroke="url(#lume-ring)"
+     stroke-width="6" stroke-linejoin="round">
+    <path d="M 863.703 635.722 A 313 313 0 1 1 687.309 274.060 L 658.837 338.008 A 243 243 0 1 0 795.782 618.787 Z"/>
+    <path d="M 716.500 288.934 A 313 313 0 0 1 836.363 413.055 L 774.556 445.918 A 243 243 0 0 0 681.500 349.556 Z"/>
+    <path d="M 850.209 442.748 A 313 313 0 0 1 869.954 603.561 L 800.635 593.819 A 243 243 0 0 0 785.306 468.971 Z"/>
+  </g>
+
+  <!-- Cardinal hour markers. -->
+  <path d="M 560 362 V 392 M 728 560 H 758
+           M 560 728 V 758 M 362 560 H 392"
+        stroke="#3E70B6" stroke-width="24" stroke-linecap="round"/>
+
+  <!-- 17:03: minute hand 18 degrees; hour hand 151.5 degrees. -->
+  <path d="M 604.498 423.048 L 560 560 L 611.056 654.033"
+        stroke="url(#lume-hands)" stroke-width="36"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="560" cy="560" r="35" fill="url(#lume-hands)"/>
+</svg>

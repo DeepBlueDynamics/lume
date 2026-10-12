@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/lume-icon.svg" alt="Lume" width="128" height="128">
+
 # Lume
 
 **One store for the numbers and the words.**

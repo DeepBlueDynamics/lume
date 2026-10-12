@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="webapp">
+  <id>marine-lume</id>
+  <name>Lume TI</name>
+  <summary>Records Signal K history on the Pi and lets you query it with SQL or plain-English questions</summary>
+  <description>
+    <p>Lume TI records the boat's Signal K data on the Pi and keeps it next to your
+    manuals, logbook and alerts. Ask it questions in SQL or plain English from the
+    Lume TI web app: a SQL console, a document library and an Ask tab. It also serves
+    Signal K's History API and, optionally, Grafana over PostgreSQL.</p>
+  </description>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>BSD-3-Clause</project_license>
+  <url type="homepage">https://github.com/DeepBlueDynamics/lume</url>
+  <developer_name>DeepBlue Dynamics</developer_name>
+  <icon type="local">/usr/share/pixmaps/marine-lume.svg</icon>
+  <releases>
+    <release version="@VERSION@" date="@DATE@"/>
+  </releases>
+  <content_rating type="oars-1.1" />
+</component>
