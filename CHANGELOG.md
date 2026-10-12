@@ -2,10 +2,29 @@
 
 ## 0.15.3 — 2026-10-12
 
-Lume 0.15.3 is out.
+Lume stops reading your junk drawer, and Lume TI stops tripping over its own feet. Indexing now honours `.gitignore`, and `lume serve --ti-store --otlp` no longer bricks itself when an agent sends telemetry in bursts. Grab it with the install one-liner, or `LUME_VERSION=v0.15.3` if you pin.
 
-- **`lume index` skips what your repo already ignores.** It reads the folder's `.gitignore` by default (`--no-gitignore` turns that off). `.lumeignore` now takes gitignore-style patterns: `*`, `**`, `!` to re-include, and a trailing `/` for folders. macOS `._*` sidecar files, `.DS_Store` and `node_modules/` are always skipped, so indexing a real workspace is faster and the log stays quiet.
-- **Lume TI keeps running under bursty agent telemetry.** `lume serve --ti-store … --otlp` accepts several readings for one metric in the same 10-second bucket and keeps the bucket's latest complete value. Stores written by earlier versions that stopped `lume serve` from starting open again.
+## `lume index` respects your .gitignore (#43)
+
+Point Lume at a real workspace and it used to dutifully read build output, `node_modules`, and every macOS `._report.pdf` sidecar. On one research tree that meant ~21,000 fake PDFs, each failing and complaining on every single run. Not anymore:
+
+- **Your `.gitignore` is the default.** Whatever git ignores, Lume ignores. `--no-gitignore` if you really want the lot.
+- **`.lumeignore` grew up.** It now speaks gitignore: `*`, `**`, `!` to bring something back, a trailing `/` for folders. It's read after `.gitignore`, so it gets the last word. Old plain-name `.lumeignore` files keep working.
+- **Some things are never worth indexing.** `._*` sidecars, `.DS_Store` and `node_modules/` are skipped out of the box.
+
+## Lume TI keeps its cool under bursty telemetry (#44)
+
+nemesis8 streams each container's activity into Lume TI every few seconds, and two CPU readings would often land in the same 10-second bucket. Lume wrote both values for that bucket, the store rejected the pair, and by then the batch was already in the write-ahead log. Every restart after that replayed the bad batch and fell over with *"multiple distinct scalar values in a group"*.
+
+- **One bucket, one value.** Late readings now refresh the bucket's complete value, and only that lands in the store.
+- **Bad batches never hit the log.** Duplicates are collapsed before anything is written.
+- **Already-broken stores heal on open.** If an earlier version left a poisoned log behind, 0.15.3 replays it cleanly. No need to delete your history.
+
+## Under the hood
+
+- New regression tests cover the exact nemesis8 traffic, a duplicate-bucket commit and a pre-poisoned log, alongside glob, anchoring and precedence tests for the ignore rules.
+
+Coming from further back? [v0.15.2](https://github.com/DeepBlueDynamics/lume/releases/tag/v0.15.2) added full `lume ti --help` and fixed the Windows installer.
 
 ## 0.15.2 — 2026-10-11
 
