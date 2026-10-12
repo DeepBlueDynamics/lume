@@ -78,3 +78,42 @@ fn commit_otlp_syncs_one_magic_frame_and_replays_it() {
     assert_eq!(recovered.2.len(), 1);
     assert_eq!(recovered.2[0].1, vec![sample]);
 }
+
+fn value(v: i64) -> BucketRecord {
+    BucketRecord {
+        value: FieldValue::Int(v),
+        ..record()
+    }
+}
+
+#[test]
+fn commit_otlp_keeps_the_last_of_duplicate_scalar_records() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = setup(dir.path());
+    let counters = br#"{"version":1,"counters":[]}"#.to_vec();
+    store
+        .commit_otlp(&[value(2958), value(8043)], &[(0, counters)])
+        .unwrap();
+    drop(store);
+
+    let recovered = Wal::recover(&dir.path().join("wal").join("0.wal")).unwrap();
+    assert_eq!(recovered.2.len(), 1);
+    assert_eq!(recovered.2[0].1, vec![value(8043)]);
+    Store::open_or_create(dir.path(), 10).unwrap();
+}
+
+#[test]
+fn store_opens_when_the_wal_already_holds_duplicate_scalar_records() {
+    // v0.15.2 could sync this batch before the shard rejected it; every later
+    // open then failed with "multiple distinct scalar values in a group".
+    let dir = tempfile::tempdir().unwrap();
+    drop(setup(dir.path()));
+    {
+        let (mut wal, _) = Wal::open_or_create(&dir.path().join("wal"), 0, URN).unwrap();
+        wal.append(&[value(2958), value(8043)]).unwrap();
+        wal.sync().unwrap();
+    }
+    let mut store = Store::open_or_create(dir.path(), 10).unwrap();
+    // The recovered value is the later one: a rewrite with it applies cleanly.
+    ShardSink::apply(&mut store, &[value(8043)]).unwrap();
+}

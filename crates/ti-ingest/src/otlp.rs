@@ -3,7 +3,7 @@ use crate::{normalize::NormalizedValue, WatermarkBucketer};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
-    collections::{BTreeMap, HashMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
     path::{Path, PathBuf},
     sync::{Arc, Condvar, Mutex},
     thread,
@@ -998,6 +998,16 @@ struct CaptureSink {
 
 impl ShardSink for CaptureSink {
     fn apply(&mut self, recs: &[BucketRecord]) -> Result<()> {
+        // Every group flush closes all buckets, so a later point for the same bucket
+        // re-emits its complete retained snapshot as a rewrite. That snapshot supersedes
+        // anything this capture already holds for the field and bucket; keeping both
+        // would put two values for one scalar bucket in a single commit.
+        let incoming: BTreeSet<_> = recs
+            .iter()
+            .map(|rec| (rec.vessel, rec.bucket, rec.field))
+            .collect();
+        self.records
+            .retain(|rec| !incoming.contains(&(rec.vessel, rec.bucket, rec.field)));
         self.records.extend_from_slice(recs);
         Ok(())
     }
@@ -1992,5 +2002,42 @@ mod tests {
         let _ = std::fs::remove_file(root.path().join(STORE_DIR).join("otlp-counters.json"));
         let status = run_phase(name, "reopen", root.path());
         assert!(status.success(), "{status}");
+    }
+    #[test]
+    fn repeated_points_in_a_flushed_bucket_commit_one_record_per_field_and_reopen() {
+        // n8 posts ~3 s batches; a later batch's points land in a bucket the previous
+        // group flush already closed. v0.15.2 committed one record per late point and
+        // poisoned the WAL ("multiple distinct scalar values in a group").
+        let root = root();
+        let point = |ts: i64, value: f64| json!({"timeUnixNano": format!("{ts}000000000"), "asDouble": value});
+        let body = |points: Vec<serde_json::Value>| {
+            json!({"resourceMetrics":[{"resource":{"attributes":[{"key":"service.instance.id","value":{"stringValue":"n8-bold-finch"}}]},
+                "scopeMetrics":[{"metrics":[{"name":"cpu_pct","gauge":{"dataPoints":points}}]}]}]})
+            .to_string()
+        };
+        let start = 1_791_436_140;
+        {
+            let receiver = AgentStore::open(root.path()).unwrap();
+            receiver
+                .metrics(body(vec![point(start + 1, 1.0)]).as_bytes())
+                .unwrap();
+            receiver
+                .metrics(body(vec![point(start + 3, 2.9583), point(start + 9, 8.0431)]).as_bytes())
+                .unwrap();
+        }
+        let wal = root.path().join(STORE_DIR).join("wal").join("0.wal");
+        let (_, _, batches, _) = ti_store::Wal::recover(&wal).unwrap();
+        for (_, records) in &batches {
+            let keys: BTreeSet<_> = records
+                .iter()
+                .map(|r| (r.vessel, r.bucket, r.field))
+                .collect();
+            assert_eq!(
+                keys.len(),
+                records.len(),
+                "duplicate field/bucket in one WAL batch: {records:?}"
+            );
+        }
+        AgentStore::open(root.path()).unwrap();
     }
 }

@@ -17,9 +17,9 @@ use std::sync::{Arc, Mutex};
 
 use arrow_array::RecordBatch;
 use ti_contracts::{
-    AggOp, AggPartial, BucketIx, BucketRecord, Catalog, Error, FieldValue, Predicate, Result,
-    RoaringBitmap, ShardKey, ShardManifestEntry, ShardSink, ShardSource, TextIndex, VesselOrd,
-    EPOCH,
+    AggOp, AggPartial, BucketIx, BucketRecord, Catalog, Error, FieldKind, FieldSpec, FieldValue,
+    Predicate, Result, RoaringBitmap, ShardKey, ShardManifestEntry, ShardSink, ShardSource,
+    TextIndex, VesselOrd, EPOCH,
 };
 
 use crate::catalog::DiskCatalog;
@@ -210,6 +210,11 @@ impl Store {
 
             let legacy_groups = legacy_replay_groups(&replayed_batches, &open_shards);
             for (seq, batch) in replayed_batches {
+                // Batches written before duplicate scalars were collapsed at commit
+                // would otherwise fail to apply and keep the store from opening.
+                let batch = coalesce_scalar_records(&batch, |id| {
+                    catalog.field(id).is_ok_and(|spec| is_scalar_field(&spec))
+                });
                 let mut by_shard: BTreeMap<ShardKey, Vec<BucketRecord>> = BTreeMap::new();
                 for rec in batch {
                     let replay_key = ShardKey {
@@ -530,6 +535,14 @@ impl Store {
         } else {
             records
         };
+        // Collapse before the WAL append: a batch the shard would reject must never
+        // become durable, or every later open fails replaying it.
+        let coalesced = coalesce_scalar_records(recs, |id| {
+            self.catalog
+                .field(id)
+                .is_ok_and(|spec| is_scalar_field(&spec))
+        });
+        let recs = coalesced.as_slice();
         if !recs.is_empty() {
             ti_contracts::validate_clear_records(recs)?;
             for rec in recs {
@@ -709,6 +722,36 @@ impl Store {
 // coalesced: retain the most recent reset and the final group, in WAL order.
 // New checkpointed fields and ordered multi-value fields never use this fallback.
 type LegacyGroupKey = (ShardKey, BucketIx, u32);
+/// Fields a shard holds one value per bucket for (see `OpenShard::apply`).
+fn is_scalar_field(spec: &FieldSpec) -> bool {
+    match spec.kind {
+        FieldKind::Bsi { .. } | FieldKind::Count => true,
+        FieldKind::Set => !spec.path.ends_with("$source"),
+        FieldKind::Presence | FieldKind::Geo { .. } => false,
+    }
+}
+
+/// Keep only the last record per (vessel, bucket, field) for scalar fields.
+///
+/// A shard rejects a write group holding two different scalar values for one
+/// bucket. Two separate commits would let the later value win, so the batch
+/// collapses to that outcome. OTLP flushes can emit a bucket twice when a late
+/// point reopens a window that was already closed.
+fn coalesce_scalar_records(
+    records: &[BucketRecord],
+    mut is_scalar: impl FnMut(u32) -> bool,
+) -> Vec<BucketRecord> {
+    let mut seen = BTreeSet::new();
+    let mut kept: Vec<BucketRecord> = records
+        .iter()
+        .rev()
+        .filter(|rec| !is_scalar(rec.field) || seen.insert((rec.vessel, rec.bucket, rec.field)))
+        .cloned()
+        .collect();
+    kept.reverse();
+    kept
+}
+
 fn legacy_replay_groups(
     batches: &[crate::wal::WalReplayRecord],
     shards: &BTreeMap<ShardKey, OpenShard>,
