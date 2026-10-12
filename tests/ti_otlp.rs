@@ -43,7 +43,7 @@ impl Server {
         } else {
             drop(ti_store::Store::open_or_create(&store, 10).unwrap());
             std::fs::write(store.join("ti.toml"), "width_seconds=10\n").unwrap();
-            command.args(["serve", "--ti-store"]);
+            command.env("LUME_DEBUG", "1").args(["serve", "--ti-store"]);
         }
         command.arg(&store).args(["--port", "0"]);
         if enabled && !standalone {

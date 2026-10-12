@@ -108,6 +108,8 @@ class TestAgentsDashboardSql(unittest.TestCase):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            # lume serve is silent unless LUME_DEBUG is set; the port comes from its banner.
+            env={**os.environ, "LUME_DEBUG": "1"},
         )
 
         # Read first line: "Lume MCP HTTP server listening on http://127.0.0.1:<port>"

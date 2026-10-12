@@ -897,7 +897,7 @@ pub fn build_meta_index(
                 FieldType::Date
             } else {
                 if saw_int || saw_float || saw_other {
-                    eprintln!(
+                    crate::note!(
                         "[⚠️] Metadata type conflict for field '{}': falling back to keyword",
                         field
                     );
@@ -906,7 +906,7 @@ pub fn build_meta_index(
             }
         } else if saw_float {
             if saw_other {
-                eprintln!(
+                crate::note!(
                     "[⚠️] Metadata type conflict for field '{}': falling back to keyword",
                     field
                 );
@@ -916,7 +916,7 @@ pub fn build_meta_index(
             }
         } else if saw_int {
             if saw_other {
-                eprintln!(
+                crate::note!(
                     "[⚠️] Metadata type conflict for field '{}': falling back to keyword",
                     field
                 );

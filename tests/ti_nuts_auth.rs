@@ -207,10 +207,11 @@ impl Server {
         command.current_dir(root);
         match mode {
             "plain" => {
-                command.arg("serve");
+                command.env("LUME_DEBUG", "1").arg("serve");
             }
             "ti" => {
                 command
+                    .env("LUME_DEBUG", "1")
                     .args(["serve", "--ti-store"])
                     .arg(&store)
                     .arg("--otlp");
@@ -532,6 +533,7 @@ fn plain_serve_defaults_to_loopback_without_auth() {
     let scratch = Scratch::new();
     let mut child = Command::new(env!("CARGO_BIN_EXE_lume"))
         .current_dir(&scratch.0)
+        .env("LUME_DEBUG", "1")
         .args(["serve", "--port", "0"])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -560,6 +562,7 @@ fn plain_serve_defaults_to_loopback_without_auth() {
     assert_eq!(server.request("POST", "/mcp", MCP, None), 200);
     assert_eq!(server.request("GET", "/health", "", None), 200);
     let output = Command::new(env!("CARGO_BIN_EXE_lume"))
+        .env("LUME_DEBUG", "1")
         .args(["serve", "--help"])
         .output()
         .unwrap();

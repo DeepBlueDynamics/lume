@@ -695,15 +695,15 @@ impl EntityGraph {
 
     /// Prints a beautiful ASCII-art relationship table to the terminal
     pub fn print_ascii_table(&self) {
-        println!("\x1B[1;36m");
-        println!("  ┌──────────────────────────────────────────────────────────────────────────────┐");
-        println!("  │                    SEMANTIC ENTITY CO-OCCURRENCE MESH                       │");
-        println!("  ├──────────────────────────────┬──────────────────────────────┬────────┬───────┤");
-        println!("  │ Entity A                     │ Entity B                     │ Relate │Shared │");
-        println!("  ├──────────────────────────────┼──────────────────────────────┼────────┼───────┤");
+        crate::say!("\x1B[1;36m");
+        crate::say!("  ┌──────────────────────────────────────────────────────────────────────────────┐");
+        crate::say!("  │                    SEMANTIC ENTITY CO-OCCURRENCE MESH                       │");
+        crate::say!("  ├──────────────────────────────┬──────────────────────────────┬────────┬───────┤");
+        crate::say!("  │ Entity A                     │ Entity B                     │ Relate │Shared │");
+        crate::say!("  ├──────────────────────────────┼──────────────────────────────┼────────┼───────┤");
 
         if self.edges.is_empty() {
-            println!("  │ (No co-occurrence relationships found above threshold)                       │");
+            crate::say!("  │ (No co-occurrence relationships found above threshold)                       │");
         } else {
             // Show top 25 strongest relationships to keep terminal clean and beautiful.
             // Sorted by significance, so this is "most meaningfully associated", not
@@ -711,15 +711,15 @@ impl EntityGraph {
             for edge in self.edges.iter().take(25) {
                 let name_a = truncate_or_pad(&edge.source, 28);
                 let name_b = truncate_or_pad(&edge.target, 28);
-                println!(
+                crate::say!(
                     "  │ \x1B[1;33m{}\x1B[0;36m │ \x1B[1;33m{}\x1B[0;36m │ \x1B[1;32m{:+.3}\x1B[0;36m │ \x1B[35m{:3}/{:<3}\x1B[0;36m │",
                     name_a, name_b, edge.relatedness, edge.intersection, edge.union_size
                 );
             }
         }
         
-        println!("  └──────────────────────────────┴──────────────────────────────┴────────┴───────┘");
-        println!("\x1B[0m");
+        crate::say!("  └──────────────────────────────┴──────────────────────────────┴────────┴───────┘");
+        crate::say!("\x1B[0m");
     }
 }
 

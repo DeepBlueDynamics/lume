@@ -229,6 +229,11 @@ fn lume_main() {
                 print_serve_help();
                 return;
             }
+            // An MCP server writes nothing to stdout or stderr; LUME_DEBUG=1 restores
+            // the diagnostics. Set before any thread starts.
+            if std::env::var_os("LUME_DEBUG").is_none() {
+                std::env::set_var("LUME_QUIET", "1");
+            }
             // 5863 = "LUME" on a phone keypad. Unassigned by IANA, and unlike
             // 8000 nothing else grabs it by default.
             let mut port = 5863u16;

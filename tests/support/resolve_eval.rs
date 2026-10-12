@@ -21,6 +21,7 @@ fn boat_phrases_through_live_mcp() {
     let split = std::env::var("TI_RESOLVE_SPLIT").unwrap_or_else(|_| "all".into());
     let mut server = Server(
         Command::new(env!("CARGO_BIN_EXE_lume"))
+            .env("LUME_DEBUG", "1")
             .args(["serve", "--bind", "127.0.0.1", "--port", "0", "--ti-store"])
             .arg(store)
             .stdout(Stdio::piped())

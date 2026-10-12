@@ -182,7 +182,7 @@ impl DocStore {
             if let Err(error) = persistence.compact_locked(self.docs.values(), self.docs.len()) {
                 // The transaction is already durable. Maintenance failure must
                 // not falsely report the committed mutation as failed.
-                eprintln!("DocStore compaction failed; retaining committed log: {error}");
+                ti_contracts::note!("DocStore compaction failed; retaining committed log: {error}");
             }
         }
         Ok(())

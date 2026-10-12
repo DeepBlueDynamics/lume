@@ -1128,7 +1128,7 @@ fn flusher_loop(shared: Arc<Shared>) {
             continue;
         }
         if let Err(error) = publish(&shared, false) {
-            eprintln!("OTLP background flush failed: {error}");
+            ti_contracts::note!("OTLP background flush failed: {error}");
         }
     }
 }

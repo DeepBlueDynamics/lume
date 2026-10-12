@@ -216,8 +216,10 @@ fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 
 fn run_lume_cli(args: Vec<String>) -> Result<String, String> {
     let current_exe = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("lume"));
+    // The child's stdout is the tool result, so it keeps its normal output.
     let output = std::process::Command::new(current_exe)
         .args(&args)
+        .env_remove("LUME_QUIET")
         .output()
         .map_err(|e| format!("Failed to execute lume binary: {}", e))?;
     
@@ -1081,7 +1083,7 @@ fn serve_configured(
     let address = std::net::SocketAddr::new(bind, port);
     let listener =
         TcpListener::bind(address).map_err(|e| format!("Failed to bind to {address}: {e}"))?;
-    println!(
+    crate::say!(
         "Lume MCP HTTP server listening on http://{}",
         listener.local_addr().map_err(|e| e.to_string())?
     );
@@ -1113,12 +1115,12 @@ fn serve_configured(
                 std::thread::spawn(move || {
                     let _slot = slot;
                     if let Err(e) = handle_connection(stream, &ti, auth.as_ref()) {
-                        eprintln!("Error handling connection: {}", e);
+                        crate::note!("Error handling connection: {}", e);
                     }
                 });
             }
             Err(e) => {
-                eprintln!("Failed to accept incoming connection: {}", e);
+                crate::note!("Failed to accept incoming connection: {}", e);
             }
         }
     }

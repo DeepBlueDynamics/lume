@@ -116,6 +116,7 @@ fn cli_v4_publish_search_sql_mcp_and_reindex_with_json_neighbor() {
     drop(listener);
     fixture.server = Some(
         command()
+            .env("LUME_DEBUG", "1")
             .args(["serve", "--bind", "127.0.0.1", "--port"])
             .arg(port.to_string())
             .stdout(std::process::Stdio::null())

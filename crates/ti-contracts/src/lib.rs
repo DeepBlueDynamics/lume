@@ -318,3 +318,14 @@ impl From<arrow_schema::ArrowError> for Error {
         Self::Arrow(value)
     }
 }
+
+/// `eprintln!` unless `LUME_QUIET` is set (as `lume serve` does, so an MCP server
+/// writes nothing to stdout or stderr).
+#[macro_export]
+macro_rules! note {
+    ($($arg:tt)*) => {
+        if !std::env::var_os("LUME_QUIET").is_some_and(|v| v != "0") {
+            eprintln!($($arg)*);
+        }
+    };
+}

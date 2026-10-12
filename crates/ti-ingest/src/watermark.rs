@@ -200,7 +200,7 @@ impl WatermarkBucketer {
             || self.retained_bytes.saturating_add(bytes) > MAX_BYTES;
         if self.counters.ingest_blocked || full {
             if !self.counters.ingest_blocked {
-                eprintln!("INGEST BLOCKED: store={} retained_windows={} reserved_bytes={}; sink recovery required",
+                ti_contracts::note!("INGEST BLOCKED: store={} retained_windows={} reserved_bytes={}; sink recovery required",
                     self.store_name, self.open_buckets.len(), self.retained_bytes);
             }
             self.counters.ingest_blocked = true;
@@ -298,7 +298,7 @@ impl WatermarkBucketer {
             // Cap at 30 seconds; the first cause is logged exactly once for this window.
             state.next_attempt = state.next_attempt.min(now + Duration::from_secs(30));
             if self.logged_failures.insert(key) {
-                eprintln!("Ingest window apply/emit failed: store={} vessel={} bucket={}; retained for retry: {}",
+                ti_contracts::note!("Ingest window apply/emit failed: store={} vessel={} bucket={}; retained for retry: {}",
                     self.store_name, key.0, key.1, error);
             }
             return Err(error);
@@ -350,7 +350,7 @@ impl WatermarkBucketer {
         self.publish_closes(sink, false)?;
         if self.counters.ingest_blocked && self.open_buckets.is_empty() {
             self.counters.ingest_blocked = false;
-            eprintln!(
+            ti_contracts::note!(
                 "Ingest resumed: store={} retained windows drained",
                 self.store_name
             );

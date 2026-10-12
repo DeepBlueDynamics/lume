@@ -21,6 +21,35 @@ use std::path::Path;
 use tantivy_fst::raw::{Fst, Node, Output};
 use tantivy_fst::MapBuilder;
 
+/// Console output switch. `lume serve` sets `LUME_QUIET=1` so an MCP server never
+/// writes to stdout or stderr (set `LUME_DEBUG=1` to keep its diagnostics).
+pub mod console {
+    /// Whether ordinary status and diagnostic output is suppressed.
+    pub fn quiet() -> bool {
+        std::env::var_os("LUME_QUIET").is_some_and(|v| v != "0")
+    }
+}
+
+/// `println!` unless [`console::quiet`].
+#[macro_export]
+macro_rules! say {
+    ($($arg:tt)*) => {
+        if !$crate::console::quiet() {
+            println!($($arg)*);
+        }
+    };
+}
+
+/// `eprintln!` unless [`console::quiet`].
+#[macro_export]
+macro_rules! note {
+    ($($arg:tt)*) => {
+        if !$crate::console::quiet() {
+            eprintln!($($arg)*);
+        }
+    };
+}
+
 pub mod agent;
 pub mod answer;
 pub mod bm25;
