@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.15.3 — 2026-10-12
+
+Lume 0.15.3 is out.
+
+- **`lume index` skips what your repo already ignores.** It reads the folder's `.gitignore` by default (`--no-gitignore` turns that off). `.lumeignore` now takes gitignore-style patterns: `*`, `**`, `!` to re-include, and a trailing `/` for folders. macOS `._*` sidecar files, `.DS_Store` and `node_modules/` are always skipped, so indexing a real workspace is faster and the log stays quiet.
+- **Lume TI keeps running under bursty agent telemetry.** `lume serve --ti-store … --otlp` accepts several readings for one metric in the same 10-second bucket and keeps the bucket's latest complete value. Stores written by earlier versions that stopped `lume serve` from starting open again.
+
 ## 0.15.2 — 2026-10-11
 
 Lume 0.15.2 is out.
