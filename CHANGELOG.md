@@ -2,7 +2,9 @@
 
 ## 0.15.3 — 2026-10-12
 
-Lume stops reading your junk drawer, and Lume TI stops tripping over its own feet. Indexing now honours `.gitignore`, and `lume serve --ti-store --otlp` no longer bricks itself when an agent sends telemetry in bursts. Grab it with the install one-liner, or `LUME_VERSION=v0.15.3` if you pin.
+**Lume is one small Rust binary that keeps your documents and your time-series telemetry in the same store.** Search the words, query the numbers with SQL, and join the two: *"what was the engine doing every time this alarm fired, and what did the manual say about it?"* It runs on hardware you own, all the way down to a Raspberry Pi on a boat, with no cloud required. Agents get all of it as MCP tools.
+
+**Why 0.15.3 matters:** it's the release that makes Lume safe to drop into an agent's container. nemesis8 now bundles Lume in every container, and this version is what lets that work. It indexes only the code you care about and keeps recording the container's telemetry through bursty traffic, instead of crashing on restart. Grab it with the install one-liner, or `LUME_VERSION=v0.15.3` if you pin.
 
 ### `lume index` respects your .gitignore (#43)
 
@@ -19,6 +21,15 @@ nemesis8 streams each container's activity into Lume TI every few seconds, and t
 - **One bucket, one value.** Late readings now refresh the bucket's complete value, and only that lands in the store.
 - **Bad batches never hit the log.** Duplicates are collapsed before anything is written.
 - **Already-broken stores heal on open.** If an earlier version left a poisoned log behind, 0.15.3 replays it cleanly. No need to delete your history.
+
+### Also in Lume
+
+- **Hybrid search.** Keyword scoring, optional local vectors and an entity graph built from your own index, blended per query. Spelling correction, `NOT`, facets and filters come built in.
+- **SQL over your documents.** `lume sql` (and `lume sql repl`) queries sections, entities and entity links, with `match()` for full-text and a BM25 `score` on every row.
+- **Lume TI telemetry.** It streams live Signal K, backfills any time-series Parquet, and receives OpenTelemetry from agents. Query it all with SQL that crosses documents, alerts and positions. Read-only Postgres wire means psql and Grafana just connect.
+- **Built for agents.** `lume serve` exposes search, indexing, SQL and telemetry as MCP tools. `lume answer` and `lume agent` give cited answers and multi-step research when you add a model.
+- **A binary index that keeps up.** `LUME_INDEX_FORMAT=4` gives a third of the disk footprint, sub-second opens, normal incremental updates and automatic cleanup of old copies.
+- **On the boat.** One HaLOS package installs a Signal K plugin with a SQL console, document library and Ask tab.
 
 ### Under the hood
 
