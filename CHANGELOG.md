@@ -6,7 +6,7 @@
 
 **Why 0.15.7 matters:** `npm install -g @deepbluedynamics/lume` gives you a working `lume` on Linux, macOS and Windows. If Node is already on the machine, that's the whole install: no script to pipe into a shell, no PATH to edit, and `npm update -g` keeps it current.
 
-### `lume` on npm (#PR) 📦
+### `lume` on npm (#55) 📦
 
 - **One command, five platforms.** `@deepbluedynamics/lume` is a 2 KB launcher. Its optional dependencies `@deepbluedynamics/lume-linux-x64`, `-linux-arm64`, `-darwin-arm64`, `-darwin-x64` and `-win32-x64` each hold one prebuilt `lume` (with `lume ti`), and npm installs only the one for your machine.
 - **The same binaries as the release.** The release workflow packs them from the binaries it just built, checks each one's platform and architecture (and glibc ≤ 2.39 on Linux), and publishes them with npm trusted publishing: no token stored anywhere.
