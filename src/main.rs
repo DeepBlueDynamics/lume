@@ -1008,7 +1008,7 @@ fn handle_ti_sync(args: &[String]) -> Result<(), String> {
 
 fn print_global_help() {
     println!(
-        r#"  _      _    _ __  __ ______
+        r#"   _      _    _ __  __ ______
   | |    | |  | |  \/  |  ____|
   | |    | |  | | \  / | |__
   | |    | |  | | |\/| |  __|
