@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.15.6 — 2026-10-13
+
+**Lume is one small Rust binary that keeps your documents and your time-series telemetry in the same store.** Search the words, query the numbers with SQL, and give agents all of it as MCP tools, on hardware you own.
+
+**Why 0.15.6 matters:** it fixes the step that puts Lume TI on npm. 0.15.5 split the Signal K plugin into a light plugin plus one program package per machine, but its publish step tripped before sending anything. 0.15.6 publishes all three in order, signed by GitHub, with no npm token stored anywhere. Install **Lume TI** from the Signal K App Store, or `npm install signalk-lume-ti`, and a Raspberry Pi downloads about 35 MB instead of 72.
+
+Get it from the [release page](https://github.com/DeepBlueDynamics/lume/releases/tag/v0.15.6), the App Store, or `curl -fsSL https://github.com/DeepBlueDynamics/lume/releases/latest/download/install.sh | sh`.
+
+### npm publishing works (#50)
+
+0.15.5's release job ran `npm publish npm/<file>.tgz`, and npm read that path as a GitHub `user/repo` shorthand. Nothing was published.
+
+- The release now publishes each tarball by its `./` path.
+- The two program packages, `signalk-lume-ti-linux-arm64` and `signalk-lume-ti-linux-x64`, go first, then the plugin that depends on them.
+- Publishing uses npm trusted publishing from GitHub Actions, so each package carries provenance and there is no `NPM_TOKEN` to leak.
+
+### Also in Lume
+
+- **Documents and telemetry in one store:** `lume index`, `lume search` and `lume sql` for files; `lume ti` for boat and agent telemetry in 10-second buckets.
+- **Agents get it all over MCP:** `lume serve` speaks only MCP, with nothing stray on stdout or stderr.
+- **HaLOS on the boat:** `marine-lume` installs the plugin and the arm64 program in one `apt install`, and keeps working the same way it always has.
+- **Grafana and PostgreSQL clients:** turn on the pgwire endpoint and point Grafana at it.
+
+### Under the hood
+
+- `scripts/bump-version.cjs` keeps the plugin's optional dependency pins on the release version.
+- The HaLOS `.deb` still bundles its own program; the plugin looks there before it looks for an npm package.
+
+Coming from further back? [v0.15.5](https://github.com/DeepBlueDynamics/lume/releases/tag/v0.15.5) split the plugin package, and [v0.15.4](https://github.com/DeepBlueDynamics/lume/releases/tag/v0.15.4) made `lume serve` quiet.
+
 ## 0.15.5 — 2026-10-13
 
 **Lume is one small Rust binary that keeps your documents and your time-series telemetry in the same store.** Search the words, query the numbers with SQL, and give agents all of it as MCP tools, on hardware you own.
