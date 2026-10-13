@@ -1,0 +1,45 @@
+{
+  "name": "@deepbluedynamics/lume",
+  "version": "0.15.6",
+  "description": "Lume: one store for documents and time-series telemetry. The lume CLI and MCP server as a prebuilt binary.",
+  "keywords": [
+    "search",
+    "bm25",
+    "time-series",
+    "telemetry",
+    "mcp",
+    "signalk"
+  ],
+  "author": "DeepBlue Dynamics LLC",
+  "homepage": "https://github.com/DeepBlueDynamics/lume#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DeepBlueDynamics/lume.git",
+    "directory": "npm/lume"
+  },
+  "bugs": {
+    "url": "https://github.com/DeepBlueDynamics/lume/issues"
+  },
+  "license": "BSD-3-Clause",
+  "bin": {
+    "lume": "bin/lume.js"
+  },
+  "scripts": {
+    "test": "node --test test/cli.test.js"
+  },
+  "files": [
+    "bin/lume.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "optionalDependencies": {
+    "@deepbluedynamics/lume-darwin-arm64": "0.15.6",
+    "@deepbluedynamics/lume-darwin-x64": "0.15.6",
+    "@deepbluedynamics/lume-linux-arm64": "0.15.6",
+    "@deepbluedynamics/lume-linux-x64": "0.15.6",
+    "@deepbluedynamics/lume-win32-x64": "0.15.6"
+  }
+}

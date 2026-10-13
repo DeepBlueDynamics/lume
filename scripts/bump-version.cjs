@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Set one version everywhere a release reads it: the root `lume` package in
-// Cargo.toml and Cargo.lock, and the Signal K plugin's package.json (with its
-// per-architecture optional dependencies).
+// Cargo.toml and Cargo.lock, the Signal K plugin's package.json and the lume
+// CLI's npm/lume/package.json (each with its per-platform optional dependencies).
 //
 //   node scripts/bump-version.cjs patch|minor|major
 //   node scripts/bump-version.cjs 1.2.3
@@ -16,6 +16,7 @@ const files = {
   cargo: path.join(root, 'Cargo.toml'),
   lock: path.join(root, 'Cargo.lock'),
   plugin: path.join(root, 'plugins/signalk-lume-ti/package.json'),
+  cli: path.join(root, 'npm/lume/package.json'),
 };
 const SEMVER = /^(\d+)\.(\d+)\.(\d+)$/;
 
@@ -64,11 +65,13 @@ function main() {
     /^(name = "lume"\r?\nversion = ")[^"]+"/m, (_, head) => `${head}${next}"`,
     'lume entry in Cargo.lock'));
 
-  const plugin = JSON.parse(fs.readFileSync(files.plugin, 'utf8'));
-  plugin.version = next;
-  // The per-architecture binary packages ship with the plugin, at its version.
-  for (const name of Object.keys(plugin.optionalDependencies || {})) plugin.optionalDependencies[name] = next;
-  fs.writeFileSync(files.plugin, JSON.stringify(plugin, null, 2) + '\n');
+  for (const file of [files.plugin, files.cli]) {
+    const pkg = JSON.parse(fs.readFileSync(file, 'utf8'));
+    pkg.version = next;
+    // The per-platform binary packages ship with the package, at its version.
+    for (const name of Object.keys(pkg.optionalDependencies || {})) pkg.optionalDependencies[name] = next;
+    fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + '\n');
+  }
 
   process.stdout.write(next + '\n');
 }

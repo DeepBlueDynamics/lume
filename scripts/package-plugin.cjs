@@ -187,4 +187,4 @@ if (require.main === module) {
     console.log(JSON.stringify(report, null, 2));
   })().catch(error => { console.error('Packaging failed: ' + error.message); process.exitCode = 1; });
 }
-module.exports = {parseArgs, validateBinary, stripBinary, assemble};
+module.exports = {parseArgs, validateBinary, stripBinary, assemble, run};
