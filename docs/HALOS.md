@@ -2,13 +2,13 @@
 
 This is the install guide for a boat computer. HaLOS comes first. A plain 64-bit Linux Signal K server is in [section 9](#9-install-on-other-64-bit-linux-signal-k-servers).
 
-The current release used below is **v0.15.4**. For a later release, change `0.15.4` in the download and install lines. The HaLOS package file always ends in `-1_arm64.deb`.
+The normal install is the Signal K App Store, which installs Lume TI from npm. The `marine-lume` package is the other way in, for a boat with no internet at install time. The package examples use release **v0.15.6**. For a later release, change `0.15.6` in those lines. The HaLOS package file always ends in `-1_arm64.deb`.
 
 Supported targets are arm64 HaLOS and x86_64 stock Signal K (`signalk/signalk-server`).
 
 ## 1. What you get
 
-The `marine-lume` package adds Lume TI to the Signal K server that is already on the boat. After it is installed you get:
+Lume TI adds to the Signal K server that is already on the boat. After it is installed you get:
 
 - A history of Signal K data on the Pi, kept in 10-second buckets.
 - A SQL console, an Ask tab, a Library tab, and a status page, under **Webapps → Lume TI**.
@@ -21,14 +21,35 @@ Ask uses a cloud model by default (`glm-5.3:cloud` at `https://ollama.com`). Tha
 
 ## 2. Install
 
-You need a 64-bit Raspberry Pi running HaLOS, with the Signal K app `marine-signalk-server-container` already installed. The package is built for a Pi 5. Signal K must be 2.31 or newer. You do not need a compiler.
+You need a 64-bit Raspberry Pi running HaLOS, with the Signal K app `marine-signalk-server-container` already installed. The plugin is built for a Pi 5. Signal K must be 2.31 or newer. You do not need a compiler.
+
+### Log in to HaLOS
+
+Open `https://halos.local:9090`, or the Pi's IP address on port 9090. This is Cockpit, the HaLOS admin page. Log in with the Linux username and password you set when you flashed the card, for example in Raspberry Pi Imager's settings. How that user was made depends on how you flashed, so your mileage may vary. If no password works, plug in a keyboard and screen, or SSH in, and set one with `sudo passwd <user>`.
+
+The other HaLOS pages have their own logins. The HaLOS home page uses `admin` and `halos` until you change it. Signal K asks you to create its own admin user the first time you open its admin page.
+
+### Install Lume TI from the App Store
+
+1. Open Signal K admin at `https://halos.local:4430/admin/`. Create the admin user if it asks.
+2. Go to **Appstore → Available**, search for **Lume TI** (npm package `signalk-lume-ti`), and press **Install**.
+3. When the install finishes, restart Signal K with **Restart** at the top right of the admin page.
+4. Go to **Server → Plugin Config → Lume TI**, tick **Enabled**, and press **Submit**. The App Store does not turn the plugin on for you.
+
+npm installs the plugin and one `lume` program package, `signalk-lume-ti-linux-arm64` on a Pi. Both go into the Signal K data folder, `/var/lib/container-apps/marine-signalk-server-container/data/data` on the Pi. Settings go in `plugin-config-data/signalk-lume-ti.json` in that folder. The query port is `5863` on `127.0.0.1`.
+
+Use one way in, not both. If you install from the App Store, do not also install the `marine-lume` package, and the other way round. Each one replaces the other's copy of the plugin.
+
+### Or: the `marine-lume` package
+
+Use this when the boat has no internet at install time. The package carries the plugin and the arm64 `lume` program in one file.
 
 Do this from the directory where the two downloaded files are, after you copy them to the Pi.
 
 On a computer that has the GitHub `gh` command:
 
 ```sh
-VERSION=0.15.4
+VERSION=0.15.6
 gh release download "v${VERSION}" -R DeepBlueDynamics/lume \
   -p 'marine-lume_*_arm64.deb' -p SHA256SUMS
 scp "marine-lume_${VERSION}-1_arm64.deb" SHA256SUMS pi@halos.local:
@@ -36,12 +57,12 @@ scp "marine-lume_${VERSION}-1_arm64.deb" SHA256SUMS pi@halos.local:
 
 `pi@halos.local` is the example login used in this repo. Use your own Pi login if it is different. If `gh` is already on the Pi, run the `gh release download` line there and skip `scp`.
 
-Or, in a browser, open the [v0.15.4 release](https://github.com/DeepBlueDynamics/lume/releases/tag/v0.15.4) and download both `marine-lume_0.15.4-1_arm64.deb` (22,866,384 bytes) and `SHA256SUMS`. Copy those two files to the Pi with `scp`.
+Or, in a browser, open the [v0.15.6 release](https://github.com/DeepBlueDynamics/lume/releases/tag/v0.15.6) and download both `marine-lume_0.15.6-1_arm64.deb` (about 22 MB) and `SHA256SUMS`. Copy those two files to the Pi with `scp`.
 
 On the Pi, check the file, then install it:
 
 ```sh
-VERSION=0.15.4
+VERSION=0.15.6
 grep "marine-lume_${VERSION}-1_arm64.deb$" SHA256SUMS | sha256sum -c -
 sudo apt install "./marine-lume_${VERSION}-1_arm64.deb"
 ```
@@ -56,7 +77,7 @@ The package does the following, from `deploy/halos/marine-lume/debian/postinst`:
 - Links `node_modules/signalk-lume-ti` to that plugin folder.
 - Restarts `marine-signalk-server-container`.
 
-You do not have to turn the plugin on by hand. To change a setting later, open Signal K admin and go to **Server → Plugin Config**, then **Lume TI**.
+With the package you do not have to turn the plugin on by hand. To change a setting later, open Signal K admin and go to **Server → Plugin Config**, then **Lume TI**.
 
 Open the pages from **Webapps → Lume TI**. The plugin path on Signal K is `/signalk-lume-ti` (`signalk.appPath` in `plugins/signalk-lume-ti/package.json`). On the Pi, Signal K is at port 3000, so that page is `http://127.0.0.1:3000/signalk-lume-ti/`. From a phone or laptop on the boat network, HaLOS publishes Signal K on port 4430, so the page is `https://halos.local:4430/signalk-lume-ti/` (use the Pi's IP if `halos.local` does not resolve; the certificate is HaLOS's own). You can also open it from the Signal K admin, under **Webapps**.
 
@@ -72,13 +93,13 @@ If this HaLOS server already allows anonymous read-only access, telemetry can st
 
 ## 3. Check it works
 
-On the Pi:
+In Signal K admin, **Appstore → Installed** lists **Lume TI** with its version. If you used the package, check it on the Pi instead:
 
 ```sh
 dpkg -s marine-lume
 ```
 
-The version line should say `0.15.4-1`.
+The version line should say `0.15.6-1`.
 
 In Signal K admin, the Lume TI plugin status should start with `Running` and show a process id, lag, how much has been ingested, and disk use. After you approve access and the boat is sending data, `Ingested` rises above 0. If Lume is in its own container instead, the line says `External server (marine-lume-container) answering on 127.0.0.1:5863`.
 
@@ -101,7 +122,7 @@ A JSON reply means the query service is up. That table is Lume's own counters. I
 
 ## 4. Ask tab
 
-The Ask tab defaults to `https://ollama.com` and the model `glm-5.3:cloud`. Create a key at [ollama.com](https://ollama.com/). Then, from your computer, in a copy of this repo:
+The Ask tab defaults to `https://ollama.com` and the model `glm-5.3:cloud`. Create a key at [ollama.com](https://ollama.com/). The plugin settings must exist first: after an App Store install, that means you have pressed **Submit** in **Plugin Config → Lume TI** once. Then, from your computer, in a copy of this repo:
 
 ```sh
 scripts/pi-set-ollama-key.sh pi@halos.local
@@ -119,12 +140,14 @@ To use a model on the boat or on a computer on the boat network instead, set **C
 
 ## 5. Optional: Lume in its own container
 
-`marine-lume` runs Lume inside Signal K. That is **Query Server Mode** `embedded`, and it is the normal install.
+By default Lume runs inside Signal K, whether you installed from the App Store or with `marine-lume`. That is **Query Server Mode** `embedded`, and it is the normal setup.
+
+This separate container needs the `marine-lume` package route. Its package depends on `marine-lume`, so do not add it to an App Store install: apt would bring in `marine-lume`, which replaces the App Store copy of the plugin.
 
 `marine-lume-container` runs Lume in a separate app so it has its own memory limit. The image is **not** published to a registry. You build it on a computer that has Docker, from a Lume release. Details and the memory numbers are in [the container README](../deploy/halos/marine-lume-container/README.md).
 
 ```sh
-scripts/build-lume-container.sh v0.15.4 --pi pi@halos.local
+scripts/build-lume-container.sh v0.15.6 --pi pi@halos.local
 ```
 
 Installing that app switches **Query Server Mode** to `external` and restarts Signal K. The plugin still owns the Ask tab and the Library. History stays in the same place.
@@ -145,7 +168,16 @@ If you remove the container first, the plugin status says the external server is
 
 ## 7. Upgrade and uninstall
 
-Upgrade with the newer package, the same way as the first install: check `SHA256SUMS`, then:
+From the App Store: when a newer Lume TI is out, **Appstore → Installed** shows **Update**. Press it, then restart Signal K. To remove it, press **Remove** there and restart Signal K. Removing keeps the history in `/var/lib/container-apps/marine-signalk-server-container/data/data/plugin-config-data/signalk-lume-ti/lume-ti` and your settings. To remove those too, open a terminal on the Pi (SSH, or **Terminal** in Cockpit) and run:
+
+```sh
+cd /var/lib/container-apps/marine-signalk-server-container/data/data/plugin-config-data
+sudo rm -rf signalk-lume-ti.json signalk-lume-ti/
+```
+
+The Signal K web pages cannot delete these files. If you pointed the key file or the data at other paths, remove those yourself.
+
+If you used the `marine-lume` package, upgrade with the newer package, the same way as the first install: check `SHA256SUMS`, then:
 
 ```sh
 sudo apt install ./marine-lume_NEWER-1_arm64.deb
@@ -211,7 +243,7 @@ In the official Signal K container, `~/.signalk` is inside the container.
 **Without one,** download the plugin and the program for your server's architecture from the release. `arm64` is a Raspberry Pi; `x64` is a PC. On a computer that has `gh`:
 
 ```sh
-VERSION=0.15.5
+VERSION=0.15.6
 ARCH=arm64   # or x64
 gh release download "v${VERSION}" -R DeepBlueDynamics/lume \
   -p "signalk-lume-ti-${VERSION}.tgz" -p "signalk-lume-ti-linux-${ARCH}-${VERSION}.tgz" -p SHA256SUMS
@@ -224,7 +256,7 @@ Install both in one command, in `~/.signalk` as the Signal K user:
 
 ```sh
 cd ~/.signalk
-npm install "/path/signalk-lume-ti-0.15.5.tgz" "/path/signalk-lume-ti-linux-arm64-0.15.5.tgz"
+npm install "/path/signalk-lume-ti-0.15.6.tgz" "/path/signalk-lume-ti-linux-arm64-0.15.6.tgz"
 ```
 
 Use the real paths of the files you checked, and the `x64` file on a PC. The plugin alone installs without error but has no program to run: npm skips an optional package it cannot download. npm records both as `file:` dependencies in `~/.signalk/package.json`, so a later install looks for those same `.tgz` files.
