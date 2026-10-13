@@ -126,7 +126,8 @@ input/output sizes, SHA-256 checksums, glibc requirements and the packed file
 lists. Packing is offline. Before packing, a check verifies each binary
 against its package's manifest and that the plugin pins both binary packages
 to its own version. The release workflow publishes the binary packages to npm
-before the plugin. Installation works with Signal K's
+before the plugin. [Publishing Lume to npm](../../docs/NPM.md) covers trusted
+publishing and setting up a new package. Installation works with Signal K's
 [`--ignore-scripts` policy](https://github.com/SignalK/signalk-server/blob/v2.31.0/src/modules.ts).
 
 The included 128×128 SVG is a placeholder. Replace `public/icon.png` and set
