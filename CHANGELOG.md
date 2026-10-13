@@ -6,7 +6,7 @@
 
 **Why 0.15.5 matters:** the Signal K plugin is on npm, so any Signal K server can install **Lume TI** from the App Store. And it packs light: a Raspberry Pi downloads its own `lume` program and nothing else, about 35 MB instead of 72.
 
-### Lume TI is on npm, one program per boat (#PR)
+### Lume TI is on npm, one program per boat (#49)
 
 The plugin tarball used to carry both the arm64 and the x64 program, so every install downloaded the one it would never run.
 
