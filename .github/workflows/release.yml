@@ -305,7 +305,8 @@ jobs:
               echo "$name@$VERSION is already on npm"
               continue
             fi
-            npm publish "npm/$name-$VERSION.tgz" --access public
+            # ./ keeps npm from reading "npm/<file>" as a GitHub user/repo shorthand.
+            npm publish "./npm/$name-$VERSION.tgz" --access public
           done
 
   # One Discord summary per release with every job's result (ported from Hyperia).
