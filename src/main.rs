@@ -2175,6 +2175,8 @@ fn run_indexing(
     let mut files_skipped_binary = 0usize;
     let mut files_skipped_documents = 0usize;
     let mut units_skipped_documents = 0usize;
+    let mut units_image_only = 0usize;
+    let mut encrypted_documents: Vec<String> = Vec::new();
     let mut read_timing = lume::index_timing::Aggregate::new("index.read");
     let mut parse_timing = lume::index_timing::Aggregate::new("index.parse_sections");
     let mut document_timing = lume::index_timing::Aggregate::new("index.document_extract");
@@ -2214,13 +2216,12 @@ fn run_indexing(
                 }) {
                     Ok(report) => {
                         units_skipped_documents += report.skipped_units;
-                        if report.skipped_units > 0 {
-                            eprintln!(
-                                "[⚠️] {}: skipped {} pages/chapters: {}",
-                                path_str,
-                                report.skipped_units,
-                                report.warnings.join("; ")
-                            );
+                        units_image_only += report.image_only_units;
+                        if report.encrypted {
+                            encrypted_documents.push(path_str.clone());
+                            eprintln!("[🔒] {}", report.summary(&path_str));
+                        } else if report.skipped_units > 0 {
+                            eprintln!("[⚠️] {}", report.summary(&path_str));
                         }
                         if report.sections.is_empty() {
                             files_skipped_documents += 1;
@@ -2348,9 +2349,21 @@ fn run_indexing(
     }
 
     if files_skipped_documents > 0 || units_skipped_documents > 0 {
+        let ocr = if units_image_only > 0 {
+            format!(" ({units_image_only} with no text layer; OCR would be needed)")
+        } else {
+            String::new()
+        };
         eprintln!(
-            "[⚠️] Extraction warnings: {} files skipped, {} pages/chapters skipped.",
-            files_skipped_documents, units_skipped_documents
+            "[⚠️] Extraction warnings: {} files skipped, {} pages/chapters skipped{}.",
+            files_skipped_documents, units_skipped_documents, ocr
+        );
+    }
+    if !encrypted_documents.is_empty() {
+        eprintln!(
+            "[🔒] {} encrypted PDFs skipped: {}",
+            encrypted_documents.len(),
+            encrypted_documents.join(", ")
         );
     }
     if !ollama_entities {
