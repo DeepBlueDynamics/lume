@@ -31,27 +31,38 @@ Supervises `lume ti ingest --serve` as a managed child process inside the Signal
 
 ## Install on HaLOS or OpenPlotter
 
-Release packages contain Linux arm64 and x64 binaries. Installation needs no
-Rust compiler, Python extractor, Grub, download hook or install-time script.
-Node 18+ and Signal K 2.31+ are required. 32-bit ARM and musl Linux are not
-supported. Each bundled binary's exact glibc requirement is recorded in
-`bin/manifest.json`; the packaging ceiling is 2.39.
+The plugin package carries no binary. Its optional dependencies
+`signalk-lume-ti-linux-arm64` and `signalk-lume-ti-linux-x64` each hold one
+Linux `lume` binary, and npm installs only the one matching the host.
+Installation needs no Rust compiler, Python extractor, Grub, download hook or
+install-time script. Node 18+ and Signal K 2.31+ are required. 32-bit ARM and
+musl Linux are not supported. Each binary's exact glibc requirement is
+recorded in its package's `bin/manifest.json`; the packaging ceiling is 2.39.
 
 On HaLOS, install the `marine-lume` package and follow
 [Install Lume on HaLOS](../../docs/HALOS.md). The package enables the plugin
 and restarts Signal K. Change settings later in **Server → Plugin Config**.
 
-For a local release tarball on another Signal K install, follow
-[Install on other 64-bit Linux Signal K servers](../../docs/HALOS.md).
-Inside the running Signal K container, as its usual user:
+On another Signal K install, install **Lume TI** from the App Store, or inside
+the running Signal K container, as its usual user:
 
 ```bash
 cd ~/.signalk
-npm install /path/to/signalk-lume-ti-0.12.2.tgz
+npm install signalk-lume-ti
 ```
 
-Leave that `.tgz` in place. npm records it as a `file:` dependency.
-`--ignore-scripts` is optional: this package has no install script.
+Offline, install the plugin tarball and the matching binary tarball from the
+release together, as
+[Install on other 64-bit Linux Signal K servers](../../docs/HALOS.md#9-install-on-other-64-bit-linux-signal-k-servers)
+describes:
+
+```bash
+cd ~/.signalk
+npm install /path/to/signalk-lume-ti-X.Y.Z.tgz /path/to/signalk-lume-ti-linux-arm64-X.Y.Z.tgz
+```
+
+Leave both `.tgz` files in place. npm records them as `file:` dependencies.
+`--ignore-scripts` is optional: these packages have no install script.
 Restart Signal K, enable **Lume TI** in **Server → Plugin Config**, and
 approve the device in **Security → Access Requests** before you expect data.
 
@@ -109,11 +120,13 @@ after stripping, and rejects any GLIBC requirement above 2.39. It also runs
 `file` when available; ELF headers and readelf remain authoritative when
 that command is absent. It never uses architecture-changing generic objcopy.
 
-The output contains the npm tarball and `package-report.json`, recording
+The output contains three npm tarballs, the plugin and
+`signalk-lume-ti-linux-arm64`/`-x64`, and `package-report.json`, recording
 input/output sizes, SHA-256 checksums, glibc requirements and the packed file
-list. Packing is offline. A prepack check verifies both bundled binaries
-against the manifest; an unassembled source checkout cannot be packed as a
-release. Installation works with Signal K's
+lists. Packing is offline. Before packing, a check verifies each binary
+against its package's manifest and that the plugin pins both binary packages
+to its own version. The release workflow publishes the binary packages to npm
+before the plugin. Installation works with Signal K's
 [`--ignore-scripts` policy](https://github.com/SignalK/signalk-server/blob/v2.31.0/src/modules.ts).
 
 The included 128×128 SVG is a placeholder. Replace `public/icon.png` and set

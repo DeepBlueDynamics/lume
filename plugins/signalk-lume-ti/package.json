@@ -15,7 +15,16 @@
     "appIcon": "./icon.svg",
     "compatibility": ">=2.31.0"
   },
-  "author": "Lume Authors",
+  "author": "DeepBlue Dynamics LLC",
+  "homepage": "https://github.com/DeepBlueDynamics/lume/tree/main/plugins/signalk-lume-ti#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DeepBlueDynamics/lume.git",
+    "directory": "plugins/signalk-lume-ti"
+  },
+  "bugs": {
+    "url": "https://github.com/DeepBlueDynamics/lume/issues"
+  },
   "license": "BSD-3-Clause",
   "scripts": {
     "test": "node test/run-tests.cjs",
@@ -26,15 +35,16 @@
     "lib/",
     "public/",
     "library/",
-    "bin/linux-arm64/lume",
-    "bin/linux-x64/lume",
-    "bin/manifest.json",
     "icon.*",
     "README.md",
     "LICENSE"
   ],
   "engines": {
     "node": ">=18.0.0"
+  },
+  "optionalDependencies": {
+    "signalk-lume-ti-linux-arm64": "0.15.4",
+    "signalk-lume-ti-linux-x64": "0.15.4"
   },
   "os": [
     "linux"

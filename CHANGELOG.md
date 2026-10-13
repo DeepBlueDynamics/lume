@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.15.5 — 2026-10-13
+
+**Lume is one small Rust binary that keeps your documents and your time-series telemetry in the same store.** Search the words, query the numbers with SQL, and give agents all of it as MCP tools, on hardware you own.
+
+**Why 0.15.5 matters:** the Signal K plugin is on npm, so any Signal K server can install **Lume TI** from the App Store. And it packs light: a Raspberry Pi downloads its own `lume` program and nothing else, about 35 MB instead of 72.
+
+### Lume TI is on npm, one program per boat (#PR)
+
+The plugin tarball used to carry both the arm64 and the x64 program, so every install downloaded the one it would never run.
+
+- **Three packages.** `signalk-lume-ti` is the plugin, about 85 KB. `signalk-lume-ti-linux-arm64` and `signalk-lume-ti-linux-x64` each hold one stripped `lume`. They are optional dependencies with `os`/`cpu` set, so npm installs only the one that matches the server.
+- **App Store ready.** `npm install signalk-lume-ti` works anywhere Signal K runs, and the plugin's npm page links back to this repo.
+- **Published by the release.** The release workflow publishes the program packages, then the plugin, with npm trusted publishing: no token is stored anywhere, and each version carries provenance.
+- **HaLOS is unchanged.** `marine-lume` still bundles the arm64 program in the plugin folder, and the plugin still looks there first.
+- **Offline installs take two files.** Install the plugin `.tgz` and the matching `signalk-lume-ti-linux-<arch>` `.tgz` together. [The install guide](docs/HALOS.md#9-install-on-other-64-bit-linux-signal-k-servers) has the commands.
+
+### Under the hood
+
+- Each program package is checked against its own manifest before packing (ELF architecture, executable bit, SHA-256, size, glibc ≤ 2.39), and the plugin is checked to pin both program packages to its own version.
+- `bump-version.cjs` moves the optional dependency pins with the version.
+- The install test now installs the plugin with its x64 program package offline and runs the binary the resolver finds.
+
+Coming from further back? [v0.15.4](https://github.com/DeepBlueDynamics/lume/releases/tag/v0.15.4) made `lume serve` speak only MCP.
+
 ## 0.15.4 — 2026-10-12
 
 **Lume is one small Rust binary that keeps your documents and your time-series telemetry in the same store.** Search the words, query the numbers with SQL, and give agents all of it as MCP tools, on hardware you own.

@@ -193,31 +193,41 @@ If it reports no key file, run the same command without `--check`. A local model
 
 This is the shorter path for a Signal K server that is not the HaLOS package.
 
-You need 64-bit Linux, x86_64 or arm64, with glibc 2.35 or newer. In the plugin tarball, `bin/manifest.json` records `glibc_max` `2.35` for both binaries. The packager refuses anything above 2.39. Signal K must be 2.31 or newer, and Node.js must be 18 or newer. The tested server already had Node.
+You need 64-bit Linux, x86_64 or arm64, with glibc 2.35 or newer. In each program package, `bin/manifest.json` records `glibc_max` `2.35`. The packager refuses anything above 2.39. Signal K must be 2.31 or newer, and Node.js must be 18 or newer. The tested server already had Node.
 
 Not supported: 32-bit Raspberry Pi OS, Victron Venus OS (armv7), macOS, and Windows. The plugin package is Linux arm64 and x64 only. Lume's own command-line downloads for other systems are a different install, on the main README.
 
-The v0.15.4 file `signalk-lume-ti-0.15.4.tgz` is 71,548,696 bytes, about 72 MB, because it bundles both the arm64 and the x64 programs.
+From v0.15.5 the plugin is three npm packages. `signalk-lume-ti` is the plugin itself, about 85 KB, with no program in it. `signalk-lume-ti-linux-arm64` (about 35 MB) and `signalk-lume-ti-linux-x64` (about 37 MB) each hold one `lume` program. npm installs only the one that matches the server.
 
-On a computer that has `gh`:
-
-```sh
-VERSION=0.15.4
-gh release download "v${VERSION}" -R DeepBlueDynamics/lume \
-  -p "signalk-lume-ti-${VERSION}.tgz" -p SHA256SUMS
-grep "signalk-lume-ti-${VERSION}.tgz$" SHA256SUMS | sha256sum -c -
-```
-
-`sha256sum -c` must print `OK`. Keep the `.tgz`. Do not delete it after install.
-
-Open a shell as the user Signal K runs as, in that user's `~/.signalk`. In the official Signal K container, that directory is inside the container.
+**With an internet connection,** install **Lume TI** from the Signal K App Store, or open a shell as the user Signal K runs as and run:
 
 ```sh
 cd ~/.signalk
-npm install "/path/signalk-lume-ti-0.15.4.tgz"
+npm install signalk-lume-ti
 ```
 
-Use the real path of the file you checked. npm records a `file:` dependency in `~/.signalk/package.json`, so a later install looks for that same `.tgz`.
+In the official Signal K container, `~/.signalk` is inside the container.
+
+**Without one,** download the plugin and the program for your server's architecture from the release. `arm64` is a Raspberry Pi; `x64` is a PC. On a computer that has `gh`:
+
+```sh
+VERSION=0.15.5
+ARCH=arm64   # or x64
+gh release download "v${VERSION}" -R DeepBlueDynamics/lume \
+  -p "signalk-lume-ti-${VERSION}.tgz" -p "signalk-lume-ti-linux-${ARCH}-${VERSION}.tgz" -p SHA256SUMS
+grep -E "signalk-lume-ti-(linux-${ARCH}-)?${VERSION}.tgz$" SHA256SUMS | sha256sum -c -
+```
+
+`sha256sum -c` must print `OK` for both files. Keep both `.tgz` files. Do not delete them after install.
+
+Install both in one command, in `~/.signalk` as the Signal K user:
+
+```sh
+cd ~/.signalk
+npm install "/path/signalk-lume-ti-0.15.5.tgz" "/path/signalk-lume-ti-linux-arm64-0.15.5.tgz"
+```
+
+Use the real paths of the files you checked, and the `x64` file on a PC. The plugin alone installs without error but has no program to run: npm skips an optional package it cannot download. npm records both as `file:` dependencies in `~/.signalk/package.json`, so a later install looks for those same `.tgz` files.
 
 Restart Signal K the way you usually restart it. Then enable **Lume TI** in **Server → Plugin Config**. This path does not enable the plugin for you. The HaLOS package does.
 

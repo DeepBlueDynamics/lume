@@ -66,3 +66,4 @@ jobs:
     permissions:
       contents: write
       actions: read # release.yml's notify-discord reads the run's job conclusions
+      id-token: write # release.yml's npm job publishes with trusted publishing

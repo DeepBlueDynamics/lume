@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Set one version everywhere a release reads it: the root `lume` package in
-// Cargo.toml and Cargo.lock, and the Signal K plugin's package.json.
+// Cargo.toml and Cargo.lock, and the Signal K plugin's package.json (with its
+// per-architecture optional dependencies).
 //
 //   node scripts/bump-version.cjs patch|minor|major
 //   node scripts/bump-version.cjs 1.2.3
@@ -65,6 +66,8 @@ function main() {
 
   const plugin = JSON.parse(fs.readFileSync(files.plugin, 'utf8'));
   plugin.version = next;
+  // The per-architecture binary packages ship with the plugin, at its version.
+  for (const name of Object.keys(plugin.optionalDependencies || {})) plugin.optionalDependencies[name] = next;
   fs.writeFileSync(files.plugin, JSON.stringify(plugin, null, 2) + '\n');
 
   process.stdout.write(next + '\n');

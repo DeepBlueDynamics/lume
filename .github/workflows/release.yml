@@ -1,8 +1,8 @@
 name: Release
 
 # Build `lume` (with the `ti` feature) for every supported platform, package the
-# Signal K plugin from the same run's Linux binaries, and publish one GitHub
-# Release with SHA256SUMS and the install scripts.
+# Signal K plugin from the same run's Linux binaries, publish one GitHub
+# Release with SHA256SUMS and the install scripts, then publish the plugin to npm.
 #
 # Triggers:
 # - a pushed `v*` tag (the tag must match the root Cargo.toml version);
@@ -267,12 +267,53 @@ jobs:
           fail_on_unmatched_files: true
           generate_release_notes: true
 
+  # Publish the plugin to npm with trusted publishing (OIDC, no stored token).
+  # Each package lists both bump-version.yml and release.yml as trusted
+  # publishers: npm checks the calling workflow, which is bump-version.yml when
+  # it starts this one. The binary packages go first so the plugin's optional
+  # dependencies exist when it appears. Already-published versions are skipped,
+  # so a rerun finishes a partial publish.
+  npm:
+    name: Publish to npm
+    needs: [check, release]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.14.0"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install npm with trusted publishing
+        run: npm install -g npm@11.6.2
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-plugin
+          path: npm
+
+      - name: Publish binaries, then the plugin
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          set -euo pipefail
+          for name in signalk-lume-ti-linux-arm64 signalk-lume-ti-linux-x64 signalk-lume-ti; do
+            if [ -n "$(npm view "$name@$VERSION" version 2>/dev/null)" ]; then
+              echo "$name@$VERSION is already on npm"
+              continue
+            fi
+            npm publish "npm/$name-$VERSION.tgz" --access public
+          done
+
   # One Discord summary per release with every job's result (ported from Hyperia).
   # always() so a partial or failed release still pings; a failed post never fails
   # the release. Skips quietly when the secrets aren't set.
   notify-discord:
     name: Notify Discord
-    needs: [check, build, plugin, halos-deb, release]
+    needs: [check, build, plugin, halos-deb, release, npm]
     if: always()
     runs-on: ubuntu-latest
     continue-on-error: true

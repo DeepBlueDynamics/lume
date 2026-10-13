@@ -9,7 +9,8 @@ const { execSync } = require('child_process');
  *
  * Checks in priority order:
  * 1. Explicit `lumePath` in plugin configuration.
- * 2. Bundled binary at `bin/<platform>-<arch>/lume` (e.g. bin/linux-arm64/lume).
+ * 2. Bundled binary at `bin/<platform>-<arch>/lume` (e.g. bin/linux-arm64/lume),
+ *    then the npm optional dependency `signalk-lume-ti-<platform>-<arch>`.
  * 3. Environment variable `LUME_BIN`.
  * 4. System PATH via `which lume` (or `where lume` on Windows).
  * 5. Relative target builds (e.g. target/release/lume or target/debug/lume) for development.
@@ -40,6 +41,17 @@ function resolveLumeBinary(config, pluginDir) {
   const flatBinPath = path.join(pluginDir, 'bin', binaryName);
   if (isExecutable(flatBinPath)) {
     return { path: flatBinPath, found: true, source: 'bundled-flat' };
+  }
+
+  // npm installs: the signalk-lume-ti-<platform>-<arch> optional dependency
+  try {
+    const packageJson = require.resolve(`signalk-lume-ti-${platform}-${arch}/package.json`, { paths: [pluginDir] });
+    const npmPath = path.join(path.dirname(packageJson), 'bin', binaryName);
+    if (isExecutable(npmPath)) {
+      return { path: npmPath, found: true, source: 'npm-optional' };
+    }
+  } catch (_e) {
+    // Not installed through npm, or no package for this platform
   }
 
   // 3. Environment variable LUME_BIN
