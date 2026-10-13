@@ -122,7 +122,7 @@ A JSON reply means the query service is up. That table is Lume's own counters. I
 
 ## 4. Ask tab
 
-The Ask tab defaults to `https://ollama.com` and the model `glm-5.3:cloud`. Create a key at [ollama.com](https://ollama.com/). Then, from your computer, in a copy of this repo:
+The Ask tab defaults to `https://ollama.com` and the model `glm-5.3:cloud`. Create a key at [ollama.com](https://ollama.com/). The plugin settings must exist first: after an App Store install, that means you have pressed **Submit** in **Plugin Config → Lume TI** once. Then, from your computer, in a copy of this repo:
 
 ```sh
 scripts/pi-set-ollama-key.sh pi@halos.local
@@ -140,7 +140,9 @@ To use a model on the boat or on a computer on the boat network instead, set **C
 
 ## 5. Optional: Lume in its own container
 
-`marine-lume` runs Lume inside Signal K. That is **Query Server Mode** `embedded`, and it is the normal install.
+By default Lume runs inside Signal K, whether you installed from the App Store or with `marine-lume`. That is **Query Server Mode** `embedded`, and it is the normal setup.
+
+This separate container needs the `marine-lume` package route. Its package depends on `marine-lume`, so do not add it to an App Store install: apt would bring in `marine-lume`, which replaces the App Store copy of the plugin.
 
 `marine-lume-container` runs Lume in a separate app so it has its own memory limit. The image is **not** published to a registry. You build it on a computer that has Docker, from a Lume release. Details and the memory numbers are in [the container README](../deploy/halos/marine-lume-container/README.md).
 
@@ -166,7 +168,14 @@ If you remove the container first, the plugin status says the external server is
 
 ## 7. Upgrade and uninstall
 
-From the App Store: when a newer Lume TI is out, **Appstore → Installed** shows **Update**. Press it, then restart Signal K. To remove it, press **Remove** there and restart Signal K. Removing keeps the history in `/var/lib/container-apps/marine-signalk-server-container/data/data/plugin-config-data/signalk-lume-ti/lume-ti` and your settings. To remove those too, delete `plugin-config-data/signalk-lume-ti.json` and `plugin-config-data/signalk-lume-ti/` in that data folder.
+From the App Store: when a newer Lume TI is out, **Appstore → Installed** shows **Update**. Press it, then restart Signal K. To remove it, press **Remove** there and restart Signal K. Removing keeps the history in `/var/lib/container-apps/marine-signalk-server-container/data/data/plugin-config-data/signalk-lume-ti/lume-ti` and your settings. To remove those too, open a terminal on the Pi (SSH, or **Terminal** in Cockpit) and run:
+
+```sh
+cd /var/lib/container-apps/marine-signalk-server-container/data/data/plugin-config-data
+sudo rm -rf signalk-lume-ti.json signalk-lume-ti/
+```
+
+The Signal K web pages cannot delete these files. If you pointed the key file or the data at other paths, remove those yourself.
 
 If you used the `marine-lume` package, upgrade with the newer package, the same way as the first install: check `SHA256SUMS`, then:
 
