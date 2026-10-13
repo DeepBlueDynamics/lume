@@ -32,23 +32,34 @@ function versionCompare(a, b) {
   }
   return 0;
 }
+// The main package carries no binary. npm installs the one
+// signalk-lume-ti-linux-<arch> package matching the host, at the same version.
 async function checkPackage(root) {
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const arch = pkg.name.match(/^signalk-lume-ti-linux-(arm64|x64)$/)?.[1];
+  if (!arch) {
+    for (const name of Object.keys(machines)) {
+      const dependency = 'signalk-lume-ti-linux-' + name;
+      if (pkg.optionalDependencies?.[dependency] !== pkg.version) {
+        throw new Error(dependency + ' must be an optional dependency pinned to ' + pkg.version);
+      }
+    }
+    return;
+  }
   let manifest;
   try { manifest = JSON.parse(fs.readFileSync(path.join(root, 'bin/manifest.json'), 'utf8')); }
   catch (_) { throw new Error('Missing binary manifest; assemble with bash scripts/package-plugin.sh --arm64 <lume> --x64 <lume> --output <dir> before npm pack'); }
   if (manifest.format !== 1) throw new Error('unsupported binary manifest');
-  for (const arch of Object.keys(machines)) {
-    const file = path.join(root, 'bin', 'linux-' + arch, 'lume');
-    const entry = manifest.binaries?.[arch];
-    if (!entry || entry.path !== 'bin/linux-' + arch + '/lume') throw new Error('missing binary for ' + arch);
-    elfHeader(file, arch);
-    if ((fs.statSync(file).mode & 0o111) === 0) throw new Error('binary is not executable: ' + arch);
-    if (entry.glibc_max !== null && versionCompare(entry.glibc_max, '2.39') > 0) {
-      throw new Error('glibc requirement exceeds 2.39: ' + arch);
-    }
-    if (await sha256(file) !== entry.sha256) throw new Error('binary checksum mismatch: ' + arch);
-    if (fs.statSync(file).size !== entry.bytes) throw new Error('binary size mismatch: ' + arch);
+  const file = path.join(root, 'bin', 'lume');
+  const entry = manifest.binaries?.[arch];
+  if (!entry || entry.path !== 'bin/lume') throw new Error('missing binary for ' + arch);
+  elfHeader(file, arch);
+  if ((fs.statSync(file).mode & 0o111) === 0) throw new Error('binary is not executable: ' + arch);
+  if (entry.glibc_max !== null && versionCompare(entry.glibc_max, '2.39') > 0) {
+    throw new Error('glibc requirement exceeds 2.39: ' + arch);
   }
+  if (await sha256(file) !== entry.sha256) throw new Error('binary checksum mismatch: ' + arch);
+  if (fs.statSync(file).size !== entry.bytes) throw new Error('binary size mismatch: ' + arch);
 }
 if (require.main === module) checkPackage(path.resolve(__dirname, '..')).catch(error => {
   console.error('Package check: ' + error.message); process.exitCode = 1;

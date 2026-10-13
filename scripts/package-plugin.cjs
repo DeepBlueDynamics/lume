@@ -95,6 +95,24 @@ function copyTree(source, target) {
   } else if (stat.isFile()) fs.copyFileSync(source, target);
   else throw new Error('unsupported file type: ' + source);
 }
+async function pack(stage, output, required) {
+  await checkPackage(stage);
+  const result = JSON.parse(run('npm', ['pack', '--json', '--offline', '--pack-destination', output], {
+    cwd: stage, env: {...process.env, npm_config_cache: path.join(output, '.npm-cache')},
+  }))[0];
+  const names = new Set(result.files.map(file => file.path));
+  for (const name of required) if (!names.has(name)) throw new Error('npm pack omitted ' + name);
+  if ([...names].some(name => /(^|\/)(test|node_modules|\.git)(\/|$)/.test(name) || /token\.txt|ti\.toml|\.env$/.test(name))) {
+    throw new Error('package contains test/build/private state');
+  }
+  const tarball = path.join(output, result.filename);
+  return {package: result.name, version: result.version, tarball,
+    compressed_bytes: fs.statSync(tarball).size, unpacked_bytes: result.unpackedSize,
+    sha256: await sha256(tarball), integrity: result.integrity, files: [...names].sort()};
+}
+// Three tarballs: the plugin itself, with no binary, and one
+// signalk-lume-ti-linux-<arch> package per architecture that npm installs as
+// an optional dependency only on a matching host.
 async function assemble(options) {
   const root = path.resolve(__dirname, '..');
   const plugin = path.join(root, 'plugins/signalk-lume-ti');
@@ -103,53 +121,57 @@ async function assemble(options) {
   // Validate both originals before creating output or copying any files.
   for (const arch of ['arm64', 'x64']) validateBinary(options[arch], arch);
   fs.mkdirSync(output, {recursive: true});
-  const stage = fs.mkdtempSync(path.join(output, 'signalk-lume-ti-'));
-  const manifest = {format: 1, glibc_ceiling: '2.39', binaries: {}};
+  const stages = [];
+  const stage = name => { const dir = fs.mkdtempSync(path.join(output, name + '-')); stages.push(dir); return dir; };
+  const binaries = {};
+  const packages = {};
   try {
+    const main = stage('signalk-lume-ti');
     for (const name of ['package.json', 'index.js', 'lib', 'public', 'library', 'README.md']) {
-      copyTree(path.join(plugin, name), path.join(stage, name));
+      copyTree(path.join(plugin, name), path.join(main, name));
     }
-    fs.copyFileSync(path.join(root, 'LICENSE'), path.join(stage, 'LICENSE'));
-    const pkg = JSON.parse(fs.readFileSync(path.join(stage, 'package.json'), 'utf8'));
+    fs.copyFileSync(path.join(root, 'LICENSE'), path.join(main, 'LICENSE'));
+    const pkg = JSON.parse(fs.readFileSync(path.join(main, 'package.json'), 'utf8'));
     // AppStore uses package-relative icons; v2.31 Webapps uses public-relative.
     const icon = pkg.signalk.appIcon.replace(/^\.\//, '');
     if (!/^[a-zA-Z0-9_-]+\.(png|svg)$/.test(icon)) throw new Error('appIcon must name a public PNG/SVG basename');
-    fs.copyFileSync(path.join(stage, 'public', icon), path.join(stage, icon));
+    fs.copyFileSync(path.join(main, 'public', icon), path.join(main, icon));
     for (const arch of ['arm64', 'x64']) {
-      const relative = 'bin/linux-' + arch + '/lume';
-      const destination = path.join(stage, relative);
+      const name = 'signalk-lume-ti-linux-' + arch;
+      const dir = stage(name);
+      const destination = path.join(dir, 'bin/lume');
       fs.mkdirSync(path.dirname(destination), {recursive: true});
       const validated = stripBinary(options[arch], destination, arch, options.stripTool);
-      manifest.binaries[arch] = {...validated, path: relative,
+      binaries[arch] = {...validated, path: 'bin/lume',
         source_bytes: fs.statSync(options[arch]).size, source_sha256: await sha256(options[arch]),
         bytes: fs.statSync(destination).size, sha256: await sha256(destination)};
+      const manifest = {format: 1, glibc_ceiling: '2.39', binaries: {[arch]: binaries[arch]}};
+      fs.writeFileSync(path.join(dir, 'bin/manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
+      fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({
+        name, version: pkg.version,
+        description: 'The Linux ' + arch + ' lume binary for signalk-lume-ti, installed as its optional dependency',
+        author: pkg.author, homepage: pkg.homepage, repository: pkg.repository, bugs: pkg.bugs, license: pkg.license,
+        files: ['bin/', 'README.md', 'LICENSE'], os: ['linux'], cpu: [arch],
+      }, null, 2) + '\n');
+      fs.writeFileSync(path.join(dir, 'README.md'), '# ' + name + '\n\nThe Linux ' + arch + ' `lume` binary for ' +
+        '[signalk-lume-ti](https://www.npmjs.com/package/signalk-lume-ti). npm installs it with that plugin on a ' +
+        'matching host; install the plugin, not this package.\n\n`bin/manifest.json` records the binary\'s size, ' +
+        'SHA-256 and glibc requirement (at most 2.39).\n');
+      fs.copyFileSync(path.join(root, 'LICENSE'), path.join(dir, 'LICENSE'));
+      packages[arch] = await pack(dir, output, ['bin/lume', 'bin/manifest.json', 'README.md', 'LICENSE']);
     }
-    fs.writeFileSync(path.join(stage, 'bin/manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
-    await checkPackage(stage);
-    const result = JSON.parse(run('npm', ['pack', '--json', '--offline', '--pack-destination', output], {
-      cwd: stage, env: {...process.env, npm_config_cache: path.join(output, '.npm-cache')},
-    }))[0];
-    const names = new Set(result.files.map(file => file.path));
-    for (const required of ['index.js', 'public/index.html', 'library/cruiser_library.csv',
-      'bin/manifest.json', 'bin/linux-arm64/lume', 'bin/linux-x64/lume', 'LICENSE', icon, 'public/' + icon]) {
-      if (!names.has(required)) throw new Error('npm pack omitted ' + required);
-    }
-    if ([...names].some(name => /(^|\/)(test|node_modules|\.git)(\/|$)/.test(name) || /token\.txt|ti\.toml|\.env$/.test(name))) {
-      throw new Error('package contains test/build/private state');
-    }
-    const tarball = path.join(output, result.filename);
-    const report = {package: pkg.name, version: pkg.version, tarball,
-      compressed_bytes: fs.statSync(tarball).size, unpacked_bytes: result.unpackedSize,
-      sha256: await sha256(tarball), integrity: result.integrity, files: [...names].sort(), ...manifest};
+    const report = {...await pack(main, output, ['index.js', 'public/index.html', 'library/cruiser_library.csv',
+      'LICENSE', icon, 'public/' + icon]), packages, format: 1, glibc_ceiling: '2.39', binaries};
+    if (report.files.some(name => name.startsWith('bin/'))) throw new Error('plugin package must not bundle a binary');
     fs.writeFileSync(path.join(output, 'package-report.json'), JSON.stringify(report, null, 2) + '\n');
     return report;
-  } finally { fs.rmSync(stage, {recursive: true, force: true}); }
+  } finally { for (const dir of stages) fs.rmSync(dir, {recursive: true, force: true}); }
 }
 if (require.main === module) {
   (async () => {
     const options = parseArgs(process.argv.slice(2));
     if (options.help) {
-      console.log('Usage: bash scripts/package-plugin.sh --arm64 <lume> --x64 <lume> [--output <dir>] [--strip-tool <tool>]\nValidates ELF/glibc <=2.39, strips staged copies, and packs both architectures offline.');
+      console.log('Usage: bash scripts/package-plugin.sh --arm64 <lume> --x64 <lume> [--output <dir>] [--strip-tool <tool>]\nValidates ELF/glibc <=2.39, strips staged copies, and packs the plugin plus one binary package per architecture offline.');
       return;
     }
     const report = await assemble(options);
@@ -158,7 +180,10 @@ if (require.main === module) {
         (binary.glibc_max || 'none/static') + '; ' + binary.strip_tool);
       if (!binary.file_description) console.error('file command unavailable; verified ELF header and readelf for ' + arch);
     }
-    console.error('Tarball: ' + report.compressed_bytes + ' bytes compressed, ' + report.unpacked_bytes + ' bytes unpacked');
+    for (const packed of [report, ...Object.values(report.packages)]) {
+      console.error(path.basename(packed.tarball) + ': ' + packed.compressed_bytes + ' bytes compressed, ' +
+        packed.unpacked_bytes + ' bytes unpacked');
+    }
     console.log(JSON.stringify(report, null, 2));
   })().catch(error => { console.error('Packaging failed: ' + error.message); process.exitCode = 1; });
 }

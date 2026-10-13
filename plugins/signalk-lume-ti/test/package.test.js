@@ -50,7 +50,9 @@ test('AppStore metadata and files describe an offline Linux package', () => {
   assert.ok(pkg.keywords.includes('signalk-category-database'));
   assert.equal(pkg.engines.node, '>=18.0.0');
   for (const lifecycle of ['preinstall','install','postinstall']) assert.equal(pkg.scripts[lifecycle], undefined);
-  for (const arch of ['arm64','x64']) assert.ok(pkg.files.includes('bin/linux-' + arch + '/lume'));
+  assert.ok(!pkg.files.some(name => name.startsWith('bin/')));
+  for (const arch of ['arm64','x64']) assert.equal(pkg.optionalDependencies['signalk-lume-ti-linux-' + arch], pkg.version);
+  assert.equal(pkg.repository.url, 'git+https://github.com/DeepBlueDynamics/lume.git');
 });
 test('release arguments require both architectures', () => {
   assert.throws(() => parseArgs(['--arm64', 'one']), /both/);
@@ -94,7 +96,7 @@ test('stripping preserves executable architecture and originals', {skip: !native
     validateBinary(destination, arch);
   }
 });
-test('packed tarball installs offline with lifecycle scripts disabled', {skip: !native}, async t => {
+test('packed tarballs install offline with lifecycle scripts disabled', {skip: !native}, async t => {
   const {dir,x64,arm64} = fixtures(t);
   const output = path.join(dir, 'package');
   const result = spawnSync('bash', [path.resolve(__dirname, '../../../scripts/package-plugin.sh'),
@@ -104,20 +106,26 @@ test('packed tarball installs offline with lifecycle scripts disabled', {skip: !
   assert.equal(fs.statSync(report.tarball).size, report.compressed_bytes);
   assert.ok(report.files.includes('public/icon.svg'));
   assert.ok(report.files.includes('icon.svg'));
-  assert.ok(!report.files.some(name => name.startsWith('test/')));
+  assert.ok(!report.files.some(name => name.startsWith('test/') || name.startsWith('bin/')));
+  for (const arch of ['arm64','x64']) {
+    assert.equal(report.packages[arch].package, 'signalk-lume-ti-linux-' + arch);
+    assert.deepEqual(report.packages[arch].files, ['LICENSE','README.md','bin/lume','bin/manifest.json','package.json']);
+  }
   const install = path.join(dir, 'install');
   fs.mkdirSync(install);
   fs.writeFileSync(path.join(install,'package.json'), '{"name":"fixture-install","version":"1.0.0","private":true}');
   const installed = spawnSync('npm', ['install','--ignore-scripts','--offline','--no-audit','--no-fund',
-    '--cache', path.join(dir, 'npm-cache'), report.tarball], {cwd: install, encoding:'utf8', timeout:60000});
+    '--cache', path.join(dir, 'npm-cache'), report.tarball, report.packages.x64.tarball], {cwd: install, encoding:'utf8', timeout:60000});
   assert.equal(installed.status, 0, installed.error?.message || installed.stderr);
   const plugin = path.join(install, 'node_modules/signalk-lume-ti');
   await checkPackage(plugin);
+  const binaries = path.join(install, 'node_modules/signalk-lume-ti-linux-x64');
+  await checkPackage(binaries);
   assert.equal(typeof require(path.join(plugin,'index.js')), 'function');
   const resolver = require(path.join(plugin,'lib/resolver.js'));
   const binary = resolver.resolveLumeBinary({},plugin);
-  assert.equal(binary.source,'bundled');
+  assert.equal(binary.source,'npm-optional');
   assert.equal(spawnSync(binary.path,[],{encoding:'utf8'}).status,0);
   fs.appendFileSync(binary.path,'tampered');
-  await assert.rejects(checkPackage(plugin), /checksum mismatch/);
+  await assert.rejects(checkPackage(binaries), /checksum mismatch/);
 });
