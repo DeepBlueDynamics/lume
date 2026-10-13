@@ -1,3 +1,5 @@
+<p align="center"><img src="https://raw.githubusercontent.com/DeepBlueDynamics/lume/main/assets/lume-icon.svg" width="96" alt="Lume"></p>
+
 # @deepbluedynamics/lume
 
 **One store for the numbers and the words.** [Lume](https://github.com/DeepBlueDynamics/lume) keeps documents and time-series telemetry in one queryable system: hybrid search over the words, SQL over the measurements, and MCP tools for agents. One Rust binary, on hardware you control.
@@ -5,6 +7,14 @@
 ```sh
 npm install -g @deepbluedynamics/lume
 lume --version
+```
+
+Try it on a folder of Markdown, text, PDF or EPUB files:
+
+```sh
+lume index ~/Documents/manuals
+lume search "bilge pump float switch"
+lume sql repl
 ```
 
 npm installs one prebuilt binary for your machine, from an optional dependency:

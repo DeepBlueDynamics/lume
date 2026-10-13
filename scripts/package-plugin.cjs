@@ -153,10 +153,19 @@ async function assemble(options) {
         author: pkg.author, homepage: pkg.homepage, repository: pkg.repository, bugs: pkg.bugs, license: pkg.license,
         files: ['bin/', 'README.md', 'LICENSE'], os: ['linux'], cpu: [arch],
       }, null, 2) + '\n');
-      fs.writeFileSync(path.join(dir, 'README.md'), '# ' + name + '\n\nThe Linux ' + arch + ' `lume` binary for ' +
-        '[signalk-lume-ti](https://www.npmjs.com/package/signalk-lume-ti). npm installs it with that plugin on a ' +
-        'matching host; install the plugin, not this package.\n\n`bin/manifest.json` records the binary\'s size, ' +
-        'SHA-256 and glibc requirement (at most 2.39).\n');
+      fs.writeFileSync(path.join(dir, 'README.md'), [
+        '# ' + name, '',
+        'The Linux ' + arch + ' `lume` program for **[Lume TI](https://www.npmjs.com/package/signalk-lume-ti)**, ' +
+          'the Signal K plugin that keeps your boat\'s history on the boat and lets you query it.', '',
+        '**Install the plugin, not this package.** npm adds this one by itself on a 64-bit ' +
+          (arch === 'arm64' ? 'ARM Linux server, such as a Raspberry Pi' : 'x86 Linux server') + ':', '',
+        '```sh', 'cd ~/.signalk', 'npm install signalk-lume-ti', '```', '',
+        'Or install **Lume TI** from the Signal K App Store.', '',
+        '## What is inside', '',
+        '- `bin/lume`: Lume ' + pkg.version + ' for Linux ' + arch + ', built with the `ti` feature.',
+        '- `bin/manifest.json`: the program\'s size, SHA-256 and the glibc version it needs (the packaging ceiling is 2.39).', '',
+        'Source and documentation: [DeepBlueDynamics/lume](https://github.com/DeepBlueDynamics/lume). License: BSD-3-Clause.', '',
+      ].join('\n'));
       fs.copyFileSync(path.join(root, 'LICENSE'), path.join(dir, 'LICENSE'));
       packages[arch] = await pack(dir, output, ['bin/lume', 'bin/manifest.json', 'README.md', 'LICENSE']);
     }

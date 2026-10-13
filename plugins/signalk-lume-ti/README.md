@@ -1,12 +1,57 @@
-# signalk-lume-ti
+<p align="center"><img src="https://raw.githubusercontent.com/DeepBlueDynamics/lume/main/assets/lume-icon.svg" width="96" alt="Lume"></p>
 
-Signal K server plugin and web application for **Lume TI** — high-resolution timeseries store and query engine.
+# Lume TI for Signal K
 
-Supervises `lume ti ingest --serve` as a managed child process inside the Signal K environment, providing continuous live telemetry recording, WAL crash safety, automated shard sealing, and an in-browser SQL query console.
+**Your boat's history, kept on the boat, and easy to ask about.** Lume TI records what your Signal K server sees, in 10-second buckets, on your own hardware. Then it gives you a SQL console, an Ask tab, a Library for your manuals, and a Signal K History API provider for other apps. It runs [Lume](https://github.com/DeepBlueDynamics/lume), one small Rust program, beside Signal K.
+
+## What you get
+
+- **History of your Signal K data**, stored on the server in 10-second buckets.
+- **Webapps → Lume TI:**
+  - a SQL console with ready-made queries, such as **Recent SOG & Wind**, plus CSV export and a schema browser;
+  - an **Ask** tab for plain-language questions about your data, using a cloud model (`glm-5.3:cloud` at ollama.com, needs a key) or a model on your own network;
+  - a **Library** for manuals and PDFs, searchable offline.
+- **A History API provider** named `signalk-lume-ti`, so Freeboard, KIP and other apps can read that history.
+- **Optional extras:** a PostgreSQL endpoint for Grafana, and query results pinned to the chart as notes.
+- **No new ports on the boat network.** The query service listens on `127.0.0.1` only.
+
+## Install
+
+From the Signal K App Store:
+
+1. In Signal K admin, open **Appstore → Available**, find **Lume TI**, and press **Install**.
+2. Press **Restart** at the top right.
+3. Open **Server → Plugin Config → Lume TI**, tick **Enabled**, and press **Submit**.
+4. Open **Security → Access Requests** and approve the Lume TI device. Lume records nothing until you do, unless the server allows anonymous read-only access.
+
+Or with npm, as the user Signal K runs as:
+
+```sh
+cd ~/.signalk
+npm install signalk-lume-ti
+```
+
+Then restart Signal K and do steps 3 and 4.
+
+npm installs the plugin plus one `lume` program for your machine: `signalk-lume-ti-linux-arm64` on a Raspberry Pi, `signalk-lume-ti-linux-x64` on a PC. That's about 35 MB. You need 64-bit Linux (arm64 or x64) with glibc 2.35 or newer, Signal K 2.31 or newer, and Node 18 or newer. 32-bit Raspberry Pi OS, Victron Venus OS, macOS and Windows are not supported. No compiler and no install script are involved.
+
+**On HaLOS,** use the App Store as above, or the `marine-lume` package when the boat has no internet at install time. Use one of them, not both. [Install Lume on HaLOS](https://github.com/DeepBlueDynamics/lume/blob/main/docs/HALOS.md) walks through both, including the Cockpit login.
+
+**Offline on another Signal K server,** install the plugin tarball and the matching program tarball from the [release](https://github.com/DeepBlueDynamics/lume/releases/latest) together, as [section 9 of the install guide](https://github.com/DeepBlueDynamics/lume/blob/main/docs/HALOS.md#9-install-on-other-64-bit-linux-signal-k-servers) shows.
+
+## Check it works
+
+- In **Server → Plugin Config → Lume TI**, the status starts with `Running` and shows how much has been ingested.
+- Open **Webapps → Lume TI**, then the SQL console, and press **Recent SOG & Wind**. Rows appear once the boat has sent data.
+- Problems, from "page not found" to "no boat data", are covered in [Troubleshooting](https://github.com/DeepBlueDynamics/lume/blob/main/docs/HALOS.md#8-troubleshooting).
+
+Questions and bugs: [GitHub issues](https://github.com/DeepBlueDynamics/lume/issues). License: BSD-3-Clause.
 
 ---
 
-## Architecture
+## How it works
+
+### Architecture
 
 - **Supervision**: Runs `lume ti ingest --signalk ws://127.0.0.1:3000 --store <dataDir>/lume-ti --serve --bind 127.0.0.1 --port 5863` as a child process. Automatically restarts on crash with exponential backoff and gracefully shuts down via `SIGTERM` (which flushes in-memory WAL buffers and bucket accumulators before exit). Supports `--otlp` and `--otlp-token-file <path>` when OTLP is enabled, and `--pg`, `--pg-bind`, `--pg-auth-config`, `--pg-require-tls` when PostgreSQL is configured.
 - **Storage**: Columnar parquet-backed TI store located under `/home/node/.signalk/lume-ti` (via `app.getDataDirPath()`).
@@ -16,7 +61,7 @@ Supervises `lume ti ingest --serve` as a managed child process inside the Signal
 
 ---
 
-## Target Environment & Libc Compatibility
+### Target environment and glibc
 
 - **Device**: Raspberry Pi 5 (8 GB) running HaLOS (Halos-Marine-RPI).
 - **Signal K Container**: `signalk-server-docker` (v2.31.1).
@@ -27,62 +72,7 @@ Supervises `lume ti ingest --serve` as a managed child process inside the Signal
 - **Host**: Debian 13 (Trixie), `glibc 2.41`, `aarch64`.
 - **Libc Compatibility**: Because the container runs standard Ubuntu 24.04 with `glibc 2.39`, a musl static build is **not required**. Any `aarch64-unknown-linux-gnu` binary compiled on Debian/Ubuntu with `GLIBC <= 2.39` will run directly inside the container.
 
----
-
-## Install on HaLOS or OpenPlotter
-
-The plugin package carries no binary. Its optional dependencies
-`signalk-lume-ti-linux-arm64` and `signalk-lume-ti-linux-x64` each hold one
-Linux `lume` binary, and npm installs only the one matching the host.
-Installation needs no Rust compiler, Python extractor, Grub, download hook or
-install-time script. Node 18+ and Signal K 2.31+ are required. 32-bit ARM and
-musl Linux are not supported. Each binary's exact glibc requirement is
-recorded in its package's `bin/manifest.json`; the packaging ceiling is 2.39.
-
-On HaLOS, install the `marine-lume` package and follow
-[Install Lume on HaLOS](../../docs/HALOS.md). The package enables the plugin
-and restarts Signal K. Change settings later in **Server → Plugin Config**.
-
-On another Signal K install, install **Lume TI** from the App Store, or inside
-the running Signal K container, as its usual user:
-
-```bash
-cd ~/.signalk
-npm install signalk-lume-ti
-```
-
-Offline, install the plugin tarball and the matching binary tarball from the
-release together, as
-[Install on other 64-bit Linux Signal K servers](../../docs/HALOS.md#9-install-on-other-64-bit-linux-signal-k-servers)
-describes:
-
-```bash
-cd ~/.signalk
-npm install /path/to/signalk-lume-ti-X.Y.Z.tgz /path/to/signalk-lume-ti-linux-arm64-X.Y.Z.tgz
-```
-
-Leave both `.tgz` files in place. npm records them as `file:` dependencies.
-`--ignore-scripts` is optional: these packages have no install script.
-Restart Signal K, enable **Lume TI** in **Server → Plugin Config**, and
-approve the device in **Security → Access Requests** before you expect data.
-
-Alternatively, deploy the plugin and arm64 binary directly from your workstation using `scripts/deploy-pi.sh <ssh-host>` or `scripts/provision-pi.sh <ssh-host>`.
-
-Restart Signal K if the new plugin is not listed. Install inside the container,
-where the runtime architecture and libc match the package, rather than copying
-an unpacked source checkout into node_modules. On 64-bit OpenPlotter, use the
-same App Store flow or npm command in the Signal K user's ~/.signalk directory.
-
-Before enabling ingestion, pin the vessel UUID or MMSI in **Server → Settings →
-Vessel Base Data**. Record the `self` context from `GET /signalk`, restart the
-server, and verify it is unchanged; changing identity splits historical data.
-Enable **Lume TI**, leave the custom binary path empty, and keep the default
-WebSocket URL `ws://127.0.0.1:3000` and query port 5863.
-In **Security → Access Requests**, approve the Lume TI device's read-only
-request. The plugin retains its client identity and token across restarts.
-Anonymous telemetry can start sooner when enabled, but protected document
-sources still need an approved token. Open **Webapps → Lume TI** and check
-ingest status and the recorded vessel context.
+To deploy the plugin and the arm64 program straight from a workstation, use `scripts/deploy-pi.sh <ssh-host>` or `scripts/provision-pi.sh <ssh-host>`.
 
 ### Build a release package
 
@@ -126,7 +116,7 @@ input/output sizes, SHA-256 checksums, glibc requirements and the packed file
 lists. Packing is offline. Before packing, a check verifies each binary
 against its package's manifest and that the plugin pins both binary packages
 to its own version. The release workflow publishes the binary packages to npm
-before the plugin. [Publishing Lume to npm](../../docs/NPM.md) covers trusted
+before the plugin. [Publishing Lume to npm](https://github.com/DeepBlueDynamics/lume/blob/main/docs/NPM.md) covers trusted
 publishing and setting up a new package. Installation works with Signal K's
 [`--ignore-scripts` policy](https://github.com/SignalK/signalk-server/blob/v2.31.0/src/modules.ts).
 
@@ -302,7 +292,7 @@ unaffected. Unix rejects group/world-accessible auth files; secure the parent
 directory too. Changes take effect on restart. --pg-bind applies only to PG
 and defaults to --bind when omitted from the CLI.
 
-Copy [the provisioning file](../../bench/grafana/lume-ti-datasource.yaml) into
+Copy [the provisioning file](https://github.com/DeepBlueDynamics/lume/blob/main/bench/grafana/lume-ti-datasource.yaml) into
 /etc/grafana/provisioning/datasources/ in the Grafana container and provide
 LUME_PG_PASSWORD through its environment/secret configuration, matching the
 password set in the webapp. It uses secureJsonData.password with
