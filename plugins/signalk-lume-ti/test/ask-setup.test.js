@@ -136,3 +136,12 @@ test('Ask answers render as Markdown with no way to inject HTML', () => {
   assert.match(html, /<a href="https:\/\/ollama\.com" target="_blank" rel="noopener noreferrer">ok<\/a>/);
   assert.equal(md.render('snake_case_name and 2*3*4'), '<p>snake_case_name and 2*3*4</p>');
 });
+
+test('links keep their attributes when underscores sit nearby', () => {
+  const html = md.render('See [docs](https://x.com/_a_/b) or foo_ bar_baz and _real italic_');
+  assert.match(html, /<a href="https:\/\/x\.com\/_a_\/b" target="_blank" rel="noopener noreferrer">docs<\/a>/);
+  assert.match(html, /<em>real italic<\/em>/);
+  assert.ok(!/target="<em>/.test(html));
+  // A literal NUL can't forge a placeholder: it is dropped and the text stays.
+  assert.equal(md.render('a\u00000\u0000b'), '<p>a0b</p>');
+});

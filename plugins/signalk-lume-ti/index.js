@@ -244,8 +244,15 @@ module.exports = function (app) {
           log('Received Signal K device access token.');
           // If supervisor was started without token, restart with token
           if (supervisor && !supervisor.tokenPath && fs.existsSync(tokenPath)) {
-            supervisor.tokenPath = tokenPath;
-            supervisor.stop().then(() => supervisor.start());
+            const sup = supervisor;
+            sup.tokenPath = tokenPath;
+            // Wait for any older lume still exiting, then restart this one with the token.
+            Promise.resolve(pendingStop)
+              .then(() => sup.stop())
+              .then(() => {
+                if (supervisor === sup) sup.start();
+              })
+              .catch(err => log(`Restart with token failed: ${err.message}`, true));
           }
         },
         onStatus: (st) => log(`[auth] ${st}`),
@@ -337,11 +344,16 @@ module.exports = function (app) {
       if (supervisor) {
         const sup = supervisor;
         supervisor = null;
-        const stopping = sup.stop().then(() => {
-          if (typeof app.setPluginStatus === 'function') {
-            app.setPluginStatus('Stopped');
-          }
-        }).catch(() => {}).then(() => {
+        // Chain onto any earlier stop: a supervisor that never spawned stops at once,
+        // and must not let the next start run while an older lume is still exiting.
+        const stopping = Promise.all([
+          pendingStop,
+          sup.stop().then(() => {
+            if (typeof app.setPluginStatus === 'function') {
+              app.setPluginStatus('Stopped');
+            }
+          }).catch(() => {}),
+        ]).then(() => {
           if (pendingStop === stopping) pendingStop = null;
         });
         pendingStop = stopping;
@@ -374,6 +386,7 @@ module.exports = function (app) {
         },
       });
       router.get('/md.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'md.js')));
+      router.get('/icon.svg', (req, res) => res.sendFile(path.join(__dirname, 'public', 'icon.svg')));
       // 1. Status API
       router.get('/api/status', (req, res) => {
         const dataDir = typeof app.getDataDirPath === 'function' ? app.getDataDirPath() : '';

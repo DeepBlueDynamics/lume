@@ -13,21 +13,25 @@
       .replace(/'/g, '&#39;');
   }
 
-  // Inline markup on already-escaped text. Code spans are cut out first so their
-  // contents stay literal.
+  // Inline markup on already-escaped text. Code spans and link URLs are cut out
+  // into placeholders first, so emphasis rules can't reach inside them.
   function inline(escaped) {
-    const codes = [];
-    let out = escaped.replace(/`([^`]+)`/g, (_, code) => {
-      codes.push(`<code>${code}</code>`);
-      return `\u0000${codes.length - 1}\u0000`;
-    });
+    const held = [];
+    const hold = html => {
+      held.push(html);
+      return `\u0000${held.length - 1}\u0000`;
+    };
+    // A literal NUL in the input can't collide with a placeholder.
+    let out = escaped.replace(/\u0000/g, '');
+    out = out.replace(/`([^`]+)`/g, (_, code) => hold(`<code>${code}</code>`));
+    out = out.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+      (_, text, href) => `${hold(`<a href="${href}" target="_blank" rel="noopener noreferrer">`)}${text}${hold('</a>')}`);
     out = out
-      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
       .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
       .replace(/__([^_]+)__/g, '<strong>$1</strong>')
       .replace(/(^|[^*\w])\*([^*\s][^*]*)\*(?!\w)/g, '$1<em>$2</em>')
       .replace(/(^|[^_\w])_([^_\s][^_]*)_(?!\w)/g, '$1<em>$2</em>');
-    return out.replace(/\u0000(\d+)\u0000/g, (_, i) => codes[Number(i)]);
+    return out.replace(/\u0000(\d+)\u0000/g, (_, i) => held[Number(i)]);
   }
 
   function splitRow(line) {

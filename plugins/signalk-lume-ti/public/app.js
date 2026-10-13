@@ -48,17 +48,22 @@
     }
   }
 
+  // Tables Lume creates on first data; a missing one of these means "nothing yet", not a typo.
+  const STORE_TABLES = new Set(['telemetry', 'telemetry_lume', 'docs']);
+
   /**
-   * Why a query found nothing, in words a boater can act on. Returns null when the
-   * error is a real SQL mistake that should be shown as is.
+   * Why a query found nothing, in words a boater can act on. Only replaces the error
+   * when Lume is down or the store has no data yet; a typo on a store with data keeps
+   * its real error (see hintFor). Returns null to show the error as is.
    */
   function explainEmpty(message, status) {
     const msg = String(message || '');
-    if (status === 503 || /Query server .*unavailable|ECONNREFUSED|timed out/i.test(msg)) {
+    // 503 is the proxy failing to reach lume; a 504 timeout is a slow query, not a down server.
+    if (status === 503 || /Query server .*unavailable|ECONNREFUSED/i.test(msg)) {
       return 'Lume isn\'t running right now, so there is nothing to query. The Status tab shows why; restarting Signal K usually brings it back.';
     }
-    const missingTable = /table '?"?([\w.]+)"?'? not found|table .*does not exist/i.exec(msg);
-    const missingField = /No field named "?([^"\s]+)"?|Schema error: No field named ([\w.@"]+)/i.exec(msg);
+    const missingTable = /table '?"?([\w.]+?)"?'? not found|table .*does not exist/i.exec(msg);
+    const missingField = /No field named "?([^"\s]+?)"?(?:[.,]?\s|[.,]?$)/i.exec(msg);
     if (!missingTable && !missingField) return null;
     const access = lastStatus && lastStatus.access;
     const records = lastStatus && lastStatus.store && lastStatus.store.ingestStatus
@@ -66,11 +71,20 @@
     if (access && !access.token && access.state === 'PENDING') {
       return 'No boat data yet: Lume is waiting for access. Approve the Lume TI device in Signal K under Security → Access Requests (the link is in the banner above).';
     }
-    if (missingTable && (!records || /telemetry/i.test(missingTable[1]))) {
-      return 'No boat data has been recorded yet. Lume starts a table the first time Signal K sends data; check that your instruments or a data connection are feeding Signal K.';
+    const table = missingTable ? (missingTable[1] || '').split('.').pop().toLowerCase() : '';
+    if (!records && (!missingTable || STORE_TABLES.has(table))) {
+      return 'No boat data has been recorded yet. Lume starts its tables the first time Signal K sends data; check that your instruments or a data connection are feeding Signal K.';
     }
-    const field = (missingField && (missingField[1] || missingField[2]) || '').replace(/"/g, '');
-    return `This boat hasn't sent ${field || 'that value'} yet, so the query has nothing to show. The Schema Browser lists what has been recorded so far.`;
+    return null;
+  }
+
+  // On a store with data, a missing Signal K path may just not have been sent yet.
+  function hintFor(message) {
+    const missingField = /No field named "?([^"\s]+?)"?(?:[.,]?\s|[.,]?$)/i.exec(String(message || ''));
+    if (missingField && missingField[1].includes('.')) {
+      return ` If ${missingField[1]} is a Signal K path, this boat may not have sent it yet; the Schema Browser lists what has been recorded.`;
+    }
+    return '';
   }
 
   // 1. Tab Switching
@@ -170,9 +184,10 @@
           empty.empty = true;
           throw empty;
         }
+        const hint = hintFor(message);
         // DataFusion lists every valid column; keep the hint, drop the wall of names.
         message = message.replace(/ Valid fields are .*$/s, ' (open Schema Browser for the column list)');
-        throw new Error(message);
+        throw new Error(message + hint);
       }
 
       const data = await res.json();

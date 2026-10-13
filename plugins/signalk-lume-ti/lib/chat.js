@@ -291,9 +291,15 @@ function saveChatKey(dataDir, key) {
   fs.mkdirSync(dataDir, {recursive: true});
   const target = path.join(dataDir, KEY_FILE_NAME);
   const tmp = `${target}.tmp-${process.pid}`;
-  fs.writeFileSync(tmp, `${value}\n`, {mode: 0o600});
-  fs.chmodSync(tmp, 0o600);
-  fs.renameSync(tmp, target);
+  try {
+    fs.writeFileSync(tmp, `${value}\n`, {mode: 0o600});
+    fs.chmodSync(tmp, 0o600);
+    fs.renameSync(tmp, target);
+  } catch (err) {
+    // Don't leave a stray copy of the key behind.
+    try { fs.unlinkSync(tmp); } catch (_) {}
+    throw err;
+  }
   return target;
 }
 
