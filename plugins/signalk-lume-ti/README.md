@@ -2,18 +2,34 @@
 
 # Lume TI for Signal K
 
-**Your boat's history, kept on the boat, and easy to ask about.** Lume TI records what your Signal K server sees, in 10-second buckets, on your own hardware. Then it gives you a SQL console, an Ask tab, a Library for your manuals, and a Signal K History API provider for other apps. It runs [Lume](https://github.com/DeepBlueDynamics/lume), one small Rust program, beside Signal K.
+**Your boat's history and your manuals, kept on the boat.** Lume TI does two jobs on your own hardware:
+
+- **It records what your Signal K server sees**: speed, depth, wind, position, engine and battery data, everything, summarised every 10 seconds, so you can look back hours or months later.
+- **It keeps an offline library**: pick from about 470 free cruising references, from the navigation rules to first aid and engine manuals. Lume downloads them to the boat and makes them searchable with no internet.
+
+Ask about either in plain English, or with SQL, from **Webapps → Lume TI**. It runs [Lume](https://github.com/DeepBlueDynamics/lume), one small Rust program, beside Signal K.
 
 ## What you get
 
-- **History of your Signal K data**, stored on the server in 10-second buckets.
+- **History of your Signal K data**, stored on the server and summarised every 10 seconds, keeping the lowest, highest and latest reading.
 - **Webapps → Lume TI:**
   - a SQL console with ready-made queries, such as **Recent SOG & Wind**, plus CSV export and a schema browser;
   - an **Ask** tab for plain-language questions about your data, using a cloud model (`glm-5.3:cloud` at ollama.com, needs a key) or a model on your own network;
-  - a **Library** for manuals and PDFs, searchable offline.
+  - a **Library** of manuals and references, searchable offline (see below).
 - **A History API provider** named `signalk-lume-ti`, so Freeboard, KIP and other apps can read that history.
 - **Optional extras:** a PostgreSQL endpoint for Grafana, and query results pinned to the chart as notes.
 - **No new ports on the boat network.** The query service listens on `127.0.0.1` only.
+
+## The Library: manuals and references on board
+
+Lume TI ships with a catalog of about 470 free references for cruisers. The biggest groups are navigation (rules of the road, IALA buoyage, Bowditch, light lists), medical and first aid, provisioning, fishing, electrical, offline reference collections, language guides, boat systems, seamanship, rigging and weather.
+
+- **Pick and index.** In **Webapps → Lume TI → Library**, tick what you want and press **Index selected**. Lume downloads each document to this server and indexes it page by page. After that it works with no internet. Indexing needs the Signal K admin login.
+- **A starter set is ticked for you:** the COLREGS navigation rules, IALA buoyage, NOAA's coastal marine weather guide, the VHF-DSC radio guide, a ship captain's medical guide, an abandon-ship procedure template and a lithium battery manual.
+- **Search it** from the Library tab, by words such as "engine overheating raw water impeller".
+- **Alerts bring up the right pages.** When Signal K raises an alert (shallow water, anchor dragging, person overboard, fire, flooding, an engine, electrical or gas alarm), the Library tab shows the most relevant pages for it.
+- **Ask uses it too.** A question such as "what lights does a vessel restricted in her ability to manoeuvre show?" is answered from the indexed rules, with the pages it used.
+- Downloads go through [Grub Crawler](https://github.com/DeepBlueDynamics/lume/blob/main/deploy/halos/marine-grubcrawler-container/README.md) when it's installed, or directly otherwise. Scanned PDFs with no text layer can't be searched yet ([#51](https://github.com/DeepBlueDynamics/lume/issues/51)).
 
 ## Install
 

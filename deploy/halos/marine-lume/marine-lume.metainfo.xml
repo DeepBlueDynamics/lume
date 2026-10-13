@@ -2,7 +2,7 @@
 <component type="webapp">
   <id>marine-lume</id>
   <name>Lume TI</name>
-  <summary>Records Signal K history on the Pi and lets you query it with SQL or plain-English questions</summary>
+  <summary>Records Signal K history and an offline library of manuals on the Pi, and answers questions about both</summary>
   <description>
     <p>Lume TI records the boat's Signal K data on the Pi and keeps it next to your
     manuals, logbook and alerts. Ask it questions in SQL or plain English from the
