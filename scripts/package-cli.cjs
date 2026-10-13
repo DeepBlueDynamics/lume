@@ -14,6 +14,26 @@ const {sha256} = require('../plugins/signalk-lume-ti/lib/package-check');
 const {validateBinary, stripBinary, run} = require('./package-plugin.cjs');
 
 const SCOPE = '@deepbluedynamics/lume';
+const LABELS = {'linux-x64': 'Linux x64', 'linux-arm64': 'Linux arm64', 'darwin-arm64': 'macOS Apple Silicon',
+  'darwin-x64': 'macOS Intel', 'win32-x64': 'Windows x64'};
+
+// The README npm shows for one platform package: what it is, and what to install instead.
+function binaryReadme(name, target, version, executable) {
+  const label = LABELS[target];
+  return [
+    '# ' + name, '',
+    'The ' + label + ' `lume` program for **[' + SCOPE + '](https://www.npmjs.com/package/' + SCOPE + ')**, ' +
+      'the Lume command-line tool. Lume keeps your documents and your time-series telemetry in one store: ' +
+      'search the words, query the numbers with SQL, and give agents all of it as MCP tools.', '',
+    '**Install `' + SCOPE + '`, not this package.** npm adds this one by itself on a ' + label + ' machine:', '',
+    '```sh', 'npm install -g ' + SCOPE, 'lume --version', '```', '',
+    '## What is inside', '',
+    '- `bin/' + executable + '`: Lume ' + version + ' for ' + label + ', built with the `ti` feature, so `lume ti` is included.',
+    '- `bin/manifest.json`: the program\'s size and SHA-256' +
+      (target.startsWith('linux') ? ', and the glibc version it needs (the packaging ceiling is 2.39).' : '.'), '',
+    'Source and documentation: [DeepBlueDynamics/lume](https://github.com/DeepBlueDynamics/lume). License: BSD-3-Clause.', '',
+  ].join('\n');
+}
 const TARGETS = ['linux-x64', 'linux-arm64', 'darwin-arm64', 'darwin-x64', 'win32-x64'];
 
 function parseArgs(args) {
@@ -111,10 +131,7 @@ async function assemble(options) {
         author: cli.author, homepage: cli.homepage, repository: cli.repository, bugs: cli.bugs, license: cli.license,
         files: ['bin/', 'README.md', 'LICENSE'], os: [platform], cpu: [arch],
       }, null, 2) + '\n');
-      fs.writeFileSync(path.join(dir, 'README.md'), '# ' + name + '\n\nThe ' + target + ' `lume` binary for ' +
-        '[' + SCOPE + '](https://www.npmjs.com/package/' + SCOPE + '). npm installs it with that package on a ' +
-        'matching host; install `' + SCOPE + '`, not this package.\n\n`bin/manifest.json` records the binary\'s ' +
-        'size and SHA-256' + (platform === 'linux' ? ', and its glibc requirement (at most 2.39)' : '') + '.\n');
+      fs.writeFileSync(path.join(dir, 'README.md'), binaryReadme(name, target, cli.version, executable));
       fs.copyFileSync(path.join(root, 'LICENSE'), path.join(dir, 'LICENSE'));
       packages[target] = {...await pack(dir, output, ['bin/' + executable, 'bin/manifest.json', 'README.md', 'LICENSE']), manifest};
     }
