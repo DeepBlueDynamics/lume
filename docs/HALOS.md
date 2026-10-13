@@ -2,7 +2,7 @@
 
 This is the install guide for a boat computer. HaLOS comes first. A plain 64-bit Linux Signal K server is in [section 9](#9-install-on-other-64-bit-linux-signal-k-servers).
 
-The current release used below is **v0.15.1**. For a later release, change `0.15.1` in the download and install lines. The HaLOS package file always ends in `-1_arm64.deb`.
+The current release used below is **v0.15.4**. For a later release, change `0.15.4` in the download and install lines. The HaLOS package file always ends in `-1_arm64.deb`.
 
 Supported targets are arm64 HaLOS and x86_64 stock Signal K (`signalk/signalk-server`).
 
@@ -28,7 +28,7 @@ Do this from the directory where the two downloaded files are, after you copy th
 On a computer that has the GitHub `gh` command:
 
 ```sh
-VERSION=0.15.1
+VERSION=0.15.4
 gh release download "v${VERSION}" -R DeepBlueDynamics/lume \
   -p 'marine-lume_*_arm64.deb' -p SHA256SUMS
 scp "marine-lume_${VERSION}-1_arm64.deb" SHA256SUMS pi@halos.local:
@@ -36,12 +36,12 @@ scp "marine-lume_${VERSION}-1_arm64.deb" SHA256SUMS pi@halos.local:
 
 `pi@halos.local` is the example login used in this repo. Use your own Pi login if it is different. If `gh` is already on the Pi, run the `gh release download` line there and skip `scp`.
 
-Or, in a browser, open the [v0.15.1 release](https://github.com/DeepBlueDynamics/lume/releases/tag/v0.15.1) and download both `marine-lume_0.15.1-1_arm64.deb` (22,806,288 bytes) and `SHA256SUMS`. Copy those two files to the Pi with `scp`.
+Or, in a browser, open the [v0.15.4 release](https://github.com/DeepBlueDynamics/lume/releases/tag/v0.15.4) and download both `marine-lume_0.15.4-1_arm64.deb` (22,866,384 bytes) and `SHA256SUMS`. Copy those two files to the Pi with `scp`.
 
 On the Pi, check the file, then install it:
 
 ```sh
-VERSION=0.15.1
+VERSION=0.15.4
 grep "marine-lume_${VERSION}-1_arm64.deb$" SHA256SUMS | sha256sum -c -
 sudo apt install "./marine-lume_${VERSION}-1_arm64.deb"
 ```
@@ -78,7 +78,7 @@ On the Pi:
 dpkg -s marine-lume
 ```
 
-The version line should say `0.15.1-1`.
+The version line should say `0.15.4-1`.
 
 In Signal K admin, the Lume TI plugin status should start with `Running` and show a process id, lag, how much has been ingested, and disk use. After you approve access and the boat is sending data, `Ingested` rises above 0. If Lume is in its own container instead, the line says `External server (marine-lume-container) answering on 127.0.0.1:5863`.
 
@@ -124,7 +124,7 @@ To use a model on the boat or on a computer on the boat network instead, set **C
 `marine-lume-container` runs Lume in a separate app so it has its own memory limit. The image is **not** published to a registry. You build it on a computer that has Docker, from a Lume release. Details and the memory numbers are in [the container README](../deploy/halos/marine-lume-container/README.md).
 
 ```sh
-scripts/build-lume-container.sh v0.15.1 --pi pi@halos.local
+scripts/build-lume-container.sh v0.15.4 --pi pi@halos.local
 ```
 
 Installing that app switches **Query Server Mode** to `external` and restarts Signal K. The plugin still owns the Ask tab and the Library. History stays in the same place.
@@ -151,7 +151,7 @@ Upgrade with the newer package, the same way as the first install: check `SHA256
 sudo apt install ./marine-lume_NEWER-1_arm64.deb
 ```
 
-Replace `NEWER` with the new version, for example `0.15.2`. That number is only an example of a later release. An upgrade restarts Signal K. It keeps the history store and the settings you already saved, including the Ask key file path.
+Replace `NEWER` with the new version number. An upgrade restarts Signal K. It keeps the history store and the settings you already saved, including the Ask key file path.
 
 To remove the plugin and keep the history:
 
@@ -197,12 +197,12 @@ You need 64-bit Linux, x86_64 or arm64, with glibc 2.35 or newer. In the plugin 
 
 Not supported: 32-bit Raspberry Pi OS, Victron Venus OS (armv7), macOS, and Windows. The plugin package is Linux arm64 and x64 only. Lume's own command-line downloads for other systems are a different install, on the main README.
 
-The v0.15.1 file `signalk-lume-ti-0.15.1.tgz` is 71,510,973 bytes, about 72 MB, because it bundles both the arm64 and the x64 programs.
+The v0.15.4 file `signalk-lume-ti-0.15.4.tgz` is 71,548,696 bytes, about 72 MB, because it bundles both the arm64 and the x64 programs.
 
 On a computer that has `gh`:
 
 ```sh
-VERSION=0.15.1
+VERSION=0.15.4
 gh release download "v${VERSION}" -R DeepBlueDynamics/lume \
   -p "signalk-lume-ti-${VERSION}.tgz" -p SHA256SUMS
 grep "signalk-lume-ti-${VERSION}.tgz$" SHA256SUMS | sha256sum -c -
@@ -214,7 +214,7 @@ Open a shell as the user Signal K runs as, in that user's `~/.signalk`. In the o
 
 ```sh
 cd ~/.signalk
-npm install "/path/signalk-lume-ti-0.15.1.tgz"
+npm install "/path/signalk-lume-ti-0.15.4.tgz"
 ```
 
 Use the real path of the file you checked. npm records a `file:` dependency in `~/.signalk/package.json`, so a later install looks for that same `.tgz`.
