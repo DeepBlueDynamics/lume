@@ -98,6 +98,10 @@ jobs:
         working-directory: plugins/signalk-lume-ti
         run: npm test
 
+      - name: Test lume CLI npm package
+        working-directory: npm/lume
+        run: npm test
+
       - name: Test benchmark scripts
         env:
           LUME_BIN: target/debug/lume

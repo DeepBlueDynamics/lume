@@ -2,7 +2,8 @@ name: Release
 
 # Build `lume` (with the `ti` feature) for every supported platform, package the
 # Signal K plugin from the same run's Linux binaries, publish one GitHub
-# Release with SHA256SUMS and the install scripts, then publish the plugin to npm.
+# Release with SHA256SUMS and the install scripts, then publish the plugin and
+# the lume CLI (@deepbluedynamics/lume) to npm.
 #
 # Triggers:
 # - a pushed `v*` tag (the tag must match the root Cargo.toml version);
@@ -59,6 +60,11 @@ jobs:
           fi
           if [ "$plugin_version" != "$cargo_version" ]; then
             echo "::error::plugin package.json version $plugin_version does not match $cargo_version"
+            exit 1
+          fi
+          cli_version="$(node -p "require('./npm/lume/package.json').version")"
+          if [ "$cli_version" != "$cargo_version" ]; then
+            echo "::error::npm/lume package.json version $cli_version does not match $cargo_version"
             exit 1
           fi
           echo "version=$cargo_version" >> "$GITHUB_OUTPUT"
@@ -147,12 +153,11 @@ jobs:
           (cd dist && 7z a "$name.zip" "$name" > /dev/null)
           rm -rf "dist/$name"
 
-      - name: Upload Linux binary for the plugin package
-        if: runner.os == 'Linux'
+      - name: Upload binary for the npm packages
         uses: actions/upload-artifact@v4
         with:
           name: bin-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/lume
+          path: target/${{ matrix.target }}/release/lume${{ runner.os == 'Windows' && '.exe' || '' }}
           retention-days: 3
 
       - uses: actions/upload-artifact@v4
@@ -162,7 +167,7 @@ jobs:
           retention-days: 3
 
   plugin:
-    name: Signal K plugin package
+    name: npm packages (Signal K plugin and lume CLI)
     needs: [check, build]
     runs-on: ubuntu-22.04
     timeout-minutes: 20
@@ -188,6 +193,21 @@ jobs:
           name: bin-aarch64-unknown-linux-gnu
           path: bins/arm64
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-aarch64-apple-darwin
+          path: bins/darwin-arm64
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-x86_64-apple-darwin
+          path: bins/darwin-x64
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-x86_64-pc-windows-msvc
+          path: bins/win32-x64
+
       - name: Build plugin tarball
         run: |
           chmod +x bins/x64/lume bins/arm64/lume
@@ -195,10 +215,25 @@ jobs:
           mkdir -p dist
           cp plugin-dist/*.tgz dist/
 
+      # The CLI tarballs go to npm only, not onto the GitHub release, which
+      # already carries every platform's binary.
+      - name: Build lume CLI tarballs
+        run: |
+          node scripts/package-cli.cjs --linux-x64 bins/x64/lume --linux-arm64 bins/arm64/lume \
+            --darwin-arm64 bins/darwin-arm64/lume --darwin-x64 bins/darwin-x64/lume \
+            --win32-x64 bins/win32-x64/lume.exe --output cli-dist
+
       - uses: actions/upload-artifact@v4
         with:
           name: dist-plugin
           path: dist/*.tgz
+          retention-days: 3
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-cli
+          path: cli-dist/*.tgz
+          if-no-files-found: error
           retention-days: 3
 
   halos-deb:
@@ -267,12 +302,13 @@ jobs:
           fail_on_unmatched_files: true
           generate_release_notes: true
 
-  # Publish the plugin to npm with trusted publishing (OIDC, no stored token).
-  # Each package lists both bump-version.yml and release.yml as trusted
-  # publishers: npm checks the calling workflow, which is bump-version.yml when
-  # it starts this one. The binary packages go first so the plugin's optional
-  # dependencies exist when it appears. Already-published versions are skipped,
-  # so a rerun finishes a partial publish.
+  # Publish the plugin and the lume CLI to npm with trusted publishing (OIDC,
+  # no stored token). Each package lists both bump-version.yml and release.yml
+  # as trusted publishers: npm checks the calling workflow, which is
+  # bump-version.yml when it starts this one. Binary packages go before the
+  # package that depends on them, so its optional dependencies exist when it
+  # appears. Already-published versions are skipped, so a rerun finishes a
+  # partial publish.
   npm:
     name: Publish to npm
     needs: [check, release]
@@ -295,18 +331,28 @@ jobs:
           name: dist-plugin
           path: npm
 
-      - name: Publish binaries, then the plugin
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-cli
+          path: npm
+
+      - name: Publish binaries, then the packages that use them
         env:
           VERSION: ${{ needs.check.outputs.version }}
         run: |
           set -euo pipefail
-          for name in signalk-lume-ti-linux-arm64 signalk-lume-ti-linux-x64 signalk-lume-ti; do
+          for name in signalk-lume-ti-linux-arm64 signalk-lume-ti-linux-x64 \
+            @deepbluedynamics/lume-linux-x64 @deepbluedynamics/lume-linux-arm64 \
+            @deepbluedynamics/lume-darwin-arm64 @deepbluedynamics/lume-darwin-x64 \
+            @deepbluedynamics/lume-win32-x64 @deepbluedynamics/lume signalk-lume-ti; do
             if [ -n "$(npm view "$name@$VERSION" version 2>/dev/null)" ]; then
               echo "$name@$VERSION is already on npm"
               continue
             fi
+            # npm pack names @scope/pkg's tarball scope-pkg-<version>.tgz.
+            file="$(printf '%s' "$name" | sed 's#^@##; s#/#-#')-$VERSION.tgz"
             # ./ keeps npm from reading "npm/<file>" as a GitHub user/repo shorthand.
-            npm publish "./npm/$name-$VERSION.tgz" --access public
+            npm publish "./npm/$file" --access public
           done
 
   # One Discord summary per release with every job's result (ported from Hyperia).

@@ -69,6 +69,11 @@ curl -fsSL https://github.com/DeepBlueDynamics/lume/releases/latest/download/ins
 irm https://github.com/DeepBlueDynamics/lume/releases/latest/download/install.ps1 | iex
 ```
 
+```bash
+# Any of those platforms, with Node.js 18+ (npm installs only your platform's binary)
+npm install -g @deepbluedynamics/lume
+```
+
 Grab a book, index it and search it:
 
 ```bash

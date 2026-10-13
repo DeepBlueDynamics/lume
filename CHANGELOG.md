@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.15.7 — 2026-10-13
+
+**Lume is one small Rust binary that keeps your documents and your time-series telemetry in the same store.** Search the words, query the numbers with SQL, and give agents all of it as MCP tools, on hardware you own.
+
+**Why 0.15.7 matters:** `npm install -g @deepbluedynamics/lume` gives you a working `lume` on Linux, macOS and Windows. If Node is already on the machine, that's the whole install: no script to pipe into a shell, no PATH to edit, and `npm update -g` keeps it current.
+
+### `lume` on npm (#PR) 📦
+
+- **One command, five platforms.** `@deepbluedynamics/lume` is a 2 KB launcher. Its optional dependencies `@deepbluedynamics/lume-linux-x64`, `-linux-arm64`, `-darwin-arm64`, `-darwin-x64` and `-win32-x64` each hold one prebuilt `lume` (with `lume ti`), and npm installs only the one for your machine.
+- **The same binaries as the release.** The release workflow packs them from the binaries it just built, checks each one's platform and architecture (and glibc ≤ 2.39 on Linux), and publishes them with npm trusted publishing: no token stored anywhere.
+- **Clear errors.** On an unsupported machine, or after `--omit=optional`, `lume` says which package is missing instead of failing silently.
+- **Arguments, output and exit codes pass straight through,** so `lume serve` works as an MCP server over stdio from an npm install.
+
+### Under the hood
+
+- `scripts/package-cli.cjs` packs the six tarballs; `bump-version.cjs` keeps their versions and pins in step, and the release checks `npm/lume/package.json` against Cargo.toml.
+- New tests install the packed launcher and Linux binary offline and check that arguments and the exit status come through. CI runs them next to the plugin tests. The ELF test fixtures now live in `scripts/test/elf-fixtures.cjs`, shared with the plugin's packaging tests.
+
+Coming from further back? [v0.15.6](https://github.com/DeepBlueDynamics/lume/releases/tag/v0.15.6) fixed the npm publish path for the Signal K plugin.
+
 ## 0.15.6 — 2026-10-13
 
 **Lume is one small Rust binary that keeps your documents and your time-series telemetry in the same store.** Search the words, query the numbers with SQL, and give agents all of it as MCP tools, on hardware you own.
