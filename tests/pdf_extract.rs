@@ -90,6 +90,12 @@ fn generated_pdf_retains_pages_and_skips_empty_page() {
     assert_eq!(result.sections[0].filename.as_deref(), path.to_str());
     assert!(result.sections[0].body.contains("Bilge pump"));
     assert_eq!(result.skipped_units, 1);
+    assert_eq!(result.image_only_units, 1);
+    assert!(result.warnings.is_empty(), "{:?}", result.warnings);
+    assert_eq!(
+        result.summary("manual.pdf"),
+        "manual.pdf: skipped 1 of 2 pages/chapters: 1 have no text layer (scanned or image-only; OCR would be needed)"
+    );
 }
 #[test]
 fn epub_spine_order_and_existing_html_cleaner() {
@@ -146,6 +152,13 @@ fn index_falls_back_without_uv_and_continues_after_bad_documents() {
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("skipped"), "{stderr}");
+    assert!(stderr.contains("encrypted PDFs skipped"), "{stderr}");
+    assert!(stderr.contains("encrypted.pdf"), "{stderr}");
+    assert!(stderr.contains("OCR would be needed"), "{stderr}");
+    assert!(
+        !stderr.contains("image-only, empty or oversized"),
+        "{stderr}"
+    );
     let index = lume::LoadedIndex::open(fixture.0.join("index")).unwrap();
     assert!(index
         .bm25
@@ -190,7 +203,9 @@ fn available_uv_extractor_remains_preferred() {
     assert_eq!(index.bm25.sections.len(), 1);
     assert_eq!(index.bm25.sections[0].title, "Page 2");
     assert!(index.bm25.sections[0].body.contains("Preferred UV"));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("skipped 1"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("skipped 1 of 2"), "{stderr}");
+    assert!(stderr.contains("1 have no text layer"), "{stderr}");
 }
 #[test]
 fn oversized_page_is_counted_and_skipped() {
@@ -209,6 +224,13 @@ fn oversized_page_is_counted_and_skipped() {
     let result = lume::document_extract::worker(&path).unwrap();
     assert!(result.sections.is_empty());
     assert_eq!(result.skipped_units, 2);
+    assert_eq!(result.image_only_units, 1);
+    assert_eq!(result.warnings.len(), 1);
+    assert!(
+        result.warnings[0].starts_with("Page 1: "),
+        "{:?}",
+        result.warnings
+    );
 }
 #[test]
 fn oversized_input_is_rejected_before_loading() {

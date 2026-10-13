@@ -19,6 +19,12 @@ const FILE_TIMEOUT: Duration = Duration::from_secs(120);
 pub struct Extraction {
     pub sections: Vec<Section>,
     pub skipped_units: usize,
+    /// Skipped pages with no text layer (scanned or image-only); OCR would be needed.
+    #[serde(default)]
+    pub image_only_units: usize,
+    /// The whole document was skipped because it is encrypted.
+    #[serde(default)]
+    pub encrypted: bool,
     pub warnings: Vec<String>,
 }
 impl Extraction {
@@ -28,6 +34,38 @@ impl Extraction {
             self.warnings
                 .push(reason.into().chars().take(300).collect());
         }
+    }
+    /// Counted, not listed: a scanned book would otherwise log one line per page.
+    fn skip_image_only(&mut self) {
+        self.skipped_units += 1;
+        self.image_only_units += 1;
+    }
+    /// One line for an index run's log, e.g. "book.pdf: skipped 486 of 488 pages:
+    /// 486 have no text layer (scanned or image-only; OCR would be needed)".
+    pub fn summary(&self, path: &str) -> String {
+        if self.encrypted {
+            return format!("{path}: skipped, {}", self.warnings.join("; "));
+        }
+        let total = self.sections.len() + self.skipped_units;
+        let mut line = format!(
+            "{path}: skipped {} of {total} pages/chapters",
+            self.skipped_units
+        );
+        if self.image_only_units > 0 {
+            line.push_str(&format!(
+                ": {} have no text layer (scanned or image-only; OCR would be needed)",
+                self.image_only_units
+            ));
+        }
+        if !self.warnings.is_empty() {
+            line.push_str(if self.image_only_units > 0 {
+                "; "
+            } else {
+                ": "
+            });
+            line.push_str(&self.warnings.join("; "));
+        }
+        line
     }
 }
 
@@ -79,8 +117,12 @@ fn uv_result(path: &Path, output: &[u8]) -> Result<Extraction, String> {
     for page in pages {
         let number = page["page_number"].as_u64().ok_or("missing page number")?;
         let text = page["text"].as_str().unwrap_or("");
-        if text.trim().is_empty() || text.len() > UNIT_LIMIT {
-            result.skip(format!("Page {number}: empty or oversized text"));
+        if text.trim().is_empty() {
+            result.skip_image_only();
+            continue;
+        }
+        if text.len() > UNIT_LIMIT {
+            result.skip(format!("Page {number}: text over the page limit"));
             continue;
         }
         total += text.len();
@@ -94,9 +136,11 @@ fn uv_result(path: &Path, output: &[u8]) -> Result<Extraction, String> {
             text.into(),
         ));
     }
-    // The Python extractor omits empty pages from pages[].
+    // The Python extractor omits empty pages from pages[]; those have no text layer.
     if let Some(count) = value["total_pages"].as_u64() {
-        result.skipped_units += (count as usize).saturating_sub(pages.len());
+        let omitted = (count as usize).saturating_sub(pages.len());
+        result.skipped_units += omitted;
+        result.image_only_units += omitted;
     }
     Ok(result)
 }
@@ -253,7 +297,15 @@ fn pdf(path: &Path) -> Result<Extraction, String> {
     let mut result = Extraction::default();
     if document.was_encrypted() || document.is_encrypted() {
         result.skipped_units = pages.len();
-        result.warnings.push("encrypted PDF skipped".into());
+        result.encrypted = true;
+        result.warnings.push(if document.is_encrypted() {
+            format!("encrypted PDF ({} pages): it needs a password to open", pages.len())
+        } else {
+            format!(
+                "encrypted PDF ({} pages): it opens without a password but is copy-protected; an unlocked copy would index",
+                pages.len()
+            )
+        });
         return Ok(result);
     }
     let mut total = 0usize;
@@ -276,7 +328,8 @@ fn pdf(path: &Path) -> Result<Extraction, String> {
                     text,
                 ));
             }
-            Ok(_) => result.skip(format!("Page {number}: image-only, empty or oversized")),
+            Ok(text) if text.trim().is_empty() => result.skip_image_only(),
+            Ok(_) => result.skip(format!("Page {number}: text over the page limit")),
             Err(error) => result.skip(format!("Page {number}: {error}")),
         }
     }
