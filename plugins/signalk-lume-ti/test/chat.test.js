@@ -7,6 +7,9 @@ const os = require('node:os');
 const path = require('node:path');
 const {ChatManager, registerChatRoutes, EventStreamParser} = require('../lib/chat');
 
+// A local model server needs no key, so these tests reach the mock lume.
+const localModel = () => ({chatOllamaUrl: 'http://127.0.0.1:11434'});
+
 function createMockApp({isAdmin = true, isAuth = true} = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lume-chat-test-'));
   return {
@@ -133,7 +136,7 @@ setTimeout(() => {
   );
   fs.chmodSync(mockScript, 0o755);
 
-  const chatManager = new ChatManager({binary: mockScript, dataDir: tmpDir});
+  const chatManager = new ChatManager({binary: mockScript, dataDir: tmpDir, getOptions: localModel});
 
   // Start slow job with 100ms timeout
   const slowJobPromise = chatManager.ask('slow question', {timeoutMs: 100});
@@ -177,7 +180,7 @@ console.log(JSON.stringify({
   };
 
   const app = createMockApp();
-  const chatManager = new ChatManager({binary: mockScript, dataDir: tmpDir});
+  const chatManager = new ChatManager({binary: mockScript, dataDir: tmpDir, getOptions: localModel});
   registerChatRoutes(mockRouter, app, () => chatManager);
 
   let statusCode = 200;
@@ -246,20 +249,22 @@ console.log(JSON.stringify({answer: "Mock answer", sql: [], tool_calls: []}));
     assert.ok(!captured.argv.includes('--api-key'));
   }
 
-  // 2. When chatApiKeyFile is unset: env does NOT have OLLAMA_API_KEY
+  // 2. No key: ollama.com is refused before lume runs; a local server gets no OLLAMA_API_KEY
   {
-    const chatManager = new ChatManager({
+    const cloud = new ChatManager({
       binary: mockScript,
       dataDir: tmpDir,
-      getOptions: () => ({
-        chatOllamaUrl: 'https://ollama.com',
-        chatModel: 'glm-5.3:cloud',
-      }),
+      getOptions: () => ({chatOllamaUrl: 'https://ollama.com', chatModel: 'glm-5.3:cloud'}),
     });
+    await assert.rejects(cloud.ask('test question without key'), err => err.code === 'needs_key' && err.status === 400);
 
-    const res = await chatManager.ask('test question without key');
+    const local = new ChatManager({
+      binary: mockScript,
+      dataDir: tmpDir,
+      getOptions: () => ({chatOllamaUrl: 'http://127.0.0.1:11434'}),
+    });
+    const res = await local.ask('test question without key');
     assert.equal(res.answer, 'Mock answer');
-
     const captured = JSON.parse(fs.readFileSync(recordFile, 'utf8'));
     assert.equal(captured.apiKey, null);
   }
@@ -369,7 +374,7 @@ console.log(JSON.stringify({
   };
 
   const app = createMockApp();
-  const chatManager = new ChatManager({binary: mockScript, dataDir: tmpDir});
+  const chatManager = new ChatManager({binary: mockScript, dataDir: tmpDir, getOptions: localModel});
   registerChatRoutes(mockRouter, app, () => chatManager);
 
   const writtenChunks = [];
@@ -440,7 +445,7 @@ console.log(JSON.stringify({answer: "Fallback answer", sql: ["SELECT 42;"], tool
   };
 
   const app = createMockApp();
-  const chatManager = new ChatManager({binary: mockScript, dataDir: tmpDir});
+  const chatManager = new ChatManager({binary: mockScript, dataDir: tmpDir, getOptions: localModel});
   registerChatRoutes(mockRouter, app, () => chatManager);
 
   let statusCode = 200;

@@ -5,6 +5,55 @@ const path = require('node:path');
 const {spawn} = require('node:child_process');
 const {adminStatus, readJson} = require('./pg');
 
+/** The Ask tab's default model server, matching the plugin schema default. */
+const DEFAULT_CHAT_URL = 'https://ollama.com';
+/** Where the Ask tab's Save key button writes the key, inside the plugin data dir. */
+const KEY_FILE_NAME = 'ollama.key';
+
+function chatError(message, status, code) {
+  const err = new Error(message);
+  err.status = status;
+  err.code = code;
+  return err;
+}
+
+/** True when every configured endpoint is ollama.com, so a key is required. */
+function needsCloudKey(urls) {
+  const list = String(urls || '').split(',').map(u => u.trim()).filter(Boolean);
+  if (!list.length) return false;
+  return list.every(u => {
+    try {
+      const host = new URL(/^[a-z]+:\/\//i.test(u) ? u : `https://${u}`).hostname;
+      return host === 'ollama.com' || host.endsWith('.ollama.com');
+    } catch (_) {
+      return false;
+    }
+  });
+}
+
+/** A setting value that is a key, pasted where a file path belongs. */
+function looksLikeKey(value) {
+  return !/[\\/]/.test(value) && !/\.key$/i.test(value) && /^[A-Za-z0-9._-]{20,}$/.test(value);
+}
+
+/**
+ * Turn a failed `lume chat` run into a sentence a boater can act on. The raw output
+ * is kept for the log only; it never carries the key (the key is in the env).
+ */
+function explainChatFailure(output, url) {
+  const text = String(output || '');
+  if (/\b401\b|unauthori[sz]ed|invalid api key|forbidden|\b403\b/i.test(text)) {
+    return chatError(`${url} rejected the API key. Save a new key in the Ask tab.`, 502, 'bad_key');
+  }
+  if (/dns|resolve|lookup|getaddrinfo|ENOTFOUND|EAI_AGAIN|no route|network is unreachable|connection refused|ECONNREFUSED|timed? ?out|ETIMEDOUT|error sending request|tls|certificate/i.test(text)) {
+    return chatError(`Ask can't reach ${url}. Check that the boat has an internet connection, or point Chat Ollama API URLs at a model on your own network.`, 502, 'unreachable');
+  }
+  if (/model .*not found|no such model|pull/i.test(text)) {
+    return chatError(`${url} doesn't have the model set in Chat Ollama Model.`, 502, 'no_model');
+  }
+  return chatError('Ask failed. The plugin log has the details.', 500, 'failed');
+}
+
 class EventStreamParser {
   constructor(onEvent) {
     this.buffer = '';
@@ -83,28 +132,31 @@ class ChatManager {
     const docsIndex = path.join(this.dataDir, 'library', 'index');
     const options = (typeof this.getOptions === 'function' ? this.getOptions() : {}) || {};
 
+    const url = (typeof options.chatOllamaUrl === 'string' && options.chatOllamaUrl.trim()) || DEFAULT_CHAT_URL;
+    const firstUrl = url.split(',')[0].trim();
+    // Messages never repeat the setting's value: users paste the key itself there.
     let apiKey = null;
     if (typeof options.chatApiKeyFile === 'string' && options.chatApiKeyFile.trim()) {
       const keyFile = options.chatApiKeyFile.trim();
+      if (looksLikeKey(keyFile)) {
+        throw chatError('Chat API Key File Path (chatApiKeyFile) holds what looks like an API key, not a file path. Save the key with the Ask tab\'s key box instead.', 400, 'key_not_path');
+      }
       try {
         apiKey = fs.readFileSync(keyFile, 'utf8').trim();
       } catch (readErr) {
-        const err = new Error(`Failed to read chatApiKeyFile (${keyFile}): ${readErr.message}`);
-        err.status = 400;
-        throw err;
+        throw chatError(`Failed to read the Ask key file set in Chat API Key File Path (chatApiKeyFile): ${readErr.code || 'unreadable'}. Save the key again with the Ask tab's key box.`, 400, 'key_unreadable');
       }
       if (!apiKey) {
-        const err = new Error(`chatApiKeyFile (${keyFile}) is empty`);
-        err.status = 400;
-        throw err;
+        throw chatError('The Ask key file set in Chat API Key File Path (chatApiKeyFile) is empty. Save the key with the Ask tab\'s key box.', 400, 'key_empty');
       }
+    }
+    if (!apiKey && needsCloudKey(url)) {
+      throw chatError(`Ask needs an API key for ${firstUrl}. Paste one into the Ask tab's key box, or point Chat Ollama API URLs at a model on your own network.`, 400, 'needs_key');
     }
 
     // Build arguments array: question is passed directly as an argv element, NEVER evaluated through a shell
     const args = ['chat', '--json', '--events', '--ti-store', store, '--docs-index', docsIndex];
-    if (options.chatOllamaUrl) {
-      args.push('--ollama-url', options.chatOllamaUrl);
-    }
+    args.push('--ollama-url', url);
     if (options.chatModel) {
       args.push('--ollama-model', options.chatModel);
     }
@@ -186,9 +238,8 @@ class ChatManager {
         }
 
         if (code !== 0) {
-          const err = new Error(`Lume chat failed (code ${code}): ${stderr || stdout}`);
-          err.status = 500;
-          return reject(err);
+          this.log(`[chat] lume chat exited with code ${code}: ${(stderr || stdout).slice(-2000)}`);
+          return reject(explainChatFailure(`${stderr}\n${stdout}`, firstUrl));
         }
 
         resolve({
@@ -201,7 +252,87 @@ class ChatManager {
   }
 }
 
-function registerChatRoutes(router, app, getChatManager) {
+/**
+ * What the Ask tab needs to know before asking: whether a key is set and readable.
+ * Never returns the key or the setting's raw value.
+ */
+function chatSetup(options) {
+  const url = (typeof options.chatOllamaUrl === 'string' && options.chatOllamaUrl.trim()) || DEFAULT_CHAT_URL;
+  const keyFile = typeof options.chatApiKeyFile === 'string' ? options.chatApiKeyFile.trim() : '';
+  let key = 'none';
+  if (keyFile) {
+    if (looksLikeKey(keyFile)) key = 'pasted_in_path';
+    else {
+      try {
+        key = fs.readFileSync(keyFile, 'utf8').trim() ? 'ok' : 'empty';
+      } catch (_) {
+        key = 'unreadable';
+      }
+    }
+  }
+  return {
+    url,
+    model: options.chatModel || 'glm-5.3:cloud',
+    needsKey: needsCloudKey(url),
+    key,
+    ready: key === 'ok' || (key === 'none' && !needsCloudKey(url)),
+  };
+}
+
+/**
+ * Write the key to <dataDir>/ollama.key (mode 600, temp + rename) and point
+ * chatApiKeyFile at it. The key itself never enters plugin configuration.
+ */
+function saveChatKey(dataDir, key) {
+  const value = typeof key === 'string' ? key.trim() : '';
+  if (!value || value.length > 512 || /\s/.test(value)) {
+    throw chatError('Paste the whole API key: one line, no spaces.', 400, 'bad_input');
+  }
+  fs.mkdirSync(dataDir, {recursive: true});
+  const target = path.join(dataDir, KEY_FILE_NAME);
+  const tmp = `${target}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, `${value}\n`, {mode: 0o600});
+  fs.chmodSync(tmp, 0o600);
+  fs.renameSync(tmp, target);
+  return target;
+}
+
+function registerChatRoutes(router, app, getChatManager, {getConfig = () => ({}), onConfigSaved = () => {}} = {}) {
+  router.get('/api/chat/setup', (req, res) => {
+    const status = adminStatus(app, req);
+    if (status !== 200) return res.status(status).json({error: 'Signal K administrator required'});
+    res.json(chatSetup(getConfig() || {}));
+  });
+
+  let savingKey = false;
+  router.post('/api/chat/key', async (req, res) => {
+    const status = adminStatus(app, req);
+    if (status !== 200) return res.status(status).json({error: 'Signal K administrator required'});
+    if (savingKey) return res.status(409).json({error: 'A key is already being saved'});
+    savingKey = true;
+    try {
+      const body = await readJson(req);
+      const dataDir = typeof app.getDataDirPath === 'function' ? app.getDataDirPath() : '';
+      if (!dataDir) throw chatError('Plugin data folder unavailable', 500, 'no_data_dir');
+      const keyFile = saveChatKey(dataDir, body && body.key);
+      const current = {...(getConfig() || {})};
+      const next = {...current, chatApiKeyFile: keyFile};
+      if (!next.chatOllamaUrl) next.chatOllamaUrl = DEFAULT_CHAT_URL;
+      await new Promise((resolve, reject) => {
+        if (typeof app.savePluginOptions !== 'function') return reject(chatError('Save unavailable', 500, 'no_save'));
+        app.savePluginOptions(next, err => (err ? reject(err) : resolve()));
+      });
+      // Ask reads its options on every question, so no plugin restart is needed.
+      onConfigSaved(next);
+      res.json({ok: true, ...chatSetup(next)});
+    } catch (error) {
+      // The body (the key) is never echoed back or logged.
+      res.status(error.status || 400).json({error: error.code === 'bad_input' ? error.message : 'The key could not be saved', code: error.code || 'save_failed'});
+    } finally {
+      savingKey = false;
+    }
+  });
+
   router.post('/api/chat', async (req, res) => {
     const status = adminStatus(app, req);
     if (status !== 200) {
@@ -290,13 +421,13 @@ function registerChatRoutes(router, app, getChatManager) {
         cleanup();
         if (typeof res.write === 'function' && res.headersSent) {
           try {
-            res.write(JSON.stringify({event: 'error', error: err.message, status: err.status || 500}) + '\n');
+            res.write(JSON.stringify({event: 'error', error: err.message, code: err.code, status: err.status || 500}) + '\n');
           } catch (_) {}
           if (typeof res.end === 'function') {
             res.end();
           }
         } else if (typeof res.status === 'function' && typeof res.json === 'function') {
-          res.status(err.status || 500).json({error: err.message});
+          res.status(err.status || 500).json({error: err.message, code: err.code});
         }
       }
     } catch (error) {
@@ -315,4 +446,9 @@ module.exports = {
   ChatManager,
   registerChatRoutes,
   EventStreamParser,
+  chatSetup,
+  saveChatKey,
+  explainChatFailure,
+  needsCloudKey,
+  looksLikeKey,
 };

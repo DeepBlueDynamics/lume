@@ -13,6 +13,95 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (!form || !input) return;
 
+  const keyPanel = document.getElementById('chat-key-panel');
+  const keyTitle = document.getElementById('chat-key-title');
+  const keyDetail = document.getElementById('chat-key-detail');
+  const keyForm = document.getElementById('chat-key-form');
+  const keyInput = document.getElementById('chat-key-input');
+  const keyStatus = document.getElementById('chat-key-status');
+  const readyLine = document.getElementById('chat-ready');
+  const changeKeyBtn = document.getElementById('chat-change-key');
+  const loginHint = 'Sign in to Signal K as an administrator to use Ask: open Signal K Admin, choose Login, then reload this page.';
+
+  const KEY_TEXT = {
+    none: ['Ask needs an API key', 'Paste your key from ollama.com/settings/keys. It is saved on this server in a private file, never in the plugin settings.'],
+    pasted_in_path: ['Your API key is in the wrong setting', 'It was pasted into Chat API Key File Path, which expects a file path. Paste the key here instead; it will be moved into a private file.'],
+    unreadable: ['The saved API key can\'t be read', 'Paste the key again to replace the key file.'],
+    empty: ['The saved API key is empty', 'Paste the key again.'],
+  };
+
+  function showKeyPanel(state, url) {
+    if (!keyPanel) return;
+    const [title, detail] = KEY_TEXT[state] || KEY_TEXT.none;
+    keyTitle.textContent = title;
+    keyDetail.textContent = url && /ollama\.com/.test(url) ? detail : `${detail} (Model server: ${url || 'ollama.com'}.)`;
+    keyPanel.hidden = false;
+    if (readyLine) readyLine.hidden = true;
+  }
+
+  function showReady(setup) {
+    if (keyPanel) keyPanel.hidden = true;
+    if (!readyLine) return;
+    readyLine.hidden = false;
+    readyLine.querySelector('.ask-ready-text').textContent =
+      `Ready: ${setup.model} on ${setup.url}${setup.key === 'ok' ? ', key saved' : ''}.`;
+  }
+
+  async function checkSetup() {
+    try {
+      const res = await fetch('/plugins/signalk-lume-ti/api/chat/setup', {credentials: 'same-origin', headers: {Accept: 'application/json'}});
+      if (res.status === 401 || res.status === 403) {
+        if (readyLine) { readyLine.hidden = false; readyLine.querySelector('.ask-ready-text').textContent = loginHint; }
+        return;
+      }
+      if (!res.ok) return;
+      const setup = await res.json();
+      if (setup.ready) showReady(setup);
+      else showKeyPanel(setup.key === 'none' ? 'none' : setup.key, setup.url);
+    } catch (_) {
+      // Server restarting; the next tab visit checks again.
+    }
+  }
+
+  if (keyForm) {
+    keyForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const key = keyInput.value.trim();
+      if (!key) return;
+      keyStatus.textContent = 'Saving…';
+      try {
+        const res = await fetch('/plugins/signalk-lume-ti/api/chat/key', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {'Content-Type': 'application/json', Accept: 'application/json'},
+          body: JSON.stringify({key}),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 401 || res.status === 403) throw new Error(loginHint);
+        if (!res.ok) throw new Error(data.error || 'The key could not be saved');
+        keyInput.value = '';
+        keyStatus.textContent = 'Key saved.';
+        showReady(data);
+      } catch (err) {
+        keyStatus.textContent = err.message;
+      }
+    });
+  }
+  if (changeKeyBtn) changeKeyBtn.addEventListener('click', () => showKeyPanel('none', ''));
+
+  const askTab = document.querySelector('.tab-btn[data-tab="tab-ask"]');
+  if (askTab) askTab.addEventListener('click', checkSetup);
+  checkSetup();
+
+  function renderAnswer(text) {
+    const md = window.LumeMarkdown;
+    if (md && typeof md.render === 'function') answerEl.innerHTML = md.render(text);
+    else answerEl.textContent = text;
+  }
+
+  // Errors that the key box can fix open it.
+  const KEY_ERRORS = new Set(['needs_key', 'key_not_path', 'key_unreadable', 'key_empty', 'bad_key']);
+
   function formatPreview(args) {
     if (!args || typeof args !== 'object') return '';
     if (typeof args.sql === 'string' && args.sql.trim()) {
@@ -190,23 +279,33 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     try {
-      const res = await fetch('/plugins/signalk-lume-ti/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/x-ndjson',
-        },
-        credentials: 'same-origin',
-        body: JSON.stringify({ question }),
-      });
+      let res;
+      try {
+        res = await fetch('/plugins/signalk-lume-ti/api/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/x-ndjson',
+          },
+          credentials: 'same-origin',
+          body: JSON.stringify({ question }),
+        });
+      } catch (_) {
+        throw new Error('Lost the connection to the Signal K server. Check that this device is still on the boat network, then try again.');
+      }
 
+      if (res.status === 401 || res.status === 403) throw new Error(loginHint);
       if (!res.ok) {
-        let errMessage = `Error ${res.status}: ${res.statusText}`;
+        let errMessage = `Ask failed (HTTP ${res.status}).`;
+        let code;
         try {
           const errData = await res.json();
           if (errData && errData.error) errMessage = errData.error;
+          code = errData && errData.code;
         } catch (_) {}
-        throw new Error(errMessage);
+        const err = new Error(errMessage);
+        err.code = code;
+        throw err;
       }
 
       const contentType = res.headers.get('content-type') || '';
@@ -235,7 +334,9 @@ document.addEventListener('DOMContentLoaded', () => {
               if (eventObj.event === 'result') {
                 finalData = eventObj;
               } else if (eventObj.event === 'error') {
-                throw new Error(eventObj.error || 'Chat query failed');
+                const streamErr = new Error(eventObj.error || 'Ask failed.');
+                streamErr.code = eventObj.code;
+                throw streamErr;
               } else {
                 handleEvent(eventObj);
               }
@@ -253,7 +354,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (eventObj.event === 'result') {
               finalData = eventObj;
             } else if (eventObj.event === 'error') {
-              throw new Error(eventObj.error || 'Chat query failed');
+              const streamErr = new Error(eventObj.error || 'Ask failed.');
+              streamErr.code = eventObj.code;
+              throw streamErr;
             } else {
               handleEvent(eventObj);
             }
@@ -273,7 +376,7 @@ document.addEventListener('DOMContentLoaded', () => {
       statusEl.remove();
 
       // Render answer
-      answerEl.textContent = finalData.answer || '(No answer returned)';
+      renderAnswer(finalData.answer || '(No answer returned)');
 
       // Render SQL statements
       renderSqlCards(finalData);
@@ -281,11 +384,11 @@ document.addEventListener('DOMContentLoaded', () => {
       container.classList.remove('hidden');
     } catch (err) {
       statusEl.remove();
+      if (eventsList && !eventsList.children.length) loading.classList.add('hidden');
+      if (KEY_ERRORS.has(err.code)) checkSetup();
       if (errorEl) {
         errorEl.textContent = err.message;
         errorEl.classList.remove('hidden');
-      } else {
-        alert(err.message);
       }
     } finally {
       submitBtn.disabled = false;

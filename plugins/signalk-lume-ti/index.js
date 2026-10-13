@@ -29,6 +29,10 @@ module.exports = function (app) {
   let currentBinaryInfo = null;
   let library = null;
   let chatManager = null;
+  // Signal K restarts a plugin by calling stop() and then start() straight away.
+  // While an old lume is still shutting down, start() waits on this so the new one
+  // can bind the query port; otherwise it is null and start() spawns at once.
+  let pendingStop = null;
 
   const libraryUnavailable = res => res.status(503).json({error: 'Library unavailable: lume binary not resolved'});
   /** Library API: list, admin-only indexing job, search, and alert references. */
@@ -283,7 +287,15 @@ module.exports = function (app) {
         onStateChange: () => updateStatus(app, supervisor, storeDir),
       });
 
-      supervisor.start();
+      const sup = supervisor;
+      if (pendingStop) {
+        log('Waiting for the previous lume to exit before starting');
+        pendingStop.then(() => {
+          if (supervisor === sup) sup.start();
+        });
+      } else {
+        sup.start();
+      }
       if (typeof app.registerHistoryApiProvider === 'function') {
         history = createHistoryProvider({app, port:servePort});
         app.registerHistoryApiProvider(history.provider);
@@ -325,11 +337,14 @@ module.exports = function (app) {
       if (supervisor) {
         const sup = supervisor;
         supervisor = null;
-        sup.stop().then(() => {
+        const stopping = sup.stop().then(() => {
           if (typeof app.setPluginStatus === 'function') {
             app.setPluginStatus('Stopped');
           }
+        }).catch(() => {}).then(() => {
+          if (pendingStop === stopping) pendingStop = null;
         });
+        pendingStop = stopping;
       }
     },
 
@@ -349,7 +364,16 @@ module.exports = function (app) {
       router.get('/pg.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'pg.js')));
       router.get('/library.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'library.js')));
       registerLibraryRoutes(router);
-      registerChatRoutes(router, app, () => chatManager);
+      registerChatRoutes(router, app, () => chatManager, {
+        getConfig: () => {
+          const saved = typeof app.readPluginOptions === 'function' ? app.readPluginOptions() : null;
+          return saved?.configuration || pluginConfig;
+        },
+        onConfigSaved: next => {
+          pluginConfig = next;
+        },
+      });
+      router.get('/md.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'md.js')));
       // 1. Status API
       router.get('/api/status', (req, res) => {
         const dataDir = typeof app.getDataDirPath === 'function' ? app.getDataDirPath() : '';
@@ -362,6 +386,10 @@ module.exports = function (app) {
           binary: currentBinaryInfo,
           supervisor: supStatus,
           store: storeStatus,
+          // Lets the page explain an empty store: waiting for access approval, or no data yet.
+          access: tokenManager
+            ? {token: Boolean(tokenManager.token), state: tokenManager.lastState || 'NONE'}
+            : null,
           timestamp: new Date().toISOString(),
         });
       });
