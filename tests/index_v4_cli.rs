@@ -213,3 +213,60 @@ fn cli_v4_publish_search_sql_mcp_and_reindex_with_json_neighbor() {
     assert!(!v4.join("generations").join(&old.generation).exists());
     assert_eq!(mcp("engine"), before_gc);
 }
+
+#[test]
+fn zstd_compressed_v4_index_matches_uncompressed_and_rejects_bad_flag() {
+    let fixture = Fixture::new();
+    let source = fixture.root.join("docs");
+    let shared = fixture.root.join("query-db");
+
+    let index_with_compress = |db: &Path, compress: &str| {
+        command()
+            .args(["index", "-f"])
+            .arg(&source)
+            .arg("--db")
+            .arg(db)
+            .env("LUME_COMPRESS", compress)
+            .output()
+            .unwrap()
+    };
+    let run_query = |db: &Path| -> Vec<u8> {
+        let out = command()
+            .args(["search", "--alpha", "0", "--graph", "0", "--db"])
+            .arg(db)
+            .arg("bilge pump")
+            .output()
+            .unwrap();
+        success(&out);
+        out.stdout
+    };
+
+    success(&index_with_compress(&shared, "none"));
+    let plain_manifest = lume::index_binary::generation::read_manifest(&shared).unwrap();
+    let plain_text = std::fs::read(
+        shared
+            .join("generations")
+            .join(&plain_manifest.generation)
+            .join("text.bin"),
+    )
+    .unwrap();
+    assert_eq!(u16::from_le_bytes(plain_text[8..10].try_into().unwrap()), 5);
+    let plain_reply = run_query(&shared);
+
+    success(&index_with_compress(&shared, "zstd"));
+    let zstd_manifest = lume::index_binary::generation::read_manifest(&shared).unwrap();
+    let zstd_text = std::fs::read(
+        shared
+            .join("generations")
+            .join(&zstd_manifest.generation)
+            .join("text.bin"),
+    )
+    .unwrap();
+    assert_eq!(u16::from_le_bytes(zstd_text[8..10].try_into().unwrap()), 10);
+    let zstd_reply = run_query(&shared);
+
+    assert_eq!(plain_reply, zstd_reply);
+
+    let bad = index_with_compress(&fixture.root.join("bad"), "lz4");
+    assert!(!bad.status.success());
+}

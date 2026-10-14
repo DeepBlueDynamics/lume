@@ -114,12 +114,12 @@ fn earlier_corruption_fails_and_unknown_version_is_guarded() {
     fs::write(&path, &bytes).unwrap();
     assert!(DocStore::open(dir.path()).is_err());
     assert_eq!(fs::read(&path).unwrap(), bytes);
-    bytes[8..12].copy_from_slice(&2u32.to_le_bytes());
+    bytes[8..12].copy_from_slice(&3u32.to_le_bytes());
     let crc = crc32fast::hash(&bytes[..20]);
     bytes[20..24].copy_from_slice(&crc.to_le_bytes());
     fs::write(&path, &bytes).unwrap();
     let error = DocStore::open(dir.path()).err().unwrap().to_string();
-    assert!(error.contains("version 2"));
+    assert!(error.contains("version 3"));
     assert!(error.contains("downgrade"));
 }
 #[test]
@@ -332,4 +332,81 @@ fn nonzero_garbage_in_a_bad_header_or_far_tail_is_corrupt_and_unchanged() {
         assert!(matches!(DocStore::open(dir.path()), Err(Error::Corrupt(_))));
         assert_eq!(fs::read(&path).unwrap(), bytes);
     }
+}
+
+#[test]
+fn zstd_compressed_frames_round_trip_upgrade_and_fail_closed() {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            log::COMPRESS_OVERRIDE.with(|c| c.set(None));
+        }
+    }
+    let _reset = Reset;
+    let body = "engine bilge pump telemetry alarm ".repeat(200);
+
+    let plain_dir = tempfile::tempdir().unwrap();
+    log::COMPRESS_OVERRIDE.with(|c| c.set(Some(false)));
+    let mut plain = DocStore::open(plain_dir.path()).unwrap();
+    plain
+        .upsert_all([doc("a", &body), doc("b", &body)])
+        .unwrap();
+    let plain_bytes = fs::read(plain_dir.path().join("docs/documents.log")).unwrap();
+    assert_eq!(
+        u32::from_le_bytes(plain_bytes[8..12].try_into().unwrap()),
+        1
+    );
+
+    let zstd_dir = tempfile::tempdir().unwrap();
+    log::COMPRESS_OVERRIDE.with(|c| c.set(Some(true)));
+    let mut compressed = DocStore::open(zstd_dir.path()).unwrap();
+    compressed
+        .upsert_all([doc("a", &body), doc("b", &body)])
+        .unwrap();
+    let zstd_path = zstd_dir.path().join("docs/documents.log");
+    let zstd_bytes = fs::read(&zstd_path).unwrap();
+    assert_eq!(u32::from_le_bytes(zstd_bytes[8..12].try_into().unwrap()), 2);
+    assert!(zstd_bytes.len() < plain_bytes.len() / 4);
+
+    // Default reader (flag off) reads version-2 zstd logs transparently.
+    log::COMPRESS_OVERRIDE.with(|c| c.set(None));
+    let mut reader = DocStore::open(zstd_dir.path()).unwrap();
+    assert_eq!(reader.len(), 2);
+    assert_eq!(reader.iter().next().unwrap().body, body);
+
+    // Appending and compacting under zstd preserves all records.
+    log::COMPRESS_OVERRIDE.with(|c| c.set(Some(true)));
+    for n in 0..5 {
+        compressed
+            .upsert_all([doc("a", &format!("{body}-{n}"))])
+            .unwrap();
+    }
+    log::COMPRESS_OVERRIDE.with(|c| c.set(None));
+    assert!(reader.refresh().unwrap());
+    assert_eq!(reader.len(), 2);
+    assert_eq!(reader.iter().next().unwrap().body, format!("{body}-4"));
+
+    // Mutating an existing version-1 log with zstd enabled upgrades it to version 2.
+    log::COMPRESS_OVERRIDE.with(|c| c.set(Some(true)));
+    plain.upsert_all([doc("c", "upgraded")]).unwrap();
+    let upgraded = fs::read(plain_dir.path().join("docs/documents.log")).unwrap();
+    assert_eq!(u32::from_le_bytes(upgraded[8..12].try_into().unwrap()), 2);
+    log::COMPRESS_OVERRIDE.with(|c| c.set(None));
+    assert_eq!(DocStore::open(plain_dir.path()).unwrap().len(), 3);
+
+    // Corrupting the declared uncompressed length inside a valid checksummed frame fails closed.
+    let mut bad = fs::read(&zstd_path).unwrap();
+    let payload_len = u64::from_le_bytes(bad[24..32].try_into().unwrap()) as usize;
+    bad[40..48].copy_from_slice(&(u64::MAX).to_le_bytes());
+    let mut hash = crc32fast::Hasher::new();
+    hash.update(&bad[24..32]);
+    hash.update(&bad[40..40 + payload_len]);
+    bad[32..36].copy_from_slice(&hash.finalize().to_le_bytes());
+    let prefix_crc = crc32fast::hash(&bad[24..36]);
+    bad[36..40].copy_from_slice(&prefix_crc.to_le_bytes());
+    fs::write(&zstd_path, &bad).unwrap();
+    assert!(matches!(
+        DocStore::open(zstd_dir.path()),
+        Err(Error::Corrupt(_))
+    ));
 }

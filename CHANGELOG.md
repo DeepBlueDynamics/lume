@@ -4,6 +4,7 @@
 
 - **The binary v4 index is now the default.** New indexes build in the sealed v4 binary format without setting `LUME_INDEX_FORMAT=4`. Existing JSON indexes keep working and stay JSON across incremental updates; `lume index -f` rebuilds them as v4, and `LUME_INDEX_FORMAT=json` opts out when needed.
 - **Local vectors use a checked binary `f32` file (`local-vectors.bin`).** Document and preloaded query embeddings are stored as little-endian `f32` rows with fail-closed framing, cutting disk usage while transparently reading and migrating existing `local-vectors.json` files on the next write.
+- **Opt-in block zstd compression (`LUME_COMPRESS=zstd`).** Compresses the v4 `text.bin` segment in 64 KiB blocks (segment kind 10, so single-section/snippet readers decode only their own block) and `ti-store` `documents.log` transaction frames (format version 2), while readers accept both uncompressed and zstd-compressed segments.
 
 ## 0.16.0 — 2026-10-14
 

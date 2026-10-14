@@ -2434,6 +2434,7 @@ dependencies = [
  "ureq",
  "url",
  "zip",
+ "zstd",
 ]
 
 [[package]]
@@ -3687,6 +3688,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "ti-contracts",
+ "zstd",
 ]
 
 [[package]]
