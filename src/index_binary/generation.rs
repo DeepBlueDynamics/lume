@@ -25,6 +25,7 @@ const OPTIONAL_FILES: &[&str] = &[
     "entity_graph.json",
     "meta.json",
     "local-vectors.json",
+    "local-vectors.bin",
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,6 +93,11 @@ impl Manifest {
         if self.segments.contains_key("spelling.json") && self.segments.contains_key("spelling.bin")
         {
             return Err("Ambiguous ordinary-index spelling segments".into());
+        }
+        if self.segments.contains_key("local-vectors.json")
+            && self.segments.contains_key("local-vectors.bin")
+        {
+            return Err("Ambiguous ordinary-index local-vector segments".into());
         }
         for (name, seal) in &self.segments {
             if !CORE_FILES.contains(&name.as_str()) && !OPTIONAL_FILES.contains(&name.as_str()) {

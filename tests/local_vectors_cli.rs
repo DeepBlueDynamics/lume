@@ -62,6 +62,8 @@ fn cli_import_and_hybrid_search_use_preloaded_vectors_offline() {
             String::from_utf8_lossy(&result.stdout),
             String::from_utf8_lossy(&result.stderr)
         );
+        assert!(db.join("local-vectors.bin").exists());
+        assert!(!db.join("local-vectors.json").exists());
         let result = Command::new(binary)
             .args(["search", "captain", "--alpha", "1", "--graph", "0"])
             .arg("--db")

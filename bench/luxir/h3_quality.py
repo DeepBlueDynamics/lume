@@ -105,14 +105,26 @@ def main():
                 subprocess.run(command, env=env, stdout=output, stderr=subprocess.STDOUT, check=True)
             if calls:
                 raise RuntimeError("Index made upstream calls")
-        state = json.loads((db / "state.json").read_text())
-        sections = sum(len(row[1]) for row in state["cached_files"].values())
-        vectors = json.loads((db / "local-vectors.json").read_text())
+        if (db / "manifest.json").exists():
+            manifest = json.loads((db / "manifest.json").read_text())
+            sections = manifest["counts"]["sections"]
+        else:
+            state = json.loads((db / "state.json").read_text())
+            sections = sum(len(row[1]) for row in state["cached_files"].values())
+        if (db / "local-vectors.bin").exists():
+            raw = (db / "local-vectors.bin").read_bytes()
+            model_len = int.from_bytes(raw[12:16], "little")
+            doc_count = int.from_bytes(raw[20 + model_len:24 + model_len], "little")
+            query_count = int.from_bytes(raw[24 + model_len:28 + model_len], "little")
+        else:
+            vectors = json.loads((db / "local-vectors.json").read_text())
+            doc_count = len(vectors["documents"])
+            query_count = len(vectors["queries"])
         queries = list(csv.reader((root / dataset / "queries.tsv").open(), delimiter="\t"))
         with (root / dataset / "docs.jsonl").open() as source:
             expected_documents = sum(bool(line.strip()) for line in source)
         expected_queries = len({text.strip() for _, text in queries})
-        if sections != expected_documents or len(vectors["documents"]) != expected_documents or len(vectors["queries"]) != expected_queries:
+        if sections != expected_documents or doc_count != expected_documents or query_count != expected_queries:
             raise RuntimeError("Unexpected imported section/query coverage")
         qrels = read_qrels(root / dataset / "qrels.tsv")
         token = (root / "http-token.txt").read_text().strip()
