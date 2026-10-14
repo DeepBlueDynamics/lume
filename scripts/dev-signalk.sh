@@ -86,13 +86,27 @@ LUME_NAME="$(basename "$LUME_BIN")"
 
 # 2. Seed the data volume once: register the plugin, enable it, point it at the binary.
 dk volume create "$VOLUME" >/dev/null
-dk run --rm --entrypoint sh -v "$VOLUME:/home/node/.signalk" "$IMAGE" -c "
-    set -e
-    cd /home/node/.signalk
-    [ -f package.json ] || printf '%s\n' '{\"name\":\"signalk-server-config\",\"version\":\"0.0.1\",\"dependencies\":{\"signalk-lume-ti\":\"file:./node_modules/signalk-lume-ti\"}}' > package.json
-    mkdir -p node_modules/signalk-lume-ti plugin-config-data
-    [ -f plugin-config-data/signalk-lume-ti.json ] || printf '%s\n' '{\"enabled\":true,\"enableLogging\":true,\"configuration\":{\"lumePath\":\"/opt/lume/$LUME_NAME\",\"servePort\":5863,\"signalkUrl\":\"ws://127.0.0.1:3000\"}}' > plugin-config-data/signalk-lume-ti.json
-"
+# Same layout as the HaLOS package: the plugin sits in lume-plugin/ and is a file:
+# dependency linked from node_modules, so App Store installs are free to rewrite
+# node_modules without touching the (read-only) checkout.
+dk run --rm -i --entrypoint sh -e LUME_NAME="$LUME_NAME" -v "$VOLUME:/home/node/.signalk" "$IMAGE" -s <<'SEED'
+set -e
+cd /home/node/.signalk
+mkdir -p lume-plugin/signalk-lume-ti node_modules plugin-config-data
+node -e '
+const fs = require("fs");
+const pkg = fs.existsSync("package.json") ? JSON.parse(fs.readFileSync("package.json", "utf8")) : {name: "signalk-server-config", version: "0.0.1"};
+pkg.dependencies = {...(pkg.dependencies || {}), "signalk-lume-ti": "file:lume-plugin/signalk-lume-ti"};
+fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
+const cfg = "plugin-config-data/signalk-lume-ti.json";
+if (!fs.existsSync(cfg)) fs.writeFileSync(cfg, JSON.stringify({enabled: true, enableLogging: true,
+  configuration: {lumePath: "/opt/lume/" + process.env.LUME_NAME, servePort: 5863, signalkUrl: "ws://127.0.0.1:3000"}}, null, 2) + "\n");
+'
+if [ ! -L node_modules/signalk-lume-ti ]; then
+  rm -rf node_modules/signalk-lume-ti
+  ln -s ../lume-plugin/signalk-lume-ti node_modules/signalk-lume-ti
+fi
+SEED
 
 # 3. Start Signal K with sample data. The plugin is mounted from the checkout.
 ARGS=(--sample-nmea0183-data --override-timestamps)
@@ -101,7 +115,7 @@ dk rm -f "$NAME" >/dev/null 2>&1 || true
 dk run -d --name "$NAME" \
     -p "127.0.0.1:$PORT:3000" \
     -v "$VOLUME:/home/node/.signalk" \
-    -v "$(host_path "$PLUGIN"):/home/node/.signalk/node_modules/signalk-lume-ti:ro" \
+    -v "$(host_path "$PLUGIN"):/home/node/.signalk/lume-plugin/signalk-lume-ti:ro" \
     -v "$(host_path "$LUME_DIR"):/opt/lume:ro" \
     --entrypoint /home/node/signalk/node_modules/signalk-server/bin/signalk-server \
     "$IMAGE" "${ARGS[@]}" >/dev/null
