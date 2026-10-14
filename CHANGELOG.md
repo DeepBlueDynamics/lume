@@ -2,9 +2,27 @@
 
 ## Unreleased
 
-- **The binary v4 index is now the default.** New indexes build in the sealed v4 binary format without setting `LUME_INDEX_FORMAT=4`. Existing JSON indexes keep working and stay JSON across incremental updates; `lume index -f` rebuilds them as v4, and `LUME_INDEX_FORMAT=json` opts out when needed.
-- **Local vectors use a checked binary `f32` file (`local-vectors.bin`).** Document and preloaded query embeddings are stored as little-endian `f32` rows with fail-closed framing, cutting disk usage while transparently reading and migrating existing `local-vectors.json` files on the next write.
 - **Opt-in block zstd compression (`LUME_COMPRESS=zstd`).** Compresses the v4 `text.bin` segment in 64 KiB blocks (segment kind 10, so single-section/snippet readers decode only their own block) and `ti-store` `documents.log` transaction frames (format version 2), while readers accept both uncompressed and zstd-compressed segments.
+
+## 0.16.2 — 2026-10-14
+
+**Lume 0.16.2 packs tighter.** New indexes are binary by default, about a third the size of JSON and ten times faster to open. Local embedding vectors shrink too.
+
+### The binary index is now the default (#70) 📦
+
+New indexes build in Lume's sealed v4 binary format without any setting. On our 171k-file TREC-COVID test that's 354 MB instead of 1,022 MB, opening in 0.61 s instead of 6.29 s, with byte-identical search results.
+
+Existing JSON indexes keep working and stay JSON as you update them. `lume index -f` rebuilds one as binary, and `LUME_INDEX_FORMAT=json` keeps the old format if you need it.
+
+### Local vectors go binary (#73) 🧮
+
+Opt-in local vectors (`--embed-model`) are now stored as checked binary `f32` in `local-vectors.bin`, instead of JSON text. That's roughly a quarter of the disk space. Old `local-vectors.json` files still load and get migrated on the next write.
+
+### Setting up Shivvr is documented (#74) 🔌
+
+The README has a new **Shivvr setup** section: one Docker command for CPU (Pi 5 included) or GPU, on the port Lume already looks for, plus how to index and search with it.
+
+Get it from the Signal K App Store (search **Lume TI**), `npm install -g @deepbluedynamics/lume`, the HaLOS `marine-lume` package, or the release page.
 
 ## 0.16.1 — 2026-10-14
 
