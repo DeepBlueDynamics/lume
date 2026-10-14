@@ -4,6 +4,25 @@
 
 - **The binary v4 index is now the default.** New indexes build in the sealed v4 binary format without setting `LUME_INDEX_FORMAT=4`. Existing JSON indexes keep working and stay JSON across incremental updates; `lume index -f` rebuilds them as v4, and `LUME_INDEX_FORMAT=json` opts out when needed.
 - **Local vectors use a checked binary `f32` file (`local-vectors.bin`).** Document and preloaded query embeddings are stored as little-endian `f32` rows with fail-closed framing, cutting disk usage while transparently reading and migrating existing `local-vectors.json` files on the next write.
+## 0.16.1 — 2026-10-14
+
+**Lume 0.16.1 gets ready for the new Shivvr.** Shivvr 0.6.0 switches its default embedding model to EmbeddingGemma 2, and Lume now handles that cleanly. CI is back to green on every platform, too.
+
+### `lume generate` no longer depends on one embedding model (#68) 🎯
+
+Vector-steered generation used to turn the target's embedding back into words before generating. That step only worked with GTR-T5 vectors. Now Lume embeds the target and every candidate the same way and keeps the closest match, so it works with whatever model Shivvr uses.
+
+### Query inversion stays readable (#72) 🔄
+
+The opt-in `LUME_QUERY_INVERSION=1` debug line asks Shivvr for GTR-T5 by name, the only model its inverter understands. It uses its own scratch store, `lume-embed-scratch-gtr`, so it never gets mixed up with the new default. Hybrid search follows Shivvr's default as before.
+
+### Green builds on macOS and Windows (#71) ✅
+
+A test's fake web server sometimes read a request before it arrived. It failed on macOS and Windows but never on Linux. Three test servers now wait properly.
+
+### Marine first, not marine only (#69) ⚓
+
+The README now says it straight: marine systems are the target, and Lume works well beyond the boat. Replace Splunk with it, for example. It also has a new **Shivvr setup** section with one-line Docker commands for CPU or GPU.
 
 ## 0.16.0 — 2026-10-14
 
