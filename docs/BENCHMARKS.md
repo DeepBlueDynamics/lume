@@ -54,7 +54,7 @@ Luxir is faster per query. Both answer in single-digit milliseconds.
 | Lume, binary index | 354 MB | ~62 s | 3.15 GB | 0.6 s |
 | Luxir | 183 MB | 7.1 s | 103 MB | — |
 
-The binary index (`LUME_INDEX_FORMAT=4`) returns byte-for-byte the same search results as the default JSON index.
+The default v4 binary index returns byte-for-byte the same search results as the legacy JSON index (`LUME_INDEX_FORMAT=json`).
 
 ### What each one does
 

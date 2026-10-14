@@ -15,6 +15,7 @@ impl Fixture {
             .arg("--db")
             .arg(self.0.join("index"))
             .args(extra)
+            .env("LUME_INDEX_FORMAT", "json")
             .env("LUME_TIMING", "1")
             .env_remove("LUME_EMBED_MODEL")
             .env_remove("LUME_EMBED_DIMENSIONS")

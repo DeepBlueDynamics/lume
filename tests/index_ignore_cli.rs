@@ -9,16 +9,18 @@ fn write(path: &Path, text: &str) {
     std::fs::write(path, text).unwrap();
 }
 
-fn scanned(root: &Path, db: &Path, extra: &[&str]) -> String {
-    let output = Command::new(env!("CARGO_BIN_EXE_lume"))
-        .arg("index")
-        .arg(root)
-        .arg("--db")
-        .arg(db)
-        .args(extra)
-        .env_remove("LUME_INDEX_FORMAT")
-        .output()
-        .unwrap();
+fn scanned(root: &Path, db: &Path, format: Option<&str>, extra: &[&str]) -> String {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_lume"));
+    cmd.arg("index").arg(root).arg("--db").arg(db).args(extra);
+    match format {
+        Some(fmt) => {
+            cmd.env("LUME_INDEX_FORMAT", fmt);
+        }
+        None => {
+            cmd.env_remove("LUME_INDEX_FORMAT");
+        }
+    }
+    let output = cmd.output().unwrap();
     assert!(
         output.status.success(),
         "{}",
@@ -45,14 +47,18 @@ fn index_applies_defaults_gitignore_and_lumeignore() {
         "# keep the notes after all\n!notes/\n",
     );
 
-    let with_git = scanned(&root, &base.join("db1"), &[]);
+    let with_git = scanned(&root, &base.join("db1"), None, &[]);
+    assert!(base.join("db1/index.json").exists());
+    assert!(!base.join("db1/bm25.json").exists());
     assert!(
         with_git.contains("Scanned 2 indexable files"),
         "expected keep.md and notes/wanted.md:\n{with_git}"
     );
     assert!(with_git.contains("Ignore rules: defaults 3, .gitignore 2, .lumeignore 1"));
 
-    let without_git = scanned(&root, &base.join("db2"), &["--no-gitignore"]);
+    let without_git = scanned(&root, &base.join("db2"), Some("json"), &["--no-gitignore"]);
+    assert!(base.join("db2/bm25.json").exists());
+    assert!(!base.join("db2/index.json").exists());
     assert!(
         without_git.contains("Scanned 3 indexable files"),
         "expected keep.md, generated.md and notes/wanted.md:\n{without_git}"

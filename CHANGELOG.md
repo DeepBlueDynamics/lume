@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **The binary v4 index is now the default.** New indexes build in the sealed v4 binary format without setting `LUME_INDEX_FORMAT=4`. Existing JSON indexes keep working and stay JSON across incremental updates; `lume index -f` rebuilds them as v4, and `LUME_INDEX_FORMAT=json` opts out when needed.
+
 ## 0.16.0 — 2026-10-14
 
 **Lume is one small Rust binary that keeps your documents and your time-series telemetry in the same store.** Search the words, query the numbers with SQL, and give agents all of it as MCP tools, on hardware you own. Lume TI is the Signal K plugin that puts it on the boat.

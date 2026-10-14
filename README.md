@@ -288,10 +288,11 @@ Maintainers cut a release from **Actions → Bump version and release**.
 **Index a folder.** Text, Markdown, code, PDFs and EPUBs all work. Re-running the command picks up added, changed and deleted files.
 
 ```bash
-lume index ~/manuals                      # writes .lume-index/
-lume index ~/manuals --db ~/indexes/boat  # keep several indexes side by side
-lume index ~/manuals -o                   # also extract entities with Ollama
-LUME_INDEX_FORMAT=4 lume index ~/manuals  # binary index: smaller and faster to open
+lume index ~/manuals                         # writes .lume-index/ (binary v4 format)
+lume index ~/manuals --db ~/indexes/boat     # keep several indexes side by side
+lume index ~/manuals -o                      # also extract entities with Ollama
+lume index -f ~/manuals                      # rebuild an older JSON index as v4
+LUME_INDEX_FORMAT=json lume index ~/manuals  # opt out to the legacy JSON format
 ```
 
 **Search it.** Results blend keyword scoring, optional vectors and the entity graph. Misspellings are corrected, and `-term` excludes a word.
