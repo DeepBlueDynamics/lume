@@ -45,7 +45,7 @@ function call(handler, {admin = true, body} = {}) {
 
 test('a pasted key is recognised as a key, a path is not', () => {
   assert.equal(looksLikeKey(KEY), true);
-  assert.equal(looksLikeKey('/home/node/.signalk/plugin-config-data/signalk-lume-ti/ollama.key'), false);
+  assert.equal(looksLikeKey('/var/lib/signalk/plugin-config-data/signalk-lume-ti/ollama.key'), false);
   assert.equal(looksLikeKey('C:\\keys\\ollama.key'), false);
   assert.equal(looksLikeKey('ollama.key'), false);
 });
