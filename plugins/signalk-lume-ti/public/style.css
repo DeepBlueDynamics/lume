@@ -773,3 +773,6 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--pri
 .lume-line-empty { color: var(--text-dim); font-size: 0.85rem; text-align: center; }
 .answer-grid .lume-widget.size-2x1, .answer-grid .lume-widget.size-2x2 { grid-column: span 2; }
 .lume-dashboard.answer-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 280px)); }
+
+.reload-banner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.reload-banner .primary-btn { padding: 0.3rem 0.9rem; }

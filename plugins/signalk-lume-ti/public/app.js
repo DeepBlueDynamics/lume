@@ -457,6 +457,7 @@
       if (!res.ok) return;
       const data = await res.json();
       lastStatus = data;
+      noticeNewBuild(data.uiBuild);
 
       const sup = data.supervisor || {};
       const store = data.store || {};
@@ -522,6 +523,24 @@
       }
     } catch (_e) {
       // Network hiccup or server reloading
+    }
+  }
+
+  // When the plugin's page files change after this page loaded, offer a reload.
+  let loadedBuild = null;
+  function noticeNewBuild(build) {
+    if (!build) return;
+    if (loadedBuild === null) { loadedBuild = build; return; }
+    if (build === loadedBuild || typeof document.getElementById !== 'function') return;
+    let bar = document.getElementById('reload-banner');
+    if (!bar && document.body && typeof document.createElement === 'function') {
+      bar = document.createElement('div');
+      bar.id = 'reload-banner';
+      bar.className = 'setup-banner reload-banner';
+      bar.innerHTML = 'A newer version of this page is ready. <button type="button" class="primary-btn">Reload</button>';
+      bar.querySelector('button').addEventListener('click', () => location.reload());
+      const header = document.querySelector('.app-header');
+      if (header) header.after(bar); else document.body.prepend(bar);
     }
   }
 

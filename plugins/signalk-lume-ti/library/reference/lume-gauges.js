@@ -285,7 +285,7 @@
   function mount(el, spec) {
     const custom = spec.type === 'svg';
     const render = custom ? (root.LumeSvgWidget && root.LumeSvgWidget.render) : renderers[spec.type];
-    if (!render) throw new Error(`Unknown gauge type ${spec.type}`);
+    if (!render) throw new Error(`unknown gauge type "${spec.type}": this page is probably older than the plugin, so reload it (Ctrl+Shift+R)`);
     const card = document.createElement('div');
     card.className = `lume-widget size-${spec.size || '1x1'}`;
     el.appendChild(card);

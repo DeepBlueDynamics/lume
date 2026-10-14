@@ -442,6 +442,8 @@ module.exports = function (app) {
           ok: true,
           binary: currentBinaryInfo,
           versions: versions.cached(),
+          // Newest change to the page's own files; an open page that sees it change offers a reload.
+          uiBuild: uiBuildStamp(),
           supervisor: supStatus,
           store: storeStatus,
           // Lets the page explain an empty store: waiting for access approval, or no data yet.
@@ -507,6 +509,23 @@ module.exports = function (app) {
  * @param {Supervisor} supervisor
  * @param {string} storeDir
  */
+/** The newest modification time of the web app's files, checked at most every 5 s. */
+let uiStamp = {at: 0, value: null};
+function uiBuildStamp() {
+  if (Date.now() - uiStamp.at < 5000) return uiStamp.value;
+  let newest = 0;
+  try {
+    const dir = path.join(__dirname, 'public');
+    for (const name of fs.readdirSync(dir)) {
+      if (/\.(js|css|html)$/.test(name)) newest = Math.max(newest, fs.statSync(path.join(dir, name)).mtimeMs);
+    }
+  } catch (_) {
+    // Leave the stamp as it was.
+  }
+  uiStamp = {at: Date.now(), value: newest ? String(Math.round(newest)) : uiStamp.value};
+  return uiStamp.value;
+}
+
 function updateStatus(app, supervisor, storeDir) {
   if (!supervisor) return;
   const status = supervisor.getStatus();
