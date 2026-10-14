@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {adminStatus, readJson} = require('./pg');
 
-const TYPES = new Set(['tank', 'dial', 'arc', 'bar', 'digital', 'svg']);
+const TYPES = new Set(['tank', 'dial', 'arc', 'bar', 'digital', 'svg', 'line']);
 const MAX_SVG = 12000;
 const VIEWBOX = /^-?\d+(\.\d+)? -?\d+(\.\d+)? \d+(\.\d+)? \d+(\.\d+)?$/;
 // The page whitelists elements and attributes again when it draws; the server refuses
@@ -31,7 +31,7 @@ const MAX_WIDGETS = 60;
 /** The options each gauge type accepts, and their kinds. Anything else is dropped. */
 const OPTION_KINDS = {
   label: 'text', unit: 'text', min: 'number', max: 'number', decimals: 'int', scale: 'number',
-  capacity: 'number', warnBelow: 'number', color: 'color', vertical: 'bool', history: 'int', zones: 'zones',
+  capacity: 'number', warnBelow: 'number', color: 'color', vertical: 'bool', history: 'int', zones: 'zones', windowMinutes: 'int',
 };
 
 function bad(message) {

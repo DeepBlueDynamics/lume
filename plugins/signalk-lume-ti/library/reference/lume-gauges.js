@@ -210,7 +210,39 @@
     return {update};
   }
 
-  const renderers = {tank, dial, arc, bar, digital};
+  // 6. Line: a line graph. Fed by a procedure, it draws the rows the query returns (one
+  //    per time step); fed live, it keeps a rolling window of the last windowMinutes.
+  //    options: {label, unit, scale, windowMinutes (live, default 15)}
+  function line(el, o = {}) {
+    const box = document.createElement('div');
+    box.className = 'lume-line-widget';
+    el.appendChild(box);
+    const charts = root.LumeCharts;
+    const scale = o.scale ?? 1;
+    const name = o.label ? o.label.replace(/\s+/g, '_').toLowerCase() : 'value';
+    const keepMs = Math.max(1, o.windowMinutes ?? 15) * 60000;
+    const live = [];
+    const draw = rows => {
+      if (!charts) { box.textContent = 'Charts unavailable: reload the page'; return; }
+      if (!charts.line(box, rows)) box.innerHTML = '<div class="lume-line-empty">Waiting for data…</div>';
+    };
+    function update(value) {
+      if (!finite(value)) return;
+      const now = Date.now();
+      live.push({ts: new Date(now).toISOString(), [name]: value * scale});
+      while (live.length && now - Date.parse(live[0].ts) > keepMs) live.shift();
+      draw(live);
+    }
+    function setRows(rows) {
+      const scaled = scale === 1 ? rows : rows.map(r => Object.fromEntries(Object.entries(r).map(([k, v]) =>
+        [k, typeof v === 'number' ? v * scale : v])));
+      draw(scaled);
+    }
+    draw([]);
+    return {update, setRows};
+  }
+
+  const renderers = {tank, dial, arc, bar, digital, line};
 
   // Live values straight from Signal K: one WebSocket, values per path as they arrive.
   // onValue(path, value) is called for every update of a subscribed path.
@@ -278,7 +310,8 @@
     } else if (spec.source && spec.source.kind === 'procedure') {
       const tick = () => runProcedure(spec.source).then(rows => {
         const row = rows[0] || {};
-        if (custom) gauge.update(row);
+        if (typeof gauge.setRows === 'function') gauge.setRows(rows);
+        else if (custom) gauge.update(row);
         else gauge.update(row[spec.source.column || 'value']);
       }).catch(() => (custom ? null : gauge.update(NaN)));
       tick();

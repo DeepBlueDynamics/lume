@@ -42,3 +42,13 @@ test('custom widgets validate on the server', () => {
   assert.throws(() => validateWidget({id: 'w', type: 'svg', options: {svg: '<g/>'}, source: {kind: 'signalk', paths: {'bad name': 'a.b'}}}), /identifier/);
   assert.throws(() => validateWidget({id: 'w', type: 'svg', options: {svg: '<g/>'}, source: {kind: 'signalk', paths: {v: 'a b'}}}), /Signal K path/);
 });
+
+test('line graph widgets validate, with their time-series query', () => {
+  const w = validateWidget({id: 'wind-24h', title: 'Wind, 24 h', type: 'line', size: '2x1',
+    options: {label: 'Wind', unit: 'kn', scale: 1.94384, windowMinutes: 30},
+    source: {kind: 'procedure', everySeconds: 60,
+      sql: "SELECT date_bin(INTERVAL '15 minutes', ts) AS ts, avg(\"environment.wind.speedTrue@mean\") AS wind FROM telemetry GROUP BY 1 ORDER BY 1"}});
+  assert.equal(w.type, 'line');
+  assert.equal(w.options.windowMinutes, 30);
+  assert.equal(w.source.everySeconds, 60);
+});
