@@ -58,7 +58,9 @@ document.addEventListener('DOMContentLoaded', () => {
             <input type="checkbox" data-id="${item.id}" ${selected.has(item.id) ? 'checked' : ''}>
             <span class="lib-title">${titleLink(item)}${item.default ? ' <span class="lib-default">default</span>' : ''}</span>
             <span class="lib-meta">${esc(item.format.toUpperCase())} · ${esc(item.publisher)}${item.bytes ? ` · ${kb(item.bytes)}` : ''}</span>
-            <span class="lib-state lib-${item.state}" title="${esc(item.error || '')}">${stateLabel[item.state]}</span>
+            ${item.state === 'none' || item.state === 'failed'
+              ? `<button type="button" class="lib-state lib-index-one" data-id="${item.id}" title="${esc(item.error || 'Download this document to the server and make it searchable')}">${item.state === 'failed' ? 'Retry?' : 'Index?'}</button>`
+              : `<span class="lib-state lib-${item.state}" title="${esc(item.error || '')}">${stateLabel[item.state]}</span>`}
           </label>`).join('')}
       </details>`).join('') || '<p class="empty-state">No matching items.</p>';
   }
@@ -98,17 +100,34 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   filter.addEventListener('input', renderList);
 
-  indexBtn.addEventListener('click', async () => {
+  async function startIndex(ids) {
     try {
       const status = await getJson(`${base}/index`, {method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ids: pending()})});
+        body: JSON.stringify({ids})});
       renderJob(status);
       renderButton(status.job);
       if (!poll) poll = setInterval(load, 3000);
+      return true;
     } catch (error) {
       jobBox.hidden = false;
       jobBox.className = 'alert-box error';
       jobBox.textContent = /administrator/.test(error.message) ? 'Indexing needs a Signal K administrator login.' : error.message;
+      return false;
+    }
+  }
+
+  indexBtn.addEventListener('click', () => startIndex(pending()));
+
+  // "Index?" on a row indexes just that document.
+  list.addEventListener('click', async event => {
+    const btn = event.target.closest && event.target.closest('.lib-index-one');
+    if (!btn) return;
+    event.preventDefault();
+    btn.disabled = true;
+    btn.textContent = 'Indexing…';
+    if (!(await startIndex([btn.dataset.id]))) {
+      btn.disabled = false;
+      btn.textContent = 'Index?';
     }
   });
 

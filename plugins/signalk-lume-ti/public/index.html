@@ -102,6 +102,7 @@
         <div id="chat-response-container" class="hidden">
           <h3>Answer</h3>
           <div id="chat-answer" class="chat-answer-box"></div>
+          <div id="chat-charts" class="chat-charts"></div>
           <div id="chat-sql-section" class="hidden">
             <h3 style="margin-top: 1rem;">Executed SQL Queries</h3>
             <div id="chat-sql-list"></div>
@@ -163,6 +164,7 @@
           <div class="editor-actions">
             <button id="run-btn" class="primary-btn">▶ Run Query (Ctrl+Enter)</button>
             <button id="export-csv-btn" class="secondary-btn" disabled>⬇ Export CSV</button>
+            <button id="chart-btn" class="secondary-btn" disabled title="Draw the result as a line chart (needs a time column and numbers)">📈 Chart</button>
             <button id="pin-chart-btn" class="secondary-btn" disabled>Pin to chart</button>
             <button id="unpin-chart-btn" class="secondary-btn">Unpin all lume-ti</button>
             <label>Note latitude <input id="pin-lat" type="number" min="-90" max="90" step="any" placeholder="optional"></label>
@@ -174,6 +176,7 @@
 
         <div id="query-error" class="alert-box error hidden"></div>
 
+        <div id="results-chart" hidden></div>
         <div class="results-container">
           <div class="results-header">
             <h3>Query Results</h3>
@@ -240,6 +243,22 @@
               <tr><td>Pre-2020 document rejections:</td><td id="diag-document-rejections">--</td></tr>
             </table>
           </div>
+
+          <div class="card">
+            <h3>Version &amp; Build</h3>
+            <table class="diag-table">
+              <tr><td>Lume TI plugin:</td><td><strong id="ver-plugin">--</strong></td></tr>
+              <tr><td>lume program:</td><td id="ver-lume">--</td></tr>
+              <tr><td>Installed from:</td><td id="ver-source">--</td></tr>
+              <tr><td>Program size:</td><td id="ver-bytes">--</td></tr>
+              <tr><td>Program SHA-256:</td><td id="ver-sha" class="monospace">--</td></tr>
+              <tr><td>Matches its manifest:</td><td id="ver-manifest">--</td></tr>
+              <tr><td>Needs glibc:</td><td id="ver-glibc">--</td></tr>
+              <tr><td>Program file date:</td><td id="ver-modified">--</td></tr>
+              <tr><td>Signal K server:</td><td id="ver-signalk">--</td></tr>
+              <tr><td>Node.js:</td><td id="ver-node">--</td></tr>
+            </table>
+          </div>
         </div>
       </section>
     </main>
@@ -249,6 +268,7 @@
   <script src="app.js"></script>
   <script src="pg.js"></script>
   <script src="library.js"></script>
+  <script src="charts.js"></script>
   <script src="md.js"></script>
   <script src="chat.js"></script>
 </body>

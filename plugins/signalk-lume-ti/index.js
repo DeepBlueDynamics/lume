@@ -12,6 +12,7 @@ const { createHistoryProvider } = require('./lib/history');
 const {pgOptions, writePgConfig, registerPgRoutes, adminStatus, readJson} = require('./lib/pg');
 const {Library} = require('./lib/library');
 const {ChatManager, registerChatRoutes} = require('./lib/chat');
+const versions = require('./lib/versions');
 
 /**
  * Signal K Plugin Factory Function.
@@ -237,6 +238,9 @@ module.exports = function (app) {
         return;
       }
       log(`Resolved lume executable: ${currentBinaryInfo.path} (${currentBinaryInfo.source})`);
+      versions.collect({app, binaryInfo: currentBinaryInfo})
+        .then(v => log(`Versions: plugin ${v.plugin.version}, lume ${v.lume.version || 'unknown'}, Signal K ${v.signalk.version || 'unknown'}, Node ${v.node.version}`))
+        .catch(err => log(`Version check failed: ${err.message}`, true));
       library = new Library({binary: currentBinaryInfo.path, dataDir, servePort, log: line => log(line)});
       chatManager = new ChatManager({
         binary: currentBinaryInfo.path,
@@ -411,6 +415,7 @@ module.exports = function (app) {
         },
       });
       router.get('/md.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'md.js')));
+      router.get('/charts.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'charts.js')));
       router.get('/icon.svg', (req, res) => res.sendFile(path.join(__dirname, 'public', 'icon.svg')));
       // 1. Status API
       router.get('/api/status', (req, res) => {
@@ -422,6 +427,7 @@ module.exports = function (app) {
         res.json({
           ok: true,
           binary: currentBinaryInfo,
+          versions: versions.cached(),
           supervisor: supStatus,
           store: storeStatus,
           // Lets the page explain an empty store: waiting for access approval, or no data yet.
@@ -508,6 +514,8 @@ function updateStatus(app, supervisor, storeDir) {
     if (store.walBytes > 0) {
       summary += ` (WAL: ${store.walHuman})`;
     }
+    const v = versions.cached();
+    if (v) summary += ` | v${v.plugin.version}${v.lume.version && v.lume.version !== v.plugin.version ? `, lume ${v.lume.version}` : ''}`;
 
     if (typeof app.setPluginStatus === 'function') {
       app.setPluginStatus(summary);

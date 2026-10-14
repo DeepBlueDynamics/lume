@@ -152,6 +152,40 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // Graph the answer: rerun each query that returned rows and chart the time series.
+  async function chartAnswer(data) {
+    const box = document.getElementById('chat-charts');
+    const charts = window.LumeCharts;
+    if (!box || !charts) return;
+    box.innerHTML = '';
+    const calls = Array.isArray(data.tool_calls) ? data.tool_calls : [];
+    const statements = (Array.isArray(data.sql) ? data.sql : []).filter(sql => {
+      const call = calls.find(c => c.args && typeof c.args.sql === 'string' && c.args.sql.trim() === sql.trim());
+      return !call || (!call.error && (call.rows == null || call.rows >= 2));
+    }).slice(0, 3);
+    for (const sql of statements) {
+      const res = await fetch('/plugins/signalk-lume-ti/api/query', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json', Accept: 'application/json'},
+        body: JSON.stringify({sql}),
+      });
+      if (!res.ok) continue;
+      const result = await res.json();
+      const rows = Array.isArray(result) ? result : result.rows || [];
+      const plan = charts.detect(rows);
+      if (!plan) continue;
+      const figure = document.createElement('div');
+      box.appendChild(figure);
+      if (!charts.line(figure, rows, plan)) figure.remove();
+    }
+    if (box.children.length) {
+      const heading = document.createElement('h3');
+      heading.textContent = box.children.length > 1 ? 'Charts' : 'Chart';
+      box.prepend(heading);
+    }
+  }
+
   // Errors that the key box can fix open it.
   const KEY_ERRORS = new Set(['needs_key', 'key_not_path', 'key_unreadable', 'key_empty', 'bad_key']);
 
@@ -436,6 +470,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Render SQL statements
       renderSqlCards(finalData);
+      chartAnswer(finalData).catch(() => {});
 
       container.classList.remove('hidden');
     } catch (err) {

@@ -722,3 +722,30 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--pri
 }
 .index-inline-btn:hover:not(:disabled) { background: rgba(19, 218, 235, 0.2); }
 .index-inline-btn:disabled { border-color: var(--border); color: var(--text-dim); background: none; cursor: default; }
+
+/* Library links: 50% lighter than the theme cyan so they read on the dark cards */
+.lib-title a, .lib-hits a, .lib-ref a, .lib-online, #tab-library a { color: #89ecf5; text-decoration: none; }
+.lib-title a:hover, .lib-hits a:hover, .lib-ref a:hover, #tab-library a:hover { color: #ffffff; text-decoration: underline; }
+
+/* Charts in Ask answers and the SQL console */
+.lume-chart { position: relative; background: var(--bg-input); border: 1px solid var(--border); border-radius: 10px; padding: 0.6rem 0.6rem 0.4rem; margin: 0.75rem 0; }
+.lume-chart svg { width: 100%; height: auto; display: block; }
+.lume-chart-legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; font-size: 0.8rem; color: var(--text-dim); padding: 0.2rem 0.4rem; }
+.lume-chart-legend i { display: inline-block; width: 12px; height: 3px; border-radius: 2px; margin-right: 0.4rem; vertical-align: middle; }
+.lume-chart-tip { position: absolute; top: 0.5rem; right: 0.75rem; font-size: 0.75rem; background: rgba(14, 27, 46, 0.92); border: 1px solid var(--border); border-radius: 6px; padding: 0.2rem 0.5rem; color: var(--text-main); pointer-events: none; }
+.chat-charts h3 { margin-top: 1rem; }
+
+/* "Index?" on a Library row */
+.lib-index-one {
+  justify-self: end;
+  padding: 0.1rem 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border-radius: 999px;
+  border: 1px solid var(--primary);
+  background: rgba(19, 218, 235, 0.1);
+  color: #89ecf5;
+  cursor: pointer;
+}
+.lib-index-one:hover:not(:disabled) { background: rgba(19, 218, 235, 0.22); color: #fff; }
+.lib-index-one:disabled { opacity: 0.6; cursor: progress; }

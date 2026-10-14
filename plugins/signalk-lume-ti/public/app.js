@@ -198,6 +198,7 @@
     metaSpan.textContent = '';
 
     document.getElementById('pin-chart-btn').disabled = true;
+    showChart([]);
     lastQueryRows = [];
     lastQuerySql = '';
     const t0 = performance.now();
@@ -238,6 +239,7 @@
       metaSpan.textContent = `Elapsed: ${elapsedMs} ms`;
       countSpan.textContent = `${rows.length} rows`;
       exportBtn.disabled = rows.length === 0;
+      showChart(rows);
 
       if (rows.length === 0) {
         thead.innerHTML = '';
@@ -307,6 +309,28 @@
     unpinBtn.addEventListener('click', () => {
       if (!window.confirm('Remove all chart notes and regions created by lume-ti?')) return;
       action(async () => `Removed ${(await window.LumeChart.unpin()).deleted} lume-ti resources.`);
+    });
+  }
+
+  // Results with a time column and numbers are drawn as a line chart above the table;
+  // the Chart button hides or shows it.
+  let chartHidden = false;
+  function showChart(rows) {
+    const box = document.getElementById('results-chart');
+    const btn = document.getElementById('chart-btn');
+    const charts = window.LumeCharts;
+    if (!box || !btn) return;
+    const plan = charts && rows.length ? charts.detect(rows) : null;
+    btn.disabled = !plan;
+    btn.classList[plan && !chartHidden ? 'add' : 'remove']('active');
+    if (!plan || chartHidden) { box.hidden = true; return; }
+    box.hidden = !charts.line(box, rows, plan);
+  }
+  const chartBtn = typeof document.getElementById === 'function' ? document.getElementById('chart-btn') : null;
+  if (chartBtn && chartBtn.addEventListener) {
+    chartBtn.addEventListener('click', () => {
+      chartHidden = !chartHidden;
+      showChart(lastQueryRows);
     });
   }
 
@@ -478,6 +502,24 @@
       setElem('diag-reconnects', ingest.reconnects ?? '--');
       setElem('diag-document-rejections', ingest.documents_rejected_pre_epoch ?? '--');
       setElem('diag-ingest-running', ingest.running !== undefined ? String(ingest.running) : '--');
+
+      // Version & Build
+      const v = data.versions;
+      if (v) {
+        const sourceLabel = {'npm-optional': 'npm package', 'bundled-flat': 'bundled with the plugin', bundled: 'bundled with the plugin', 'config.lumePath': 'custom path (lumePath)', env: 'LUME_BIN', path: 'system PATH'};
+        setElem('ver-plugin', `${v.plugin.version}`);
+        setElem('ver-lume', v.lume.version ? `lume ${v.lume.version}` : 'unknown');
+        setElem('ver-source', sourceLabel[v.lume.source] || v.lume.source || '--');
+        setElem('ver-bytes', v.lume.bytes ? formatBytes(v.lume.bytes) : '--');
+        setElem('ver-sha', v.lume.sha256 || '--');
+        setElem('ver-manifest', v.lume.manifestMatches === undefined ? 'no manifest' : v.lume.manifestMatches ? 'yes' : 'NO: the program differs from its package manifest');
+        setElem('ver-glibc', v.lume.glibcMax ? `${v.lume.glibcMax} or newer` : '--');
+        setElem('ver-modified', v.lume.modified ? new Date(v.lume.modified).toLocaleString() : '--');
+        setElem('ver-signalk', v.signalk.version || 'unknown');
+        setElem('ver-node', `${v.node.version} (${v.node.platform})`);
+        const sub = document.querySelector('.brand-sub');
+        if (sub) sub.textContent = `v${v.plugin.version} · your boat's history, on the boat`;
+      }
     } catch (_e) {
       // Network hiccup or server reloading
     }

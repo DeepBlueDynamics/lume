@@ -202,3 +202,24 @@ test('Ask is told what the page numbers mean and which recent queries failed', (
   assert.ok(!/Valid fields/.test(ctx), 'column lists are dropped');
   fs.rmSync(dir, {recursive: true, force: true});
 });
+
+test('charts are offered only for a time column with numbers', () => {
+  const charts = require('../public/charts');
+  const series = [{bucket: '2026-10-14T00:00:00Z', avg_depth: 15.29}, {bucket: '2026-10-14T01:00:00Z', avg_depth: '15.56'}];
+  assert.deepEqual(charts.detect(series), {x: 'bucket', ys: ['avg_depth']});
+  assert.deepEqual(charts.detect([{ts: '2026-10-14 00:00:00.123456', a: 1, b: 2, name: 'x'}, {ts: '2026-10-14 00:00:10', a: 2, b: 3, name: 'y'}]), {x: 'ts', ys: ['a', 'b']});
+  assert.equal(charts.detect([{total_buckets: 84}]), null, 'one row is not a series');
+  assert.equal(charts.detect([{file: 'a.pdf', title: 'x'}, {file: 'b.pdf', title: 'y'}]), null, 'no time column');
+  assert.equal(charts.detect([{ts: '2026-10-14T00:00:00Z', label: 'a'}, {ts: '2026-10-14T00:01:00Z', label: 'b'}]), null, 'no numbers');
+});
+
+test('versions report the plugin, lume, Signal K and Node', async () => {
+  const versions = require('../lib/versions');
+  const v = await versions.collect({app: {config: {version: '2.33.0'}}, binaryInfo: {found: true, path: process.execPath, source: 'config.lumePath'}});
+  assert.equal(v.plugin.version, require('../package.json').version);
+  assert.equal(v.signalk.version, '2.33.0');
+  assert.match(v.node.version, /^v\d+/);
+  assert.match(v.lume.sha256, /^[0-9a-f]{64}$/);
+  assert.ok(v.lume.bytes > 0);
+  assert.equal(versions.cached(), v);
+});
