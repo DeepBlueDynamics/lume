@@ -1,6 +1,6 @@
 {
   "name": "signalk-lume-ti",
-  "version": "0.16.0",
+  "version": "0.16.1",
   "description": "Your boat's history and manuals, kept on the boat: records Signal K data, builds an offline library of cruising references, and answers questions about both.",
   "main": "index.js",
   "keywords": [
@@ -43,8 +43,8 @@
     "node": ">=18.0.0"
   },
   "optionalDependencies": {
-    "signalk-lume-ti-linux-arm64": "0.16.0",
-    "signalk-lume-ti-linux-x64": "0.16.0"
+    "signalk-lume-ti-linux-arm64": "0.16.1",
+    "signalk-lume-ti-linux-x64": "0.16.1"
   },
   "os": [
     "linux"
