@@ -155,6 +155,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // Errors that the key box can fix open it.
   const KEY_ERRORS = new Set(['needs_key', 'key_not_path', 'key_unreadable', 'key_empty', 'bad_key']);
 
+  // DataFusion appends every column name to a schema error; keep the sentence, drop the list.
+  const shortError = text => String(text || '').replace(/s+Valid fields are .*$/s, ' (the Schema Browser lists every column)');
+
   function formatPreview(args) {
     if (!args || typeof args !== 'object') return '';
     if (typeof args.sql === 'string' && args.sql.trim()) {
@@ -224,7 +227,7 @@ document.addEventListener('DOMContentLoaded', () => {
               meta.textContent = `${call.rows} result rows returned${call.truncated ? ' (truncated)' : ''}`;
             } else if (call.error) {
               meta.className += ' chat-sql-meta-error';
-              meta.textContent = `Error: ${call.error}`;
+              meta.textContent = `Error: ${shortError(call.error)}`;
             }
             card.appendChild(meta);
           }
@@ -318,7 +321,7 @@ document.addEventListener('DOMContentLoaded', () => {
           const ms = typeof event.elapsed_ms === 'number' ? `${event.elapsed_ms}ms` : '';
           if (event.error) {
             metaSpan.className = 'chat-event-meta error';
-            metaSpan.textContent = `error: ${event.error}${ms ? ` (${ms})` : ''}`;
+            metaSpan.textContent = `error: ${shortError(event.error)}${ms ? ` (${ms})` : ''}`;
           } else if (event.rows !== null && event.rows !== undefined) {
             metaSpan.className = 'chat-event-meta success';
             metaSpan.textContent = `${event.rows} row${event.rows === 1 ? '' : 's'}${ms ? ` (${ms})` : ''}`;

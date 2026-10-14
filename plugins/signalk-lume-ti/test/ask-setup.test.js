@@ -171,3 +171,24 @@ test('catalog suggestions find not-yet-indexed references by topic', () => {
   assert.match(titles, /Universal M|Engineman/);
   assert.deepEqual(lib.suggestions('what do you have'), []);
 });
+
+test('Ask is told what the page numbers mean and which recent queries failed', () => {
+  const {statusContext, historyContext, ChatManager} = require('../lib/chat');
+  const status = statusContext({running: true, pid: 30, uptimeSecs: 90, updates: 56000, lagSeconds: 0, disk: '640 KB', wal: '396 B'});
+  assert.match(status, /"Updates".*56000.*not a row count/s);
+  assert.match(status, /one row per 10-second bucket/);
+  assert.equal(statusContext(null), '');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lume-hist-'));
+  const chat = new ChatManager({binary: process.execPath, dataDir: dir});
+  chat.record('what are the 56K updates?', {tool_calls: [{name: 'ti_query', args: {sql: 'SELECT "x@max" FROM telemetry'}, error: 'Schema error: No field named "x@max". Valid fields are a, b, c'}]});
+  chat.record('depth now?', {tool_calls: [{name: 'ti_query', args: {sql: 'SELECT 1'}, rows: 1}]});
+  for (let i = 0; i < 120; i++) chat.record(`q${i}`, {tool_calls: []});
+  assert.equal(chat.history().length, 100, 'history is capped');
+  const fresh = new ChatManager({binary: process.execPath, dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'lume-hist2-'))});
+  fresh.record('what are the 56K updates?', {tool_calls: [{name: 'ti_query', args: {sql: 'SELECT "x@max" FROM telemetry'}, error: 'Schema error: No field named "x@max". Valid fields are a, b, c'}]});
+  const ctx = historyContext(fresh.history());
+  assert.match(ctx, /failed ti_query: SELECT "x@max" FROM telemetry -> Schema error: No field named "x@max"\./);
+  assert.ok(!/Valid fields/.test(ctx), 'column lists are dropped');
+  fs.rmSync(dir, {recursive: true, force: true});
+});

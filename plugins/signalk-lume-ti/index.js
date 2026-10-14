@@ -244,6 +244,17 @@ module.exports = function (app) {
         getOptions: () => pluginConfig,
         getCatalog: () => (library ? library.catalog() : []),
         getSuggestions: question => (library ? library.suggestions(question) : []),
+        getStatus: () => {
+          if (!supervisor) return null;
+          const sup = supervisor.getStatus();
+          const store = collectStoreStatus(storeDir);
+          const ingest = store.ingestStatus || {};
+          return {
+            running: sup.running, pid: sup.pid, uptimeSecs: sup.uptimeSecs,
+            updates: ingest.records_ingested, lagSeconds: ingest.ingest_lag_seconds,
+            disk: store.diskHuman, wal: store.walHuman,
+          };
+        },
         log: line => log(line),
       });
 

@@ -92,6 +92,39 @@ class EventStreamParser {
   }
 }
 
+const HISTORY_FILE = 'ask-history.jsonl';
+const HISTORY_KEEP = 100;
+const shortError = text => String(text || '').replace(/\s+Valid fields are .*$/s, '').slice(0, 300);
+
+/** What the numbers on the Lume TI page mean right now, so Ask can explain them. */
+function statusContext(status) {
+  if (!status) return '';
+  const lines = ['[Context from the Lume TI plugin, not from the user: the plugin status and what each number on its page means.]'];
+  lines.push(`- Lume is ${status.running ? `running (pid ${status.pid}, up ${status.uptimeSecs ?? '?'} s)` : 'not running'}.`);
+  if (status.updates !== undefined) {
+    lines.push(`- "Updates" (top right, also "Updates received" on the Status tab) = ${status.updates}: Signal K value updates lume has received since it started; every change of every path counts once. It is not a row count.`);
+  }
+  lines.push('- Storage keeps one row per 10-second bucket in the telemetry table, with @mean, @min, @max and @last columns for each Signal K path.');
+  if (status.disk) lines.push(`- "Disk Size" = ${status.disk}: the whole store. "WAL Size" = ${status.wal || '0 B'}: the crash-recovery log for buckets not yet sealed into shard files.`);
+  if (status.lagSeconds !== undefined) lines.push(`- "Ingest Lag" = ${status.lagSeconds} s: how far behind the live Signal K stream lume is.`);
+  lines.push('- The plugin itself is not a table: answer questions about these numbers from this context, not by querying for them.');
+  return `\n\n${lines.join('\n')}`;
+}
+
+/** Recent Ask runs, so "which queries broke?" has an answer. */
+function historyContext(runs) {
+  const recent = (runs || []).slice(-8);
+  if (!recent.length) return '';
+  const lines = ['[Context from the Lume TI plugin, not from the user: the most recent Ask questions on this boat, oldest first, with any queries that failed.]'];
+  for (const run of recent) {
+    lines.push(`- ${run.ts} "${run.question}": ${run.ok ? 'answered' : `failed (${run.error || 'error'})`}`);
+    for (const call of run.calls || []) {
+      if (call.error) lines.push(`  - failed ${call.tool}: ${call.sql || ''} -> ${call.error}`);
+    }
+  }
+  return `\n\n${lines.join('\n')}`;
+}
+
 /**
  * Appended to the question so the model can map the search index's stored file names
  * to real titles. Bounded so a large library can't blow up argv.
@@ -131,18 +164,47 @@ function libraryContext(catalog, maxChars = 24000, suggestions = []) {
 }
 
 class ChatManager {
-  constructor({binary, dataDir, getOptions = () => ({}), getCatalog = () => [], getSuggestions = () => [], log = () => {}}) {
+  constructor({binary, dataDir, getOptions = () => ({}), getCatalog = () => [], getSuggestions = () => [], getStatus = () => null, log = () => {}}) {
     this.binary = binary;
     this.dataDir = dataDir;
     this.getOptions = getOptions;
     this.getCatalog = getCatalog;
     this.getSuggestions = getSuggestions;
+    this.getStatus = getStatus;
     this.log = log;
     this.currentJob = null;
   }
 
   isRunning() {
     return this.currentJob !== null;
+  }
+
+  /** The last runs from <dataDir>/ask-history.jsonl (bad lines are skipped). */
+  history() {
+    try {
+      return fs.readFileSync(path.join(this.dataDir, HISTORY_FILE), 'utf8').split('\n').filter(Boolean)
+        .map(line => { try { return JSON.parse(line); } catch (_) { return null; } }).filter(Boolean);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /** Append one run, keeping the newest HISTORY_KEEP. Never stores keys or env. */
+  record(question, result, error) {
+    try {
+      const calls = (result && Array.isArray(result.tool_calls) ? result.tool_calls : []).map(c => ({
+        tool: c.name || 'tool',
+        sql: c.args && typeof c.args.sql === 'string' ? c.args.sql.slice(0, 500) : undefined,
+        rows: c.rows ?? undefined,
+        error: c.error ? shortError(c.error) : undefined,
+      }));
+      const run = {ts: new Date().toISOString(), question: question.slice(0, 300), ok: !error, error: error ? shortError(error.message) : undefined, calls};
+      const runs = [...this.history(), run].slice(-HISTORY_KEEP);
+      fs.mkdirSync(this.dataDir, {recursive: true});
+      fs.writeFileSync(path.join(this.dataDir, HISTORY_FILE), runs.map(r => JSON.stringify(r)).join('\n') + '\n');
+    } catch (err) {
+      this.log(`[chat] could not save Ask history: ${err.message}`);
+    }
   }
 
   stop() {
@@ -204,7 +266,9 @@ class ChatManager {
     let suggestions = [];
     try { catalog = (typeof this.getCatalog === 'function' ? this.getCatalog() : []) || []; } catch (_) {}
     try { suggestions = (typeof this.getSuggestions === 'function' ? this.getSuggestions(trimmedQuestion) : []) || []; } catch (_) {}
-    args.push(trimmedQuestion + libraryContext(catalog, 24000, suggestions));
+    let status = null;
+    try { status = typeof this.getStatus === 'function' ? this.getStatus() : null; } catch (_) {}
+    args.push(trimmedQuestion + statusContext(status) + historyContext(this.history()) + libraryContext(catalog, 24000, suggestions));
 
     const childEnv = {...process.env};
     if (apiKey) {
@@ -278,12 +342,15 @@ class ChatManager {
         }
 
         if (parsed && typeof parsed === 'object') {
+          this.record(trimmedQuestion, parsed);
           return resolve(parsed);
         }
 
         if (code !== 0) {
           this.log(`[chat] lume chat exited with code ${code}: ${(stderr || stdout).slice(-2000)}`);
-          return reject(explainChatFailure(`${stderr}\n${stdout}`, firstUrl));
+          const failure = explainChatFailure(`${stderr}\n${stdout}`, firstUrl);
+          this.record(trimmedQuestion, null, failure);
+          return reject(failure);
         }
 
         resolve({
@@ -502,4 +569,6 @@ module.exports = {
   needsCloudKey,
   looksLikeKey,
   libraryContext,
+  statusContext,
+  historyContext,
 };

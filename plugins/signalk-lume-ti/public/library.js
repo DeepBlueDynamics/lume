@@ -16,6 +16,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
   const kb = n => (n == null ? '' : n > 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
   const stateLabel = {indexed: 'Indexed', fetched: 'Fetched', failed: 'Failed', none: 'Not indexed'};
+  // The title opens the copy on this server when there is one, otherwise the original.
+  const titleLink = item => {
+    const href = item.localUrl || item.url;
+    return href
+      ? `<a href="${esc(href)}" target="_blank" rel="noopener" title="${item.localUrl ? 'Open the copy on this server' : 'Open the original'}">${esc(item.title)}</a>`
+      : esc(item.title);
+  };
 
   async function getJson(url, options) {
     const res = await fetch(url, {credentials: 'same-origin', cache: 'no-store', ...options});
@@ -49,7 +56,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ${groups[category].map(item => `
           <label class="lib-row">
             <input type="checkbox" data-id="${item.id}" ${selected.has(item.id) ? 'checked' : ''}>
-            <span class="lib-title">${esc(item.title)}${item.default ? ' <span class="lib-default">default</span>' : ''}</span>
+            <span class="lib-title">${titleLink(item)}${item.default ? ' <span class="lib-default">default</span>' : ''}</span>
             <span class="lib-meta">${esc(item.format.toUpperCase())} · ${esc(item.publisher)}${item.bytes ? ` · ${kb(item.bytes)}` : ''}</span>
             <span class="lib-state lib-${item.state}" title="${esc(item.error || '')}">${stateLabel[item.state]}</span>
           </label>`).join('')}

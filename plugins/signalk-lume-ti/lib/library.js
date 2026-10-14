@@ -108,7 +108,11 @@ function listWithState(dataDir, file = LIST) {
   return readList(file).map(item => {
     const m = manifest[item.id];
     const state = indexed.has(item.id) ? 'indexed' : m?.status === 'ok' ? 'fetched' : m?.status === 'failed' ? 'failed' : 'none';
-    return {...item, state, bytes: m?.bytes ?? null, error: m?.status === 'failed' ? m.error : null};
+    // The crawler stores <id>.<ext>; HTML pages are saved as Markdown.
+    const ext = {html: 'md', pdf: 'pdf', epub: 'epub', zim: 'zim'}[item.format] || 'txt';
+    const stored = `${item.id}.${ext}`;
+    const localUrl = fs.existsSync(path.join(p.files, stored)) ? `/plugins/signalk-lume-ti/api/library/file/${stored}` : null;
+    return {...item, state, localUrl, bytes: m?.bytes ?? null, error: m?.status === 'failed' ? m.error : null};
   });
 }
 
