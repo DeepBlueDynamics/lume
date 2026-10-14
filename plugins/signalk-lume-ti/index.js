@@ -427,6 +427,7 @@ module.exports = function (app) {
       router.get('/md.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'md.js')));
       router.get('/charts.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'charts.js')));
       router.get('/lume-gauges.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'lume-gauges.js')));
+      router.get('/lume-svg-widget.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'lume-svg-widget.js')));
       router.get('/dashboard.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'dashboard.js')));
       registerDashboardRoutes(router, app, () => (typeof app.getDataDirPath === 'function' ? new Dashboard(app.getDataDirPath()) : null));
       router.get('/icon.svg', (req, res) => res.sendFile(path.join(__dirname, 'public', 'icon.svg')));

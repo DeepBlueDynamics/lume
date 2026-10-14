@@ -251,23 +251,36 @@
 
   // Mount one widget from its spec (see "Widget spec" in the reference document).
   function mount(el, spec) {
-    const render = renderers[spec.type];
+    const custom = spec.type === 'svg';
+    const render = custom ? (root.LumeSvgWidget && root.LumeSvgWidget.render) : renderers[spec.type];
     if (!render) throw new Error(`Unknown gauge type ${spec.type}`);
     const card = document.createElement('div');
     card.className = `lume-widget size-${spec.size || '1x1'}`;
     el.appendChild(card);
     const gauge = render(card, spec.options || {});
+    // Built-in gauges take one number; a custom widget takes {name: value} for its bindings.
+    const values = {};
+    const push = (name, value) => {
+      if (custom) { values[name] = value; gauge.update({[name]: value}); }
+      else gauge.update(value);
+    };
     let stop = () => {};
     if (spec.source && spec.source.kind === 'signalk') {
-      const sub = subscribe([spec.source.path], (path, value) => {
-        if (path === spec.source.path) gauge.update(typeof value === 'object' && value !== null ? value[spec.source.field] : value);
+      // `paths` names several inputs ({hdg: "navigation.headingTrue", ...}); `path` is one, named value.
+      const named = spec.source.paths || {value: spec.source.path};
+      const byPath = new Map(Object.entries(named).map(([name, path]) => [path, name]));
+      const sub = subscribe([...byPath.keys()], (path, value) => {
+        const name = byPath.get(path);
+        if (name === undefined) return;
+        push(name, typeof value === 'object' && value !== null && spec.source.field ? value[spec.source.field] : value);
       });
       stop = () => sub.close();
     } else if (spec.source && spec.source.kind === 'procedure') {
       const tick = () => runProcedure(spec.source).then(rows => {
         const row = rows[0] || {};
-        gauge.update(row[spec.source.column || 'value']);
-      }).catch(() => gauge.update(NaN));
+        if (custom) gauge.update(row);
+        else gauge.update(row[spec.source.column || 'value']);
+      }).catch(() => (custom ? null : gauge.update(NaN)));
       tick();
       const timer = setInterval(tick, Math.max(2, spec.source.everySeconds || 10) * 1000);
       stop = () => clearInterval(timer);

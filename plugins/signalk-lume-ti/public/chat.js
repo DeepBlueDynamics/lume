@@ -152,7 +152,8 @@ document.addEventListener('DOMContentLoaded', () => {
       bar.className = 'answer-widget-actions';
       const live = document.createElement('span');
       live.className = 'lib-meta';
-      live.textContent = widget.source.kind === 'signalk' ? `Live from Signal K: ${widget.source.path}` : `Updates every ${widget.source.everySeconds} s from a saved query`;
+      const paths = widget.source.paths ? Object.values(widget.source.paths).join(', ') : widget.source.path;
+      live.textContent = widget.source.kind === 'signalk' ? `Live from Signal K: ${paths}` : `Updates every ${widget.source.everySeconds} s from a saved query`;
       const add = document.createElement('button');
       add.type = 'button';
       add.className = 'primary-btn';

@@ -141,7 +141,26 @@ When the user asks to see a value as a gauge, dial, meter, tank, bar or live rea
 - size: 1x1, 2x1, 1x2 (tall, best for tank) or 2x2. id: lowercase letters, digits, dashes.
 - source signalk: a live Signal K path, the telemetry column name without its @mean/@min/@max/@last suffix, so check the schema first. Values arrive in SI units: use scale 1.94384 for m/s to knots, 100 for a ratio to %, 60 for Hz to rpm; for Kelvin to Celsius use a digital widget with a procedure instead.
 - source procedure: {"kind": "procedure", "sql": "<one read-only SELECT returning a column named value>", "everySeconds": 10} for values computed from history; run the SQL once first to check it returns a row.
-- zones colour ranges of the displayed (scaled) value with #rrggbb colours. More gauge styles and examples are in the Library document "Lume TI dashboard gauges and layouts (reference)".`;
+- zones colour ranges of the displayed (scaled) value with #rrggbb colours. More gauge styles and examples are in the Library document "Lume TI dashboard gauges and layouts (reference)".
+
+Anything the five gauges can't show (a compass, navigation lights, a switch panel, a wind rose, a heel indicator, a boat diagram) is a custom widget: type "svg". You draw it yourself as an SVG fragment in options.svg (no outer <svg> tag) on options.viewBox (default "0 0 200 200"), and bind parts of it to live values with {{expression}} in any attribute or text.
+- source: {"kind": "signalk", "paths": {"name": "signal.k.path", ...}} names up to 12 inputs; expressions use those names.
+- Expressions: numbers, 'strings', + - * / %, comparisons, && || !, cond ? a : b, and functions deg(rad), rad(deg), fixed(v, n), round(v, n), mod(a, b), clamp(v, lo, hi), min, max, abs, sin, cos, sqrt, knots(m/s), celsius(K), pct(ratio), has(v). A name with no value yet is empty: guard with has(name).
+- Allowed: g, circle, ellipse, rect, line, path, polygon, polyline, text, tspan, linearGradient, radialGradient, stop, clipPath, with geometry, fill, stroke, opacity, font and transform attributes; fill="url(#id)" for your own gradients. Not allowed: script, style, image, use, links, event handlers, animation; the page strips them and the server refuses them.
+- Signal K angles are radians (deg() them), booleans arrive as true/false, switch states as true/false or 0/1.
+Compass example:
+\`\`\`lume-widget
+{"id": "compass", "title": "Heading", "type": "svg", "size": "1x1",
+ "options": {"viewBox": "0 0 200 200", "svg": "<circle cx='100' cy='100' r='88' fill='#0e1b2e' stroke='#1f3350' stroke-width='3'/><g transform='rotate({{has(cog) ? -deg(cog) : 0}} 100 100)'><path d='M100 18 L108 40 L92 40 Z' fill='#f87171'/><text x='100' y='58' text-anchor='middle' font-size='16' font-weight='700' fill='#f87171'>N</text><text x='160' y='106' text-anchor='middle' font-size='14' fill='#8ea3bd'>E</text><text x='100' y='160' text-anchor='middle' font-size='14' fill='#8ea3bd'>S</text><text x='40' y='106' text-anchor='middle' font-size='14' fill='#8ea3bd'>W</text></g><path d='M100 4 L107 16 L93 16 Z' fill='#13daeb'/><text x='100' y='110' text-anchor='middle' font-size='24' font-weight='700' fill='#eef6ff'>{{has(cog) ? fixed(mod(deg(cog), 360), 0) + '°' : '—'}}</text>"},
+ "source": {"kind": "signalk", "paths": {"cog": "navigation.courseOverGroundTrue"}}}
+\`\`\`
+Lights example (lamps glow green when on):
+\`\`\`lume-widget
+{"id": "nav-lights", "title": "Lights", "type": "svg", "size": "2x1",
+ "options": {"viewBox": "0 0 300 120", "svg": "<g font-size='12' fill='#8ea3bd' text-anchor='middle'><circle cx='60' cy='50' r='22' fill='{{nav ? \\"#34d399\\" : \\"#1f2937\\"}}' stroke='#1f3350' stroke-width='3'/><text x='60' y='100'>Navigation</text><circle cx='150' cy='50' r='22' fill='{{anchor ? \\"#fbbf24\\" : \\"#1f2937\\"}}' stroke='#1f3350' stroke-width='3'/><text x='150' y='100'>Anchor</text><circle cx='240' cy='50' r='22' fill='{{deck ? \\"#eef6ff\\" : \\"#1f2937\\"}}' stroke='#1f3350' stroke-width='3'/><text x='240' y='100'>Deck</text></g>"},
+ "source": {"kind": "signalk", "paths": {"nav": "electrical.switches.navigationLights.state", "anchor": "electrical.switches.anchorLight.state", "deck": "electrical.switches.deckLights.state"}}}
+\`\`\`
+Use the boat's real paths from ti_schema (telemetry column names without the @ suffix); if a path the user wants isn't recorded, say so and still draw the widget so it lights up once the data arrives.`;
 
 function describeSpan(seconds) {
   if (seconds < 120) return `${Math.round(seconds)} seconds`;

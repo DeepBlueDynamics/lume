@@ -6,7 +6,22 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {adminStatus, readJson} = require('./pg');
 
-const TYPES = new Set(['tank', 'dial', 'arc', 'bar', 'digital']);
+const TYPES = new Set(['tank', 'dial', 'arc', 'bar', 'digital', 'svg']);
+const MAX_SVG = 12000;
+const VIEWBOX = /^-?\d+(\.\d+)? -?\d+(\.\d+)? \d+(\.\d+)? \d+(\.\d+)?$/;
+// The page whitelists elements and attributes again when it draws; the server refuses
+// anything that could only be there to run code or load something.
+const FORBIDDEN_SVG = /<\s*\/?\s*(script|foreignObject|iframe|object|embed|image|use|a|style|animate\w*|set|feImage|link|meta)\b|\son[a-z]+\s*=|(xlink:)?href\s*=|javascript:|url\s*\(\s*['"]?\s*(?!#)|@import|<!DOCTYPE|<!ENTITY/i;
+
+function cleanSvg(options) {
+  const svg = options && typeof options.svg === 'string' ? options.svg : '';
+  if (!svg.trim()) throw bad('An svg widget needs options.svg, an SVG fragment');
+  if (svg.length > MAX_SVG) throw bad(`options.svg must be at most ${MAX_SVG} characters`);
+  if (FORBIDDEN_SVG.test(svg)) throw bad('options.svg may only contain shapes, text and gradients (no script, links, images, styles or event handlers)');
+  const viewBox = options.viewBox === undefined ? '0 0 200 200' : String(options.viewBox);
+  if (!VIEWBOX.test(viewBox)) throw bad('options.viewBox must be four numbers, such as "0 0 200 200"');
+  return {svg, viewBox};
+}
 const SIZES = new Set(['1x1', '2x1', '1x2', '2x2']);
 const ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const SK_PATH = /^[A-Za-z0-9._]{1,120}$/;
@@ -50,7 +65,16 @@ function validateWidget(spec) {
   if (!SIZES.has(size)) throw bad(`size must be one of ${[...SIZES].join(', ')}`);
   const source = spec.source || {};
   let cleanSource;
-  if (source.kind === 'signalk') {
+  if (source.kind === 'signalk' && source.paths !== undefined) {
+    // Several named inputs, for custom widgets: {"hdg": "navigation.headingTrue", ...}
+    const entries = source.paths && typeof source.paths === 'object' && !Array.isArray(source.paths) ? Object.entries(source.paths) : [];
+    if (!entries.length || entries.length > 12) throw bad('source.paths must name 1 to 12 Signal K paths');
+    for (const [name, p] of entries) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]{0,30}$/.test(name)) throw bad('each source.paths name must be a plain identifier');
+      if (!SK_PATH.test(String(p))) throw bad(`source.paths.${name} must be a Signal K path`);
+    }
+    cleanSource = {kind: 'signalk', paths: Object.fromEntries(entries)};
+  } else if (source.kind === 'signalk') {
     if (!SK_PATH.test(String(source.path || ''))) throw bad('source.path must be a Signal K path such as environment.wind.speedTrue');
     cleanSource = {kind: 'signalk', path: source.path};
     if (source.field !== undefined) {
@@ -80,7 +104,7 @@ function validateWidget(spec) {
     title: typeof spec.title === 'string' ? spec.title.slice(0, 60) : '',
     type: spec.type,
     size,
-    options: cleanOptions(spec.options),
+    options: spec.type === 'svg' ? {...cleanOptions(spec.options), ...cleanSvg(spec.options)} : cleanOptions(spec.options),
     source: cleanSource,
   };
 }

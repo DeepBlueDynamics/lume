@@ -121,6 +121,33 @@ A large reading with a line of its recent history. Good for depth, voltage, anyt
 
 Options: `label`, `unit`, `decimals`, `scale`, `history` (points to keep, 60).
 
+### `svg`: anything else, drawn to order
+
+For what the five gauges can't show (a compass, navigation lights, a switch panel, a wind rose, a heel indicator, a boat diagram), a custom widget is an SVG fragment with live bindings. Put the fragment, without the outer `<svg>` tag, in `options.svg`, and its coordinate box in `options.viewBox` (default `"0 0 200 200"`).
+
+- **Inputs:** `"source": {"kind": "signalk", "paths": {"cog": "navigation.courseOverGroundTrue", "nav": "electrical.switches.navigationLights.state"}}` names up to 12 live Signal K values.
+- **Bindings:** `{{expression}}` in any attribute or text, using those names: `transform="rotate({{-deg(cog)}} 100 100)"`, `fill="{{nav ? '#34d399' : '#1f2937'}}"`, `{{fixed(knots(sog), 1)}} kn`.
+- **Expressions:** numbers, strings, `+ - * / %`, comparisons, `&& || !`, `cond ? a : b`, and `deg`, `rad`, `fixed(v, n)`, `round(v, n)`, `mod`, `clamp`, `min`, `max`, `abs`, `sin`, `cos`, `sqrt`, `knots`, `celsius`, `pct`, `has(v)`. They are evaluated by the page's own small evaluator, never as JavaScript; there is no property access or assignment. A name with no value yet is empty, so guard with `has(name)`.
+- **Allowed shapes:** `g`, `circle`, `ellipse`, `rect`, `line`, `path`, `polygon`, `polyline`, `text`, `tspan`, `linearGradient`, `radialGradient`, `stop`, `clipPath`, with geometry, fill, stroke, opacity, font and transform attributes. `fill="url(#id)"` may name your own gradient.
+- **Not allowed:** `script`, `style`, `image`, `use`, links, event handlers and animation. The page strips them and the server refuses the widget.
+- Signal K angles are radians; switch states are `true`/`false` or `0`/`1`.
+
+A live compass on course over ground:
+
+```json
+{"id": "compass", "title": "Heading", "type": "svg", "size": "1x1",
+ "options": {"viewBox": "0 0 200 200", "svg": "<circle cx='100' cy='100' r='88' fill='#0e1b2e' stroke='#1f3350' stroke-width='3'/><g transform='rotate({{has(cog) ? -deg(cog) : 0}} 100 100)'><path d='M100 18 L108 40 L92 40 Z' fill='#f87171'/><text x='100' y='58' text-anchor='middle' font-size='16' font-weight='700' fill='#f87171'>N</text><text x='160' y='106' text-anchor='middle' font-size='14' fill='#8ea3bd'>E</text><text x='100' y='160' text-anchor='middle' font-size='14' fill='#8ea3bd'>S</text><text x='40' y='106' text-anchor='middle' font-size='14' fill='#8ea3bd'>W</text></g><path d='M100 4 L107 16 L93 16 Z' fill='#13daeb'/><text x='100' y='110' text-anchor='middle' font-size='24' font-weight='700' fill='#eef6ff'>{{has(cog) ? fixed(mod(deg(cog), 360), 0) + '°' : '—'}}</text>"},
+ "source": {"kind": "signalk", "paths": {"cog": "navigation.courseOverGroundTrue"}}}
+```
+
+A lights panel that glows when each switch is on:
+
+```json
+{"id": "nav-lights", "title": "Lights", "type": "svg", "size": "2x1",
+ "options": {"viewBox": "0 0 300 120", "svg": "<g font-size='12' fill='#8ea3bd' text-anchor='middle'><circle cx='60' cy='50' r='22' fill='{{nav ? \"#34d399\" : \"#1f2937\"}}' stroke='#1f3350' stroke-width='3'/><text x='60' y='100'>Navigation</text><circle cx='150' cy='50' r='22' fill='{{anchor ? \"#fbbf24\" : \"#1f2937\"}}' stroke='#1f3350' stroke-width='3'/><text x='150' y='100'>Anchor</text><circle cx='240' cy='50' r='22' fill='{{deck ? \"#eef6ff\" : \"#1f2937\"}}' stroke='#1f3350' stroke-width='3'/><text x='240' y='100'>Deck</text></g>"},
+ "source": {"kind": "signalk", "paths": {"nav": "electrical.switches.navigationLights.state", "anchor": "electrical.switches.anchorLight.state", "deck": "electrical.switches.deckLights.state"}}}
+```
+
 ## Layouts
 
 The dashboard is a CSS grid of 170-pixel columns that wraps to the screen width; each widget spans its `size` in cells. On a phone the grid becomes one or two columns.
