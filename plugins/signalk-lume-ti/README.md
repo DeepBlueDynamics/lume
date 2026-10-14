@@ -1,4 +1,4 @@
-<p align="center"><img src="https://raw.githubusercontent.com/DeepBlueDynamics/lume/main/assets/lume-icon.svg" width="96" alt="Lume"></p>
+![Lume](https://raw.githubusercontent.com/DeepBlueDynamics/lume/main/assets/lume-icon-96.svg)
 
 # Lume TI for Signal K
 
