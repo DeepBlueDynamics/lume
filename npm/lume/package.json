@@ -1,6 +1,6 @@
 {
   "name": "@deepbluedynamics/lume",
-  "version": "0.16.1",
+  "version": "0.16.2",
   "description": "Lume: one store for documents and time-series telemetry. The lume CLI and MCP server as a prebuilt binary.",
   "keywords": [
     "search",
@@ -36,10 +36,10 @@
     "node": ">=18.0.0"
   },
   "optionalDependencies": {
-    "@deepbluedynamics/lume-darwin-arm64": "0.16.1",
-    "@deepbluedynamics/lume-darwin-x64": "0.16.1",
-    "@deepbluedynamics/lume-linux-arm64": "0.16.1",
-    "@deepbluedynamics/lume-linux-x64": "0.16.1",
-    "@deepbluedynamics/lume-win32-x64": "0.16.1"
+    "@deepbluedynamics/lume-darwin-arm64": "0.16.2",
+    "@deepbluedynamics/lume-darwin-x64": "0.16.2",
+    "@deepbluedynamics/lume-linux-arm64": "0.16.2",
+    "@deepbluedynamics/lume-linux-x64": "0.16.2",
+    "@deepbluedynamics/lume-win32-x64": "0.16.2"
   }
 }
