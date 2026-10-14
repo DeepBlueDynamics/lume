@@ -242,6 +242,7 @@ module.exports = function (app) {
         binary: currentBinaryInfo.path,
         dataDir,
         getOptions: () => pluginConfig,
+        getCatalog: () => (library ? library.catalog() : []),
         log: line => log(line),
       });
 

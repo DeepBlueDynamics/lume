@@ -222,6 +222,19 @@ class Library {
     })};
   }
 
+  /**
+   * Indexed documents with the stored file name the search index uses, so answers
+   * can name "Navigation Rules" instead of dc45ebdf001f.pdf.
+   */
+  catalog() {
+    let stored = [];
+    try { stored = fs.readdirSync(paths(this.dataDir).files); } catch (_) {}
+    const byId = new Map(stored.filter(n => /^[0-9a-f]{12}\./i.test(n)).map(n => [n.slice(0, 12), n]));
+    return this.items().filter(i => i.state === 'indexed' && byId.has(i.id)).map(i => ({
+      file: byId.get(i.id), title: i.title, publisher: i.publisher || '', category: i.category || '',
+    }));
+  }
+
   /** The downloaded copy of a library document, by its stored name, or null. */
   file(name) {
     if (!/^[0-9a-f]{12}\.[a-z0-9]{2,5}$/i.test(String(name || ''))) return null;

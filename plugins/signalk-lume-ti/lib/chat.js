@@ -92,11 +92,30 @@ class EventStreamParser {
   }
 }
 
+/**
+ * Appended to the question so the model can map the search index's stored file names
+ * to real titles. Bounded so a large library can't blow up argv.
+ */
+function libraryContext(catalog, maxChars = 24000) {
+  if (!Array.isArray(catalog) || !catalog.length) return '';
+  const lines = [];
+  let size = 0;
+  for (const doc of catalog) {
+    const line = `- ${doc.file}: "${doc.title}"${doc.publisher ? `, ${doc.publisher}` : ''}${doc.category ? ` (${doc.category})` : ''}`;
+    if (size + line.length > maxChars) { lines.push(`- …and ${catalog.length - lines.length} more`); break; }
+    lines.push(line);
+    size += line.length + 1;
+  }
+  return '\n\n[Context from the Lume TI plugin, not from the user: the Library documents indexed on this boat. ' +
+    'The sections table stores them by file name; use these titles when naming a document.]\n' + lines.join('\n');
+}
+
 class ChatManager {
-  constructor({binary, dataDir, getOptions = () => ({}), log = () => {}}) {
+  constructor({binary, dataDir, getOptions = () => ({}), getCatalog = () => [], log = () => {}}) {
     this.binary = binary;
     this.dataDir = dataDir;
     this.getOptions = getOptions;
+    this.getCatalog = getCatalog;
     this.log = log;
     this.currentJob = null;
   }
@@ -160,7 +179,9 @@ class ChatManager {
     if (options.chatModel) {
       args.push('--ollama-model', options.chatModel);
     }
-    args.push(trimmedQuestion);
+    let catalog = [];
+    try { catalog = (typeof this.getCatalog === 'function' ? this.getCatalog() : []) || []; } catch (_) {}
+    args.push(trimmedQuestion + libraryContext(catalog));
 
     const childEnv = {...process.env};
     if (apiKey) {
@@ -457,4 +478,5 @@ module.exports = {
   explainChatFailure,
   needsCloudKey,
   looksLikeKey,
+  libraryContext,
 };

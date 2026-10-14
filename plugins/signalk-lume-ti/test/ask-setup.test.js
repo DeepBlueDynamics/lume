@@ -145,3 +145,15 @@ test('links keep their attributes when underscores sit nearby', () => {
   // A literal NUL can't forge a placeholder: it is dropped and the text stays.
   assert.equal(md.render('a\u00000\u0000b'), '<p>a0b</p>');
 });
+
+test('Ask gets the Library titles for the stored file names, bounded', () => {
+  const {libraryContext} = require('../lib/chat');
+  assert.equal(libraryContext([]), '');
+  const text = libraryContext([{file: 'dc45ebdf001f.pdf', title: 'Navigation Rules and Regulations Handbook', publisher: 'USCG NAVCEN', category: 'Navigation'}]);
+  assert.match(text, /not from the user/);
+  assert.match(text, /- dc45ebdf001f\.pdf: "Navigation Rules and Regulations Handbook", USCG NAVCEN \(Navigation\)/);
+  const many = Array.from({length: 2000}, (_, i) => ({file: `${String(i).padStart(12, '0')}.pdf`, title: 'A fairly long reference title for testing', publisher: 'Somebody'}));
+  const bounded = libraryContext(many);
+  assert.ok(bounded.length < 25000, `context stays bounded (${bounded.length})`);
+  assert.match(bounded, /…and \d+ more/);
+});
