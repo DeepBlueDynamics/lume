@@ -127,10 +127,10 @@
       <section id="tab-console" class="tab-panel active">
         <div class="query-toolbar">
           <span class="toolbar-label">Quick Queries:</span>
-          <button class="preset-btn" data-query="SELECT ts, &quot;navigation.speedOverGround&quot;, &quot;environment.wind.speedApparent&quot; FROM telemetry ORDER BY ts DESC LIMIT 50;">Recent SOG & Wind</button>
-          <button class="preset-btn" data-query="SELECT ts, &quot;environment.depth.belowTransducer@min&quot; AS depth_min, &quot;environment.depth.belowKeel@min&quot; AS below_keel FROM telemetry ORDER BY ts DESC LIMIT 50;">Recent Depth</button>
+          <button class="preset-btn" data-label="speed or wind" data-template="SELECT ts, {cols} FROM telemetry ORDER BY ts DESC LIMIT 50;" data-columns='[["navigation.speedOverGround","sog"],["navigation.speedThroughWater","stw"],["environment.wind.speedApparent","wind_apparent"],["environment.wind.speedTrue","wind_true"]]'>Recent SOG & Wind</button>
+          <button class="preset-btn" data-label="depth" data-template="SELECT ts, {cols} FROM telemetry ORDER BY ts DESC LIMIT 50;" data-columns='[["environment.depth.belowTransducer@min","below_transducer"],["environment.depth.belowKeel@min","below_keel"],["environment.depth.belowSurface@min","below_surface"]]'>Recent Depth</button>
           <button class="preset-btn" data-query="SELECT ts, &quot;navigation.position.latitude&quot;, &quot;navigation.position.longitude&quot; FROM telemetry WHERE &quot;navigation.position.latitude&quot; IS NOT NULL ORDER BY ts DESC LIMIT 50;">Recent Positions</button>
-          <button class="preset-btn" data-query="SELECT date_bin(INTERVAL '1 hour', ts) AS hour, max(&quot;navigation.speedOverGround@max&quot;) AS max_sog, max(&quot;environment.wind.speedApparent@max&quot;) AS max_wind FROM telemetry GROUP BY 1 ORDER BY 1 DESC LIMIT 24;">Hourly Max SOG & Wind</button>
+          <button class="preset-btn" data-label="speed or wind" data-agg="max" data-template="SELECT date_bin(INTERVAL '1 hour', ts) AS hour, {cols} FROM telemetry GROUP BY 1 ORDER BY 1 DESC LIMIT 24;" data-columns='[["navigation.speedOverGround@max","max_sog"],["environment.wind.speedApparent@max","max_wind_apparent"],["environment.wind.speedTrue@max","max_wind_true"]]'>Hourly Max SOG & Wind</button>
           <button class="preset-btn" data-query="SELECT count(*) as total_buckets FROM telemetry;">Bucket Count</button>
         </div>
 

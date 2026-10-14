@@ -111,16 +111,53 @@
   }
 
   // 2. Query Presets
+  // Columns the telemetry table has, cached briefly; null if the schema can't be read.
+  let schemaCache = {at: 0, columns: null};
+  async function telemetryColumns() {
+    if (Date.now() - schemaCache.at < 15000) return schemaCache.columns;
+    try {
+      const res = await fetch(`${apiBase}/api/schema`, {headers: {Accept: 'application/json'}});
+      const data = res.ok ? await res.json() : null;
+      const table = data && (data.tables || []).find((t) => t.name === 'telemetry');
+      schemaCache = {at: Date.now(), columns: table ? new Set((table.columns || []).map((c) => c.name)) : new Set()};
+    } catch (_) {
+      schemaCache = {at: Date.now(), columns: null};
+    }
+    return schemaCache.columns;
+  }
+
+  // Presets list the columns they would like; only the ones this boat has recorded go
+  // into the query, because every boat has a different set of sensors.
+  async function presetQuery(btn) {
+    const fixed = btn.getAttribute('data-query');
+    if (fixed) return {sql: fixed};
+    const wanted = JSON.parse(btn.getAttribute('data-columns') || '[]');
+    const agg = btn.getAttribute('data-agg');
+    const have = await telemetryColumns();
+    const picked = have ? wanted.filter(([column]) => have.has(column)) : wanted;
+    if (!picked.length) {
+      const label = btn.getAttribute('data-label') || 'of these values';
+      return {missing: `This boat hasn't recorded any ${label} yet (looked for ${wanted.map(([c]) => c).join(', ')}). The Schema Browser lists what has been recorded.`};
+    }
+    const cols = picked.map(([column, alias]) => `${agg ? `${agg}("${column}")` : `"${column}"`} AS ${alias}`).join(', ');
+    return {sql: btn.getAttribute('data-template').replace('{cols}', cols)};
+  }
+
   function setupPresets() {
     const presets = document.querySelectorAll('.preset-btn');
     const input = document.getElementById('sql-input');
     presets.forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const query = btn.getAttribute('data-query');
-        if (query && input) {
-          input.value = query;
-          input.focus();
+      btn.addEventListener('click', async () => {
+        if (!input) return;
+        const preset = await presetQuery(btn);
+        if (preset.missing) {
+          document.getElementById('results-thead').innerHTML = '';
+          document.getElementById('results-tbody').innerHTML = `<tr><td class="empty-state notice">${escapeHtml(preset.missing)}</td></tr>`;
+          document.getElementById('results-count').textContent = '0 rows';
+          return;
         }
+        input.value = preset.sql;
+        input.focus();
       });
     });
   }
@@ -187,7 +224,7 @@
         }
         const hint = hintFor(message);
         // DataFusion lists every valid column; keep the hint, drop the wall of names.
-        message = message.replace(/ Valid fields are .*$/s, ' (open Schema Browser for the column list)');
+        message = message.replace(/\s+Valid fields are .*$/s, hint ? '' : ' (the Schema Browser lists every column)');
         throw new Error(message + hint);
       }
 
