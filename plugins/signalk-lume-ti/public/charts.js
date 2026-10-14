@@ -18,10 +18,18 @@
   };
   const asNumber = v => (typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v)) ? Number(v) : NaN);
 
-  /** Which columns to plot, or null when the rows aren't a time series. */
+  /** Which columns to plot, or null when the rows aren't a time series or a track. */
   function detect(rows) {
     if (!Array.isArray(rows) || rows.length < 2) return null;
     const columns = Object.keys(rows[0] || {});
+    // Latitude and longitude columns make a track (x = longitude, y = latitude).
+    const numeric = c => rows.filter(r => Number.isFinite(asNumber(r[c]))).length >= rows.length * 0.5;
+    const lat = columns.find(c => /lat/i.test(c) && numeric(c));
+    const lon = columns.find(c => /lon|lng/i.test(c) && numeric(c));
+    if (lat && lon) {
+      const time = columns.find(c => TIME_NAMES.test(c) && rows.some(r => Number.isFinite(asTime(r[c]))));
+      return {kind: 'track', lat, lon, time: time || null};
+    }
     const x = columns.find(c => TIME_NAMES.test(c) && rows.every(r => r[c] == null || Number.isFinite(asTime(r[c]))))
       || columns.find(c => rows.filter(r => Number.isFinite(asTime(r[c]))).length >= rows.length * 0.9);
     if (!x) return null;
@@ -44,9 +52,62 @@
     return d.toLocaleTimeString(undefined, {hour: '2-digit', minute: '2-digit'});
   }
 
-  /** Draw a line chart of rows into el. Returns false when the rows can't be charted. */
+  /**
+   * A position track: longitude across, latitude up, scaled by cos(latitude) so the
+   * shape is true, with start (green) and latest (cyan) marked.
+   */
+  function track(el, rows, plan) {
+    let points = rows.map(r => ({lat: asNumber(r[plan.lat]), lon: asNumber(r[plan.lon]), t: plan.time ? asTime(r[plan.time]) : NaN}))
+      .filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon) && Math.abs(p.lat) <= 90 && Math.abs(p.lon) <= 180);
+    if (points.length < 2) return false;
+    if (plan.time && points.every(p => Number.isFinite(p.t))) points = points.sort((a, b) => a.t - b.t);
+    const W = 720, H = 360, P = 36;
+    const midLat = points.reduce((s, p) => s + p.lat, 0) / points.length;
+    const k = Math.cos(midLat * Math.PI / 180) || 1;
+    const xs = points.map(p => p.lon * k);
+    const ys = points.map(p => p.lat);
+    let [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+    const span = Math.max(x1 - x0, y1 - y0, 1e-6);
+    const cx = (x0 + x1) / 2;
+    const cy = (y0 + y1) / 2;
+    const scale = Math.min((W - 2 * P) / span, (H - 2 * P) / span);
+    const X = x => W / 2 + (x - cx) * scale;
+    const Y = y => H / 2 - (y - cy) * scale;
+
+    el.innerHTML = '';
+    el.classList.add('lume-chart');
+    const s = svg('svg', {viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Track of recent positions'}, el);
+    for (let i = 1; i < 6; i++) {
+      svg('line', {x1: (W * i) / 6, x2: (W * i) / 6, y1: 0, y2: H, stroke: 'rgba(238,246,255,0.05)'}, s);
+      svg('line', {x1: 0, x2: W, y1: (H * i) / 6, y2: (H * i) / 6, stroke: 'rgba(238,246,255,0.05)'}, s);
+    }
+    const d = points.map((p, i) => `${i ? 'L' : 'M'} ${X(p.lon * k).toFixed(1)} ${Y(p.lat).toFixed(1)}`).join(' ');
+    svg('path', {d, fill: 'none', stroke: '#13daeb', 'stroke-width': 2.5, 'stroke-linejoin': 'round', 'stroke-linecap': 'round'}, s);
+    const start = points[0];
+    const end = points[points.length - 1];
+    svg('circle', {cx: X(start.lon * k), cy: Y(start.lat), r: 5, fill: '#34d399'}, s);
+    svg('circle', {cx: X(end.lon * k), cy: Y(end.lat), r: 6, fill: '#13daeb', stroke: '#eef6ff', 'stroke-width': 2}, s);
+    // Scale bar: a round distance near a fifth of the width.
+    const metresPerUnit = 111320;
+    const widthMetres = (W - 2 * P) / scale * metresPerUnit;
+    const nice = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000].find(m => m >= widthMetres / 5) || 100000;
+    const barPx = nice / metresPerUnit * scale;
+    svg('line', {x1: P, x2: P + barPx, y1: H - 14, y2: H - 14, stroke: '#8ea3bd', 'stroke-width': 2}, s);
+    svg('text', {x: P, y: H - 20, 'font-size': 10, fill: '#8ea3bd'}, s).textContent = nice >= 1852 ? `${(nice / 1852).toFixed(nice >= 18520 ? 0 : 1)} NM` : `${nice} m`;
+    svg('text', {x: W - P, y: H - 10, 'text-anchor': 'end', 'font-size': 10, fill: '#8ea3bd'}, s).textContent =
+      `${end.lat.toFixed(5)}, ${end.lon.toFixed(5)}`;
+    const legend = document.createElement('div');
+    legend.className = 'lume-chart-legend';
+    legend.innerHTML = '<span><i style="background:#34d399"></i>first</span><span><i style="background:#13daeb"></i>latest</span>';
+    legend.appendChild(document.createTextNode(`${points.length} positions`));
+    el.appendChild(legend);
+    return true;
+  }
+
+  /** Draw a chart of rows into el. Returns false when the rows can't be charted. */
   function line(el, rows, plan = detect(rows)) {
     if (!plan) return false;
+    if (plan.kind === 'track') return track(el, rows, plan);
     const points = rows.map(r => ({t: asTime(r[plan.x]), ys: plan.ys.map(c => asNumber(r[c]))}))
       .filter(p => Number.isFinite(p.t)).sort((a, b) => a.t - b.t);
     if (points.length < 2) return false;

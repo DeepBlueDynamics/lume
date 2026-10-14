@@ -41,6 +41,7 @@
       <button class="tab-btn" data-tab="tab-status">Status & Diagnostics</button>
       <button class="tab-btn" data-tab="tab-library">Library</button>
       <button class="tab-btn" data-tab="tab-ask">Ask</button>
+      <button class="tab-btn" data-tab="tab-dashboard">Dashboard</button>
       <button class="tab-btn" data-tab="tab-pg">PostgreSQL / Grafana</button>
     </nav>
 
@@ -71,6 +72,14 @@
         </div>
         <pre id="lib-job" class="alert-box" hidden></pre>
         <div id="lib-list"><div class="loading-state">Loading library…</div></div>
+      </section>
+      <section id="tab-dashboard" class="tab-panel">
+        <div class="schema-header">
+          <h3>Dashboard</h3>
+          <span id="dash-message" class="lib-meta" role="status"></span>
+        </div>
+        <div id="dash-empty" class="empty-state notice">No gauges yet. In the Ask tab, ask for one, for example <em>"show the true wind speed as a dial"</em> or <em>"show the fresh water tank as a gauge"</em>, then press <strong>Add to dashboard</strong>.</div>
+        <div id="dash-grid" class="lume-dashboard"></div>
       </section>
       <!-- Ask Tab -->
       <section id="tab-ask" class="tab-panel">
@@ -269,6 +278,8 @@
   <script src="pg.js"></script>
   <script src="library.js"></script>
   <script src="charts.js"></script>
+  <script src="lume-gauges.js"></script>
+  <script src="dashboard.js"></script>
   <script src="md.js"></script>
   <script src="chat.js"></script>
 </body>

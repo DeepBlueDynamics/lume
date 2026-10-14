@@ -234,3 +234,41 @@ test('Ask is told how much history exists and a graph step that fits it', () => 
   assert.match(week, /7\.0 days/);
   assert.match(week, /about INTERVAL '3 hours'/);
 });
+
+test('positions chart as a track, not a time series', () => {
+  const charts = require('../public/charts');
+  const rows = [
+    {ts: '2026-10-14T00:00:00Z', 'navigation.position.latitude': 60.15, 'navigation.position.longitude': 24.95},
+    {ts: '2026-10-14T00:00:10Z', 'navigation.position.latitude': 60.151, 'navigation.position.longitude': 24.952},
+  ];
+  assert.deepEqual(charts.detect(rows), {kind: 'track', lat: 'navigation.position.latitude', lon: 'navigation.position.longitude', time: 'ts'});
+});
+
+test('dashboard widgets are validated as data', () => {
+  const {validateWidget, Dashboard} = require('../lib/dashboard');
+  const w = validateWidget({id: 'wind-speed', title: 'True wind', type: 'dial', size: '1x1',
+    options: {label: 'True wind', unit: 'kn', min: 0, max: 40, scale: 1.94384, zones: [{from: 25, to: 40, color: '#f87171'}], onload: 'alert(1)'},
+    source: {kind: 'signalk', path: 'environment.wind.speedTrue'}});
+  assert.equal(w.options.onload, undefined, 'unknown options are dropped');
+  assert.equal(w.options.zones.length, 1);
+  for (const [spec, why] of [
+    [{id: 'Bad ID', type: 'dial', source: {kind: 'signalk', path: 'a.b'}}, /id must/],
+    [{id: 'x', type: 'pie', source: {kind: 'signalk', path: 'a.b'}}, /type must/],
+    [{id: 'x', type: 'dial', source: {kind: 'signalk', path: 'a b; drop'}}, /Signal K path/],
+    [{id: 'x', type: 'dial', source: {kind: 'procedure', sql: 'DELETE FROM telemetry'}}, /SELECT or WITH/],
+    [{id: 'x', type: 'dial', source: {kind: 'procedure', sql: 'SELECT 1; SELECT 2'}}, /single statement/],
+    [{id: 'x', type: 'dial', source: {kind: 'script', code: 'x'}}, /source.kind/],
+  ]) assert.throws(() => validateWidget(spec), why);
+  const proc = validateWidget({id: 'avg', type: 'digital', source: {kind: 'procedure', sql: 'SELECT 1 AS value;', everySeconds: 0.5}});
+  assert.equal(proc.source.everySeconds, 2, 'refresh is at most every 2 seconds');
+  assert.equal(proc.source.sql, 'SELECT 1 AS value');
+
+  const dash = new Dashboard(fs.mkdtempSync(path.join(os.tmpdir(), 'lume-dash-')));
+  dash.put(w);
+  dash.put({...w, id: 'second'});
+  dash.put({...w, title: 'Wind (kn)'});
+  assert.deepEqual(dash.load().widgets.map(x => [x.id, x.title]), [['wind-speed', 'Wind (kn)'], ['second', 'True wind']]);
+  assert.deepEqual(dash.move(['second', 'wind-speed']), ['second', 'wind-speed']);
+  assert.equal(dash.remove('second'), true);
+  assert.equal(dash.load().widgets.length, 1);
+});

@@ -118,6 +118,25 @@ function statusContext(status) {
   return `\n\n${lines.join('\n')}`;
 }
 
+/**
+ * How to answer with a live gauge. The page turns each lume-widget block into a gauge
+ * that updates in real time and can be added to the Dashboard tab.
+ */
+const WIDGET_CONTEXT = `
+
+[Context from the Lume TI plugin, not from the user: live gauges.]
+When the user asks to see a value as a gauge, dial, meter, tank, bar or live readout, answer in one or two sentences and include a fenced block with language lume-widget holding one JSON widget. The page draws it live; never describe it as a static number. Format:
+\`\`\`lume-widget
+{"id": "wind-speed", "title": "True wind", "type": "dial", "size": "1x1",
+ "options": {"label": "True wind", "unit": "kn", "min": 0, "max": 40, "decimals": 1, "scale": 1.94384, "zones": [{"from": 25, "to": 40, "color": "#f87171"}]},
+ "source": {"kind": "signalk", "path": "environment.wind.speedTrue"}}
+\`\`\`
+- type: tank (ratio 0..1 such as tanks.freshWater.0.currentLevel; options label, capacity in litres, warnBelow, color), dial (needle; min, max, unit, decimals, scale, zones), arc (half donut; same options), bar (linear; plus vertical), digital (number with sparkline; unit, decimals, scale).
+- size: 1x1, 2x1, 1x2 (tall, best for tank) or 2x2. id: lowercase letters, digits, dashes.
+- source signalk: a live Signal K path, the telemetry column name without its @mean/@min/@max/@last suffix, so check the schema first. Values arrive in SI units: use scale 1.94384 for m/s to knots, 100 for a ratio to %, 60 for Hz to rpm; for Kelvin to Celsius use a digital widget with a procedure instead.
+- source procedure: {"kind": "procedure", "sql": "<one read-only SELECT returning a column named value>", "everySeconds": 10} for values computed from history; run the SQL once first to check it returns a row.
+- zones colour ranges of the displayed (scaled) value with #rrggbb colours. More gauge styles and examples are in the Library document "Lume TI dashboard gauges and layouts (reference)".`;
+
 function describeSpan(seconds) {
   if (seconds < 120) return `${Math.round(seconds)} seconds`;
   if (seconds < 7200) return `${Math.round(seconds / 60)} minutes`;
@@ -313,7 +332,7 @@ class ChatManager {
     this.currentJob = {kill() {}};
     let status = null;
     try { status = typeof this.getStatus === 'function' ? await this.getStatus() : null; } catch (_) {}
-    args.push(trimmedQuestion + statusContext(status) + historyContext(this.history()) + libraryContext(catalog, 24000, suggestions));
+    args.push(trimmedQuestion + statusContext(status) + WIDGET_CONTEXT + historyContext(this.history()) + libraryContext(catalog, 24000, suggestions));
 
     const childEnv = {...process.env};
     if (apiKey) {

@@ -58,14 +58,16 @@
     while (i < lines.length) {
       const line = lines[i];
 
-      const fence = line.match(/^\s*```/);
+      const fence = line.match(/^\s*```\s*([A-Za-z0-9-]{0,30})/);
       if (fence) {
         flush();
         const body = [];
         i++;
         while (i < lines.length && !/^\s*```/.test(lines[i])) body.push(lines[i++]);
         i++;
-        html.push(`<pre><code>${body.join('\n')}</code></pre>`);
+        // The language (already plain letters, digits, dashes) marks e.g. lume-widget blocks.
+        const lang = fence[1] ? ` class="language-${fence[1].toLowerCase()}"` : '';
+        html.push(`<pre><code${lang}>${body.join('\n')}</code></pre>`);
         continue;
       }
 

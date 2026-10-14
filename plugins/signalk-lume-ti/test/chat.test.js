@@ -116,8 +116,9 @@ console.log(JSON.stringify({answer: "Mock answer", sql: ["SELECT 1;"], tool_call
   assert.equal(capturedArgs[8], 'http://192.168.1.100:11434');
   assert.equal(capturedArgs[9], '--ollama-model');
   assert.equal(capturedArgs[10], 'custom-model:latest');
-  // Exact unescaped question preserved as a single argv element!
-  assert.equal(capturedArgs[11], dangerousQuestion);
+  // The exact unescaped question is one argv element, followed only by the plugin's labelled context.
+  assert.equal(capturedArgs.length, 12);
+  assert.ok(capturedArgs[11].startsWith(`${dangerousQuestion}\n\n[Context from the Lume TI plugin`), capturedArgs[11].slice(0, 120));
 
   fs.rmSync(tmpDir, {recursive: true, force: true});
 });
