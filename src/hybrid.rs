@@ -16,6 +16,18 @@ pub struct IngestPayload<'a> {
     pub source: &'a str,
 }
 
+/// Scratch-store ingest that pins the embedding model. shivvr pins a store's
+/// model on its first ingest, and only GTR-T5 vectors can be inverted, so the
+/// scratch store is GTR-only and named apart from any default-model store.
+#[derive(Serialize)]
+struct ScratchIngestPayload<'a> {
+    text: &'a str,
+    source: &'a str,
+    model: &'a str,
+}
+
+const SCRATCH_EMBED_MODEL: &str = "gtr-t5-base";
+
 /// Partial view of the shivvr `/ingest` response — we only need the count of
 /// chunks the server created so progress logging can report it.
 #[derive(Deserialize)]
@@ -45,11 +57,12 @@ pub fn embed_text(text: &str, token: &str) -> Result<Vec<f64>, String> {
 }
 
 fn embed_text_at(text: &str, token: &str, base: &str) -> Result<Vec<f64>, String> {
-    let url = format!("{}/temp/lume-embed-scratch/ingest", base);
+    let url = format!("{}/temp/lume-embed-scratch-gtr/ingest", base);
     let auth_header = format!("Bearer {}", token);
-    let payload = IngestPayload {
+    let payload = ScratchIngestPayload {
         text,
         source: "embed",
+        model: SCRATCH_EMBED_MODEL,
     };
     match ureq::post(&url)
         .timeout(SHIVVR_TIMEOUT)
