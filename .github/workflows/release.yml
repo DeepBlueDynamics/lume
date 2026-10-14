@@ -308,7 +308,8 @@ jobs:
   # bump-version.yml when it starts this one. Binary packages go before the
   # package that depends on them, so its optional dependencies exist when it
   # appears. Already-published versions are skipped, so a rerun finishes a
-  # partial publish.
+  # partial publish. The plugin and the CLI publish as separate groups, so a
+  # refused CLI package can't hold back the plugin, or the other way round.
   npm:
     name: Publish to npm
     needs: [check, release]
@@ -340,20 +341,39 @@ jobs:
         env:
           VERSION: ${{ needs.check.outputs.version }}
         run: |
-          set -euo pipefail
-          for name in signalk-lume-ti-linux-arm64 signalk-lume-ti-linux-x64 \
-            @deepbluedynamics/lume-linux-x64 @deepbluedynamics/lume-linux-arm64 \
+          set -uo pipefail
+          # Two independent groups: the plugin and the CLI. A refusal stops the
+          # rest of its own group (its launcher would point at a missing
+          # binary) but never the other group. The job fails at the end,
+          # listing what wasn't published.
+          failed=()
+          publish_group() {
+            local label="$1"; shift
+            local name file
+            for name in "$@"; do
+              if [ -n "$(npm view "$name@$VERSION" version 2>/dev/null)" ]; then
+                echo "$name@$VERSION is already on npm"
+                continue
+              fi
+              # npm pack names @scope/pkg's tarball scope-pkg-<version>.tgz.
+              file="$(printf '%s' "$name" | sed 's#^@##; s#/#-#')-$VERSION.tgz"
+              # ./ keeps npm from reading "npm/<file>" as a GitHub user/repo shorthand.
+              if ! npm publish "./npm/$file" --access public; then
+                echo "::error::$label: npm refused $name@$VERSION; skipping the rest of the $label group"
+                failed+=("$label: $name")
+                return
+              fi
+            done
+          }
+          publish_group plugin signalk-lume-ti-linux-arm64 signalk-lume-ti-linux-x64 signalk-lume-ti
+          publish_group cli @deepbluedynamics/lume-linux-x64 @deepbluedynamics/lume-linux-arm64 \
             @deepbluedynamics/lume-darwin-arm64 @deepbluedynamics/lume-darwin-x64 \
-            @deepbluedynamics/lume-win32-x64 @deepbluedynamics/lume signalk-lume-ti; do
-            if [ -n "$(npm view "$name@$VERSION" version 2>/dev/null)" ]; then
-              echo "$name@$VERSION is already on npm"
-              continue
-            fi
-            # npm pack names @scope/pkg's tarball scope-pkg-<version>.tgz.
-            file="$(printf '%s' "$name" | sed 's#^@##; s#/#-#')-$VERSION.tgz"
-            # ./ keeps npm from reading "npm/<file>" as a GitHub user/repo shorthand.
-            npm publish "./npm/$file" --access public
-          done
+            @deepbluedynamics/lume-win32-x64 @deepbluedynamics/lume
+          if [ "${#failed[@]}" -gt 0 ]; then
+            echo "Not published:"
+            printf '  %s\n' "${failed[@]}"
+            exit 1
+          fi
 
   # One Discord summary per release with every job's result (ported from Hyperia).
   # always() so a partial or failed release still pings; a failed post never fails

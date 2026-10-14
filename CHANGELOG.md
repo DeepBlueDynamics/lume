@@ -1,24 +1,75 @@
 # Changelog
 
-## 0.15.7 — 2026-10-13
+## 0.16.0 — 2026-10-14
 
-**Lume is one small Rust binary that keeps your documents and your time-series telemetry in the same store.** Search the words, query the numbers with SQL, and give agents all of it as MCP tools, on hardware you own.
+**Lume is one small Rust binary that keeps your documents and your time-series telemetry in the same store.** Search the words, query the numbers with SQL, and give agents all of it as MCP tools, on hardware you own. Lume TI is the Signal K plugin that puts it on the boat.
 
-**Why 0.15.7 matters:** `npm install -g @deepbluedynamics/lume` gives you a working `lume` on Linux, macOS and Windows. If Node is already on the machine, that's the whole install: no script to pipe into a shell, no PATH to edit, and `npm update -g` keeps it current.
+**Why 0.16.0 matters:** Lume TI learned to draw. Ask it for a compass, a lights panel, a wind dial or a 24-hour wind graph, and it builds a live widget right in the answer, wired to Signal K and updating as the boat moves. Pin it to the new Dashboard tab and it stays. Visualisation is the big new frontier for Lume TI: this is its first release, and more gauge styles and dashboard tools are already on the way. Also in this release: `lume` on npm, a Library that opens manuals at the right page, and an Ask that knows your boat.
+
+Get it from the Signal K App Store (search **Lume TI**), `npm install -g @deepbluedynamics/lume` for the command line, the HaLOS `marine-lume` package, or the [release page](https://github.com/DeepBlueDynamics/lume/releases/tag/v0.16.0).
+
+### Ask builds live widgets (#62) 🧭
+
+- **Gauges:** "show the true wind as a dial" draws a dial in knots that moves with the wind. Five built-in styles cover most things: an animated water tank, a needle dial, a half-donut arc, a bar and a digital readout with a sparkline.
+- **Line graphs:** "graph the average wind speed" gives a line graph from a saved query that refreshes on its own, or a rolling window of live values.
+- **Anything else, drawn to order:** compasses, navigation-light panels, switch boards, wind roses. Ask draws them as SVG and binds the moving parts to live Signal K values. They're safe by design: only plain shapes and text get drawn, and the live values are worked out by Lume's own small calculator, never as code.
+- **Every widget checks itself first.** A widget is plain data: the server validates it before it's shown or saved, and saved queries can only read.
+
+### The Dashboard tab (#62)
+
+- **Add to dashboard** under any widget in an answer saves it to the boat. The Dashboard tab shows them all, live, from a phone to a chart-table screen.
+- Widgets update straight from Signal K's live stream, or from saved read-only queries on a timer.
+
+### Charts and tracks everywhere (#62) 📈
+
+- **Time series draw themselves.** Any query result with a time column and numbers is drawn as a line chart, in the SQL console and under Ask's answers, with a hover readout.
+- **Positions draw as a track:** true to shape, with first and latest fixes, a scale bar in nautical miles and the latest position.
+- **Ask picks a sensible step.** It knows how much history the boat has, so a graph gets about 60 points, not two.
+
+### An Ask that knows your boat (#60, #62)
+
+- **Save your ollama.com key in the Ask tab.** It goes into a private file on the boat, never into plugin settings, and Ask explains clearly when the key is missing, rejected or the boat is offline.
+- **Answers render properly:** tables, lists, code and links, with sources linked to the page of the manual they came from.
+- **It knows what's on the page:** what the numbers mean, how much history exists, Lume's own health table (`telemetry_lume`), and which documents are in the Library.
+- **It remembers what worked.** Every Ask run is kept on the boat; queries that failed come back marked DO NOT REUSE, and ones that worked are offered again.
+
+### A Library that opens at the page (#62) 📚
+
+- Search results, alert references and Ask's citations open the copy stored on the boat at the matching page, so they work offline. The original stays one click away.
+- **Index? on every row,** and an Index button beside anything Ask recommends.
+- Ask knows the whole catalog of about 470 references, so "what can I index for diesel repair?" lists the Engineman and Universal diesel manuals.
+- **A new default document:** the dashboard gauge reference, so Ask can look up how to build any widget.
+
+### A fresh face (#60, #62)
+
+- A new look built around the Lume icon, a "← Signal K" link, friendly screens while no data has arrived yet, and a setup banner that names the one step left.
+- **Version & Build** on the Status tab: plugin, `lume` program, Signal K and Node versions, the program's SHA-256 and where it was installed from.
+- An open page notices when the plugin's page files are updated and offers a reload.
 
 ### `lume` on npm (#55) 📦
 
-- **One command, five platforms.** `@deepbluedynamics/lume` is a 2 KB launcher. Its optional dependencies `@deepbluedynamics/lume-linux-x64`, `-linux-arm64`, `-darwin-arm64`, `-darwin-x64` and `-win32-x64` each hold one prebuilt `lume` (with `lume ti`), and npm installs only the one for your machine.
-- **The same binaries as the release.** The release workflow packs them from the binaries it just built, checks each one's platform and architecture (and glibc ≤ 2.39 on Linux), and publishes them with npm trusted publishing: no token stored anywhere.
-- **Clear errors.** On an unsupported machine, or after `--omit=optional`, `lume` says which package is missing instead of failing silently.
-- **Arguments, output and exit codes pass straight through,** so `lume serve` works as an MCP server over stdio from an npm install.
+- `npm install -g @deepbluedynamics/lume` gives you `lume` on Linux (x64 and arm64), macOS (Apple Silicon and Intel) and Windows x64. npm installs only the one program your machine needs, and `npm update -g` keeps it current.
+- On an unsupported machine, or after `--omit=optional`, `lume` names the missing package instead of failing silently.
+
+### Clearer PDF indexing (#54)
+
+- One summary line per document instead of one per page: "skipped 486 of 488 pages: 486 have no text layer (scanned; OCR would be needed)". Encrypted PDFs are listed together, with whether they need a password.
+
+### Also in Lume
+
+- **Documents and telemetry in one store:** `lume index`, `lume search` and `lume sql` for files; `lume ti` for boat and agent telemetry in 10-second buckets.
+- **Agents get it all over MCP:** `lume serve` speaks only MCP.
+- **Grafana and PostgreSQL clients:** turn on the pgwire endpoint and point Grafana at it, now with a styled setup form.
+- **History for other apps:** Lume TI is a Signal K History API provider for Freeboard, KIP and friends.
 
 ### Under the hood
 
-- `scripts/package-cli.cjs` packs the six tarballs; `bump-version.cjs` keeps their versions and pins in step, and the release checks `npm/lume/package.json` against Cargo.toml.
-- New tests install the packed launcher and Linux binary offline and check that arguments and the exit status come through. CI runs them next to the plugin tests. The ELF test fixtures now live in `scripts/test/elf-fixtures.cjs`, shared with the plugin's packaging tests.
+- **Restart race fixed:** when Signal K restarts the plugin, the new `lume` waits for the old one to release its port (#60).
+- **Release publishing:** the npm job publishes the plugin and the command-line tool as independent groups, so one can't block the other.
+- **Local testing:** `scripts/dev-signalk.sh` runs a real Signal K in Docker with the plugin live from your checkout and sample boat data playing (#62).
+- **Docs:** the App Store listing and plugin README describe the Library (#61), the HaLOS guide installs from the App Store (#52), every npm package has a proper README (#57), and the help banner lines up (#58).
 
-Coming from further back? [v0.15.6](https://github.com/DeepBlueDynamics/lume/releases/tag/v0.15.6) fixed the npm publish path for the Signal K plugin.
+Coming from further back? [v0.15.6](https://github.com/DeepBlueDynamics/lume/releases/tag/v0.15.6) put the Signal K plugin on npm, and [v0.15.4](https://github.com/DeepBlueDynamics/lume/releases/tag/v0.15.4) made `lume serve` quiet.
 
 ## 0.15.6 — 2026-10-13
 
