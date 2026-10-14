@@ -117,6 +117,9 @@ function statusContext(status) {
       'There is no data before or after that.');
     lines.push(`- For a graph, use date_bin with a step that gives roughly 30 to 200 points over the part of that span the user asked about; ` +
       `for the whole span now, about ${suggestStep(spanSeconds)}. Never use a step that leaves fewer than 10 points, and say so if the data covers less time than was asked for.`);
+    lines.push('- A graph query aggregates the value and groups by the time step only, one row per step, for example ' +
+      'SELECT date_bin(INTERVAL \'1 minute\', ts) AS minute, avg("navigation.speedOverGround@mean") AS sog FROM telemetry GROUP BY 1 ORDER BY 1. ' +
+      'Never GROUP BY the value column. The page draws the chart itself from that query: do not list the rows in the answer.');
   }
   return `\n\n${lines.join('\n')}`;
 }

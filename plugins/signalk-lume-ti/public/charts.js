@@ -108,8 +108,20 @@
   function line(el, rows, plan = detect(rows)) {
     if (!plan) return false;
     if (plan.kind === 'track') return track(el, rows, plan);
-    const points = rows.map(r => ({t: asTime(r[plan.x]), ys: plan.ys.map(c => asNumber(r[c]))}))
-      .filter(p => Number.isFinite(p.t)).sort((a, b) => a.t - b.t);
+    // Several rows at one time (a GROUP BY that kept the value) become one averaged point.
+    const byTime = new Map();
+    for (const r of rows) {
+      const t = asTime(r[plan.x]);
+      if (!Number.isFinite(t)) continue;
+      const slot = byTime.get(t) || {t, sums: plan.ys.map(() => 0), counts: plan.ys.map(() => 0)};
+      plan.ys.forEach((c, k) => {
+        const v = asNumber(r[c]);
+        if (Number.isFinite(v)) { slot.sums[k] += v; slot.counts[k] += 1; }
+      });
+      byTime.set(t, slot);
+    }
+    const points = [...byTime.values()].sort((a, b) => a.t - b.t)
+      .map(s => ({t: s.t, ys: s.sums.map((sum, k) => (s.counts[k] ? sum / s.counts[k] : NaN))}));
     if (points.length < 2) return false;
     const values = points.flatMap(p => p.ys).filter(Number.isFinite);
     if (!values.length) return false;

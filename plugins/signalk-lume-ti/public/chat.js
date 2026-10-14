@@ -235,7 +235,18 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // The model sometimes echoes prose into the sql list; keep real statements only.
-  const sqlOnly = list => (Array.isArray(list) ? list : []).filter(s => typeof s === 'string' && /^s*(select|with|show|describe|explain)/i.test(s));
+  const isSql = s => typeof s === 'string' && /^\s*(select|with|show|describe|explain)\b/i.test(s);
+  // Real statements from the answer's sql list and from its tool calls, each once.
+  const sqlOnly = (list, calls) => {
+    const fromCalls = (Array.isArray(calls) ? calls : []).map(c => c && c.args && c.args.sql);
+    const seen = new Set();
+    return [...(Array.isArray(list) ? list : []), ...fromCalls].filter(isSql).filter(s => {
+      const key = s.trim();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
 
   // Graph the answer: rerun each query that returned rows and chart the time series.
   async function chartAnswer(data) {
@@ -244,7 +255,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!box || !charts) return;
     box.innerHTML = '';
     const calls = Array.isArray(data.tool_calls) ? data.tool_calls : [];
-    const statements = sqlOnly(data.sql).filter(sql => {
+    const statements = sqlOnly(data.sql, data.tool_calls).filter(sql => {
       const call = calls.find(c => c.args && typeof c.args.sql === 'string' && c.args.sql.trim() === sql.trim());
       return !call || (!call.error && (call.rows == null || call.rows >= 2));
     }).slice(0, 3);
@@ -275,7 +286,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const KEY_ERRORS = new Set(['needs_key', 'key_not_path', 'key_unreadable', 'key_empty', 'bad_key']);
 
   // DataFusion appends every column name to a schema error; keep the sentence, drop the list.
-  const shortError = text => String(text || '').replace(/s+Valid fields are .*$/s, ' (the Schema Browser lists every column)');
+  const shortError = text => String(text || "").replace(/\s+Valid fields are .*$/s, " (the Schema Browser lists every column)");
 
   function formatPreview(args) {
     if (!args || typeof args !== 'object') return '';
@@ -297,7 +308,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderSqlCards(data) {
     sqlList.innerHTML = '';
-    const sqlStatements = sqlOnly(data.sql);
+    const sqlStatements = sqlOnly(data.sql, data.tool_calls);
     if (sqlStatements.length > 0) {
       sqlSection.classList.remove('hidden');
       sqlStatements.forEach((sql, idx) => {

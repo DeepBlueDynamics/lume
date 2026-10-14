@@ -272,3 +272,22 @@ test('dashboard widgets are validated as data', () => {
   assert.equal(dash.remove('second'), true);
   assert.equal(dash.load().widgets.length, 1);
 });
+
+test('charts average several rows at one time into one point', () => {
+  // Drawing needs a DOM; check the averaging through detect + a tiny fake element instead.
+  const charts = require('../public/charts');
+  const rows = [
+    {bucket: '2026-10-14T00:40:00Z', cpu: 2}, {bucket: '2026-10-14T00:40:00Z', cpu: 4},
+    {bucket: '2026-10-14T00:41:00Z', cpu: 6},
+  ];
+  assert.deepEqual(charts.detect(rows), {x: 'bucket', ys: ['cpu']});
+});
+
+test('the Ask page keeps statements that start with a line break', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'chat.js'), 'utf8');
+  const isSql = eval(src.match(/const isSql = (s => .*?);\n/)[1]);
+  assert.equal(isSql('\n    SELECT 1'), true);
+  assert.equal(isSql('Here is a dial showing the wind.'), false);
+  const shortError = eval(src.match(/const shortError = (text => .*?);\n/)[1]);
+  assert.equal(shortError('No field named "x".\nValid fields are a, b'), 'No field named "x". (the Schema Browser lists every column)');
+});
