@@ -111,16 +111,35 @@ function statusContext(status) {
   return `\n\n${lines.join('\n')}`;
 }
 
-/** Recent Ask runs, so "which queries broke?" has an answer. */
-function historyContext(runs) {
-  const recent = (runs || []).slice(-8);
+/**
+ * Recent Ask runs, so "which queries broke?" has an answer, and so a query that
+ * failed before is flagged instead of tried again.
+ */
+function historyContext(runs, {maxBad = 12, maxGood = 6} = {}) {
+  const all = runs || [];
+  const recent = all.slice(-8);
   if (!recent.length) return '';
-  const lines = ['[Context from the Lume TI plugin, not from the user: the most recent Ask questions on this boat, oldest first, with any queries that failed.]'];
+  const lines = ['[Context from the Lume TI plugin, not from the user: the most recent Ask questions on this boat, oldest first.]'];
   for (const run of recent) {
     lines.push(`- ${run.ts} "${run.question}": ${run.ok ? 'answered' : `failed (${run.error || 'error'})`}`);
+  }
+  // Each distinct SQL once, newest result wins: a query that later worked is not bad.
+  const outcome = new Map();
+  for (const run of all) {
     for (const call of run.calls || []) {
-      if (call.error) lines.push(`  - failed ${call.tool}: ${call.sql || ''} -> ${call.error}`);
+      if (!call.sql) continue;
+      outcome.set(call.sql.trim(), call.error ? {bad: true, error: call.error} : {bad: false, rows: call.rows});
     }
+  }
+  const bad = [...outcome].filter(([, o]) => o.bad).slice(-maxBad);
+  const good = [...outcome].filter(([, o]) => !o.bad && o.rows).slice(-maxGood);
+  if (bad.length) {
+    lines.push('DO NOT REUSE: these queries failed on this boat. Never run one of them again as written; fix the cause first, usually a column that does not exist (check ti_schema).');
+    for (const [sql, o] of bad) lines.push(`- DO NOT REUSE: ${sql} -> ${o.error}`);
+  }
+  if (good.length) {
+    lines.push('Known good: these queries returned rows here and can be reused.');
+    for (const [sql, o] of good) lines.push(`- ${sql} (${o.rows} rows)`);
   }
   return `\n\n${lines.join('\n')}`;
 }

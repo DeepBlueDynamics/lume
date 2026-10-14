@@ -188,7 +188,17 @@ test('Ask is told what the page numbers mean and which recent queries failed', (
   const fresh = new ChatManager({binary: process.execPath, dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'lume-hist2-'))});
   fresh.record('what are the 56K updates?', {tool_calls: [{name: 'ti_query', args: {sql: 'SELECT "x@max" FROM telemetry'}, error: 'Schema error: No field named "x@max". Valid fields are a, b, c'}]});
   const ctx = historyContext(fresh.history());
-  assert.match(ctx, /failed ti_query: SELECT "x@max" FROM telemetry -> Schema error: No field named "x@max"\./);
+  assert.match(ctx, /- DO NOT REUSE: SELECT "x@max" FROM telemetry -> Schema error: No field named "x@max"\./);
+  assert.match(ctx, /Never run one of them again as written/);
+
+  // The same bad query twice is listed once; one that later worked is not bad; good ones are offered.
+  fresh.record('again', {tool_calls: [{name: 'ti_query', args: {sql: 'SELECT "x@max" FROM telemetry'}, error: 'Schema error: No field named "x@max".'}]});
+  fresh.record('fixed', {tool_calls: [{name: 'ti_query', args: {sql: 'SELECT "y@max" FROM telemetry'}, error: 'boom'}]});
+  fresh.record('fixed later', {tool_calls: [{name: 'ti_query', args: {sql: 'SELECT "y@max" FROM telemetry'}, rows: 3}]});
+  const ctx2 = historyContext(fresh.history());
+  assert.equal(ctx2.match(/DO NOT REUSE: SELECT "x@max"/g).length, 1);
+  assert.ok(!/DO NOT REUSE: SELECT "y@max"/.test(ctx2), 'a query that later worked is not flagged');
+  assert.match(ctx2, /Known good:[\s\S]*SELECT "y@max" FROM telemetry \(3 rows\)/);
   assert.ok(!/Valid fields/.test(ctx), 'column lists are dropped');
   fs.rmSync(dir, {recursive: true, force: true});
 });
