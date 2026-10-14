@@ -1,0 +1,27 @@
+name: Signal K plugin CI
+
+# Signal K's shared plugin CI: install and test signalk-lume-ti on Linux x64,
+# Linux arm64, macOS and Windows. The Signal K App Store shows its results as
+# the plugin's platform matrix, matched by the commit each release was
+# published from. bump-version.yml dispatches this on every release tag; keep
+# the reusable workflow as a direct job so the App Store can read its job names.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "plugins/signalk-lume-ti/**"
+      - ".github/workflows/signalk-plugin-ci.yml"
+  pull_request:
+    paths:
+      - "plugins/signalk-lume-ti/**"
+      - ".github/workflows/signalk-plugin-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    uses: SignalK/signalk-server/.github/workflows/plugin-ci.yml@master
+    with:
+      working-directory: plugins/signalk-lume-ti

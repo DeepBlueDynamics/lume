@@ -45,12 +45,5 @@
   "optionalDependencies": {
     "signalk-lume-ti-linux-arm64": "0.16.2",
     "signalk-lume-ti-linux-x64": "0.16.2"
-  },
-  "os": [
-    "linux"
-  ],
-  "cpu": [
-    "arm64",
-    "x64"
-  ]
+  }
 }
