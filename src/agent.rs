@@ -505,7 +505,7 @@ fn handle_mcp_request(req_val: serde_json::Value, _ti: &TiState) -> serde_json::
                                     "db": { "type": "string", "description": "Path to the persisted index metadata [default: .lume-index]" },
                                     "limit": { "type": "integer", "description": "Max number of tokens/words to generate [default: 100]" },
                                     "steer": { "type": "array", "items": { "type": "string" }, "description": "Tags to steer the generation" },
-                                    "attempts": { "type": "integer", "description": "Number of attempts for steered/inverted generation [default: 6]" },
+                                    "attempts": { "type": "integer", "description": "Number of attempts for vector-steered generation [default: 6]" },
                                     "threshold": { "type": "number", "description": "Quality threshold for GTR match [default: 0.75]" }
                                 }
                             }
@@ -1281,7 +1281,7 @@ Keep your final answer concise and factual.", db_dir),
                         "db": { "type": "string", "description": "Path to the persisted index metadata [default: .lume-index]" },
                         "limit": { "type": "integer", "description": "Max number of tokens/words to generate [default: 100]" },
                         "steer": { "type": "array", "items": { "type": "string" }, "description": "Tags to steer the generation" },
-                        "attempts": { "type": "integer", "description": "Number of attempts for steered/inverted generation [default: 6]" },
+                        "attempts": { "type": "integer", "description": "Number of attempts for vector-steered generation [default: 6]" },
                         "threshold": { "type": "number", "description": "Quality threshold for GTR match [default: 0.75]" },
                         "shivvr_url": { "type": "string", "description": "Shivvr API endpoint URL [default: http://localhost:8085]" }
                       }

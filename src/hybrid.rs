@@ -39,7 +39,7 @@ struct EmbedResponse {
 /// Embeds `text` to its 768-d GTR-T5 ("organize") vector. shivvr has no
 /// dedicated embed endpoint, so we ingest into a throwaway scratch store and
 /// read the embedding straight off the response (the store auto-expires). Used
-/// by the inversion-steered generator to score candidates against a target.
+/// by the vector-steered generator to score candidates against a target.
 pub fn embed_text(text: &str, token: &str) -> Result<Vec<f64>, String> {
     embed_text_at(text, token, &get_shivvr_base_url())
 }

@@ -232,7 +232,7 @@ lume sql --db .lume-index "SELECT count(*) FROM sections WHERE NOT match(body, '
 
 ### Text generation
 
-`lume generate` synthesizes text in the corpus's style with a trigram Markov chain. It steers the chain toward concept tags (`--steer "revenge,castle"`) or, with an embedding endpoint, toward a target vector, using GTR-T5 inversion to hill-climb candidates.
+`lume generate` synthesizes text in the corpus's style with a trigram Markov chain. It steers the chain toward concept tags (`--steer "revenge,castle"`) or, with an embedding endpoint, toward a target: it generates candidates and keeps the one whose embedding best matches the target.
 
 ### Crawling
 
