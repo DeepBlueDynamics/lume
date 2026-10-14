@@ -29,6 +29,9 @@ impl Stub {
                     std::thread::sleep(Duration::from_millis(5));
                     continue;
                 };
+                // Accepted sockets inherit the listener's non-blocking mode on
+                // macOS and Windows; reads below must block until data arrives.
+                stream.set_nonblocking(false).unwrap();
                 stream
                     .set_read_timeout(Some(Duration::from_secs(10)))
                     .unwrap();
