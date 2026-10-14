@@ -243,6 +243,7 @@ module.exports = function (app) {
         dataDir,
         getOptions: () => pluginConfig,
         getCatalog: () => (library ? library.catalog() : []),
+        getSuggestions: question => (library ? library.suggestions(question) : []),
         log: line => log(line),
       });
 

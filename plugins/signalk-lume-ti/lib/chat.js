@@ -96,26 +96,47 @@ class EventStreamParser {
  * Appended to the question so the model can map the search index's stored file names
  * to real titles. Bounded so a large library can't blow up argv.
  */
-function libraryContext(catalog, maxChars = 24000) {
-  if (!Array.isArray(catalog) || !catalog.length) return '';
+function libraryContext(catalog, maxChars = 24000, suggestions = []) {
+  const indexed = Array.isArray(catalog) ? catalog : [];
+  const extra = Array.isArray(suggestions) ? suggestions : [];
+  if (!indexed.length && !extra.length) return '';
   const lines = [];
   let size = 0;
-  for (const doc of catalog) {
-    const line = `- ${doc.file}: "${doc.title}"${doc.publisher ? `, ${doc.publisher}` : ''}${doc.category ? ` (${doc.category})` : ''}`;
-    if (size + line.length > maxChars) { lines.push(`- …and ${catalog.length - lines.length} more`); break; }
+  const add = line => {
+    if (size + line.length > maxChars) return false;
     lines.push(line);
     size += line.length + 1;
+    return true;
+  };
+  add('[Context from the Lume TI plugin, not from the user.]');
+  if (indexed.length) {
+    add('Library documents indexed on this boat (the sections table stores them by file name; ' +
+      'its `line` column is the page number for PDFs):');
+    for (let i = 0; i < indexed.length; i++) {
+      const doc = indexed[i];
+      const ok = add(`- ${doc.file}: "${doc.title}"${doc.publisher ? `, ${doc.publisher}` : ''}${doc.category ? ` (${doc.category})` : ''}` +
+        `${doc.localUrl ? `; link ${doc.localUrl}` : ''}`);
+      if (!ok) { lines.push(`- …and ${indexed.length - i} more`); break; }
+    }
   }
-  return '\n\n[Context from the Lume TI plugin, not from the user: the Library documents indexed on this boat. ' +
-    'The sections table stores them by file name; use these titles when naming a document.]\n' + lines.join('\n');
+  if (extra.length) {
+    add('Catalog documents that match this question but are NOT indexed yet (the user can tick them in the Library tab and press Index selected):');
+    for (const doc of extra) {
+      if (!add(`- "${doc.title}"${doc.publisher ? `, ${doc.publisher}` : ''}${doc.category ? ` (${doc.category})` : ''}${doc.url ? `; ${doc.url}` : ''}`)) break;
+    }
+  }
+  add('When you use or recommend a document, name it by title and link it in Markdown: an indexed one as ' +
+    '[Title, page N](its link#page=N), one that is not indexed as [Title](its URL), saying it can be indexed from the Library tab.');
+  return `\n\n${lines.join('\n')}`;
 }
 
 class ChatManager {
-  constructor({binary, dataDir, getOptions = () => ({}), getCatalog = () => [], log = () => {}}) {
+  constructor({binary, dataDir, getOptions = () => ({}), getCatalog = () => [], getSuggestions = () => [], log = () => {}}) {
     this.binary = binary;
     this.dataDir = dataDir;
     this.getOptions = getOptions;
     this.getCatalog = getCatalog;
+    this.getSuggestions = getSuggestions;
     this.log = log;
     this.currentJob = null;
   }
@@ -180,8 +201,10 @@ class ChatManager {
       args.push('--ollama-model', options.chatModel);
     }
     let catalog = [];
+    let suggestions = [];
     try { catalog = (typeof this.getCatalog === 'function' ? this.getCatalog() : []) || []; } catch (_) {}
-    args.push(trimmedQuestion + libraryContext(catalog));
+    try { suggestions = (typeof this.getSuggestions === 'function' ? this.getSuggestions(trimmedQuestion) : []) || []; } catch (_) {}
+    args.push(trimmedQuestion + libraryContext(catalog, 24000, suggestions));
 
     const childEnv = {...process.env};
     if (apiKey) {

@@ -232,7 +232,43 @@ class Library {
     const byId = new Map(stored.filter(n => /^[0-9a-f]{12}\./i.test(n)).map(n => [n.slice(0, 12), n]));
     return this.items().filter(i => i.state === 'indexed' && byId.has(i.id)).map(i => ({
       file: byId.get(i.id), title: i.title, publisher: i.publisher || '', category: i.category || '',
+      localUrl: `/plugins/signalk-lume-ti/api/library/file/${byId.get(i.id)}`, url: i.url || '',
     }));
+  }
+
+  /**
+   * Catalog documents that are not indexed yet but match the question's words, so
+   * Ask can point to what could be added. Simple word overlap on the catalog fields.
+   */
+  suggestions(question, limit = 12) {
+    const stop = new Set(['the', 'and', 'for', 'you', 'that', 'with', 'have', 'what', 'which', 'can', 'are', 'any',
+      'documents', 'document', 'index', 'indexed', 'library', 'about', 'there', 'this', 'from', 'how', 'our', 'your',
+      'will', 'would', 'should', 'could', 'does', 'need', 'want', 'help', 'when', 'where', 'them', 'they', 'then',
+      'than', 'into', 'some', 'more', 'make', 'like', 'just', 'also', 'know', 'tell', 'show', 'find', 'give', 'manual',
+      'manuals', 'guide', 'guides', 'book', 'books']);
+    const words = [...new Set(String(question || '').toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) || [])]
+      .filter(w => !stop.has(w))
+      .filter(w => w.length >= 4)
+      .map(w => w.replace(/(ing|ers|er|es|s)$/, '')).filter(w => w.length >= 4);
+    if (!words.length) return [];
+    return this.items()
+      .filter(i => i.state !== 'indexed')
+      .map(i => {
+        // A topic in the category ("Engines › Diesel") says more than a word in a title.
+        const hay = `${i.title} ${i.category} ${i.subcategory} ${i.publisher} ${i.notes}`.toLowerCase();
+        const title = String(i.title || '').toLowerCase();
+        const topic = `${i.category} ${i.subcategory}`.toLowerCase();
+        const score = words.reduce((s, w) =>
+          s + (topic.includes(w) ? 3 : 0) + (title.includes(w) ? 2 : 0) + (hay.includes(w) ? 1 : 0), 0);
+        return {item: i, score};
+      })
+      .filter(s => s.score > 0)
+      .sort((a, b) => b.score - a.score)
+      // Keep the strong matches: at least half the best score.
+      .filter((s, _, all) => s.score * 2 >= all[0].score)
+      .slice(0, limit)
+      .map(({item}) => ({title: item.title, category: [item.category, item.subcategory].filter(Boolean).join(' › '),
+        publisher: item.publisher || '', format: item.format || '', url: item.url || ''}));
   }
 
   /** The downloaded copy of a library document, by its stored name, or null. */

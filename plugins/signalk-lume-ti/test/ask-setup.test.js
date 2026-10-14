@@ -157,3 +157,17 @@ test('Ask gets the Library titles for the stored file names, bounded', () => {
   assert.ok(bounded.length < 25000, `context stays bounded (${bounded.length})`);
   assert.match(bounded, /…and \d+ more/);
 });
+
+test('Ask can link Library copies at a page, but no other local path', () => {
+  const html = md.render('See [Rules, page 98]( /plugins/signalk-lume-ti/api/library/file/dc45ebdf001f.pdf#page=98 ) and [x](/admin/#/security) and [y](/plugins/signalk-lume-ti/api/chat/key)');
+  assert.match(html, /<a href="\/plugins\/signalk-lume-ti\/api\/library\/file\/dc45ebdf001f\.pdf#page=98" target="_blank" rel="noopener noreferrer">Rules, page 98<\/a>/);
+  assert.ok(!/href="\/admin/.test(html) && !/href="\/plugins\/signalk-lume-ti\/api\/chat/.test(html), 'other local paths stay text');
+});
+
+test('catalog suggestions find not-yet-indexed references by topic', () => {
+  const {Library} = require('../lib/library');
+  const lib = new Library({binary: process.execPath, dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'lume-sugg-'))});
+  const titles = lib.suggestions('diesel injector problems').map(s => s.title).join(' | ');
+  assert.match(titles, /Universal M|Engineman/);
+  assert.deepEqual(lib.suggestions('what do you have'), []);
+});
