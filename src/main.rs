@@ -3757,9 +3757,9 @@ OPTIONS:
 
 ARGS:
   [SEED]                 Seed/target prompt. With a shivvr token set, generation
-                         runs the inversion-steered loop: embed target → invert
-                         to seed concepts → generate, score by embedding match,
-                         re-steer with graph neighbors until it round-trips.
+                         runs the vector-steered loop: embed target → generate,
+                         score by embedding match, re-steer with graph
+                         neighbors until a candidate reaches --threshold.
 "#
     );
 }
@@ -3848,14 +3848,14 @@ fn handle_generate(args: &[String]) -> Result<(), String> {
 
     let chain = lume::semantic_mesh::MarkovChain::build(&bodies);
 
-    // Vector/inversion-steered mode: when a shivvr token is available and we
-    // have a target (the seed/prompt), generate candidates and keep the one
-    // whose 768-d GTR-T5 embedding best matches the target's — re-steering with
-    // SKG-graph neighbors between attempts. Falls back to plain Markov when no
-    // token or no seed is present.
+    // Vector-steered mode: when a shivvr token is available and we have a
+    // target (the seed/prompt), generate candidates and keep the one whose
+    // embedding best matches the target's — re-steering with SKG-graph
+    // neighbors between attempts. Falls back to plain Markov when no token or
+    // no seed is present.
     let token = lume::hybrid::load_nuts_token();
     if let (Some(token), Some(target)) = (token, seed_word.as_deref()) {
-        match run_inversion_steered_generate(
+        match run_vector_steered_generate(
             &chain,
             &bm25,
             db_path,
@@ -3895,12 +3895,13 @@ fn handle_generate(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-/// Inversion-steered generation loop: embed the target → invert it to seed the
-/// steer set with the target's concepts → generate candidates and score each by
-/// cosine to the target embedding → keep the best, expanding the steer set with
-/// SKG-graph neighbors until the round-trip is "good enough" (>= threshold).
+/// Vector-steered generation loop: embed the target → generate candidates and
+/// score each by cosine to the target embedding → keep the best, expanding the
+/// steer set with SKG-graph neighbors until the match is "good enough"
+/// (>= threshold). Target and candidates are embedded by the same shivvr call,
+/// so this works in whatever embedding space shivvr defaults to.
 #[allow(clippy::too_many_arguments)]
-fn run_inversion_steered_generate(
+fn run_vector_steered_generate(
     chain: &lume::semantic_mesh::MarkovChain,
     bm25: &Bm25Index,
     db_path: &Path,
@@ -3914,25 +3915,10 @@ fn run_inversion_steered_generate(
 ) -> Result<(), String> {
     use lume::hybrid::{cosine_similarity, embed_text};
 
-    println!("[🔄] Embedding target \"{}\" (768-d GTR-T5)...", target);
+    println!("[🔄] Embedding target \"{}\"...", target);
     let target_vec = embed_text(target, token)?;
 
-    // Invert the target to recover its concepts in the corpus's own words, and
-    // fold those into the steer set.
-    let mut steer: Vec<String> = base_steer.to_vec();
-    if let Ok(inv) = lume::inversion::invert_vector(&target_vec, Some(48), token) {
-        println!(
-            "[🔄] Target inverts to: \"{}\" (self-similarity {:.3})",
-            inv.text.trim(),
-            inv.similarity
-        );
-        for tok in lume::bm25::filter_query_stopwords(lume::tokenize(&inv.text)) {
-            let w = String::from_utf8_lossy(&tok.bytes).to_string();
-            if w.len() > 2 && !steer.iter().any(|s| s.eq_ignore_ascii_case(&w)) {
-                steer.push(w);
-            }
-        }
-    }
+    let steer: Vec<String> = base_steer.to_vec();
 
     // Build an ordered pool of SKG-graph neighbors of the target's entities to
     // mutate the steer set across attempts ("steer with other words").
