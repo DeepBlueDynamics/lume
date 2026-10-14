@@ -8,10 +8,14 @@
   // Signal K guards plugin routes; a 401 means this browser has no Signal K session yet.
   const loginHint = 'Not logged in to Signal K. Open Signal K Admin by its host name (on HaLOS: https://halos.local:4430/admin/), choose Login, sign in (HaLOS SSO if offered), then reload this page from that same address.';
 
+  const accessRequestsUrl = '/admin/#/security/access/requests';
+
   let lastQueryRows = [];
   let lastQueryColumns = [];
   let lastQuerySql = '';
   let lastQueryTruncated = false;
+  // Latest /api/status, used to explain empty results.
+  let lastStatus = null;
 
   document.addEventListener('DOMContentLoaded', () => {
     setupTabs();
@@ -20,9 +24,68 @@
     setupCsvExport();
     setupChartActions();
     setupSchemaBrowser();
+    checkLogin();
     pollStatus();
     setInterval(pollStatus, 3000);
   });
+
+  // The header button is only for Signal K's own login (chart pins and admin pages).
+  async function checkLogin() {
+    const link = typeof document.querySelector === 'function' ? document.querySelector('.login-link') : null;
+    if (!link) return;
+    try {
+      const res = await fetch('/skServer/loginStatus', {credentials: 'same-origin', headers: {Accept: 'application/json'}});
+      const data = res.ok ? await res.json() : null;
+      if (data && data.status === 'loggedIn') {
+        link.textContent = data.username ? `Signed in as ${data.username}` : 'Signed in';
+        link.classList.add('signed-in');
+        link.removeAttribute('href');
+      } else if (data && data.authenticationRequired === false) {
+        link.hidden = true;
+      }
+    } catch (_) {
+      // Leave the button as it is.
+    }
+  }
+
+  // Tables Lume creates on first data; a missing one of these means "nothing yet", not a typo.
+  const STORE_TABLES = new Set(['telemetry', 'telemetry_lume', 'docs']);
+
+  /**
+   * Why a query found nothing, in words a boater can act on. Only replaces the error
+   * when Lume is down or the store has no data yet; a typo on a store with data keeps
+   * its real error (see hintFor). Returns null to show the error as is.
+   */
+  function explainEmpty(message, status) {
+    const msg = String(message || '');
+    // 503 is the proxy failing to reach lume; a 504 timeout is a slow query, not a down server.
+    if (status === 503 || /Query server .*unavailable|ECONNREFUSED/i.test(msg)) {
+      return 'Lume isn\'t running right now, so there is nothing to query. The Status tab shows why; restarting Signal K usually brings it back.';
+    }
+    const missingTable = /table '?"?([\w.]+?)"?'? not found|table .*does not exist/i.exec(msg);
+    const missingField = /No field named "?([^"\s]+?)"?(?:[.,]?\s|[.,]?$)/i.exec(msg);
+    if (!missingTable && !missingField) return null;
+    const access = lastStatus && lastStatus.access;
+    const records = lastStatus && lastStatus.store && lastStatus.store.ingestStatus
+      ? lastStatus.store.ingestStatus.records_ingested : 0;
+    if (access && !access.token && access.state === 'PENDING') {
+      return 'No boat data yet: Lume is waiting for access. Approve the Lume TI device in Signal K under Security → Access Requests (the link is in the banner above).';
+    }
+    const table = missingTable ? (missingTable[1] || '').split('.').pop().toLowerCase() : '';
+    if (!records && (!missingTable || STORE_TABLES.has(table))) {
+      return 'No boat data has been recorded yet. Lume starts its tables the first time Signal K sends data; check that your instruments or a data connection are feeding Signal K.';
+    }
+    return null;
+  }
+
+  // On a store with data, a missing Signal K path may just not have been sent yet.
+  function hintFor(message) {
+    const missingField = /No field named "?([^"\s]+?)"?(?:[.,]?\s|[.,]?$)/i.exec(String(message || ''));
+    if (missingField && missingField[1].includes('.')) {
+      return ` If ${missingField[1]} is a Signal K path, this boat may not have sent it yet; the Schema Browser lists what has been recorded.`;
+    }
+    return '';
+  }
 
   // 1. Tab Switching
   function setupTabs() {
@@ -115,9 +178,16 @@
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({ error: res.statusText }));
         let message = errJson.error || `HTTP ${res.status}: ${res.statusText}`;
+        const friendly = explainEmpty(message, res.status);
+        if (friendly) {
+          const empty = new Error(friendly);
+          empty.empty = true;
+          throw empty;
+        }
+        const hint = hintFor(message);
         // DataFusion lists every valid column; keep the hint, drop the wall of names.
         message = message.replace(/ Valid fields are .*$/s, ' (open Schema Browser for the column list)');
-        throw new Error(message);
+        throw new Error(message + hint);
       }
 
       const data = await res.json();
@@ -158,8 +228,14 @@
         })
         .join('');
     } catch (err) {
-      errBox.textContent = `Error executing query: ${err.message}`;
-      errBox.classList.remove('hidden');
+      if (err.empty) {
+        // Not a mistake in the query: show it where the rows would be.
+        thead.innerHTML = '';
+        tbody.innerHTML = `<tr><td class="empty-state notice">${escapeHtml(err.message)}</td></tr>`;
+      } else {
+        errBox.textContent = `The query failed: ${err.message}`;
+        errBox.classList.remove('hidden');
+      }
       countSpan.textContent = '0 rows';
       exportBtn.disabled = true;
     } finally {
@@ -256,7 +332,7 @@
       const tables = data.tables || [];
 
       if (tables.length === 0) {
-        tree.innerHTML = '<div class="empty-state">No tables registered yet.</div>';
+        tree.innerHTML = '<div class="empty-state notice">Nothing recorded yet. Tables appear here once Signal K has sent Lume its first data.</div>';
         return;
       }
 
@@ -295,6 +371,11 @@
         })
         .join('');
     } catch (err) {
+      const friendly = explainEmpty(err.message, /HTTP 50[23]/.test(err.message) ? 503 : 0);
+      if (friendly) {
+        tree.innerHTML = `<div class="empty-state notice">${escapeHtml(friendly)}</div>`;
+        return;
+      }
       errBox.textContent = `Error loading schema: ${err.message}`;
       errBox.classList.remove('hidden');
       tree.innerHTML = '';
@@ -313,10 +394,12 @@
       }
       if (!res.ok) return;
       const data = await res.json();
+      lastStatus = data;
 
       const sup = data.supervisor || {};
       const store = data.store || {};
       const ingest = store.ingestStatus || {};
+      updateSetupBanner(data);
 
       // Header Badge
       const badge = document.getElementById('supervisor-badge');
@@ -360,6 +443,27 @@
     } catch (_e) {
       // Network hiccup or server reloading
     }
+  }
+
+  // One line at the top that says what is missing before data can flow.
+  function updateSetupBanner(data) {
+    const banner = document.getElementById('setup-banner');
+    if (!banner) return;
+    const sup = data.supervisor || {};
+    const access = data.access;
+    const ingest = (data.store && data.store.ingestStatus) || {};
+    let html = '';
+    if (sup.mode !== 'external' && !sup.running) {
+      html = sup.lastError
+        ? `Lume isn't running: ${escapeHtml(sup.lastError)}`
+        : 'Lume isn\'t running yet. It starts with the plugin; if this stays, restart Signal K.';
+    } else if (access && !access.token && access.state === 'PENDING') {
+      html = `One step left: approve the <strong>Lume TI</strong> device in Signal K under <a href="${accessRequestsUrl}">Security → Access Requests</a>. Lume records nothing until then.`;
+    } else if (!ingest.records_ingested) {
+      html = 'Waiting for boat data. Lume records whatever Signal K receives; this clears once instruments or a data connection send something.';
+    }
+    banner.innerHTML = html;
+    banner.hidden = !html;
   }
 
   function setElem(id, val) {

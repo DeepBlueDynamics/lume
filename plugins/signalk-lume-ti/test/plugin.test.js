@@ -180,3 +180,68 @@ function httpFetch(urlStr, method, body) {
     req.end();
   });
 }
+
+test('a Signal K restart (stop then start at once) waits for the old lume before starting', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lume-plugin-restart-'));
+  const logs = [];
+  const app = {
+    getDataDirPath: () => tmpDir,
+    debug: msg => logs.push(msg),
+    setPluginStatus: () => {},
+    setPluginError: () => {},
+  };
+  const plugin = pluginFactory(app);
+  const config = {lumePath: mockLumeBin, servePort: 5898, signalkUrl: 'ws://127.0.0.1:3000', autoRequestToken: false};
+  const up = async () => {
+    try { return (await httpFetch('http://127.0.0.1:5898/ti/schema', 'GET')).statusCode === 200; }
+    catch (_error) { return false; }
+  };
+
+  plugin.start(config);
+  await waitFor(up);
+  const spawnsBefore = logs.filter(line => line.includes('Spawning:')).length;
+
+  // Signal K's restartPlugin: stop() and start() with no await between them.
+  plugin.stop();
+  plugin.start(config);
+  assert.ok(logs.some(line => line.includes('Waiting for the previous lume to exit')), 'start waits for the stop in progress');
+  assert.strictEqual(logs.filter(line => line.includes('Spawning:')).length, spawnsBefore, 'no second lume while the first is stopping');
+
+  await waitFor(async () => logs.filter(line => line.includes('Spawning:')).length > spawnsBefore);
+  await waitFor(up);
+  assert.ok(!logs.some(line => /Address already in use|EADDRINUSE/.test(line)), 'the new lume bound the port');
+
+  plugin.stop();
+  await new Promise(resolve => setTimeout(resolve, 300));
+  fs.rmSync(tmpDir, {recursive: true, force: true});
+});
+
+test('two back-to-back Signal K restarts still end with one lume on the port', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lume-plugin-restart2-'));
+  const logs = [];
+  const app = {getDataDirPath: () => tmpDir, debug: msg => logs.push(msg), setPluginStatus: () => {}, setPluginError: () => {}};
+  const plugin = pluginFactory(app);
+  const config = {lumePath: mockLumeBin, servePort: 5899, signalkUrl: 'ws://127.0.0.1:3000', autoRequestToken: false};
+  const up = async () => {
+    try { return (await httpFetch('http://127.0.0.1:5899/ti/schema', 'GET')).statusCode === 200; }
+    catch (_error) { return false; }
+  };
+  plugin.start(config);
+  await waitFor(up);
+  const spawns = () => logs.filter(line => line.includes('Spawning:')).length;
+  const before = spawns();
+
+  plugin.stop(); plugin.start(config);
+  plugin.stop(); plugin.start(config);
+  assert.strictEqual(spawns(), before, 'nothing spawns while the first lume is still stopping');
+
+  await waitFor(async () => spawns() > before);
+  await waitFor(up);
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.strictEqual(spawns(), before + 1, 'exactly one new lume');
+  assert.ok(!logs.some(line => /Address already in use|EADDRINUSE/.test(line)), 'no port clash');
+
+  plugin.stop();
+  await new Promise(resolve => setTimeout(resolve, 300));
+  fs.rmSync(tmpDir, {recursive: true, force: true});
+});

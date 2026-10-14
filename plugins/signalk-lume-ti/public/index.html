@@ -10,19 +10,24 @@
   <div class="app-layout">
     <header class="app-header">
       <div class="brand">
-        <span class="logo-icon">⚓</span>
-        <h1>Lume TI</h1>
-        <span class="badge" id="supervisor-badge">Checking...</span>
-        <!-- Lume TI uses the Signal K session; sign in through Signal K Admin (HaLOS SSO on HaLOS). -->
-        <a class="secondary-btn login-link" href="/admin/#/login" title="Sign in through Signal K Admin, then come back to this page">Log in</a>
+        <img class="logo-icon" src="icon.svg" alt="" width="32" height="32">
+        <div class="brand-text">
+          <h1>Lume TI</h1>
+          <span class="brand-sub">Your boat's history, on the boat</span>
+        </div>
+        <span class="badge" id="supervisor-badge">Checking…</span>
       </div>
       <div class="header-metrics" id="header-metrics">
         <div class="metric"><span class="label">Ingest Lag:</span> <span class="val" id="metric-lag">--</span></div>
         <div class="metric"><span class="label">Disk Size:</span> <span class="val" id="metric-disk">--</span></div>
         <div class="metric"><span class="label">WAL Size:</span> <span class="val" id="metric-wal">--</span></div>
         <div class="metric"><span class="label">Records:</span> <span class="val" id="metric-records">--</span></div>
+        <!-- Signal K's own login, needed only for chart pins and admin-only pages. -->
+        <a class="secondary-btn login-link" href="/admin/#/login" title="Signal K's own login: needed for Pin to chart and admin pages, separate from the HaLOS sign-in">Sign in to Signal K</a>
       </div>
     </header>
+
+    <div id="setup-banner" class="setup-banner" role="status" hidden></div>
 
     <div id="login-banner" class="login-banner" hidden>
       You are not logged in to Signal K, so Lume TI can't show data yet.
@@ -71,7 +76,22 @@
         <div class="schema-header">
           <h3>Ask Lume Assistant</h3>
         </div>
-        <p class="lib-meta">Ask questions in plain English. The assistant inspects schema and telemetry data using SQL to answer your questions.</p>
+        <p class="lib-meta">Ask questions in plain English. The assistant looks at what Lume has recorded and at the Library, runs SQL, and shows the queries it used.</p>
+        <div id="chat-key-panel" class="key-panel" hidden>
+          <div class="key-panel-text">
+            <strong id="chat-key-title">Ask needs an API key</strong>
+            <span id="chat-key-detail"></span>
+          </div>
+          <form id="chat-key-form" class="key-form">
+            <input id="chat-key-input" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your ollama.com API key" maxlength="512" aria-label="API key">
+            <button type="submit" class="primary-btn">Save key</button>
+          </form>
+          <p id="chat-key-status" class="lib-meta" role="status"></p>
+        </div>
+        <p id="chat-ready" class="ask-ready" hidden>
+          <span class="ask-ready-text"></span>
+          <button id="chat-change-key" type="button" class="link-btn">Change key</button>
+        </p>
         <form id="chat-form" class="lib-searchbar">
           <input id="chat-question" type="search" placeholder="e.g. What was our maximum speed over ground yesterday?" maxlength="500" required>
           <button id="chat-submit-btn" type="submit" class="primary-btn">Ask</button>
@@ -205,6 +225,7 @@
   <script src="app.js"></script>
   <script src="pg.js"></script>
   <script src="library.js"></script>
+  <script src="md.js"></script>
   <script src="chat.js"></script>
 </body>
 </html>
