@@ -10,11 +10,15 @@ use ti_contracts::{Document, Error, Result};
 
 const MAGIC: &[u8; 8] = b"LUMEDOC\0";
 const FORMAT: u32 = 1;
+const FORMAT_ZSTD: u32 = 2;
 const HEADER: u64 = 24;
+const ZSTD_LEVEL: i32 = 3;
+const MAX_DECOMPRESSED_FRAME_BYTES: usize = 256 * 1024 * 1024;
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
 pub(super) struct Persistence {
     directory: PathBuf,
+    format: Option<u32>,
     generation: Option<u64>,
     offset: u64,
     pub total_operations: u64,
@@ -33,6 +37,23 @@ impl Drop for Lock {
 }
 fn corrupt(message: impl Into<String>) -> Error {
     Error::Corrupt(message.into())
+}
+pub(super) fn compress_enabled() -> Result<bool> {
+    #[cfg(test)]
+    if let Some(override_flag) = COMPRESS_OVERRIDE.with(|cell| cell.get()) {
+        return Ok(override_flag);
+    }
+    match std::env::var("LUME_COMPRESS") {
+        Ok(value) => match value.trim() {
+            "" | "0" | "false" | "none" | "off" => Ok(false),
+            "zstd" => Ok(true),
+            other => Err(Error::InvalidInput(format!(
+                "unsupported LUME_COMPRESS={other:?}; expected 'zstd' or 'none'"
+            ))),
+        },
+        Err(std::env::VarError::NotPresent) => Ok(false),
+        Err(_) => Err(Error::InvalidInput("invalid LUME_COMPRESS".into())),
+    }
 }
 // A power loss can leave an allocated, zero-filled suffix. Inspect it without
 // allocating from the suspect frame length; callers hold the document lock.
@@ -62,16 +83,32 @@ fn temp_path(path: &Path) -> PathBuf {
         NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
     ))
 }
-fn header(generation: u64) -> Vec<u8> {
+fn header(format: u32, generation: u64) -> Vec<u8> {
     let mut bytes = MAGIC.to_vec();
-    bytes.extend_from_slice(&FORMAT.to_le_bytes());
+    bytes.extend_from_slice(&format.to_le_bytes());
     bytes.extend_from_slice(&generation.to_le_bytes());
     bytes.extend_from_slice(&crc32fast::hash(&bytes).to_le_bytes());
     bytes
 }
-fn frame(operations: &[Operation]) -> Result<Vec<u8>> {
-    let payload = serde_json::to_vec(operations)
+fn frame(format: u32, operations: &[Operation]) -> Result<Vec<u8>> {
+    let json = serde_json::to_vec(operations)
         .map_err(|e| corrupt(format!("document transaction encoding: {e}")))?;
+    let payload = match format {
+        FORMAT => json,
+        FORMAT_ZSTD => {
+            let compressed = zstd::bulk::compress(&json, ZSTD_LEVEL)
+                .map_err(|e| corrupt(format!("document transaction zstd compression: {e}")))?;
+            let mut framed = Vec::with_capacity(8 + compressed.len());
+            framed.extend_from_slice(&(json.len() as u64).to_le_bytes());
+            framed.extend_from_slice(&compressed);
+            framed
+        }
+        other => {
+            return Err(corrupt(format!(
+                "unsupported document log version {other}; do not downgrade without restoring .bak"
+            )));
+        }
+    };
     let length = (payload.len() as u64).to_le_bytes();
     let mut hash = crc32fast::Hasher::new();
     hash.update(&length);
@@ -82,11 +119,50 @@ fn frame(operations: &[Operation]) -> Result<Vec<u8>> {
     bytes.extend_from_slice(&payload);
     Ok(bytes)
 }
+fn decode_payload(format: u32, payload: &[u8], offset: u64) -> Result<Vec<Operation>> {
+    match format {
+        FORMAT => serde_json::from_slice(payload)
+            .map_err(|e| corrupt(format!("document transaction at {offset}: {e}"))),
+        FORMAT_ZSTD => {
+            if payload.len() < 8 {
+                return Err(corrupt(format!(
+                    "truncated compressed document frame at {offset}"
+                )));
+            }
+            let uncompressed_u64 = u64::from_le_bytes(payload[..8].try_into().unwrap());
+            let expected_size = usize::try_from(uncompressed_u64)
+                .ok()
+                .filter(|&n| n <= MAX_DECOMPRESSED_FRAME_BYTES)
+                .ok_or_else(|| {
+                    corrupt(format!(
+                        "document frame uncompressed length {uncompressed_u64} at {offset} exceeds limit"
+                    ))
+                })?;
+            let mut decoded = vec![0u8; expected_size];
+            let mut decompressor = zstd::bulk::Decompressor::new()
+                .map_err(|e| corrupt(format!("zstd decoder init at {offset}: {e}")))?;
+            let written = decompressor
+                .decompress_to_buffer(&payload[8..], &mut decoded)
+                .map_err(|e| corrupt(format!("compressed document frame at {offset}: {e}")))?;
+            if written != expected_size {
+                return Err(corrupt(format!(
+                    "compressed document frame length mismatch at {offset}"
+                )));
+            }
+            serde_json::from_slice(&decoded)
+                .map_err(|e| corrupt(format!("document transaction at {offset}: {e}")))
+        }
+        other => Err(corrupt(format!(
+            "unsupported document log version {other}; do not downgrade without restoring .bak"
+        ))),
+    }
+}
 
 impl Persistence {
     pub fn new(root: &Path) -> Self {
         Self {
             directory: root.join("docs"),
+            format: None,
             generation: None,
             offset: 0,
             total_operations: 0,
@@ -97,6 +173,7 @@ impl Persistence {
         self.directory.join("documents.log")
     }
     pub fn invalidate(&mut self) {
+        self.format = None;
         self.generation = None;
         self.offset = 0;
     }
@@ -203,11 +280,15 @@ impl Persistence {
             return Err(corrupt("invalid document log header"));
         }
         let format = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
-        if format != FORMAT {
-            return Err(corrupt(format!("unsupported document log version {format}; do not downgrade without restoring .bak")));
+        if format != FORMAT && format != FORMAT_ZSTD {
+            return Err(corrupt(format!(
+                "unsupported document log version {format}; do not downgrade without restoring .bak"
+            )));
         }
         let generation = u64::from_le_bytes(bytes[12..20].try_into().unwrap());
-        let reset = self.generation != Some(generation) || length < self.offset;
+        let reset = self.generation != Some(generation)
+            || self.format != Some(format)
+            || length < self.offset;
         let mut offset = if reset { HEADER } else { self.offset };
         let mut total = if reset { 0 } else { self.total_operations };
         file.seek(SeekFrom::Start(offset))?;
@@ -255,8 +336,7 @@ impl Persistence {
                     "document checksum mismatch at offset {offset}"
                 )));
             }
-            let batch: Vec<Operation> = serde_json::from_slice(&payload)
-                .map_err(|e| corrupt(format!("document transaction at {offset}: {e}")))?;
+            let batch = decode_payload(format, &payload, offset)?;
             for operation in &batch {
                 operation.validate()?;
             }
@@ -271,6 +351,7 @@ impl Persistence {
             file.sync_all()?;
             torn = false;
         }
+        self.format = Some(format);
         self.generation = Some(generation);
         self.offset = offset;
         self.total_operations = total;
@@ -282,7 +363,8 @@ impl Persistence {
         if !self.path().exists() {
             return self.replace_locked(1, operations);
         }
-        let bytes = frame(operations)?;
+        let format = self.format.unwrap_or(FORMAT);
+        let bytes = frame(format, operations)?;
         let result = (|| -> Result<()> {
             let mut file = OpenOptions::new().append(true).open(self.path())?;
             #[cfg(test)]
@@ -311,7 +393,14 @@ impl Persistence {
         documents: impl Iterator<Item = &'a Document>,
         live_count: usize,
     ) -> Result<()> {
-        if self.total_operations <= (live_count as u64).saturating_mul(2) {
+        let target_format = if compress_enabled()? {
+            FORMAT_ZSTD
+        } else {
+            FORMAT
+        };
+        if self.format == Some(target_format)
+            && self.total_operations <= (live_count as u64).saturating_mul(2)
+        {
             return Ok(());
         }
         let operations = documents
@@ -325,14 +414,19 @@ impl Persistence {
         self.replace_locked(generation, &operations)
     }
     fn replace_locked(&mut self, generation: u64, operations: &[Operation]) -> Result<()> {
+        let format = if compress_enabled()? {
+            FORMAT_ZSTD
+        } else {
+            FORMAT
+        };
         let path = self.path();
         let temporary = temp_path(&path);
-        let bytes = frame(operations)?;
+        let bytes = frame(format, operations)?;
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(&temporary)?;
-        file.write_all(&header(generation))?;
+        file.write_all(&header(format, generation))?;
         checkpoint("partial_temp");
         file.write_all(&bytes)?;
         file.sync_all()?;
@@ -344,6 +438,7 @@ impl Persistence {
             self.invalidate();
             return Err(error);
         }
+        self.format = Some(format);
         self.generation = Some(generation);
         self.offset = HEADER + bytes.len() as u64;
         self.total_operations = operations.len() as u64;
@@ -353,7 +448,10 @@ impl Persistence {
 }
 
 #[cfg(test)]
-thread_local! { pub(super) static WRITE_FAULT: std::cell::Cell<u8> = const { std::cell::Cell::new(0) }; }
+thread_local! {
+    pub(super) static WRITE_FAULT: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+    pub(super) static COMPRESS_OVERRIDE: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
 
 #[cfg(not(test))]
 fn checkpoint(_name: &str) {}
