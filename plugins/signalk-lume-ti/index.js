@@ -10,8 +10,10 @@ const { Supervisor } = require('./lib/supervisor');
 const { collectStoreStatus } = require('./lib/status');
 const { createHistoryProvider } = require('./lib/history');
 const {pgOptions, writePgConfig, registerPgRoutes, adminStatus, readJson} = require('./lib/pg');
-const {Library} = require('./lib/library');
+const {Library, serverQuery} = require('./lib/library');
 const {ChatManager, registerChatRoutes} = require('./lib/chat');
+const versions = require('./lib/versions');
+const {Dashboard, registerDashboardRoutes} = require('./lib/dashboard');
 
 /**
  * Signal K Plugin Factory Function.
@@ -57,6 +59,18 @@ module.exports = function (app) {
       if (!library) return libraryUnavailable(res);
       try { res.json(await library.search(String(req.query.q || ''), Number(req.query.limit) || 8)); }
       catch (error) { res.status(500).json({error: error.message}); }
+    });
+    // The downloaded copy, so search results open offline. PDFs open in the browser's
+    // viewer (which honours #page=N); anything else downloads, so a fetched HTML page
+    // can never run script on the Signal K origin.
+    router.get('/api/library/file/:name', (req, res) => {
+      const file = library && library.file(req.params.name);
+      if (!file) return res.status(404).json({error: 'Not in the library'});
+      const pdf = /\.pdf$/i.test(file);
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Content-Disposition', `${pdf ? 'inline' : 'attachment'}; filename="${path.basename(file)}"`);
+      if (pdf) res.setHeader('Content-Type', 'application/pdf');
+      res.sendFile(file);
     });
     router.get('/api/library/references', async (req, res) => {
       if (!library) return libraryUnavailable(res);
@@ -225,11 +239,36 @@ module.exports = function (app) {
         return;
       }
       log(`Resolved lume executable: ${currentBinaryInfo.path} (${currentBinaryInfo.source})`);
+      versions.collect({app, binaryInfo: currentBinaryInfo})
+        .then(v => log(`Versions: plugin ${v.plugin.version}, lume ${v.lume.version || 'unknown'}, Signal K ${v.signalk.version || 'unknown'}, Node ${v.node.version}`))
+        .catch(err => log(`Version check failed: ${err.message}`, true));
       library = new Library({binary: currentBinaryInfo.path, dataDir, servePort, log: line => log(line)});
       chatManager = new ChatManager({
         binary: currentBinaryInfo.path,
         dataDir,
         getOptions: () => pluginConfig,
+        getCatalog: () => (library ? library.catalog() : []),
+        getSuggestions: question => (library ? library.suggestions(question) : []),
+        getStatus: async () => {
+          if (!supervisor) return null;
+          const sup = supervisor.getStatus();
+          const store = collectStoreStatus(storeDir);
+          const ingest = store.ingestStatus || {};
+          const status = {
+            running: sup.running, pid: sup.pid, uptimeSecs: sup.uptimeSecs,
+            updates: ingest.records_ingested, lagSeconds: ingest.ingest_lag_seconds,
+            disk: store.diskHuman, wal: store.walHuman,
+          };
+          // How much history there is, so Ask picks a sensible graph step.
+          try {
+            const span = await serverQuery(servePort, 'SELECT min(ts) AS first_ts, max(ts) AS last_ts, count(*) AS buckets FROM telemetry', 3000);
+            const row = (span.rows || [])[0] || {};
+            Object.assign(status, {firstTs: row.first_ts, lastTs: row.last_ts, buckets: row.buckets});
+          } catch (_) {
+            // No telemetry yet, or lume busy: Ask still gets the rest.
+          }
+          return status;
+        },
         log: line => log(line),
       });
 
@@ -386,6 +425,11 @@ module.exports = function (app) {
         },
       });
       router.get('/md.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'md.js')));
+      router.get('/charts.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'charts.js')));
+      router.get('/lume-gauges.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'lume-gauges.js')));
+      router.get('/lume-svg-widget.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'lume-svg-widget.js')));
+      router.get('/dashboard.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'dashboard.js')));
+      registerDashboardRoutes(router, app, () => (typeof app.getDataDirPath === 'function' ? new Dashboard(app.getDataDirPath()) : null));
       router.get('/icon.svg', (req, res) => res.sendFile(path.join(__dirname, 'public', 'icon.svg')));
       // 1. Status API
       router.get('/api/status', (req, res) => {
@@ -397,6 +441,9 @@ module.exports = function (app) {
         res.json({
           ok: true,
           binary: currentBinaryInfo,
+          versions: versions.cached(),
+          // Newest change to the page's own files; an open page that sees it change offers a reload.
+          uiBuild: uiBuildStamp(),
           supervisor: supStatus,
           store: storeStatus,
           // Lets the page explain an empty store: waiting for access approval, or no data yet.
@@ -462,6 +509,23 @@ module.exports = function (app) {
  * @param {Supervisor} supervisor
  * @param {string} storeDir
  */
+/** The newest modification time of the web app's files, checked at most every 5 s. */
+let uiStamp = {at: 0, value: null};
+function uiBuildStamp() {
+  if (Date.now() - uiStamp.at < 5000) return uiStamp.value;
+  let newest = 0;
+  try {
+    const dir = path.join(__dirname, 'public');
+    for (const name of fs.readdirSync(dir)) {
+      if (/\.(js|css|html)$/.test(name)) newest = Math.max(newest, fs.statSync(path.join(dir, name)).mtimeMs);
+    }
+  } catch (_) {
+    // Leave the stamp as it was.
+  }
+  uiStamp = {at: Date.now(), value: newest ? String(Math.round(newest)) : uiStamp.value};
+  return uiStamp.value;
+}
+
 function updateStatus(app, supervisor, storeDir) {
   if (!supervisor) return;
   const status = supervisor.getStatus();
@@ -483,6 +547,8 @@ function updateStatus(app, supervisor, storeDir) {
     if (store.walBytes > 0) {
       summary += ` (WAL: ${store.walHuman})`;
     }
+    const v = versions.cached();
+    if (v) summary += ` | v${v.plugin.version}${v.lume.version && v.lume.version !== v.plugin.version ? `, lume ${v.lume.version}` : ''}`;
 
     if (typeof app.setPluginStatus === 'function') {
       app.setPluginStatus(summary);

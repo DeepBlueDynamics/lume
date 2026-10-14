@@ -94,13 +94,216 @@ document.addEventListener('DOMContentLoaded', () => {
   checkSetup();
 
   function renderAnswer(text) {
+    stopLiveWidgets();
     const md = window.LumeMarkdown;
     if (md && typeof md.render === 'function') answerEl.innerHTML = md.render(text);
     else answerEl.textContent = text;
+    addIndexButtons().catch(() => {});
+    mountWidgets().catch(err => {
+      const p = document.createElement('p');
+      p.className = 'chat-sql-meta-error';
+      p.textContent = `A gauge in this answer couldn't be drawn: ${err.message}`;
+      answerEl.appendChild(p);
+    });
+  }
+
+  // Live gauges in answers: each lume-widget block becomes a gauge fed in real time.
+  let liveWidgets = [];
+  function stopLiveWidgets() {
+    for (const w of liveWidgets) { try { w.stop(); } catch (_) {} }
+    liveWidgets = [];
+  }
+
+  async function mountWidgets() {
+    const blocks = [...answerEl.querySelectorAll('code.language-lume-widget')];
+    if (!blocks.length || !window.LumeGauges) return;
+    for (const code of blocks) {
+      const pre = code.closest('pre') || code;
+      const holder = document.createElement('div');
+      holder.className = 'answer-widget';
+      pre.replaceWith(holder);
+      let spec;
+      try {
+        spec = JSON.parse(code.textContent);
+      } catch (_) {
+        holder.innerHTML = '<p class="chat-sql-meta-error">This gauge could not be read (not valid JSON).</p>';
+        continue;
+      }
+      const check = await fetch('/plugins/signalk-lume-ti/api/dashboard/validate', {
+        method: 'POST', credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json', Accept: 'application/json'},
+        body: JSON.stringify(spec),
+      }).then(r => r.json()).catch(() => ({ok: false, error: 'Validation unavailable'}));
+      if (!check.ok) {
+        const p = document.createElement('p');
+        p.className = 'chat-sql-meta-error';
+        p.textContent = `This gauge can't be shown: ${check.error}`;
+        holder.appendChild(p);
+        continue;
+      }
+      const widget = check.widget;
+      const grid = document.createElement('div');
+      grid.className = 'lume-dashboard answer-grid';
+      holder.appendChild(grid);
+      let mounted;
+      try {
+        if (widget.type === 'svg' && !window.LumeSvgWidget) throw new Error('this page is older than the plugin: reload it (Ctrl+Shift+R) to draw custom widgets');
+        mounted = window.LumeGauges.mount(grid, widget);
+      } catch (err) {
+        grid.remove();
+        const p = document.createElement('p');
+        p.className = 'chat-sql-meta-error';
+        p.textContent = `This gauge can't be drawn: ${err.message}`;
+        holder.appendChild(p);
+        continue;
+      }
+      if (widget.title) {
+        const title = document.createElement('div');
+        title.className = 'lume-widget-title';
+        title.textContent = widget.title;
+        grid.lastElementChild.prepend(title);
+      }
+      liveWidgets.push(mounted);
+      const bar = document.createElement('div');
+      bar.className = 'answer-widget-actions';
+      const live = document.createElement('span');
+      live.className = 'lib-meta';
+      const paths = widget.source.paths ? Object.values(widget.source.paths).join(', ') : widget.source.path;
+      live.textContent = widget.source.kind === 'signalk' ? `Live from Signal K: ${paths}` : `Updates every ${widget.source.everySeconds} s from a saved query`;
+      const add = document.createElement('button');
+      add.type = 'button';
+      add.className = 'primary-btn';
+      add.textContent = 'Add to dashboard';
+      add.addEventListener('click', async () => {
+        add.disabled = true;
+        add.textContent = 'Adding…';
+        try {
+          const res = await fetch('/plugins/signalk-lume-ti/api/dashboard/widgets', {
+            method: 'POST', credentials: 'same-origin',
+            headers: {'Content-Type': 'application/json', Accept: 'application/json'},
+            body: JSON.stringify(widget),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (res.status === 401 || res.status === 403) throw new Error('Needs the Signal K admin login');
+          if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+          add.textContent = 'On the dashboard ✓';
+          window.dispatchEvent(new CustomEvent('lume-dashboard-changed'));
+        } catch (err) {
+          add.disabled = false;
+          add.textContent = 'Add to dashboard';
+          live.textContent = err.message;
+        }
+      });
+      bar.append(add, live);
+      holder.appendChild(bar);
+    }
+  }
+
+  // A catalog document Ask recommends but this boat hasn't indexed gets an Index
+  // button right beside its link, so it can be added without leaving the answer.
+  async function addIndexButtons() {
+    const links = [...answerEl.querySelectorAll('a[href^="http"]')];
+    if (!links.length) return;
+    const res = await fetch('/plugins/signalk-lume-ti/api/library', {credentials: 'same-origin', cache: 'no-store'});
+    if (!res.ok) return;
+    const {items = []} = await res.json();
+    const byUrl = new Map(items.map(item => [item.url, item]));
+    for (const link of links) {
+      const item = byUrl.get(link.getAttribute('href').replace(/#.*$/, ''));
+      if (!item) continue;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'index-inline-btn';
+      if (item.state === 'indexed') {
+        btn.textContent = 'Indexed';
+        btn.disabled = true;
+      } else {
+        btn.textContent = 'Index';
+        btn.title = `Download "${item.title}" to this server and make it searchable offline`;
+        btn.addEventListener('click', () => indexOne(item, btn));
+      }
+      link.after(btn);
+    }
+  }
+
+  async function indexOne(item, btn) {
+    btn.disabled = true;
+    btn.textContent = 'Indexing…';
+    try {
+      const res = await fetch('/plugins/signalk-lume-ti/api/library/index', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json', Accept: 'application/json'},
+        body: JSON.stringify({ids: [item.id]}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401 || res.status === 403) throw new Error('Needs the Signal K admin login');
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      btn.textContent = 'Indexing — see Library tab';
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = 'Index';
+      btn.title = err.message;
+      if (errorEl) {
+        errorEl.textContent = `Couldn't index "${item.title}": ${err.message}`;
+        errorEl.classList.remove('hidden');
+      }
+    }
+  }
+
+  // The model sometimes echoes prose into the sql list; keep real statements only.
+  const isSql = s => typeof s === 'string' && /^\s*(select|with|show|describe|explain)\b/i.test(s);
+  // Real statements from the answer's sql list and from its tool calls, each once.
+  const sqlOnly = (list, calls) => {
+    const fromCalls = (Array.isArray(calls) ? calls : []).map(c => c && c.args && c.args.sql);
+    const seen = new Set();
+    return [...(Array.isArray(list) ? list : []), ...fromCalls].filter(isSql).filter(s => {
+      const key = s.trim();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+
+  // Graph the answer: rerun each query that returned rows and chart the time series.
+  async function chartAnswer(data) {
+    const box = document.getElementById('chat-charts');
+    const charts = window.LumeCharts;
+    if (!box || !charts) return;
+    box.innerHTML = '';
+    const calls = Array.isArray(data.tool_calls) ? data.tool_calls : [];
+    const statements = sqlOnly(data.sql, data.tool_calls).filter(sql => {
+      const call = calls.find(c => c.args && typeof c.args.sql === 'string' && c.args.sql.trim() === sql.trim());
+      return !call || (!call.error && (call.rows == null || call.rows >= 2));
+    }).slice(0, 3);
+    for (const sql of statements) {
+      const res = await fetch('/plugins/signalk-lume-ti/api/query', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json', Accept: 'application/json'},
+        body: JSON.stringify({sql}),
+      });
+      if (!res.ok) continue;
+      const result = await res.json();
+      const rows = Array.isArray(result) ? result : result.rows || [];
+      const plan = charts.detect(rows);
+      if (!plan) continue;
+      const figure = document.createElement('div');
+      box.appendChild(figure);
+      if (!charts.line(figure, rows, plan)) figure.remove();
+    }
+    if (box.children.length) {
+      const heading = document.createElement('h3');
+      heading.textContent = box.children.length > 1 ? 'Charts' : 'Chart';
+      box.prepend(heading);
+    }
   }
 
   // Errors that the key box can fix open it.
   const KEY_ERRORS = new Set(['needs_key', 'key_not_path', 'key_unreadable', 'key_empty', 'bad_key']);
+
+  // DataFusion appends every column name to a schema error; keep the sentence, drop the list.
+  const shortError = text => String(text || "").replace(/\s+Valid fields are .*$/s, " (the Schema Browser lists every column)");
 
   function formatPreview(args) {
     if (!args || typeof args !== 'object') return '';
@@ -122,7 +325,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderSqlCards(data) {
     sqlList.innerHTML = '';
-    const sqlStatements = Array.isArray(data.sql) ? data.sql : [];
+    const sqlStatements = sqlOnly(data.sql, data.tool_calls);
     if (sqlStatements.length > 0) {
       sqlSection.classList.remove('hidden');
       sqlStatements.forEach((sql, idx) => {
@@ -171,7 +374,7 @@ document.addEventListener('DOMContentLoaded', () => {
               meta.textContent = `${call.rows} result rows returned${call.truncated ? ' (truncated)' : ''}`;
             } else if (call.error) {
               meta.className += ' chat-sql-meta-error';
-              meta.textContent = `Error: ${call.error}`;
+              meta.textContent = `Error: ${shortError(call.error)}`;
             }
             card.appendChild(meta);
           }
@@ -265,7 +468,7 @@ document.addEventListener('DOMContentLoaded', () => {
           const ms = typeof event.elapsed_ms === 'number' ? `${event.elapsed_ms}ms` : '';
           if (event.error) {
             metaSpan.className = 'chat-event-meta error';
-            metaSpan.textContent = `error: ${event.error}${ms ? ` (${ms})` : ''}`;
+            metaSpan.textContent = `error: ${shortError(event.error)}${ms ? ` (${ms})` : ''}`;
           } else if (event.rows !== null && event.rows !== undefined) {
             metaSpan.className = 'chat-event-meta success';
             metaSpan.textContent = `${event.rows} row${event.rows === 1 ? '' : 's'}${ms ? ` (${ms})` : ''}`;
@@ -380,6 +583,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Render SQL statements
       renderSqlCards(finalData);
+      chartAnswer(finalData).catch(() => {});
 
       container.classList.remove('hidden');
     } catch (err) {

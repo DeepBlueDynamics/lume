@@ -68,7 +68,8 @@
     const access = lastStatus && lastStatus.access;
     const records = lastStatus && lastStatus.store && lastStatus.store.ingestStatus
       ? lastStatus.store.ingestStatus.records_ingested : 0;
-    if (access && !access.token && access.state === 'PENDING') {
+    // A request that Signal K never needed (security off) also reads PENDING; data flowing settles it.
+    if (!records && access && !access.token && access.state === 'PENDING') {
       return 'No boat data yet: Lume is waiting for access. Approve the Lume TI device in Signal K under Security → Access Requests (the link is in the banner above).';
     }
     const table = missingTable ? (missingTable[1] || '').split('.').pop().toLowerCase() : '';
@@ -110,16 +111,53 @@
   }
 
   // 2. Query Presets
+  // Columns the telemetry table has, cached briefly; null if the schema can't be read.
+  let schemaCache = {at: 0, columns: null};
+  async function telemetryColumns() {
+    if (Date.now() - schemaCache.at < 15000) return schemaCache.columns;
+    try {
+      const res = await fetch(`${apiBase}/api/schema`, {headers: {Accept: 'application/json'}});
+      const data = res.ok ? await res.json() : null;
+      const table = data && (data.tables || []).find((t) => t.name === 'telemetry');
+      schemaCache = {at: Date.now(), columns: table ? new Set((table.columns || []).map((c) => c.name)) : new Set()};
+    } catch (_) {
+      schemaCache = {at: Date.now(), columns: null};
+    }
+    return schemaCache.columns;
+  }
+
+  // Presets list the columns they would like; only the ones this boat has recorded go
+  // into the query, because every boat has a different set of sensors.
+  async function presetQuery(btn) {
+    const fixed = btn.getAttribute('data-query');
+    if (fixed) return {sql: fixed};
+    const wanted = JSON.parse(btn.getAttribute('data-columns') || '[]');
+    const agg = btn.getAttribute('data-agg');
+    const have = await telemetryColumns();
+    const picked = have ? wanted.filter(([column]) => have.has(column)) : wanted;
+    if (!picked.length) {
+      const label = btn.getAttribute('data-label') || 'of these values';
+      return {missing: `This boat hasn't recorded any ${label} yet (looked for ${wanted.map(([c]) => c).join(', ')}). The Schema Browser lists what has been recorded.`};
+    }
+    const cols = picked.map(([column, alias]) => `${agg ? `${agg}("${column}")` : `"${column}"`} AS ${alias}`).join(', ');
+    return {sql: btn.getAttribute('data-template').replace('{cols}', cols)};
+  }
+
   function setupPresets() {
     const presets = document.querySelectorAll('.preset-btn');
     const input = document.getElementById('sql-input');
     presets.forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const query = btn.getAttribute('data-query');
-        if (query && input) {
-          input.value = query;
-          input.focus();
+      btn.addEventListener('click', async () => {
+        if (!input) return;
+        const preset = await presetQuery(btn);
+        if (preset.missing) {
+          document.getElementById('results-thead').innerHTML = '';
+          document.getElementById('results-tbody').innerHTML = `<tr><td class="empty-state notice">${escapeHtml(preset.missing)}</td></tr>`;
+          document.getElementById('results-count').textContent = '0 rows';
+          return;
         }
+        input.value = preset.sql;
+        input.focus();
       });
     });
   }
@@ -160,6 +198,7 @@
     metaSpan.textContent = '';
 
     document.getElementById('pin-chart-btn').disabled = true;
+    showChart([]);
     lastQueryRows = [];
     lastQuerySql = '';
     const t0 = performance.now();
@@ -186,7 +225,7 @@
         }
         const hint = hintFor(message);
         // DataFusion lists every valid column; keep the hint, drop the wall of names.
-        message = message.replace(/ Valid fields are .*$/s, ' (open Schema Browser for the column list)');
+        message = message.replace(/\s+Valid fields are .*$/s, hint ? '' : ' (the Schema Browser lists every column)');
         throw new Error(message + hint);
       }
 
@@ -200,6 +239,7 @@
       metaSpan.textContent = `Elapsed: ${elapsedMs} ms`;
       countSpan.textContent = `${rows.length} rows`;
       exportBtn.disabled = rows.length === 0;
+      showChart(rows);
 
       if (rows.length === 0) {
         thead.innerHTML = '';
@@ -269,6 +309,28 @@
     unpinBtn.addEventListener('click', () => {
       if (!window.confirm('Remove all chart notes and regions created by lume-ti?')) return;
       action(async () => `Removed ${(await window.LumeChart.unpin()).deleted} lume-ti resources.`);
+    });
+  }
+
+  // Results with a time column and numbers are drawn as a line chart above the table;
+  // the Chart button hides or shows it.
+  let chartHidden = false;
+  function showChart(rows) {
+    const box = document.getElementById('results-chart');
+    const btn = document.getElementById('chart-btn');
+    const charts = window.LumeCharts;
+    if (!box || !btn) return;
+    const plan = charts && rows.length ? charts.detect(rows) : null;
+    btn.disabled = !plan;
+    btn.classList[plan && !chartHidden ? 'add' : 'remove']('active');
+    if (!plan || chartHidden) { box.hidden = true; return; }
+    box.hidden = !charts.line(box, rows, plan);
+  }
+  const chartBtn = typeof document.getElementById === 'function' ? document.getElementById('chart-btn') : null;
+  if (chartBtn && chartBtn.addEventListener) {
+    chartBtn.addEventListener('click', () => {
+      chartHidden = !chartHidden;
+      showChart(lastQueryRows);
     });
   }
 
@@ -395,6 +457,7 @@
       if (!res.ok) return;
       const data = await res.json();
       lastStatus = data;
+      noticeNewBuild(data.uiBuild);
 
       const sup = data.supervisor || {};
       const store = data.store || {};
@@ -440,8 +503,44 @@
       setElem('diag-reconnects', ingest.reconnects ?? '--');
       setElem('diag-document-rejections', ingest.documents_rejected_pre_epoch ?? '--');
       setElem('diag-ingest-running', ingest.running !== undefined ? String(ingest.running) : '--');
+
+      // Version & Build
+      const v = data.versions;
+      if (v) {
+        const sourceLabel = {'npm-optional': 'npm package', 'bundled-flat': 'bundled with the plugin', bundled: 'bundled with the plugin', 'config.lumePath': 'custom path (lumePath)', env: 'LUME_BIN', path: 'system PATH'};
+        setElem('ver-plugin', `${v.plugin.version}`);
+        setElem('ver-lume', v.lume.version ? `lume ${v.lume.version}` : 'unknown');
+        setElem('ver-source', sourceLabel[v.lume.source] || v.lume.source || '--');
+        setElem('ver-bytes', v.lume.bytes ? formatBytes(v.lume.bytes) : '--');
+        setElem('ver-sha', v.lume.sha256 || '--');
+        setElem('ver-manifest', v.lume.manifestMatches === undefined ? 'no manifest' : v.lume.manifestMatches ? 'yes' : 'NO: the program differs from its package manifest');
+        setElem('ver-glibc', v.lume.glibcMax ? `${v.lume.glibcMax} or newer` : '--');
+        setElem('ver-modified', v.lume.modified ? new Date(v.lume.modified).toLocaleString() : '--');
+        setElem('ver-signalk', v.signalk.version || 'unknown');
+        setElem('ver-node', `${v.node.version} (${v.node.platform})`);
+        const sub = document.querySelector('.brand-sub');
+        if (sub) sub.textContent = `v${v.plugin.version} · your boat's history, on the boat`;
+      }
     } catch (_e) {
       // Network hiccup or server reloading
+    }
+  }
+
+  // When the plugin's page files change after this page loaded, offer a reload.
+  let loadedBuild = null;
+  function noticeNewBuild(build) {
+    if (!build) return;
+    if (loadedBuild === null) { loadedBuild = build; return; }
+    if (build === loadedBuild || typeof document.getElementById !== 'function') return;
+    let bar = document.getElementById('reload-banner');
+    if (!bar && document.body && typeof document.createElement === 'function') {
+      bar = document.createElement('div');
+      bar.id = 'reload-banner';
+      bar.className = 'setup-banner reload-banner';
+      bar.innerHTML = 'A newer version of this page is ready. <button type="button" class="primary-btn">Reload</button>';
+      bar.querySelector('button').addEventListener('click', () => location.reload());
+      const header = document.querySelector('.app-header');
+      if (header) header.after(bar); else document.body.prepend(bar);
     }
   }
 
@@ -457,7 +556,7 @@
       html = sup.lastError
         ? `Lume isn't running: ${escapeHtml(sup.lastError)}`
         : 'Lume isn\'t running yet. It starts with the plugin; if this stays, restart Signal K.';
-    } else if (access && !access.token && access.state === 'PENDING') {
+    } else if (!ingest.records_ingested && access && !access.token && access.state === 'PENDING') {
       html = `One step left: approve the <strong>Lume TI</strong> device in Signal K under <a href="${accessRequestsUrl}">Security → Access Requests</a>. Lume records nothing until then.`;
     } else if (!ingest.records_ingested) {
       html = 'Waiting for boat data. Lume records whatever Signal K receives; this clears once instruments or a data connection send something.';

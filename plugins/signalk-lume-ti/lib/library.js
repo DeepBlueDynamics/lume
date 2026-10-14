@@ -19,6 +19,8 @@ const DEFAULT_URLS = [
   'https://assets.publishing.service.gov.uk/media/5da849dded915d429bbb9ffe/mcga-shs_capt_guide_chap1.pdf',
   'https://tc.canada.ca/sites/default/files/2023-11/template-abandon-ship.pdf',
   'https://defender.ca/assets/pdf/battle-born/100ah-12v-smart-battery-manual.pdf',
+  // How to build Dashboard gauges; Ask reads it when asked for one.
+  'https://raw.githubusercontent.com/DeepBlueDynamics/lume/main/plugins/signalk-lume-ti/library/reference/dashboard-gauges.md',
 ];
 
 function rowId(url) {
@@ -108,7 +110,11 @@ function listWithState(dataDir, file = LIST) {
   return readList(file).map(item => {
     const m = manifest[item.id];
     const state = indexed.has(item.id) ? 'indexed' : m?.status === 'ok' ? 'fetched' : m?.status === 'failed' ? 'failed' : 'none';
-    return {...item, state, bytes: m?.bytes ?? null, error: m?.status === 'failed' ? m.error : null};
+    // The crawler stores <id>.<ext>; HTML pages are saved as Markdown.
+    const ext = {html: 'md', pdf: 'pdf', epub: 'epub', zim: 'zim'}[item.format] || 'txt';
+    const stored = `${item.id}.${ext}`;
+    const localUrl = fs.existsSync(path.join(p.files, stored)) ? `/plugins/signalk-lume-ti/api/library/file/${stored}` : null;
+    return {...item, state, localUrl, bytes: m?.bytes ?? null, error: m?.status === 'failed' ? m.error : null};
   });
 }
 
@@ -210,12 +216,72 @@ class Library {
     const rows = Array.isArray(parsed) ? parsed : parsed.rows || [];
     const byFile = Object.fromEntries(this.items().map(i => [i.id, i]));
     return {query: q, via, hits: rows.map(r => {
-      const id = path.basename(String(r.file || '')).split('.')[0];
+      const name = path.basename(String(r.file || ''));
+      const id = name.split('.')[0];
       const source = byFile[id] || {};
-      return {title: source.title || r.file, section: r.title, line: r.line, score: r.score,
+      // PDF sections are pages, numbered from 1, so the viewer can open at #page=N.
+      const page = /\.pdf$/i.test(name) && Number.isInteger(r.line) && r.line > 0 ? r.line : null;
+      return {title: source.title || r.file, section: r.title, line: r.line, page, score: r.score,
         excerpt: String(r.excerpt || '').replace(/\s+/g, ' ').trim(), url: source.url || null,
+        localUrl: this.file(name) ? `/plugins/signalk-lume-ti/api/library/file/${name}` : null,
         publisher: source.publisher || null, category: source.category || null};
     })};
+  }
+
+  /**
+   * Indexed documents with the stored file name the search index uses, so answers
+   * can name "Navigation Rules" instead of dc45ebdf001f.pdf.
+   */
+  catalog() {
+    let stored = [];
+    try { stored = fs.readdirSync(paths(this.dataDir).files); } catch (_) {}
+    const byId = new Map(stored.filter(n => /^[0-9a-f]{12}\./i.test(n)).map(n => [n.slice(0, 12), n]));
+    return this.items().filter(i => i.state === 'indexed' && byId.has(i.id)).map(i => ({
+      file: byId.get(i.id), title: i.title, publisher: i.publisher || '', category: i.category || '',
+      localUrl: `/plugins/signalk-lume-ti/api/library/file/${byId.get(i.id)}`, url: i.url || '',
+    }));
+  }
+
+  /**
+   * Catalog documents that are not indexed yet but match the question's words, so
+   * Ask can point to what could be added. Simple word overlap on the catalog fields.
+   */
+  suggestions(question, limit = 12) {
+    const stop = new Set(['the', 'and', 'for', 'you', 'that', 'with', 'have', 'what', 'which', 'can', 'are', 'any',
+      'documents', 'document', 'index', 'indexed', 'library', 'about', 'there', 'this', 'from', 'how', 'our', 'your',
+      'will', 'would', 'should', 'could', 'does', 'need', 'want', 'help', 'when', 'where', 'them', 'they', 'then',
+      'than', 'into', 'some', 'more', 'make', 'like', 'just', 'also', 'know', 'tell', 'show', 'find', 'give', 'manual',
+      'manuals', 'guide', 'guides', 'book', 'books']);
+    const words = [...new Set(String(question || '').toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) || [])]
+      .filter(w => !stop.has(w))
+      .filter(w => w.length >= 4)
+      .map(w => w.replace(/(ing|ers|er|es|s)$/, '')).filter(w => w.length >= 4);
+    if (!words.length) return [];
+    return this.items()
+      .filter(i => i.state !== 'indexed')
+      .map(i => {
+        // A topic in the category ("Engines › Diesel") says more than a word in a title.
+        const hay = `${i.title} ${i.category} ${i.subcategory} ${i.publisher} ${i.notes}`.toLowerCase();
+        const title = String(i.title || '').toLowerCase();
+        const topic = `${i.category} ${i.subcategory}`.toLowerCase();
+        const score = words.reduce((s, w) =>
+          s + (topic.includes(w) ? 3 : 0) + (title.includes(w) ? 2 : 0) + (hay.includes(w) ? 1 : 0), 0);
+        return {item: i, score};
+      })
+      .filter(s => s.score > 0)
+      .sort((a, b) => b.score - a.score)
+      // Keep the strong matches: at least half the best score.
+      .filter((s, _, all) => s.score * 2 >= all[0].score)
+      .slice(0, limit)
+      .map(({item}) => ({title: item.title, category: [item.category, item.subcategory].filter(Boolean).join(' › '),
+        publisher: item.publisher || '', format: item.format || '', url: item.url || ''}));
+  }
+
+  /** The downloaded copy of a library document, by its stored name, or null. */
+  file(name) {
+    if (!/^[0-9a-f]{12}\.[a-z0-9]{2,5}$/i.test(String(name || ''))) return null;
+    const full = path.join(paths(this.dataDir).files, name);
+    return fs.existsSync(full) ? full : null;
   }
 
   /** Pick the reference query for an alert from the rules file. */
@@ -241,4 +307,4 @@ class Library {
   }
 }
 
-module.exports = {Library, readList, listWithState, parseCsv, rowId, sqlString, DEFAULT_URLS, paths};
+module.exports = {Library, readList, listWithState, parseCsv, rowId, sqlString, DEFAULT_URLS, paths, serverQuery};

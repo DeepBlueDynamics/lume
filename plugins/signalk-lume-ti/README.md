@@ -11,7 +11,7 @@ Ask about either in plain English, or with SQL, from **Webapps → Lume TI**. It
 
 ## What you get
 
-- **History of your Signal K data**, stored on the server and summarised every 10 seconds, keeping the lowest, highest and latest reading.
+- **History of your Signal K data**, stored on the server and summarised every 10 seconds, keeping the average, lowest, highest and latest reading.
 - **Webapps → Lume TI:**
   - a SQL console with ready-made queries, such as **Recent SOG & Wind**, plus CSV export and a schema browser;
   - an **Ask** tab for plain-language questions about your data, using a cloud model (`glm-5.3:cloud` at ollama.com, needs a key) or a model on your own network;
@@ -89,6 +89,18 @@ Questions and bugs: [GitHub issues](https://github.com/DeepBlueDynamics/lume/iss
 - **Libc Compatibility**: Because the container runs standard Ubuntu 24.04 with `glibc 2.39`, a musl static build is **not required**. Any `aarch64-unknown-linux-gnu` binary compiled on Debian/Ubuntu with `GLIBC <= 2.39` will run directly inside the container.
 
 To deploy the plugin and the arm64 program straight from a workstation, use `scripts/deploy-pi.sh <ssh-host>` or `scripts/provision-pi.sh <ssh-host>`.
+
+### Try it locally
+
+To test the plugin and its web app on a laptop, run a real Signal K server in Docker with the plugin loaded from this checkout and Signal K's sample boat data playing:
+
+```bash
+scripts/dev-signalk.sh            # http://localhost:3000/signalk-lume-ti/
+scripts/dev-signalk.sh --secure   # with Signal K login and access approval
+scripts/dev-signalk.sh --stop     # stop; --reset also deletes its data
+```
+
+It downloads the release `lume` for Linux x86_64 once (or use `--lume <path>` for your own build). Edits under `public/` show after a page reload; edits to `index.js` or `lib/` need a Signal K restart (run the script again). Needs Docker.
 
 ### Build a release package
 

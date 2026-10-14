@@ -14,7 +14,7 @@ test('row ids match the Rust crawl --list ids (FNV-1a 64 >> 16)', () => {
 
 test('bundled list parses, ids are unique, and every default exists', () => {
   const items = readList();
-  assert.equal(items.length, 471);
+  assert.equal(items.length, 472);
   assert.equal(new Set(items.map(i => i.id)).size, items.length);
   assert.equal(items.filter(i => i.default).length, DEFAULT_URLS.length);
   const docsCopy = path.join(__dirname, '..', '..', '..', 'docs', 'cruiser_library.csv');
@@ -111,4 +111,18 @@ test('search goes through the lume server and falls back to lume sql when it is 
   const down = new Library({binary: 'lume-binary-that-does-not-exist', dataDir, servePort: 9, log: line => logs.push(line)});
   await assert.rejects(down.search('bilge pump'));
   assert.ok(logs.some(line => /using lume sql/.test(line)), logs.join('\n'));
+});
+
+test('library.file serves only stored documents by their own name', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lume-lib-file-'));
+  const files = path.join(dir, 'library', 'files');
+  fs.mkdirSync(files, {recursive: true});
+  fs.writeFileSync(path.join(files, 'dc45ebdf001f.pdf'), '%PDF-1.4');
+  fs.writeFileSync(path.join(files, 'library.json'), '{}');
+  const lib = new Library({binary: process.execPath, dataDir: dir});
+  assert.equal(lib.file('dc45ebdf001f.pdf'), path.join(files, 'dc45ebdf001f.pdf'));
+  for (const bad of ['library.json', '../library/files/dc45ebdf001f.pdf', 'dc45ebdf001f', 'DC45EBDF001F.pdf/..', '', null, '0123456789ab.pdf']) {
+    assert.equal(lib.file(bad), null, String(bad));
+  }
+  fs.rmSync(dir, {recursive: true, force: true});
 });

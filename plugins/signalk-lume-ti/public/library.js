@@ -16,6 +16,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
   const kb = n => (n == null ? '' : n > 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
   const stateLabel = {indexed: 'Indexed', fetched: 'Fetched', failed: 'Failed', none: 'Not indexed'};
+  // The title opens the copy on this server when there is one, otherwise the original.
+  const titleLink = item => {
+    const href = item.localUrl || item.url;
+    return href
+      ? `<a href="${esc(href)}" target="_blank" rel="noopener" title="${item.localUrl ? 'Open the copy on this server' : 'Open the original'}">${esc(item.title)}</a>`
+      : esc(item.title);
+  };
 
   async function getJson(url, options) {
     const res = await fetch(url, {credentials: 'same-origin', cache: 'no-store', ...options});
@@ -49,9 +56,11 @@ document.addEventListener('DOMContentLoaded', () => {
         ${groups[category].map(item => `
           <label class="lib-row">
             <input type="checkbox" data-id="${item.id}" ${selected.has(item.id) ? 'checked' : ''}>
-            <span class="lib-title">${esc(item.title)}${item.default ? ' <span class="lib-default">default</span>' : ''}</span>
+            <span class="lib-title">${titleLink(item)}${item.default ? ' <span class="lib-default">default</span>' : ''}</span>
             <span class="lib-meta">${esc(item.format.toUpperCase())} · ${esc(item.publisher)}${item.bytes ? ` · ${kb(item.bytes)}` : ''}</span>
-            <span class="lib-state lib-${item.state}" title="${esc(item.error || '')}">${stateLabel[item.state]}</span>
+            ${item.state === 'none' || item.state === 'failed'
+              ? `<button type="button" class="lib-state lib-index-one" data-id="${item.id}" title="${esc(item.error || 'Download this document to the server and make it searchable')}">${item.state === 'failed' ? 'Retry?' : 'Index?'}</button>`
+              : `<span class="lib-state lib-${item.state}" title="${esc(item.error || '')}">${stateLabel[item.state]}</span>`}
           </label>`).join('')}
       </details>`).join('') || '<p class="empty-state">No matching items.</p>';
   }
@@ -91,23 +100,45 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   filter.addEventListener('input', renderList);
 
-  indexBtn.addEventListener('click', async () => {
+  async function startIndex(ids) {
     try {
       const status = await getJson(`${base}/index`, {method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ids: pending()})});
+        body: JSON.stringify({ids})});
       renderJob(status);
       renderButton(status.job);
       if (!poll) poll = setInterval(load, 3000);
+      return true;
     } catch (error) {
       jobBox.hidden = false;
       jobBox.className = 'alert-box error';
       jobBox.textContent = /administrator/.test(error.message) ? 'Indexing needs a Signal K administrator login.' : error.message;
+      return false;
+    }
+  }
+
+  indexBtn.addEventListener('click', () => startIndex(pending()));
+
+  // "Index?" on a row indexes just that document.
+  list.addEventListener('click', async event => {
+    const btn = event.target.closest && event.target.closest('.lib-index-one');
+    if (!btn) return;
+    event.preventDefault();
+    btn.disabled = true;
+    btn.textContent = 'Indexing…';
+    if (!(await startIndex([btn.dataset.id]))) {
+      btn.disabled = false;
+      btn.textContent = 'Index?';
     }
   });
 
+  // Open the copy on this server at the matching page; the original stays one click away.
   function hitHtml(hit) {
-    const link = hit.url ? `<a href="${esc(hit.url)}" target="_blank" rel="noopener">${esc(hit.title)}</a>` : esc(hit.title);
-    return `<li><strong>${link}</strong> <span class="lib-meta">${esc(hit.section || '')}${hit.publisher ? ` · ${esc(hit.publisher)}` : ''}</span>
+    const page = Number.isInteger(hit.page) && hit.page > 0 ? `#page=${hit.page}` : '';
+    const href = hit.localUrl ? `${hit.localUrl}${page}` : (hit.url ? `${hit.url}${page}` : '');
+    const link = href ? `<a href="${esc(href)}" target="_blank" rel="noopener">${esc(hit.title)}</a>` : esc(hit.title);
+    const online = hit.localUrl && hit.url
+      ? ` · <a class="lib-online" href="${esc(hit.url)}${page}" target="_blank" rel="noopener">original</a>` : '';
+    return `<li><strong>${link}</strong> <span class="lib-meta">${esc(hit.section || '')}${hit.publisher ? ` · ${esc(hit.publisher)}` : ''}${online}</span>
       <div class="lib-excerpt">${esc(hit.excerpt)}</div></li>`;
   }
 

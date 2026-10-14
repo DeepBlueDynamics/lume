@@ -24,7 +24,9 @@
     // A literal NUL in the input can't collide with a placeholder.
     let out = escaped.replace(/\u0000/g, '');
     out = out.replace(/`([^`]+)`/g, (_, code) => hold(`<code>${code}</code>`));
-    out = out.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    // Web links, and links to this plugin's own Library copies (cited by Ask).
+    // Models sometimes pad the URL with spaces inside the parentheses.
+    out = out.replace(/\[([^\]]+)\]\(\s*(https?:\/\/[^\s)]+|\/plugins\/signalk-lume-ti\/api\/library\/file\/[0-9a-f]{12}\.[a-z0-9]{2,5}(?:#page=\d+)?)\s*\)/g,
       (_, text, href) => `${hold(`<a href="${href}" target="_blank" rel="noopener noreferrer">`)}${text}${hold('</a>')}`);
     out = out
       .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
@@ -56,14 +58,16 @@
     while (i < lines.length) {
       const line = lines[i];
 
-      const fence = line.match(/^\s*```/);
+      const fence = line.match(/^\s*```\s*([A-Za-z0-9-]{0,30})/);
       if (fence) {
         flush();
         const body = [];
         i++;
         while (i < lines.length && !/^\s*```/.test(lines[i])) body.push(lines[i++]);
         i++;
-        html.push(`<pre><code>${body.join('\n')}</code></pre>`);
+        // The language (already plain letters, digits, dashes) marks e.g. lume-widget blocks.
+        const lang = fence[1] ? ` class="language-${fence[1].toLowerCase()}"` : '';
+        html.push(`<pre><code${lang}>${body.join('\n')}</code></pre>`);
         continue;
       }
 
