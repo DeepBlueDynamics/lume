@@ -24,11 +24,19 @@ away.
 
 ## Prerequisites
 
-- The `lume` release binary built: from the repo root, `cargo build --release`.
+- A `lume` binary: a repo build (`cargo build --release`) if there is one, otherwise
+  the installed copy (`npm install -g @deepbluedynamics/lume`). The page shows which
+  version the bridge runs.
 - A reachable **shivvr** endpoint (used read-only to embed the query + candidates).
-  Defaults to `http://localhost:8085`.
-- An index with content, e.g. the eval index used in the demo:
-  `lume index --db .lume-eval-index --tag-dict eval-tmp/dict/character.csv eval-tmp/corpus`
+  Defaults to `http://localhost:8085`; see [Shivvr setup](../README.md#shivvr-setup-semantic-search).
+- An index with content. The page defaults to the Monte Cristo demo; build it once from
+  the repo root with `lume index docs/monte_cristo --db docs/monte_cristo/.lume-index`.
+  Under the `--db` box the page says whether the index exists, its format and when it
+  was built.
+- For **Ask**: [Ollama](https://ollama.com/) at `http://localhost:11434`. Pick the model
+  from the dropdown, which lists your Ollama models under **Cloud** (ollama.com) and
+  **Local**. It defaults to `glm-5.3:cloud` and remembers your choice. Cloud models
+  answer in seconds; large local models can take minutes.
 
 ## Run
 
@@ -50,8 +58,12 @@ Open the page, type a query, pick the `--db`, hit **Search**. The bridge runs
 
 ## Config
 
-- `PORT` (bridge HTTP/WS port, default `8086`).
-- `LUME_BIN` (path to the lume binary; defaults to `../target/release/lume[.exe]`).
+- `PORT` (bridge HTTP/WS port, default `8086`) and `HOST` (default `127.0.0.1`).
+- `LUME_BIN` (path to the lume binary; defaults to `../target/release/lume[.exe]`,
+  then the global npm install, then `lume` on PATH).
+- `OLLAMA_URL` (default `http://localhost:11434`), used for the model list and passed
+  to `lume answer`.
 
 The bridge runs `lume` with the repo root as CWD, so `--db` paths are relative to
-the repo root (e.g. `.lume-eval-index`).
+the repo root (e.g. `docs/monte_cristo/.lume-index`). It only accepts requests from
+pages on this machine, so another website open in the browser can't drive it.

@@ -74,10 +74,46 @@ function interpolate(meta, a, b, t) {
   });
 }
 
+const API_URL = `http://${location.hostname}:8086`;
+const DEFAULT_MODEL = "glm-5.3:cloud";
+
+// Per-viewer conveniences only; the page works without storage.
+function stored(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function remember(key, value) {
+  try { localStorage.setItem(key, value); } catch {}
+}
+
+function age(iso) {
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (s < 3600) return `${Math.max(1, Math.round(s / 60))} min ago`;
+  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+  return `${Math.round(s / 86400)} days ago`;
+}
+
+function IndexInfo({ info }) {
+  if (!info) return null;
+  const ix = info.index;
+  const lume = info.lume || "lume not found";
+  if (!ix.exists) {
+    return <div className="index-info warn">no index at this path · run lume index … --db {ix.db} · {lume}</div>;
+  }
+  return (
+    <div className={`index-info${ix.format === "json" ? " warn" : ""}`}>
+      {ix.format === "v4" ? "binary v4" : "JSON (older format; lume index -f to rebuild)"} · built {age(ix.modified)} · {lume}
+    </div>
+  );
+}
+
 export default function App() {
   const [input, setInput] = useState("Dantès in prison at the Château d'If");
   const [queries, setQueries] = useState([]);
-  const [db, setDb] = useState(".lume-eval-index");
+  const [db, setDb] = useState(() => stored("lume-viz-db") || "docs/monte_cristo/.lume-index");
+  const [models, setModels] = useState([]);     // [{ name, cloud, remote }]
+  const [modelError, setModelError] = useState("");
+  const [model, setModel] = useState(() => stored("lume-viz-model") || "");
+  const [info, setInfo] = useState(null);       // { lume, index: { exists, format, modified } }
   const [candidates, setCandidates] = useState(20);
   const [steps, setSteps] = useState(160);
 
@@ -139,6 +175,34 @@ export default function App() {
     return () => ws.close();
   }, []);
 
+  // Ollama models for Ask, split into cloud (ollama.com) and local.
+  useEffect(() => {
+    fetch(`${API_URL}/api/models`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (j.error) { setModelError(j.error); return; }
+        setModels(j.models);
+        setModel((m) => {
+          if (m && j.models.some((x) => x.name === m)) return m;
+          const pick = j.models.find((x) => x.name === DEFAULT_MODEL) || j.models[0];
+          return pick ? pick.name : "";
+        });
+      })
+      .catch(() => setModelError("bridge not reachable"));
+  }, []);
+
+  // Which lume runs, and whether the chosen index exists and how fresh it is.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      fetch(`${API_URL}/api/info?db=${encodeURIComponent(db)}`)
+        .then((r) => r.json()).then(setInfo).catch(() => setInfo(null));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [db]);
+
+  useEffect(() => { remember("lume-viz-db", db); }, [db]);
+  useEffect(() => { if (model) remember("lume-viz-model", model); }, [model]);
+
   useEffect(() => {
     let raf, last = performance.now();
     const tick = (now) => {
@@ -170,8 +234,9 @@ export default function App() {
     if (!ws || ws.readyState !== ws.OPEN) { setStatus("not connected to bridge"); return; }
     framesRef.current = []; setFrameCount(0); setIdx(0); setMeta(null);
     setAnswer(null); setAgentLog([]); setQueries([]); setQuestion(input);
-    ws.send(JSON.stringify({ type: "ask", question: input, db, candidates: Number(candidates), steps: Number(steps) }));
-  }, [input, db, candidates, steps]);
+    ws.send(JSON.stringify({ type: "ask", question: input, db, model: model || undefined,
+      candidates: Number(candidates), steps: Number(steps) }));
+  }, [input, db, model, candidates, steps]);
 
   const frames = framesRef.current;
   const lo = Math.floor(idx), hi = Math.min(frames.length - 1, lo + 1), frac = idx - lo;
@@ -203,6 +268,25 @@ export default function App() {
             onChange={(e) => setCandidates(e.target.value)} title="candidates/query" />
           <input className="small" type="number" value={steps} min={20} max={600}
             onChange={(e) => setSteps(e.target.value)} title="steps" />
+        </div>
+        <IndexInfo info={info} />
+        <div className="row">
+          <select value={model} onChange={(e) => setModel(e.target.value)} title="Ollama model for Ask"
+            disabled={!models.length} style={{ flex: 1 }}>
+            {!models.length && <option value="">{modelError || "loading models…"}</option>}
+            {[["Cloud (ollama.com)", true], ["Local", false]].map(([label, cloud]) => {
+              const group = models.filter((m) => m.cloud === cloud);
+              return group.length > 0 && (
+                <optgroup key={label} label={label}>
+                  {group.map((m) => (
+                    <option key={m.name} value={m.name}>
+                      {m.name}{m.remote && m.remote !== m.name ? ` → ${m.remote}` : ""}
+                    </option>
+                  ))}
+                </optgroup>
+              );
+            })}
+          </select>
         </div>
         <div className="row">
           <button onClick={search} disabled={conn !== "connected"} style={{ flex: 1 }}>▶ Search</button>
