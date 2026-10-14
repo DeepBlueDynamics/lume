@@ -108,7 +108,30 @@ function statusContext(status) {
   if (status.disk) lines.push(`- "Disk Size" = ${status.disk}: the whole store. "WAL Size" = ${status.wal || '0 B'}: the crash-recovery log for buckets not yet sealed into shard files.`);
   if (status.lagSeconds !== undefined) lines.push(`- "Ingest Lag" = ${status.lagSeconds} s: how far behind the live Signal K stream lume is.`);
   lines.push('- The plugin itself is not a table: answer questions about these numbers from this context, not by querying for them.');
+  if (status.firstTs && status.lastTs) {
+    const spanSeconds = Math.max(0, (Date.parse(status.lastTs) - Date.parse(status.firstTs)) / 1000);
+    lines.push(`- Recorded telemetry covers ${status.firstTs} to ${status.lastTs} (${describeSpan(spanSeconds)}, ${status.buckets} buckets). ` +
+      'There is no data before or after that.');
+    lines.push(`- For a graph, use date_bin with a step that gives roughly 30 to 200 points over the part of that span the user asked about; ` +
+      `for the whole span now, about ${suggestStep(spanSeconds)}. Never use a step that leaves fewer than 10 points, and say so if the data covers less time than was asked for.`);
+  }
   return `\n\n${lines.join('\n')}`;
+}
+
+function describeSpan(seconds) {
+  if (seconds < 120) return `${Math.round(seconds)} seconds`;
+  if (seconds < 7200) return `${Math.round(seconds / 60)} minutes`;
+  if (seconds < 172800) return `${(seconds / 3600).toFixed(1)} hours`;
+  return `${(seconds / 86400).toFixed(1)} days`;
+}
+
+/** A date_bin step giving about 60 points over the span, from the 10-second bucket up. */
+function suggestStep(seconds) {
+  const steps = [[10, "INTERVAL '10 seconds'"], [30, "INTERVAL '30 seconds'"], [60, "INTERVAL '1 minute'"], [300, "INTERVAL '5 minutes'"],
+    [900, "INTERVAL '15 minutes'"], [1800, "INTERVAL '30 minutes'"], [3600, "INTERVAL '1 hour'"], [10800, "INTERVAL '3 hours'"],
+    [21600, "INTERVAL '6 hours'"], [86400, "INTERVAL '1 day'"]];
+  const target = seconds / 60;
+  return (steps.find(([s]) => s >= target) || steps[steps.length - 1])[1];
 }
 
 /**
@@ -285,8 +308,11 @@ class ChatManager {
     let suggestions = [];
     try { catalog = (typeof this.getCatalog === 'function' ? this.getCatalog() : []) || []; } catch (_) {}
     try { suggestions = (typeof this.getSuggestions === 'function' ? this.getSuggestions(trimmedQuestion) : []) || []; } catch (_) {}
+    // Hold the one chat slot while the status is gathered, so a second question
+    // arriving meanwhile is still refused.
+    this.currentJob = {kill() {}};
     let status = null;
-    try { status = typeof this.getStatus === 'function' ? this.getStatus() : null; } catch (_) {}
+    try { status = typeof this.getStatus === 'function' ? await this.getStatus() : null; } catch (_) {}
     args.push(trimmedQuestion + statusContext(status) + historyContext(this.history()) + libraryContext(catalog, 24000, suggestions));
 
     const childEnv = {...process.env};

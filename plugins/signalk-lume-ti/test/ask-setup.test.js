@@ -223,3 +223,14 @@ test('versions report the plugin, lume, Signal K and Node', async () => {
   assert.ok(v.lume.bytes > 0);
   assert.equal(versions.cached(), v);
 });
+
+test('Ask is told how much history exists and a graph step that fits it', () => {
+  const {statusContext} = require('../lib/chat');
+  const hour = statusContext({running: true, updates: 1, firstTs: '2026-10-14T00:12:10Z', lastTs: '2026-10-14T01:12:10Z', buckets: 360});
+  assert.match(hour, /covers 2026-10-14T00:12:10Z to 2026-10-14T01:12:10Z \(60 minutes, 360 buckets\)/);
+  assert.match(hour, /about INTERVAL '1 minute'/);
+  assert.match(hour, /fewer than 10 points/);
+  const week = statusContext({running: true, firstTs: '2026-10-07T00:00:00Z', lastTs: '2026-10-14T00:00:00Z', buckets: 60480});
+  assert.match(week, /7\.0 days/);
+  assert.match(week, /about INTERVAL '3 hours'/);
+});

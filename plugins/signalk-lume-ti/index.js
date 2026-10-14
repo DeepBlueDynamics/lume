@@ -10,7 +10,7 @@ const { Supervisor } = require('./lib/supervisor');
 const { collectStoreStatus } = require('./lib/status');
 const { createHistoryProvider } = require('./lib/history');
 const {pgOptions, writePgConfig, registerPgRoutes, adminStatus, readJson} = require('./lib/pg');
-const {Library} = require('./lib/library');
+const {Library, serverQuery} = require('./lib/library');
 const {ChatManager, registerChatRoutes} = require('./lib/chat');
 const versions = require('./lib/versions');
 
@@ -248,16 +248,25 @@ module.exports = function (app) {
         getOptions: () => pluginConfig,
         getCatalog: () => (library ? library.catalog() : []),
         getSuggestions: question => (library ? library.suggestions(question) : []),
-        getStatus: () => {
+        getStatus: async () => {
           if (!supervisor) return null;
           const sup = supervisor.getStatus();
           const store = collectStoreStatus(storeDir);
           const ingest = store.ingestStatus || {};
-          return {
+          const status = {
             running: sup.running, pid: sup.pid, uptimeSecs: sup.uptimeSecs,
             updates: ingest.records_ingested, lagSeconds: ingest.ingest_lag_seconds,
             disk: store.diskHuman, wal: store.walHuman,
           };
+          // How much history there is, so Ask picks a sensible graph step.
+          try {
+            const span = await serverQuery(servePort, 'SELECT min(ts) AS first_ts, max(ts) AS last_ts, count(*) AS buckets FROM telemetry', 3000);
+            const row = (span.rows || [])[0] || {};
+            Object.assign(status, {firstTs: row.first_ts, lastTs: row.last_ts, buckets: row.buckets});
+          } catch (_) {
+            // No telemetry yet, or lume busy: Ask still gets the rest.
+          }
+          return status;
         },
         log: line => log(line),
       });

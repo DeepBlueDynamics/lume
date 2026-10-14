@@ -307,4 +307,4 @@ class Library {
   }
 }
 
-module.exports = {Library, readList, listWithState, parseCsv, rowId, sqlString, DEFAULT_URLS, paths};
+module.exports = {Library, readList, listWithState, parseCsv, rowId, sqlString, DEFAULT_URLS, paths, serverQuery};
