@@ -11,7 +11,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const {sha256} = require('../plugins/signalk-lume-ti/lib/package-check');
-const {validateBinary, stripBinary, run} = require('./package-plugin.cjs');
+const {validateBinary, stripBinary, run, gitHead} = require('./package-plugin.cjs');
 
 const SCOPE = '@deepbluedynamics/lume';
 const LABELS = {'linux-x64': 'Linux x64', 'linux-arm64': 'Linux arm64', 'darwin-arm64': 'macOS Apple Silicon',
@@ -104,6 +104,7 @@ async function assemble(options) {
     }
   }
   fs.mkdirSync(output, {recursive: true});
+  const head = gitHead(root);
   const stages = [];
   const stage = name => { const dir = fs.mkdtempSync(path.join(output, name + '-')); stages.push(dir); return dir; };
   const packages = {};
@@ -129,7 +130,7 @@ async function assemble(options) {
         name, version: cli.version,
         description: 'The ' + target + ' lume binary for ' + SCOPE + ', installed as its optional dependency',
         author: cli.author, homepage: cli.homepage, repository: cli.repository, bugs: cli.bugs, license: cli.license,
-        files: ['bin/', 'README.md', 'LICENSE'], os: [platform], cpu: [arch],
+        files: ['bin/', 'README.md', 'LICENSE'], os: [platform], cpu: [arch], gitHead: head,
       }, null, 2) + '\n');
       fs.writeFileSync(path.join(dir, 'README.md'), binaryReadme(name, target, cli.version, executable));
       fs.copyFileSync(path.join(root, 'LICENSE'), path.join(dir, 'LICENSE'));
@@ -140,6 +141,7 @@ async function assemble(options) {
       fs.cpSync(path.join(source, name), path.join(main, name), {recursive: true});
     }
     fs.copyFileSync(path.join(root, 'LICENSE'), path.join(main, 'LICENSE'));
+    if (head) fs.writeFileSync(path.join(main, 'package.json'), JSON.stringify({...cli, gitHead: head}, null, 2) + '\n');
     fs.chmodSync(path.join(main, 'bin/lume.js'), 0o755);
     const report = {...await pack(main, output, ['bin/lume.js', 'README.md', 'LICENSE', 'package.json']), packages};
     fs.writeFileSync(path.join(output, 'cli-report.json'), JSON.stringify(report, null, 2) + '\n');

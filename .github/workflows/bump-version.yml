@@ -67,3 +67,19 @@ jobs:
       contents: write
       actions: read # release.yml's notify-discord reads the run's job conclusions
       id-token: write # release.yml's npm job publishes with trusted publishing
+
+  # The Signal K App Store matches a plugin-ci run to the published gitHead (the
+  # release commit). The tag push above used GITHUB_TOKEN, which starts no
+  # workflows, so dispatch Signal K plugin CI on the tag explicitly.
+  plugin-ci:
+    name: Start Signal K plugin CI on the tag
+    needs: bump
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.bump.outputs.tag }}
+        run: gh workflow run signalk-plugin-ci.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"

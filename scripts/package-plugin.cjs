@@ -14,6 +14,16 @@ function run(command, args, options = {}) {
   }
   return result.stdout;
 }
+// The commit being packaged. npm only records gitHead when it packs inside a
+// git checkout, and the staging dirs aren't one, so it's written explicitly;
+// the Signal K App Store links each release to this commit. The checkout's
+// HEAD comes first: in a bump-version.yml release, GITHUB_SHA is the commit
+// before the version bump, while release.yml checks out the release tag.
+function gitHead(root) {
+  const result = spawnSync('git', ['rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'});
+  const sha = result.status === 0 ? result.stdout.trim() : process.env.GITHUB_SHA || '';
+  return /^[0-9a-f]{40}$/.test(sha) ? sha : undefined;
+}
 function validateBinary(file, arch) {
   if (!['arm64', 'x64'].includes(arch)) throw new Error('unsupported architecture: ' + arch);
   if (!fs.lstatSync(file).isFile()) throw new Error('binary must be a regular file: ' + file);
@@ -131,7 +141,9 @@ async function assemble(options) {
       copyTree(path.join(plugin, name), path.join(main, name));
     }
     fs.copyFileSync(path.join(root, 'LICENSE'), path.join(main, 'LICENSE'));
+    const head = gitHead(root);
     const pkg = JSON.parse(fs.readFileSync(path.join(main, 'package.json'), 'utf8'));
+    if (head) fs.writeFileSync(path.join(main, 'package.json'), JSON.stringify({...pkg, gitHead: head}, null, 2) + '\n');
     // AppStore uses package-relative icons; v2.31 Webapps uses public-relative.
     const icon = pkg.signalk.appIcon.replace(/^\.\//, '');
     if (!/^[a-zA-Z0-9_-]+\.(png|svg)$/.test(icon)) throw new Error('appIcon must name a public PNG/SVG basename');
@@ -151,7 +163,7 @@ async function assemble(options) {
         name, version: pkg.version,
         description: 'The Linux ' + arch + ' lume binary for signalk-lume-ti, installed as its optional dependency',
         author: pkg.author, homepage: pkg.homepage, repository: pkg.repository, bugs: pkg.bugs, license: pkg.license,
-        files: ['bin/', 'README.md', 'LICENSE'], os: ['linux'], cpu: [arch],
+        files: ['bin/', 'README.md', 'LICENSE'], os: ['linux'], cpu: [arch], gitHead: head,
       }, null, 2) + '\n');
       fs.writeFileSync(path.join(dir, 'README.md'), [
         '# ' + name, '',
@@ -196,4 +208,4 @@ if (require.main === module) {
     console.log(JSON.stringify(report, null, 2));
   })().catch(error => { console.error('Packaging failed: ' + error.message); process.exitCode = 1; });
 }
-module.exports = {parseArgs, validateBinary, stripBinary, assemble, run};
+module.exports = {parseArgs, validateBinary, stripBinary, assemble, run, gitHead};

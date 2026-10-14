@@ -285,9 +285,9 @@ test('charts average several rows at one time into one point', () => {
 
 test('the Ask page keeps statements that start with a line break', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'chat.js'), 'utf8');
-  const isSql = eval(src.match(/const isSql = (s => .*?);\n/)[1]);
+  const isSql = eval(src.match(/const isSql = (s => .*?);\r?\n/)[1]);
   assert.equal(isSql('\n    SELECT 1'), true);
   assert.equal(isSql('Here is a dial showing the wind.'), false);
-  const shortError = eval(src.match(/const shortError = (text => .*?);\n/)[1]);
+  const shortError = eval(src.match(/const shortError = (text => .*?);\r?\n/)[1]);
   assert.equal(shortError('No field named "x".\nValid fields are a, b'), 'No field named "x". (the Schema Browser lists every column)');
 });
