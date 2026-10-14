@@ -706,3 +706,19 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--pri
 .pg-help ol { margin: 0.5rem 0 0 1.2rem; display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.9rem; }
 .pg-help code { font-family: var(--font-mono); font-size: 0.85em; background: var(--bg-input); border: 1px solid var(--border); border-radius: 4px; padding: 0.05rem 0.35rem; }
 @media (max-width: 900px) { .pg-layout { grid-template-columns: 1fr; } }
+
+/* Index button beside a document Ask recommends */
+.index-inline-btn {
+  margin-left: 0.45rem;
+  padding: 0.05rem 0.55rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border-radius: 999px;
+  border: 1px solid var(--primary);
+  background: rgba(19, 218, 235, 0.1);
+  color: var(--primary);
+  cursor: pointer;
+  vertical-align: middle;
+}
+.index-inline-btn:hover:not(:disabled) { background: rgba(19, 218, 235, 0.2); }
+.index-inline-btn:disabled { border-color: var(--border); color: var(--text-dim); background: none; cursor: default; }

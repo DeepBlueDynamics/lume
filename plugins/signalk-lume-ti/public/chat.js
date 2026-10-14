@@ -97,6 +97,59 @@ document.addEventListener('DOMContentLoaded', () => {
     const md = window.LumeMarkdown;
     if (md && typeof md.render === 'function') answerEl.innerHTML = md.render(text);
     else answerEl.textContent = text;
+    addIndexButtons().catch(() => {});
+  }
+
+  // A catalog document Ask recommends but this boat hasn't indexed gets an Index
+  // button right beside its link, so it can be added without leaving the answer.
+  async function addIndexButtons() {
+    const links = [...answerEl.querySelectorAll('a[href^="http"]')];
+    if (!links.length) return;
+    const res = await fetch('/plugins/signalk-lume-ti/api/library', {credentials: 'same-origin', cache: 'no-store'});
+    if (!res.ok) return;
+    const {items = []} = await res.json();
+    const byUrl = new Map(items.map(item => [item.url, item]));
+    for (const link of links) {
+      const item = byUrl.get(link.getAttribute('href').replace(/#.*$/, ''));
+      if (!item) continue;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'index-inline-btn';
+      if (item.state === 'indexed') {
+        btn.textContent = 'Indexed';
+        btn.disabled = true;
+      } else {
+        btn.textContent = 'Index';
+        btn.title = `Download "${item.title}" to this server and make it searchable offline`;
+        btn.addEventListener('click', () => indexOne(item, btn));
+      }
+      link.after(btn);
+    }
+  }
+
+  async function indexOne(item, btn) {
+    btn.disabled = true;
+    btn.textContent = 'Indexing…';
+    try {
+      const res = await fetch('/plugins/signalk-lume-ti/api/library/index', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json', Accept: 'application/json'},
+        body: JSON.stringify({ids: [item.id]}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401 || res.status === 403) throw new Error('Needs the Signal K admin login');
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      btn.textContent = 'Indexing — see Library tab';
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = 'Index';
+      btn.title = err.message;
+      if (errorEl) {
+        errorEl.textContent = `Couldn't index "${item.title}": ${err.message}`;
+        errorEl.classList.remove('hidden');
+      }
+    }
   }
 
   // Errors that the key box can fix open it.
