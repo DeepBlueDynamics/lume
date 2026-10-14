@@ -1,7 +1,7 @@
 {
   "name": "signalk-lume-ti",
   "version": "0.15.6",
-  "description": "Lume TI high-resolution timeseries store and query engine for Signal K",
+  "description": "Your boat's history and manuals, kept on the boat: records Signal K data, builds an offline library of cruising references, and answers questions about both.",
   "main": "index.js",
   "keywords": [
     "signalk-node-server-plugin",

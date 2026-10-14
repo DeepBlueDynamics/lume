@@ -2,13 +2,14 @@ name: Lume TI
 app_id: lume
 version: 0.12.0-1
 upstream_version: 0.12.0
-description: High-resolution timeseries store and query engine for Signal K
+description: Records your Signal K data and an offline library of manuals, and answers questions about both
 long_description: |
-  Lume TI is a high-resolution timeseries store and query engine for Signal K.
-  It integrates directly with the HaLOS Marine Signal K server container,
-  capturing navigation, engine, and environmental metrics, and providing a
-  History API provider, Grafana-compatible pgwire interface, and conversational
-  Ask tab analytics with zero external database dependencies.
+  Lume TI keeps the boat's history and its manuals on the Pi. It records what
+  the HaLOS Signal K server sees (navigation, engine, environment), builds an
+  offline library from a catalog of about 470 free cruising references, and
+  answers questions about both in SQL or plain English. It also serves the
+  Signal K History API and an optional PostgreSQL endpoint for Grafana, with
+  no separate database to run.
 homepage: https://github.com/DeepBlueDynamics/lume
 maintainer: DeepBlue Dynamics <kord@deepbluedynamics.com>
 license: BSD-3-Clause

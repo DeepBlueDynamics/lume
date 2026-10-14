@@ -78,7 +78,7 @@ module.exports = function (app) {
   const plugin = {
     id: 'signalk-lume-ti',
     name: 'Lume TI',
-    description: 'High-resolution timeseries store and query engine for Signal K',
+    description: 'Records your Signal K data and an offline library of manuals, and answers questions about both',
 
     schema: () => ({
       type: 'object',
