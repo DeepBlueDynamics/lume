@@ -223,12 +223,18 @@ fn publish_prepared(
     bm25.write_v4_segments(&mut staged)?;
     crate::index_timing::memory_checkpoint("v4.memory.core_streamed");
     let vectors = root.join(crate::local_vectors::FILE);
+    let legacy_vectors = root.join(crate::local_vectors::LEGACY_FILE);
     if vectors.exists() {
         crate::local_vectors::LocalVectors::open(root, &bm25.sections)?;
-        staged.write("local-vectors.json", |output| {
-            let mut file = std::fs::File::open(vectors).map_err(|e| e.to_string())?;
+        staged.write(crate::local_vectors::FILE, |output| {
+            let mut file = std::fs::File::open(&vectors).map_err(|e| e.to_string())?;
             std::io::copy(&mut file, output).map_err(|e| e.to_string())?;
             Ok(())
+        })?;
+    } else if legacy_vectors.exists() {
+        let bytes = crate::local_vectors::migrate_legacy_file(root, &bm25.sections)?;
+        staged.write(crate::local_vectors::FILE, |output| {
+            output.write_all(&bytes).map_err(|e| e.to_string())
         })?;
     }
     drop(bm25);

@@ -47,6 +47,7 @@ fn fingerprint(root: &Path, dictionary: Option<&Path>) -> Result<Vec<FileStamp>,
         "entity_graph.json",
         "meta.json",
         crate::local_vectors::FILE,
+        crate::local_vectors::LEGACY_FILE,
     ]
     .into_iter()
     .map(|file| stamp(root.join(file)))
@@ -128,7 +129,7 @@ pub fn open(root: impl AsRef<Path>) -> Result<Arc<LoadedIndex>, String> {
 mod tests {
     use super::*;
     use crate::bm25::{Bm25Index, Section};
-    use crate::search::{save_json, search, IndexState, SearchMode, SearchOptions};
+    use crate::search::{IndexState, SearchMode, SearchOptions, save_json, search};
     use std::collections::HashMap;
 
     struct Fixture(PathBuf);
@@ -200,10 +201,12 @@ mod tests {
         let updated = cache.open(&fixture.0).unwrap();
         assert!(!Arc::ptr_eq(&first, &updated));
         assert_eq!(search(&first, "captain", &options).unwrap().hits.len(), 1);
-        assert!(search(&updated, "captain", &options)
-            .unwrap()
-            .hits
-            .is_empty());
+        assert!(
+            search(&updated, "captain", &options)
+                .unwrap()
+                .hits
+                .is_empty()
+        );
         assert_eq!(
             search(&updated, "treasure", &options).unwrap().hits.len(),
             1
@@ -254,9 +257,11 @@ mod tests {
             .into_iter()
             .map(|worker| worker.join().unwrap())
             .collect::<Vec<_>>();
-        assert!(snapshots
-            .iter()
-            .all(|index| Arc::ptr_eq(index, &snapshots[0])));
+        assert!(
+            snapshots
+                .iter()
+                .all(|index| Arc::ptr_eq(index, &snapshots[0]))
+        );
     }
 
     #[test]
