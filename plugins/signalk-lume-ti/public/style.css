@@ -776,3 +776,60 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--pri
 
 .reload-banner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .reload-banner .primary-btn { padding: 0.3rem 0.9rem; }
+
+/* Shivvr status pill, diagnostic card lights, install box, and search mode badges */
+.shivvr-pill {
+  cursor: pointer;
+  border: 1px solid var(--border);
+  font-family: var(--font-sans);
+  transition: filter 0.15s ease, border-color 0.15s ease;
+}
+.shivvr-pill:hover { filter: brightness(1.12); }
+.badge.degraded {
+  background-color: rgba(251, 191, 36, 0.15);
+  color: var(--accent-amber);
+  border: 1px solid var(--accent-amber);
+}
+.badge.offline-grey {
+  background-color: rgba(142, 163, 189, 0.12);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+.status-light { display: inline-flex; align-items: center; gap: 0.35rem; }
+.status-light .light-dot { font-size: 0.85em; }
+.status-light.light-green { color: var(--accent-green); }
+.status-light.light-amber { color: var(--accent-amber); }
+.status-light.light-grey { color: var(--text-dim); }
+.shivvr-install-box {
+  margin-top: 0.85rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  font-size: 0.82rem;
+}
+.shivvr-install-lead { color: var(--text-dim); line-height: 1.45; }
+.shivvr-install-lead a { color: var(--primary); font-weight: 600; text-decoration: none; }
+.shivvr-install-lead a:hover { text-decoration: underline; }
+.shivvr-cmd-group { display: flex; flex-direction: column; gap: 0.2rem; }
+.shivvr-cmd-label { color: var(--text-dim); font-size: 0.76rem; font-weight: 600; }
+.shivvr-cmd {
+  display: block;
+  padding: 0.45rem 0.6rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: var(--text-main);
+  overflow-x: auto;
+  white-space: pre;
+  user-select: all;
+}
+.search-mode-badge {
+  align-self: center;
+  white-space: nowrap;
+  border: 1px solid var(--border);
+}
+

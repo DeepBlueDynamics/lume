@@ -17,6 +17,7 @@
           <span class="brand-sub">Your boat's history, on the boat</span>
         </div>
         <span class="badge" id="supervisor-badge">Checking…</span>
+        <button type="button" class="badge shivvr-pill" id="shivvr-pill" title="Embeddings (Shivvr) status — click to open Status &amp; Diagnostics">Shivvr ●</button>
       </div>
       <div class="header-metrics" id="header-metrics">
         <div class="metric"><span class="label">Ingest Lag:</span> <span class="val" id="metric-lag">--</span></div>
@@ -58,6 +59,7 @@
         <form id="lib-search" class="lib-searchbar">
           <input id="lib-q" type="search" placeholder="e.g. engine overheating raw water impeller" maxlength="200">
           <button type="submit" class="primary-btn">Search</button>
+          <span class="badge search-mode-badge" id="lib-search-mode" title="Meaning search uses Shivvr embeddings when available">keyword only</span>
         </form>
         <div id="lib-results"></div>
 
@@ -77,6 +79,7 @@
         <div class="schema-header">
           <h3>Dashboard</h3>
           <span id="dash-message" class="lib-meta" role="status"></span>
+          <span class="badge search-mode-badge" id="dash-search-mode" title="Meaning search uses Shivvr embeddings when available">keyword only</span>
         </div>
         <div id="dash-empty" class="empty-state notice">No gauges yet. In the Ask tab, ask for one, for example <em>"show the true wind speed as a dial"</em> or <em>"show the fresh water tank as a gauge"</em>, then press <strong>Add to dashboard</strong>.</div>
         <div id="dash-grid" class="lume-dashboard"></div>
@@ -251,6 +254,34 @@
               <tr><td>Service Running:</td><td id="diag-ingest-running">--</td></tr>
               <tr><td>Pre-2020 document rejections:</td><td id="diag-document-rejections">--</td></tr>
             </table>
+          </div>
+
+          <div class="card" id="shivvr-card">
+            <h3>Embeddings (Shivvr)</h3>
+            <table class="diag-table">
+              <tr><td>Shivvr:</td><td><strong id="diag-shivvr-running" class="status-light"><span class="light-dot" id="diag-shivvr-dot">●</span> <span id="diag-shivvr-state-text">Checking…</span></strong></td></tr>
+              <tr><td>Internet:</td><td><strong id="diag-internet-online" class="status-light"><span class="light-dot" id="diag-internet-dot">●</span> <span id="diag-internet-text">Checking…</span></strong></td></tr>
+              <tr><td>Endpoint:</td><td id="diag-shivvr-url" class="monospace">--</td></tr>
+              <tr><td>Version:</td><td id="diag-shivvr-version">--</td></tr>
+              <tr><td>Active Models:</td><td id="diag-shivvr-models">--</td></tr>
+              <tr><td>Accelerator:</td><td id="diag-shivvr-accel">--</td></tr>
+              <tr><td>Last Checked:</td><td id="diag-shivvr-checked">--</td></tr>
+            </table>
+            <div id="shivvr-install-box" class="shivvr-install-box" hidden>
+              <p class="shivvr-install-lead">
+                Shivvr isn't running. Library search stays in keyword-only mode until Shivvr is started.
+                <a id="shivvr-install-link" href="https://github.com/DeepBlueDynamics/lume#shivvr-setup-semantic-search" target="_blank" rel="noopener">Install Shivvr</a>
+                <span id="shivvr-halos-link-wrap" hidden> · <a id="shivvr-halos-link" href="https://halos.local:9090" target="_blank" rel="noopener">HaLOS Shivvr app</a></span>
+              </p>
+              <div class="shivvr-cmd-group">
+                <span class="shivvr-cmd-label">CPU (int8, Raspberry Pi / x64):</span>
+                <code class="shivvr-cmd" id="shivvr-cmd-cpu">docker volume create shivvr-models &amp;&amp; docker run --rm -v shivvr-models:/target deepbluedynamics/shivvr-models:int8 &amp;&amp; docker run -d --name shivvr --restart unless-stopped -p 127.0.0.1:8085:8080 -v shivvr-models:/models:ro deepbluedynamics/shivvr:latest-cpu</code>
+              </div>
+              <div class="shivvr-cmd-group">
+                <span class="shivvr-cmd-label">GPU (NVIDIA CUDA):</span>
+                <code class="shivvr-cmd" id="shivvr-cmd-gpu">docker run -d --name shivvr --restart unless-stopped --gpus all -p 127.0.0.1:8085:8080 deepbluedynamics/shivvr</code>
+              </div>
+            </div>
           </div>
 
           <div class="card">

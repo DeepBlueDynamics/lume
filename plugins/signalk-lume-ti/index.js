@@ -14,6 +14,7 @@ const {Library, serverQuery} = require('./lib/library');
 const {ChatManager, registerChatRoutes} = require('./lib/chat');
 const versions = require('./lib/versions');
 const {Dashboard, registerDashboardRoutes} = require('./lib/dashboard');
+const {ShivvrMonitor, defaultOfflineStatus, DEFAULT_SHIVVR_URL} = require('./lib/shivvr');
 
 /**
  * Signal K Plugin Factory Function.
@@ -31,6 +32,7 @@ module.exports = function (app) {
   let currentBinaryInfo = null;
   let library = null;
   let chatManager = null;
+  let shivvr = null;
   // Signal K restarts a plugin by calling stop() and then start() straight away.
   // While an old lume is still shutting down, start() waits on this so the new one
   // can bind the query port; otherwise it is null and start() spawns at once.
@@ -190,6 +192,12 @@ module.exports = function (app) {
           default: '',
           description: 'Path to a file containing the ollama.com API key (e.g. /path/to/ollama.key, mode 0600). Passed to the chat subprocess via OLLAMA_API_KEY environment variable only, never stored in plugin configuration or logs.',
         },
+        shivvrUrl: {
+          type: 'string',
+          title: 'Shivvr Embedding Server URL',
+          default: DEFAULT_SHIVVR_URL,
+          description: 'Local or LAN Shivvr URL for meaning-based Library search (default http://127.0.0.1:8085)',
+        },
       },
     }),
 
@@ -227,6 +235,13 @@ module.exports = function (app) {
       };
 
       log(`Starting Lume TI plugin. Data dir: ${dataDir}, Store dir: ${storeDir}`);
+
+      if (shivvr) shivvr.stop();
+      shivvr = new ShivvrMonitor({
+        getUrl: () => pluginConfig.shivvrUrl || DEFAULT_SHIVVR_URL,
+        getRequiredModel: () => pluginConfig.libraryEmbedModel || undefined,
+      });
+      shivvr.start();
 
       // 1. Resolve binary
       currentBinaryInfo = resolveLumeBinary(pluginConfig, __dirname);
@@ -380,6 +395,11 @@ module.exports = function (app) {
         chatManager = null;
       }
 
+      if (shivvr) {
+        shivvr.stop();
+        shivvr = null;
+      }
+
       if (supervisor) {
         const sup = supervisor;
         supervisor = null;
@@ -431,6 +451,15 @@ module.exports = function (app) {
       router.get('/dashboard.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'dashboard.js')));
       registerDashboardRoutes(router, app, () => (typeof app.getDataDirPath === 'function' ? new Dashboard(app.getDataDirPath()) : null));
       router.get('/icon.svg', (req, res) => res.sendFile(path.join(__dirname, 'public', 'icon.svg')));
+      router.get('/api/shivvr/status', async (req, res) => {
+        if (!shivvr) {
+          return res.json(defaultOfflineStatus(pluginConfig.shivvrUrl));
+        }
+        if (!shivvr.status().checked_at || req.query?.refresh === '1') {
+          await shivvr.probe().catch(() => {});
+        }
+        res.json(shivvr.status());
+      });
       // 1. Status API
       router.get('/api/status', (req, res) => {
         const dataDir = typeof app.getDataDirPath === 'function' ? app.getDataDirPath() : '';
@@ -446,6 +475,7 @@ module.exports = function (app) {
           uiBuild: uiBuildStamp(),
           supervisor: supStatus,
           store: storeStatus,
+          shivvr: shivvr ? shivvr.status() : defaultOfflineStatus(pluginConfig.shivvrUrl),
           // Lets the page explain an empty store: waiting for access approval, or no data yet.
           access: tokenManager
             ? {token: Boolean(tokenManager.token), state: tokenManager.lastState || 'NONE'}
