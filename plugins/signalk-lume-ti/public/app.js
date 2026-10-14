@@ -68,7 +68,8 @@
     const access = lastStatus && lastStatus.access;
     const records = lastStatus && lastStatus.store && lastStatus.store.ingestStatus
       ? lastStatus.store.ingestStatus.records_ingested : 0;
-    if (access && !access.token && access.state === 'PENDING') {
+    // A request that Signal K never needed (security off) also reads PENDING; data flowing settles it.
+    if (!records && access && !access.token && access.state === 'PENDING') {
       return 'No boat data yet: Lume is waiting for access. Approve the Lume TI device in Signal K under Security → Access Requests (the link is in the banner above).';
     }
     const table = missingTable ? (missingTable[1] || '').split('.').pop().toLowerCase() : '';
@@ -457,7 +458,7 @@
       html = sup.lastError
         ? `Lume isn't running: ${escapeHtml(sup.lastError)}`
         : 'Lume isn\'t running yet. It starts with the plugin; if this stays, restart Signal K.';
-    } else if (access && !access.token && access.state === 'PENDING') {
+    } else if (!ingest.records_ingested && access && !access.token && access.state === 'PENDING') {
       html = `One step left: approve the <strong>Lume TI</strong> device in Signal K under <a href="${accessRequestsUrl}">Security → Access Requests</a>. Lume records nothing until then.`;
     } else if (!ingest.records_ingested) {
       html = 'Waiting for boat data. Lume records whatever Signal K receives; this clears once instruments or a data connection send something.';
