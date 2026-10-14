@@ -1,8 +1,26 @@
 # Changelog
 
-## Unreleased
+## 0.16.3 — 2026-10-14
 
-- **Opt-in block zstd compression (`LUME_COMPRESS=zstd`).** Compresses the v4 `text.bin` segment in 64 KiB blocks (segment kind 10, so single-section/snippet readers decode only their own block) and `ti-store` `documents.log` transaction frames (format version 2), while readers accept both uncompressed and zstd-compressed segments.
+**Lume 0.16.3 squeezes the text and shows up properly in the Signal K App Store.** Opt-in zstd shrinks binary indexes by a third, the visualizer lets you pick your Ask model, and every release is now tested on Linux, Mac and Windows by Signal K's own plugin CI.
+
+### Opt-in zstd compression (#75) 🗜️
+
+Set `LUME_COMPRESS=zstd` when indexing, and the v4 index stores section text in compressed 64 KB blocks. A snippet only unpacks its own block. On our 171k-file TREC-COVID test, the index drops from 352 MB to 229 MB and opens about 30% faster, with byte-identical search results. Lume TI's documents log compresses the same way. It's off by default, and Lume reads both forms.
+
+### Pick your Ask model in the visualizer (#77) 🎛️
+
+The 3D visualizer's Ask button has a model dropdown, grouped **Cloud (ollama.com)** and **Local**. It defaults to `glm-5.3:cloud` and remembers your choice. The page also shows which Lume version runs and how old the index is, and flags old JSON indexes. The bridge now only answers pages on your own machine.
+
+### Signal K App Store, linked and tested (#79) ✅
+
+Every package now records the commit it was built from, so the App Store can link a release to its source. Each release also runs Signal K's plugin CI on its tag, on Linux x64, Linux Arm, macOS and Windows, with Node 22 and 24. The plugin installs everywhere, and without a Linux binary it just reports that `lume` isn't found.
+
+### Steadier CI (#78) 🛟
+
+The Pi deployment test pulls its base image from whichever of AWS, Google's mirror or Docker Hub answers first, so rate limits stop turning builds red.
+
+Get it from the Signal K App Store (search **Lume TI**), `npm install -g @deepbluedynamics/lume`, the HaLOS `marine-lume` package, or the release page.
 
 ## 0.16.2 — 2026-10-14
 
