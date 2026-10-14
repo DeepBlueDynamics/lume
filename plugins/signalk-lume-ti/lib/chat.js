@@ -108,6 +108,9 @@ function statusContext(status) {
   if (status.disk) lines.push(`- "Disk Size" = ${status.disk}: the whole store. "WAL Size" = ${status.wal || '0 B'}: the crash-recovery log for buckets not yet sealed into shard files.`);
   if (status.lagSeconds !== undefined) lines.push(`- "Ingest Lag" = ${status.lagSeconds} s: how far behind the live Signal K stream lume is.`);
   lines.push('- The plugin itself is not a table: answer questions about these numbers from this context, not by querying for them.');
+  lines.push('- Lume records its own health every 10 seconds in a separate table, telemetry_lume (not telemetry): columns named ' +
+    'lume.ingest.* (for example records ingested, apply failures, blocked writes, lag) with @mean/@min/@max/@last, one row per bucket. ' +
+    'Use it for questions about how Lume itself is doing; check its columns with ti_schema first.');
   if (status.firstTs && status.lastTs) {
     const spanSeconds = Math.max(0, (Date.parse(status.lastTs) - Date.parse(status.firstTs)) / 1000);
     lines.push(`- Recorded telemetry covers ${status.firstTs} to ${status.lastTs} (${describeSpan(spanSeconds)}, ${status.buckets} buckets). ` +
