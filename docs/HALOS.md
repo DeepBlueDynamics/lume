@@ -162,7 +162,7 @@ If you remove the container first, the plugin status says the external server is
 
 ## 6. Optional: Grafana and Grub
 
-**Grafana.** In **Webapps → Lume TI**, open **PostgreSQL / Grafana**. Turn PostgreSQL on, set the bind address to `172.17.0.1`, the port to `5864`, and the user to `grafana`. Set the password in that form, not in the ordinary plugin settings. Point Grafana at `halos.local:5864`. The steps and the reason for that address are in [PostgreSQL / Grafana on the HaLOS Pi](../plugins/signalk-lume-ti/README.md) and [bench/grafana/README.md](../bench/grafana/README.md).
+**Grafana.** In **Webapps → Lume TI**, open **PostgreSQL / Grafana**. Turn PostgreSQL on, set the bind address to `172.17.0.1`, the port to `5864`, and the user to `grafana`. Set the password in that form, not in the ordinary plugin settings. Point Grafana at `halos.local:5864`. The steps and the reason for that address are in [PostgreSQL / Grafana on the HaLOS Pi](../plugins/signalk-lume-ti/REFERENCE.md#postgresql--grafana-on-the-halos-pi) and [bench/grafana/README.md](../bench/grafana/README.md).
 
 **Grub.** The Library tab can use Grub Crawler to fetch web pages and PDFs onto the boat. The app is `marine-grubcrawler-container`. It listens only on `127.0.0.1:6792`. Install notes are in [the Grub container README](../deploy/halos/marine-grubcrawler-container/README.md). Pages already fetched into the Library stay on the Pi. Grub is what fetches new pages.
 
