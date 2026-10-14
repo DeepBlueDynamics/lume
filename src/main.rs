@@ -2056,8 +2056,13 @@ fn run_indexing(
     }
 
     let db_path = Path::new(db_dir);
-    let binary_format = std::env::var("LUME_INDEX_FORMAT").as_deref() == Ok("4")
-        || lume::index_binary::snapshot::present(db_path);
+    let existing_json = !lume::index_binary::snapshot::present(db_path)
+        && (db_path.join("state.json").exists() || db_path.join("bm25.json").exists());
+    let binary_format = match std::env::var("LUME_INDEX_FORMAT").as_deref() {
+        Ok(fmt) if fmt.eq_ignore_ascii_case("json") => false,
+        Ok("4") => true,
+        _ => force || !existing_json,
+    };
     fs::create_dir_all(db_path).map_err(|e| format!("Failed to create db dir: {}", e))?;
     // Session/semantic caches live with the index, not in the process cwd.
     lume::hybrid::set_cache_dir(db_path);
@@ -2307,7 +2312,7 @@ fn run_indexing(
                 // Only slow Ollama extraction needs periodic searchable flushes.
                 // Ordinary scans checkpoint progress without publishing partial
                 // tables or rebuilding the entire BM25 index every 30 seconds.
-                if ollama_entities {
+                if ollama_entities && !binary_format {
                     match flush_searchable_indexes(
                         &cached_files,
                         tagger.as_ref(),
@@ -2321,14 +2326,16 @@ fn run_indexing(
                         ),
                         Err(e) => eprintln!("[⚠️] Mid-run index flush failed: {}", e),
                     }
-                } else if let Err(error) = save_scan_checkpoint(
-                    db_path,
-                    target_dir,
-                    &scan_manifest,
-                    &cached_files,
-                    &frontmatter_by_file,
-                ) {
-                    eprintln!("[⚠️] Source scan checkpoint failed: {error}");
+                } else if !ollama_entities {
+                    if let Err(error) = save_scan_checkpoint(
+                        db_path,
+                        target_dir,
+                        &scan_manifest,
+                        &cached_files,
+                        &frontmatter_by_file,
+                    ) {
+                        eprintln!("[⚠️] Source scan checkpoint failed: {error}");
+                    }
                 }
                 last_flush = Instant::now();
             }
@@ -2828,7 +2835,10 @@ fn run_indexing(
         let sections = collect_all_sections(&state.cached_files);
         let bm25 = Bm25Index::build(sections, tagger.as_ref());
         let terms: Vec<Vec<u8>> = bm25.posting_lists.keys().cloned().collect();
-        let spelling = SpellIndex::build(&tagger_phrases, &terms);
+        let spelling = {
+            let _timing = lume::index_timing::Span::new("index.spelling");
+            SpellIndex::build(&tagger_phrases, &terms)
+        };
         let graph = EntityGraph::build(
             &bm25.entity_posting_lists,
             &bm25.entity_kinds,
@@ -2844,6 +2854,19 @@ fn run_indexing(
             &graph,
             current_meta.as_ref(),
         )?;
+        for legacy in [
+            "state.json",
+            "bm25.json",
+            "spelling.json",
+            "entity_graph.json",
+            "manifest.json",
+            "meta.json",
+        ] {
+            let path = db_path.join(legacy);
+            if path.exists() {
+                let _ = fs::remove_file(path);
+            }
+        }
     } else {
         save_json(&db_path.join("state.json"), &state)?;
         if lume::index_binary::snapshot::present(db_path) {

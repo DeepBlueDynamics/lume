@@ -57,11 +57,9 @@ impl Fixture {
     }
     fn index(&self, db: &Path, binary: bool, extra: &[&str]) -> Output {
         let mut cmd = command();
-        if binary {
-            cmd.env("LUME_INDEX_FORMAT", "4");
-        } else if !db.join("index.json").exists() {
-            // Pin fresh JSON comparison indexes; existing v4 updates still exercise
-            // format detection with no environment override.
+        if !binary {
+            // Opt out to JSON for fresh JSON comparison indexes or explicit JSON runs;
+            // v4 creation and updates run with no LUME_INDEX_FORMAT override.
             cmd.env("LUME_INDEX_FORMAT", "json");
         }
         cmd.arg("index")
@@ -195,7 +193,7 @@ fn no_force_creation_and_each_source_update_match_fresh_json_and_v4() {
         let previous = generation::read_manifest(&db).unwrap();
         fixture.mutate(operation);
         // Existing v4 must stay v4 even with no format environment variable.
-        success(&fixture.index(&db, false, &[]));
+        success(&fixture.index(&db, true, &[]));
         let current = generation::read_manifest(&db).unwrap();
         assert_ne!(previous.generation, current.generation);
         assert!(db.join("generations").join(previous.generation).exists());
@@ -205,9 +203,48 @@ fn no_force_creation_and_each_source_update_match_fresh_json_and_v4() {
             "old resident snapshot remains valid"
         );
         fixture.parity(&db, operation);
-        success(&fixture.index(&db, false, &["-f"]));
+        success(&fixture.index(&db, true, &["-f"]));
         fixture.parity(&db, "forced");
     }
+}
+
+#[test]
+fn existing_json_stays_json_on_incremental_update_and_rebuilds_as_v4_on_force() {
+    let mut fixture = Fixture::new();
+    let db = fixture.db("json-upgrade");
+    success(&fixture.index(&db, false, &[]));
+    assert!(db.join("state.json").exists());
+    assert!(db.join("bm25.json").exists());
+    assert!(!db.join("index.json").exists());
+    fixture.parity(&db, "json-initial");
+
+    fixture.mutate("add");
+    // Incremental `lume index` with no LUME_INDEX_FORMAT must keep an existing JSON index as JSON.
+    success(&fixture.index(&db, true, &[]));
+    assert!(db.join("state.json").exists());
+    assert!(db.join("bm25.json").exists());
+    assert!(!db.join("index.json").exists());
+    fixture.parity(&db, "json-incremental");
+
+    fixture.mutate("change");
+    let updated = command()
+        .args(["index", "update"])
+        .arg("--db")
+        .arg(&db)
+        .output()
+        .unwrap();
+    success(&updated);
+    assert!(db.join("state.json").exists());
+    assert!(db.join("bm25.json").exists());
+    assert!(!db.join("index.json").exists());
+    fixture.parity(&db, "json-update");
+
+    // `lume index -f` with no LUME_INDEX_FORMAT rebuilds the existing JSON index as v4.
+    success(&fixture.index(&db, true, &["-f"]));
+    assert!(db.join("index.json").exists());
+    assert!(!db.join("bm25.json").exists());
+    assert!(!db.join("state.json").exists());
+    fixture.parity(&db, "json-rebuilt-v4");
 }
 
 #[test]
@@ -239,7 +276,7 @@ fn each_failed_update_keeps_old_generation_and_resumes_to_fresh_parity() {
         let missing = fixture.root.join("missing-vectors.jsonl");
         let failed = fixture.index(
             &db,
-            false,
+            true,
             &[
                 "--embed-model",
                 "checkpoint-test",
@@ -254,7 +291,7 @@ fn each_failed_update_keeps_old_generation_and_resumes_to_fresh_parity() {
         assert_eq!(replies(&old), old_replies);
         assert_eq!(replies(&load(&db)), old_replies);
         assert!(db.join("index-scan-checkpoint.json").exists());
-        let resumed = fixture.index(&db, false, &[]);
+        let resumed = fixture.index(&db, true, &[]);
         success(&resumed);
         assert!(String::from_utf8_lossy(&resumed.stdout).contains("Resuming unpublished"));
         assert!(!db.join("index-scan-checkpoint.json").exists());
@@ -274,7 +311,7 @@ fn stale_checkpoint_cannot_override_new_v4_generation() {
         "cached_files": {}, "frontmatter_by_file": {}
     });
     lume::search::save_json(&db.join("index-scan-checkpoint.json"), &checkpoint).unwrap();
-    let output = fixture.index(&db, false, &[]);
+    let output = fixture.index(&db, true, &[]);
     success(&output);
     assert!(String::from_utf8_lossy(&output.stderr).contains("Ignoring stale source"));
     assert_replies_equal(&load(&db), &before);
@@ -300,7 +337,7 @@ fn v4_changed_text_drops_stale_entities_intentionally_unlike_json_title_line_reu
     overlays::publish(&db, replacements, |_| Ok(())).unwrap();
     let old = load(&db);
     fixture.mutate("change");
-    success(&fixture.index(&db, false, &[]));
+    success(&fixture.index(&db, true, &[]));
     let new = load(&db);
     assert!(generation::read_manifest(&db)
         .unwrap()
@@ -347,7 +384,7 @@ fn corrupt_v4_snapshot_fails_closed_without_changing_pointer() {
         .unwrap()
         .join("text.bin");
     std::fs::write(text, b"corrupt").unwrap();
-    assert!(!fixture.index(&db, false, &[]).status.success());
+    assert!(!fixture.index(&db, true, &[]).status.success());
     assert_eq!(std::fs::read(db.join("index.json")).unwrap(), pointer);
     assert!(snapshot::restore_state(&db).is_err());
 }

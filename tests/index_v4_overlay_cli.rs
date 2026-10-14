@@ -85,7 +85,13 @@ impl Drop for Stub {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
         self.release.store(true, Ordering::SeqCst);
-        self.worker.take().unwrap().join().unwrap();
+        if let Some(worker) = self.worker.take() {
+            if std::thread::panicking() {
+                let _ = worker.join();
+            } else {
+                worker.join().unwrap();
+            }
+        }
     }
 }
 struct Run(Child);

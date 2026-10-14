@@ -46,7 +46,9 @@ fn command() -> Command {
 }
 fn index(source: &Path, db: &Path, v4: bool, extra: &[&str]) -> Output {
     let mut cmd = command();
-    cmd.env("LUME_INDEX_FORMAT", if v4 { "4" } else { "json" });
+    if !v4 {
+        cmd.env("LUME_INDEX_FORMAT", "json");
+    }
     cmd.arg("index")
         .arg("-f")
         .arg(source)
