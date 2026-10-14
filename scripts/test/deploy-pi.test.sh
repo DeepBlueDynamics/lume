@@ -55,6 +55,7 @@ cleanup() {
     fi
     if [ -n "${IMAGE_NAME:-}" ]; then
         docker rmi -f "$IMAGE_NAME" >/dev/null 2>&1 || true
+        docker rmi "${IMAGE_NAME}-base" >/dev/null 2>&1 || true # untags only; the pulled base stays cached
     fi
     if [ -n "${TMP_DIR:-}" ] && [ -d "$TMP_DIR" ]; then
         rm -rf "$TMP_DIR"
@@ -292,10 +293,41 @@ EXPOSE 22
 CMD ["/entrypoint.sh"]
 EOF
 
+# Every public registry rate-limits anonymous pulls from shared CI runners
+# (Docker Hub and AWS public ECR have both answered 429). Pull the base from
+# the first mirror that answers, retrying each briefly, then build from the
+# local copy so the build itself never contacts a registry.
+# DEPLOY_TEST_BASE_IMAGE pins a single image instead.
+if [ -n "${DEPLOY_TEST_BASE_IMAGE:-}" ]; then
+    BASE_CANDIDATES=("$DEPLOY_TEST_BASE_IMAGE")
+else
+    BASE_CANDIDATES=(
+        public.ecr.aws/docker/library/debian:bookworm-slim
+        mirror.gcr.io/library/debian:bookworm-slim
+        docker.io/library/debian:bookworm-slim
+    )
+fi
+BASE_IMAGE=""
+for candidate in "${BASE_CANDIDATES[@]}"; do
+    for attempt in 1 2 3; do
+        if docker pull --quiet "$candidate" >/dev/null 2>&1; then
+            BASE_IMAGE="$candidate"
+            break 2
+        fi
+        echo "Pull of ${candidate} failed (attempt ${attempt}/3)." >&2
+        sleep $((attempt * 5))
+    done
+done
+if [ -z "$BASE_IMAGE" ]; then
+    echo "FAIL: could not pull a Debian base image from: ${BASE_CANDIDATES[*]}" >&2
+    exit 1
+fi
+LOCAL_BASE="${IMAGE_NAME}-base"
+docker tag "$BASE_IMAGE" "$LOCAL_BASE"
+echo "Base image: ${BASE_IMAGE}"
+
 echo "Building throwaway Debian sshd image: ${IMAGE_NAME}..."
-# AWS public ECR mirrors Docker official images; Docker Hub rate-limits CI
-# runners (429 on debian:bookworm-slim). Override with DEPLOY_TEST_BASE_IMAGE.
-docker build --build-arg "BASE_IMAGE=${DEPLOY_TEST_BASE_IMAGE:-public.ecr.aws/docker/library/debian:bookworm-slim}" \
+docker build --pull=false --build-arg "BASE_IMAGE=${LOCAL_BASE}" \
     -t "$IMAGE_NAME" "$CONTEXT_DIR" >/dev/null
 
 echo "Starting container published on 127.0.0.1: ${CONTAINER_NAME}..."
