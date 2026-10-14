@@ -30,7 +30,7 @@ For people building and operating agents, Lume also receives OpenTelemetry metri
 
 ### Built for places where the cloud is optional
 
-Marine systems are a strong application, not a separate promise. Lume already reads live Signal K telemetry and historical Signal K Parquet files, connects measurements with logbook entries and alerts, and runs on a Raspberry Pi alongside the existing onboard software. Its Signal K plugin provides a SQL console, document library, and an Ask interface.
+Our target is marine systems, but Lume works for many other applications. Replace Splunk with it, for example: search your logs and query your metrics in one place, on your own hardware. On the boat, Lume already reads live Signal K telemetry and historical Signal K Parquet files, connects measurements with logbook entries and alerts, and runs on a Raspberry Pi alongside the existing onboard software. Its Signal K plugin provides a SQL console, document library, and an Ask interface.
 
 On a boat, the question becomes: *What was the engine doing each time this alarm appeared?* The same underlying problem exists ashore: the measurements and the written history need to be queried together.
 
