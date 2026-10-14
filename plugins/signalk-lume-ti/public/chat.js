@@ -99,7 +99,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (md && typeof md.render === 'function') answerEl.innerHTML = md.render(text);
     else answerEl.textContent = text;
     addIndexButtons().catch(() => {});
-    mountWidgets().catch(() => {});
+    mountWidgets().catch(err => {
+      const p = document.createElement('p');
+      p.className = 'chat-sql-meta-error';
+      p.textContent = `A gauge in this answer couldn't be drawn: ${err.message}`;
+      answerEl.appendChild(p);
+    });
   }
 
   // Live gauges in answers: each lume-widget block becomes a gauge fed in real time.
@@ -140,7 +145,18 @@ document.addEventListener('DOMContentLoaded', () => {
       const grid = document.createElement('div');
       grid.className = 'lume-dashboard answer-grid';
       holder.appendChild(grid);
-      const mounted = window.LumeGauges.mount(grid, widget);
+      let mounted;
+      try {
+        if (widget.type === 'svg' && !window.LumeSvgWidget) throw new Error('this page is older than the plugin: reload it (Ctrl+Shift+R) to draw custom widgets');
+        mounted = window.LumeGauges.mount(grid, widget);
+      } catch (err) {
+        grid.remove();
+        const p = document.createElement('p');
+        p.className = 'chat-sql-meta-error';
+        p.textContent = `This gauge can't be drawn: ${err.message}`;
+        holder.appendChild(p);
+        continue;
+      }
       if (widget.title) {
         const title = document.createElement('div');
         title.className = 'lume-widget-title';
