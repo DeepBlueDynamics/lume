@@ -618,7 +618,7 @@ mod tests {
     fn real_cruiser_library_parses() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/cruiser_library.csv");
         let rows = read_list(&path).unwrap();
-        assert_eq!(rows.len(), 471);
+        assert_eq!(rows.len(), 472);
         let ids: std::collections::BTreeSet<_> = rows.iter().map(|r| &r.id).collect();
         assert_eq!(ids.len(), rows.len(), "ids must be unique");
     }
