@@ -4,6 +4,7 @@
 
 - **The binary v4 index is now the default.** New indexes build in the sealed v4 binary format without setting `LUME_INDEX_FORMAT=4`. Existing JSON indexes keep working and stay JSON across incremental updates; `lume index -f` rebuilds them as v4, and `LUME_INDEX_FORMAT=json` opts out when needed.
 - **Local vectors use a checked binary `f32` file (`local-vectors.bin`).** Document and preloaded query embeddings are stored as little-endian `f32` rows with fail-closed framing, cutting disk usage while transparently reading and migrating existing `local-vectors.json` files on the next write.
+
 ## 0.16.1 — 2026-10-14
 
 **Lume 0.16.1 gets ready for the new Shivvr.** Shivvr 0.6.0 switches its default embedding model to EmbeddingGemma 2, and Lume now handles that cleanly. CI is back to green on every platform, too.
