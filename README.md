@@ -149,6 +149,36 @@ It prompts for the key with hidden input and sends it to the Pi only over SSH st
 
 `--check` shows the file's owner, mode and size, never its contents. To use a laptop's local models as a fallback, set **Chat Ollama API URLs** in the plugin config to, for example, `https://ollama.com,http://192.168.68.58:11434`.
 
+## Shivvr setup (semantic search)
+
+Keyword search, the knowledge graph and telemetry SQL need nothing else. To add meaning-based search, run [Shivvr](https://github.com/DeepBlueDynamics/shivvr), our open source embedding server, on the same machine. Lume looks for it at `http://localhost:8085`.
+
+**CPU** (x64 or arm64, including a Raspberry Pi 5; about 440 MB of models):
+
+```bash
+docker volume create shivvr-models
+docker run --rm -v shivvr-models:/target deepbluedynamics/shivvr-models:int8
+docker run -d --name shivvr --restart unless-stopped -p 127.0.0.1:8085:8080 -v shivvr-models:/models:ro deepbluedynamics/shivvr:latest-cpu
+```
+
+**NVIDIA GPU** (driver 545+ and the NVIDIA Container Toolkit; about a 4.4 GB pull):
+
+```bash
+docker run -d --name shivvr --restart unless-stopped --gpus all -p 127.0.0.1:8085:8080 deepbluedynamics/shivvr
+```
+
+The first start can take up to a minute while the models load. Then check it and use it:
+
+```bash
+curl -s http://localhost:8085/health          # wait for "status": "ok"
+lume index -s ~/manuals                       # -s: also embed every section
+lume search -a 0.5 "engine overheating"       # -a blends keyword and meaning scores
+```
+
+On Windows PowerShell, use `curl.exe`. If Shivvr runs on another machine, point Lume at it with `--shivvr-url http://host:8085` or `SHIVVR_BASE_URL`. A local Shivvr needs no token, and your text never leaves the machine. If Shivvr is down, search falls back to keywords.
+
+`--restart unless-stopped` brings it back after a reboot. The CPU image can't run `/invert` (vector-to-text), so the `LUME_QUERY_INVERSION=1` debug line needs the GPU image.
+
 ## Features
 
 ### Hybrid search
@@ -180,7 +210,7 @@ Entities come from either:
 
 ### Semantic search
 
-Dense embeddings come from a Shivvr endpoint (GTR-T5 space), set with `--shivvr-url` or `SHIVVR_BASE_URL` (default `http://localhost:8085`). Embeddings are cached per index, and search degrades gracefully to lexical when the endpoint is unavailable.
+Dense embeddings come from a Shivvr endpoint (see [Shivvr setup](#shivvr-setup-semantic-search)), set with `--shivvr-url` or `SHIVVR_BASE_URL` (default `http://localhost:8085`). Hybrid search uses Shivvr's default model, EmbeddingGemma 2 from Shivvr 0.6.0 on. Embeddings are cached per index, and search degrades gracefully to lexical when the endpoint is unavailable.
 
 ### Agents, summaries and answers
 
