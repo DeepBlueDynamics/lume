@@ -19,6 +19,8 @@ const DEFAULT_URLS = [
   'https://assets.publishing.service.gov.uk/media/5da849dded915d429bbb9ffe/mcga-shs_capt_guide_chap1.pdf',
   'https://tc.canada.ca/sites/default/files/2023-11/template-abandon-ship.pdf',
   'https://defender.ca/assets/pdf/battle-born/100ah-12v-smart-battery-manual.pdf',
+  // How to build Dashboard gauges; Ask reads it when asked for one.
+  'https://raw.githubusercontent.com/DeepBlueDynamics/lume/main/plugins/signalk-lume-ti/library/reference/dashboard-gauges.md',
 ];
 
 function rowId(url) {

@@ -14,7 +14,7 @@ test('row ids match the Rust crawl --list ids (FNV-1a 64 >> 16)', () => {
 
 test('bundled list parses, ids are unique, and every default exists', () => {
   const items = readList();
-  assert.equal(items.length, 471);
+  assert.equal(items.length, 472);
   assert.equal(new Set(items.map(i => i.id)).size, items.length);
   assert.equal(items.filter(i => i.default).length, DEFAULT_URLS.length);
   const docsCopy = path.join(__dirname, '..', '..', '..', 'docs', 'cruiser_library.csv');
