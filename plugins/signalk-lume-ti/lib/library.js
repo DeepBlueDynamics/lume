@@ -210,12 +210,23 @@ class Library {
     const rows = Array.isArray(parsed) ? parsed : parsed.rows || [];
     const byFile = Object.fromEntries(this.items().map(i => [i.id, i]));
     return {query: q, via, hits: rows.map(r => {
-      const id = path.basename(String(r.file || '')).split('.')[0];
+      const name = path.basename(String(r.file || ''));
+      const id = name.split('.')[0];
       const source = byFile[id] || {};
-      return {title: source.title || r.file, section: r.title, line: r.line, score: r.score,
+      // PDF sections are pages, numbered from 1, so the viewer can open at #page=N.
+      const page = /\.pdf$/i.test(name) && Number.isInteger(r.line) && r.line > 0 ? r.line : null;
+      return {title: source.title || r.file, section: r.title, line: r.line, page, score: r.score,
         excerpt: String(r.excerpt || '').replace(/\s+/g, ' ').trim(), url: source.url || null,
+        localUrl: this.file(name) ? `/plugins/signalk-lume-ti/api/library/file/${name}` : null,
         publisher: source.publisher || null, category: source.category || null};
     })};
+  }
+
+  /** The downloaded copy of a library document, by its stored name, or null. */
+  file(name) {
+    if (!/^[0-9a-f]{12}\.[a-z0-9]{2,5}$/i.test(String(name || ''))) return null;
+    const full = path.join(paths(this.dataDir).files, name);
+    return fs.existsSync(full) ? full : null;
   }
 
   /** Pick the reference query for an alert from the rules file. */

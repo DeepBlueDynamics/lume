@@ -105,9 +105,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // Open the copy on this server at the matching page; the original stays one click away.
   function hitHtml(hit) {
-    const link = hit.url ? `<a href="${esc(hit.url)}" target="_blank" rel="noopener">${esc(hit.title)}</a>` : esc(hit.title);
-    return `<li><strong>${link}</strong> <span class="lib-meta">${esc(hit.section || '')}${hit.publisher ? ` · ${esc(hit.publisher)}` : ''}</span>
+    const page = Number.isInteger(hit.page) && hit.page > 0 ? `#page=${hit.page}` : '';
+    const href = hit.localUrl ? `${hit.localUrl}${page}` : (hit.url ? `${hit.url}${page}` : '');
+    const link = href ? `<a href="${esc(href)}" target="_blank" rel="noopener">${esc(hit.title)}</a>` : esc(hit.title);
+    const online = hit.localUrl && hit.url
+      ? ` · <a class="lib-online" href="${esc(hit.url)}${page}" target="_blank" rel="noopener">original</a>` : '';
+    return `<li><strong>${link}</strong> <span class="lib-meta">${esc(hit.section || '')}${hit.publisher ? ` · ${esc(hit.publisher)}` : ''}${online}</span>
       <div class="lib-excerpt">${esc(hit.excerpt)}</div></li>`;
   }
 

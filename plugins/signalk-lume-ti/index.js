@@ -58,6 +58,18 @@ module.exports = function (app) {
       try { res.json(await library.search(String(req.query.q || ''), Number(req.query.limit) || 8)); }
       catch (error) { res.status(500).json({error: error.message}); }
     });
+    // The downloaded copy, so search results open offline. PDFs open in the browser's
+    // viewer (which honours #page=N); anything else downloads, so a fetched HTML page
+    // can never run script on the Signal K origin.
+    router.get('/api/library/file/:name', (req, res) => {
+      const file = library && library.file(req.params.name);
+      if (!file) return res.status(404).json({error: 'Not in the library'});
+      const pdf = /\.pdf$/i.test(file);
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Content-Disposition', `${pdf ? 'inline' : 'attachment'}; filename="${path.basename(file)}"`);
+      if (pdf) res.setHeader('Content-Type', 'application/pdf');
+      res.sendFile(file);
+    });
     router.get('/api/library/references', async (req, res) => {
       if (!library) return libraryUnavailable(res);
       const servePort = pluginConfig.servePort || 5863;
