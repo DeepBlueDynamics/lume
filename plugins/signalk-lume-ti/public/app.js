@@ -626,7 +626,8 @@
       }
     }
 
-    const meaningOn = state === 'online' && (!shivvr || shivvr.embedModel !== 'off');
+    const vecOk = !shivvr || !shivvr.vectors || !shivvr.vectors.indexed || Boolean(shivvr.vectors.present);
+    const meaningOn = state === 'online' && (!shivvr || shivvr.embedModel !== 'off') && vecOk;
     for (const id of ['lib-search-mode', 'dash-search-mode']) {
       const el = typeof document.getElementById === 'function' ? document.getElementById(id) : null;
       if (el) {

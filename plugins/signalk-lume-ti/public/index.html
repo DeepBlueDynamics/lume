@@ -63,6 +63,38 @@
         </form>
         <div id="lib-results"></div>
 
+        <div id="lib-embeddings-panel" class="card lib-embeddings-card">
+          <div class="schema-header">
+            <h3>Embeddings</h3>
+            <span id="lib-embed-current" class="lib-meta"></span>
+          </div>
+          <p class="lib-meta">Choose the embedding model and vector size for meaning-based Library search. Changing model or size rebuilds the Library's vectors (administrator login required).</p>
+          <form id="lib-embed-form" class="lib-embed-form">
+            <label class="pg-field">
+              <span>Model</span>
+              <select id="lib-embed-model" name="model">
+                <option value="embeddinggemma-2" selected>EmbeddingGemma 2</option>
+                <option value="gtr-t5-base">GTR-T5</option>
+                <option value="off">Off (keyword only)</option>
+              </select>
+            </label>
+            <label class="pg-field" id="lib-embed-dims-wrap">
+              <span>Vector size</span>
+              <select id="lib-embed-dimensions" name="dimensions">
+                <option value="768">768 — ≈ 3 KB per section</option>
+                <option value="512">512 — ≈ 2 KB per section</option>
+                <option value="256" selected>256 (default) — ≈ 1 KB per section</option>
+                <option value="128">128 — ≈ 0.5 KB per section</option>
+              </select>
+            </label>
+            <div class="lib-embed-actions">
+              <button id="lib-embed-save" type="submit" class="primary-btn">Save &amp; rebuild</button>
+            </div>
+          </form>
+          <p id="lib-embed-estimate" class="lib-meta"></p>
+          <p id="lib-embed-status" class="lib-meta" role="status"></p>
+        </div>
+
         <div class="schema-header">
           <h3>Cruiser library</h3>
           <span id="lib-counts" class="lib-meta"></span>

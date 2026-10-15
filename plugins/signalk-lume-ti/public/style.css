@@ -832,4 +832,34 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--pri
   white-space: nowrap;
   border: 1px solid var(--border);
 }
+.lib-embeddings-card {
+  margin: 1rem 0 1.25rem;
+}
+.lib-embed-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-end;
+  margin: 0.75rem 0 0.5rem;
+}
+.lib-embed-form .pg-field {
+  flex: 1 1 220px;
+}
+.pg-field select {
+  padding: 0.5rem 0.7rem;
+  background: var(--bg-input);
+  color: var(--text-main);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.95rem;
+}
+.pg-field select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.lib-embed-actions {
+  display: flex;
+  align-items: center;
+}
+
 
