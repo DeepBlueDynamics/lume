@@ -16,6 +16,7 @@ mod materialize;
 mod memory;
 pub mod postgres;
 mod provider;
+pub mod query_log;
 mod raw;
 mod rewrite;
 pub mod rules;

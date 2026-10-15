@@ -229,6 +229,9 @@ fn lume_main() {
                 print_serve_help();
                 return;
             }
+            if args.iter().any(|arg| arg == "--no-query-log") {
+                std::env::set_var("LUME_TI_QUERY_LOG", "0");
+            }
             // An MCP server writes nothing to stdout or stderr; LUME_DEBUG=1 restores
             // the diagnostics. Set before any thread starts.
             if std::env::var_os("LUME_DEBUG").is_none() {
@@ -535,8 +538,11 @@ fn lume_main() {
 
 #[cfg(feature = "ti")]
 fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
+    if args.iter().any(|arg| arg == "--no-query-log") {
+        std::env::set_var("LUME_TI_QUERY_LOG", "0");
+    }
     if args.iter().any(|a| a == "-h" || a == "--help") {
-        println!("Usage: lume ti ingest --signalk <url> --store <root> [--config <path>] [--token <file|token>] [--serve] [--bind <IP>] [--port <port>] [--pg <port>] [--pg-bind <IP>] [--pg-auth-config <path>] [--pg-tls-cert <path>] [--pg-tls-key <path>] [--pg-require-tls[=<bool>]] [--pg-allow-plaintext] [--docs-index <index>] [--self-urn <urn>] [--otlp] [--otlp-token-file <path>] [--http-token-file <path>] [--nuts-auth [URL]] [--nuts-allow <list|@file>]");
+        println!("Usage: lume ti ingest --signalk <url> --store <root> [--config <path>] [--token <file|token>] [--serve] [--bind <IP>] [--port <port>] [--pg <port>] [--pg-bind <IP>] [--pg-auth-config <path>] [--pg-tls-cert <path>] [--pg-tls-key <path>] [--pg-require-tls[=<bool>]] [--pg-allow-plaintext] [--docs-index <index>] [--self-urn <urn>] [--otlp] [--otlp-token-file <path>] [--http-token-file <path>] [--no-query-log] [--nuts-auth [URL]] [--nuts-allow <list|@file>]");
         println!("--pg-bind defaults to --bind; HTTP bind is independent. --pg-auth-config replaces store auth without merging; other sections are ignored. Unix file must be private (chmod 600).");
         return Ok(());
     }
@@ -623,6 +629,9 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
                     .filter(|s| !s.starts_with("--"))
                     .ok_or("--http-token-file requires a path")?;
                 i += 2;
+            }
+            "--no-query-log" => {
+                i += 1;
             }
             "--serve" => {
                 serve = true;
@@ -4119,6 +4128,7 @@ OPTIONS:
   -p, --port <PORT>      Port to bind the HTTP server to [default: 5863 — "LUME" on a phone keypad]
   --ti-store <ROOT>     Open one shared TI engine for /ti and MCP (requires feature ti)
   --docs-index <INDEX>  Add sections/entities tables; reload on index publication
+  --no-query-log          Disable query event recording (also [query_log] enabled=false)
   --http-token-file <PATH> Require a bearer on every HTTP route; route tokens take precedence
   --nuts-auth [URL]    Nuts RS256 JWT/AHP authentication [https://auth.nuts.services]
   --nuts-allow <LIST>  Required emails/user_ids, comma list or @file; read/write scopes

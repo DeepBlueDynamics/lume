@@ -45,6 +45,8 @@ pub struct TiConfig {
     pub auth: AuthConfig,
     /// Query resource limits.
     pub query: QueryLimits,
+    /// Best-effort query event retention.
+    pub query_log: QueryLogConfig,
     /// Multi-store configurations (D30). If empty/omitted, single-store mode uses top-level fields.
     #[serde(default)]
     pub stores: BTreeMap<String, StoreConfig>,
@@ -515,6 +517,7 @@ impl Default for TiConfig {
             bind: BindConfig::default(),
             auth: AuthConfig::default(),
             query: QueryLimits::default(),
+            query_log: QueryLogConfig::default(),
             stores: BTreeMap::new(),
             sync: SyncConfig::default(),
         }
@@ -569,6 +572,16 @@ impl TiConfig {
 
     /// Validate all configured limits, scale tables and names.
     pub fn validate(&self) -> Result<()> {
+        if self.query_log.retention_days == 0
+            || self.query_log.max_rows == 0
+            || self.query_log.max_rows > 1_000_000
+            || self.query_log.max_bytes == 0
+        {
+            return Err(invalid(
+                "query_log",
+                "retention_days/max_bytes must be positive; max_rows must be 1..=1000000",
+            ));
+        }
         if self.width_seconds == 0 {
             return Err(invalid("width_seconds", "must be positive"));
         }
@@ -911,6 +924,26 @@ impl TiConfig {
                 },
             );
             m
+        }
+    }
+}
+
+/// Private event log, independent of telemetry buckets.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct QueryLogConfig {
+    pub enabled: bool,
+    pub retention_days: u32,
+    pub max_rows: usize,
+    pub max_bytes: u64,
+}
+impl Default for QueryLogConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            retention_days: 30,
+            max_rows: 16_384,
+            max_bytes: 64 * 1024 * 1024,
         }
     }
 }

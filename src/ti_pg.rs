@@ -113,12 +113,31 @@ impl QueryParser for Parser {
                     .map(|t| t.unwrap_or_default())
             })
             .collect::<PgWireResult<Vec<_>>>()?;
+        let mut query_event = self.server.engine.read().ok().map(|engine| {
+            engine.query_log.start(
+                sql,
+                ti_sql::query_log::Context::new("pg", _client.metadata().get("user").cloned()),
+            )
+        });
         let server = self.server.clone();
         let sql = sql.to_owned();
         let result = tokio::task::spawn_blocking(move || server.pg_describe(&sql, &hints))
             .await
-            .map_err(|e| error("XX000", e.to_string()))?
-            .map_err(|e| error("22000", e))?;
+            .map_err(|e| {
+                if let Some(event) = &mut query_event {
+                    event.finish(Some(e.to_string()));
+                }
+                error("XX000", e.to_string())
+            })?
+            .map_err(|e| {
+                if let Some(event) = &mut query_event {
+                    event.finish(Some(e.clone()));
+                }
+                error("22000", e)
+            })?;
+        if let Some(event) = &mut query_event {
+            event.discard();
+        }
         let inferred = result["parameters"]
             .as_array()
             .ok_or_else(|| error("XX000", "Missing parameters"))?;
@@ -203,6 +222,7 @@ impl Handler {
         parameters: Vec<ti_sql::postgres::Parameter>,
         format: &Format,
         cols_hint: Option<Vec<(String, Type)>>,
+        identity: Option<String>,
     ) -> PgWireResult<Response> {
         let trimmed = sql.trim().trim_end_matches(';').trim();
         let upper = trimmed.to_uppercase();
@@ -250,10 +270,16 @@ impl Handler {
             server.pg_query_started();
         }
 
+        let mut query_event = engine
+            .query_log
+            .start(sql, ti_sql::query_log::Context::new("pg", identity));
         let (columns, names, stream) =
             ti_sql::postgres::query_stream(&engine, sql, parameters, max_rows)
                 .await
-                .map_err(|e| error("22000", e.to_string()))?;
+                .map_err(|e| {
+                    query_event.finish(Some(e.to_string()));
+                    error("22000", e.to_string())
+                })?;
 
         let cols = cols_hint.unwrap_or_else(|| {
             columns
@@ -262,7 +288,9 @@ impl Handler {
                 .collect()
         });
 
-        let schema = Arc::new(schema(&cols, format)?);
+        let schema = Arc::new(schema(&cols, format).inspect_err(|e| {
+            query_event.finish(Some(e.to_string()));
+        })?);
         let row_stream = encode_stream(
             cols,
             names,
@@ -271,12 +299,14 @@ impl Handler {
             server,
             max_rows,
             max_bytes,
+            query_event,
         );
 
         Ok(Response::Query(QueryResponse::new(schema, row_stream)))
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn encode_stream(
     cols: Vec<(String, Type)>,
     names: Vec<String>,
@@ -285,6 +315,7 @@ fn encode_stream(
     server: Arc<TiServer>,
     max_rows: usize,
     max_bytes: usize,
+    query_event: ti_sql::query_log::Guard,
 ) -> impl futures::Stream<Item = PgWireResult<DataRow>> + Send + 'static {
     struct State {
         stream: ti_sql::datafusion::physical_plan::SendableRecordBatchStream,
@@ -298,6 +329,7 @@ fn encode_stream(
         total_rows: usize,
         total_bytes: usize,
         finished: bool,
+        query_event: ti_sql::query_log::Guard,
     }
 
     let initial_bytes = 32 + cols.iter().map(|(n, _)| n.len() + 19).sum::<usize>();
@@ -313,6 +345,7 @@ fn encode_stream(
         total_rows: 0,
         total_bytes: initial_bytes,
         finished: false,
+        query_event,
     };
 
     futures::stream::unfold(state, |mut state| async move {
@@ -328,6 +361,9 @@ fn encode_stream(
                     state.total_rows += 1;
                     if state.total_rows > state.max_rows {
                         state.finished = true;
+                        state.query_event.finish(Some(
+                            "query result stream failed or exceeded its row/byte limit".into(),
+                        ));
                         return Some((
                             Err(error(
                                 "54000",
@@ -375,6 +411,9 @@ fn encode_stream(
                     }
 
                     let data_row = DataRow::new(buffer.as_slice().into(), state.cols.len() as i16);
+                    state
+                        .query_event
+                        .progress(state.total_rows as u64, state.total_bytes as u64);
                     return Some((Ok(data_row), state));
                 }
             }
@@ -418,6 +457,7 @@ fn encode_stream(
                     return Some((Err(error("XX000", e.to_string())), state));
                 }
                 None => {
+                    state.query_event.finish(None);
                     state.server.pg_query_finished();
                     return None;
                 }
@@ -530,14 +570,20 @@ fn parameters(portal: &Portal<Statement>) -> PgWireResult<Vec<ti_sql::postgres::
 }
 #[async_trait]
 impl SimpleQueryHandler for Handler {
-    async fn do_query<C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
+    async fn do_query<C>(&self, client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + ClientPortalStore + Unpin + Send + Sync,
         C::PortalStore: PortalStore,
     {
         Ok(vec![
-            self.execute(query, vec![], &Format::UnifiedText, None)
-                .await?,
+            self.execute(
+                query,
+                vec![],
+                &Format::UnifiedText,
+                None,
+                client.metadata().get("user").cloned(),
+            )
+            .await?,
         ])
     }
 
@@ -644,7 +690,7 @@ impl ExtendedQueryHandler for Handler {
     }
     async fn do_query<C>(
         &self,
-        _client: &mut C,
+        client: &mut C,
         portal: &Portal<Statement>,
         _max_rows: usize,
     ) -> PgWireResult<Response>
@@ -657,6 +703,7 @@ impl ExtendedQueryHandler for Handler {
             parameters(portal)?,
             &portal.result_column_format,
             Some(portal.statement.statement.columns.clone()),
+            client.metadata().get("user").cloned(),
         )
         .await
     }
