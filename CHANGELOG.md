@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Default zstd compression for new indexes:** New v4 indexes and Lume TI document logs now use 64 KB block zstd compression by default (`LUME_COMPRESS=none` opts out to write uncompressed segments; readers accept both forms). Note: older `lume` binaries (`< 0.16.3`) cannot read zstd-compressed indexes.
+- **Single `local-vectors.bin` per v4 index:** Local vector embeddings are stored only inside the active v4 generation directory (`<db>/generations/<id>/local-vectors.bin`), removing the duplicate copy at the index root.
+- **Accent-folded entity graph matching:** Entity extraction and SKG graph boost fold Latin accents (`Dantes` = `Dantès`, `Mercedes` = `Mercédès`) and preserve inflected entity names through spell-check.
+- **Extended accent folding in the tokenizer:** The tokenizer now folds Latin Extended-A and combining accents, so text with those characters (for example `Ł`, `Š`, `ő`, or decomposed `é`) needs a reindex (`lume index -f`) to match. Words with plain Latin-1 accents are unaffected.
+- **Commit hash in `lume --version`:** `lume --version` now prints the short git build commit (`lume 0.16.3 (<sha>)`, or `unknown` when built outside a git checkout).
+
 ## 0.16.3 — 2026-10-14
 
 **Lume 0.16.3 squeezes the text and shows up properly in the Signal K App Store.** Opt-in zstd shrinks binary indexes by a third, the visualizer lets you pick your Ask model, and every release is now tested on Linux, Mac and Windows by Signal K's own plugin CI.
