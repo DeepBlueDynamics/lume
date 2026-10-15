@@ -151,7 +151,10 @@ test('parseSearchCliOutput parses hybrid and lexical CLI output', () => {
   assert.equal(hits[1].file, '123456789abc.md');
 });
 
-test('Library.search runs hybrid search (-a 0.5) when vectors exist and Shivvr is online, and keyword otherwise', async () => {
+// The fake lume below is a POSIX shell script. Node won't spawn a .cmd/.bat
+// without a shell on Windows (EINVAL), and the plugin only runs on Linux.
+test('Library.search runs hybrid search (-a 0.5) when vectors exist and Shivvr is online, and keyword otherwise',
+  {skip: process.platform === 'win32' && 'fake lume is a POSIX shell script'}, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lume-hybrid-search-'));
   const p = paths(dir);
   fs.mkdirSync(p.index, {recursive: true});
@@ -170,7 +173,7 @@ test('Library.search runs hybrid search (-a 0.5) when vectors exist and Shivvr i
 
   // Create a mock lume script that records its args and outputs hybrid results for `search` and JSON for `sql`.
   const argsLog = path.join(dir, 'lume-args.jsonl');
-  const fakeLume = path.join(dir, process.platform === 'win32' ? 'fake-lume.cmd' : 'fake-lume.sh');
+  const fakeLume = path.join(dir, 'fake-lume.sh');
   const helperJs = path.join(dir, 'fake-lume.js');
   fs.writeFileSync(helperJs, [
     'const fs = require("fs");',
