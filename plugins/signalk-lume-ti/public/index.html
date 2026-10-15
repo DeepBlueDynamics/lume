@@ -79,7 +79,10 @@
         <div class="schema-header">
           <h3>Dashboard</h3>
           <span id="dash-message" class="lib-meta" role="status"></span>
-          <span class="badge search-mode-badge" id="dash-search-mode" title="Meaning search uses Shivvr embeddings when available">keyword only</span>
+          <div class="dash-header-controls">
+            <button id="dash-night-btn" type="button" class="secondary-btn dash-night-btn" aria-pressed="false" title="Red-on-black bridge night mode to preserve night vision">🌙 Night mode</button>
+            <span class="badge search-mode-badge" id="dash-search-mode" title="Meaning search uses Shivvr embeddings when available">keyword only</span>
+          </div>
         </div>
         <div id="dash-empty" class="empty-state notice">No gauges yet. In the Ask tab, ask for one, for example <em>"show the true wind speed as a dial"</em> or <em>"show the fresh water tank as a gauge"</em>, then press <strong>Add to dashboard</strong>.</div>
         <div id="dash-grid" class="lume-dashboard"></div>

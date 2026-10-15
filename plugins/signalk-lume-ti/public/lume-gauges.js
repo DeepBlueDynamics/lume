@@ -268,17 +268,94 @@
     return {close() { closed = true; if (ws) ws.close(); }};
   }
 
+  // Shared procedure cache & in-flight coalescer: multiple widgets referencing the same
+  // read-only SQL share one `/api/query` request and reuse fresh results within `everySeconds`.
+  const procedureCache = new Map();
+  let procedureStats = {hits: 0, misses: 0, coalesced: 0};
+
+  function procedureKey(proc) {
+    return String((proc && proc.sql) || '').trim().replace(/;\s*$/, '');
+  }
+
+  function clearProcedureCache() {
+    procedureCache.clear();
+    procedureStats = {hits: 0, misses: 0, coalesced: 0};
+  }
+
+  function procedureCacheStats() {
+    return {...procedureStats, size: procedureCache.size};
+  }
+
   // A saved procedure: read-only SQL the plugin runs, newest value in the first row.
-  async function runProcedure(proc) {
-    const res = await fetch('/plugins/signalk-lume-ti/api/query', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: {'Content-Type': 'application/json', Accept: 'application/json'},
-      body: JSON.stringify({sql: proc.sql}),
+  async function runProcedure(proc, {force = false, now = Date.now(), fetchImpl} = {}) {
+    const key = procedureKey(proc);
+    const ttlMs = Math.max(2, Number(proc && proc.everySeconds) || 10) * 1000;
+    const existing = procedureCache.get(key);
+    if (!force && existing) {
+      if (existing.rows && now - existing.ts < ttlMs) {
+        procedureStats.hits++;
+        return existing.rows;
+      }
+      if (existing.inflight) {
+        procedureStats.coalesced++;
+        return existing.inflight;
+      }
+    }
+
+    procedureStats.misses++;
+    const doFetch = fetchImpl || (typeof fetch === 'function' ? fetch : null);
+    if (!doFetch) throw new Error('fetch unavailable');
+    const inflight = (async () => {
+      try {
+        const res = await doFetch('/plugins/signalk-lume-ti/api/query', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {'Content-Type': 'application/json', Accept: 'application/json'},
+          body: JSON.stringify({sql: proc.sql}),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const rows = data.rows || [];
+        procedureCache.set(key, {rows, ts: Date.now(), inflight: null});
+        return rows;
+      } catch (err) {
+        const cur = procedureCache.get(key);
+        if (cur && cur.inflight === inflight) {
+          procedureCache.delete(key);
+        }
+        throw err;
+      }
+    })();
+
+    procedureCache.set(key, {
+      rows: existing ? existing.rows : null,
+      ts: existing ? existing.ts : 0,
+      inflight,
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    return data.rows || [];
+    return inflight;
+  }
+
+  const DEFAULT_STALE_SECONDS = 30;
+
+  function staleThresholdMs(spec) {
+    const optSec = Number(spec && spec.options && spec.options.staleSeconds);
+    if (Number.isFinite(optSec) && optSec > 0) return optSec * 1000;
+    if (spec && spec.source && spec.source.kind === 'procedure') {
+      const every = Math.max(2, Number(spec.source.everySeconds) || 10);
+      return Math.max(DEFAULT_STALE_SECONDS, every * 2) * 1000;
+    }
+    return DEFAULT_STALE_SECONDS * 1000;
+  }
+
+  function computeStaleState(lastUpdatedAt, mountedAt, now, thresholdMs, hadError = false) {
+    const ref = lastUpdatedAt || mountedAt;
+    const elapsedMs = Math.max(0, now - ref);
+    const stale = Boolean(hadError || elapsedMs >= thresholdMs);
+    const ageSeconds = lastUpdatedAt ? Math.max(1, Math.round(elapsedMs / 1000)) : null;
+    const label = !stale
+      ? ''
+      : (ageSeconds !== null ? `Stale · ${ageSeconds}s` : 'Stale · no data');
+    return {stale, ageSeconds, label};
   }
 
   // Mount one widget from its spec (see "Widget spec" in the reference document).
@@ -290,13 +367,43 @@
     card.className = `lume-widget size-${spec.size || '1x1'}`;
     el.appendChild(card);
     const gauge = render(card, spec.options || {});
+
+    const staleBadge = document.createElement('span');
+    staleBadge.className = 'lume-widget-stale';
+    staleBadge.hidden = true;
+    staleBadge.title = 'Value has not updated recently';
+    staleBadge.textContent = 'Stale';
+    card.appendChild(staleBadge);
+
+    const thresholdMs = staleThresholdMs(spec);
+    const mountedAt = Date.now();
+    let lastUpdatedAt = null;
+    let hadError = false;
+
+    const checkStale = (now = Date.now()) => {
+      const state = computeStaleState(lastUpdatedAt, mountedAt, now, thresholdMs, hadError);
+      card.classList.toggle('is-stale', state.stale);
+      staleBadge.hidden = !state.stale;
+      if (state.stale) {
+        staleBadge.textContent = state.label;
+      }
+      return state;
+    };
+
+    const markUpdated = (now = Date.now()) => {
+      lastUpdatedAt = now;
+      hadError = false;
+      checkStale(now);
+    };
+
     // Built-in gauges take one number; a custom widget takes {name: value} for its bindings.
     const values = {};
     const push = (name, value) => {
+      markUpdated();
       if (custom) { values[name] = value; gauge.update({[name]: value}); }
       else gauge.update(value);
     };
-    let stop = () => {};
+    let stopSource = () => {};
     if (spec.source && spec.source.kind === 'signalk') {
       // `paths` names several inputs ({hdg: "navigation.headingTrue", ...}); `path` is one, named value.
       const named = spec.source.paths || {value: spec.source.path};
@@ -306,20 +413,42 @@
         if (name === undefined) return;
         push(name, typeof value === 'object' && value !== null && spec.source.field ? value[spec.source.field] : value);
       });
-      stop = () => sub.close();
+      stopSource = () => sub.close();
     } else if (spec.source && spec.source.kind === 'procedure') {
       const tick = () => runProcedure(spec.source).then(rows => {
+        markUpdated();
         const row = rows[0] || {};
         if (typeof gauge.setRows === 'function') gauge.setRows(rows);
         else if (custom) gauge.update(row);
         else gauge.update(row[spec.source.column || 'value']);
-      }).catch(() => (custom ? null : gauge.update(NaN)));
+      }).catch(() => {
+        hadError = true;
+        checkStale();
+        if (!custom) gauge.update(NaN);
+      });
       tick();
       const timer = setInterval(tick, Math.max(2, spec.source.everySeconds || 10) * 1000);
-      stop = () => clearInterval(timer);
+      stopSource = () => clearInterval(timer);
     }
-    return {gauge, stop};
+    const staleTimer = setInterval(() => checkStale(), 1000);
+    const stop = () => {
+      clearInterval(staleTimer);
+      stopSource();
+    };
+    return {gauge, stop, checkStale, markUpdated, staleBadge};
   }
 
-  root.LumeGauges = {...renderers, subscribe, runProcedure, mount};
+  const api = {
+    ...renderers,
+    subscribe,
+    runProcedure,
+    clearProcedureCache,
+    procedureCacheStats,
+    DEFAULT_STALE_SECONDS,
+    staleThresholdMs,
+    computeStaleState,
+    mount,
+  };
+  root.LumeGauges = api;
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
