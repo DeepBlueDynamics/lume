@@ -440,9 +440,9 @@ class Library {
     };
   }
 
-  buildIndexArgs(p, {force = false} = {}) {
+  buildIndexArgs(p, {force = false, dbPath = p.index} = {}) {
     const cfg = this.embedConfig();
-    const args = ['index', p.files, '--db', p.index];
+    const args = ['index', p.files, '--db', dbPath];
     if (force) args.push('-f');
     if (cfg.model !== 'off') {
       args.push('--embed-model', cfg.model, '--embed-dimensions', String(cfg.dimensions), '--shivvr-url', cfg.shivvrUrl);
@@ -455,14 +455,42 @@ class Library {
     const existingVec = inspectIndexVectors(p.index);
     const profileChanged = existingVec.present
       && (existingVec.model !== cfg.model || existingVec.dimensions !== cfg.dimensions);
-    if (cfg.model === 'off' || profileChanged) {
+    const fullRebuild = Boolean(force || profileChanged || cfg.model === 'off');
+    const useStagingSwap = fullRebuild && fs.existsSync(p.index);
+    const targetDb = useStagingSwap
+      ? `${p.index}.rebuild-${process.pid}-${Date.now()}`
+      : p.index;
+
+    if (!useStagingSwap && (cfg.model === 'off' || profileChanged)) {
       removeVectorFiles(p.index);
     }
-    const args = this.buildIndexArgs(p, {force: force || profileChanged || cfg.model === 'off'});
+
+    const args = this.buildIndexArgs(p, {force: fullRebuild, dbPath: targetDb});
     let indexed = await run(this.binary, args, {onLine: note});
     if (indexed.code !== 0 && cfg.model !== 'off' && /shivvr|embed|ECONNREFUSED|connect|timed out/i.test(`${indexed.out}\n${indexed.err}`)) {
       note('Shivvr embedding server unreachable; indexing keyword-only until Shivvr is running');
-      indexed = await run(this.binary, ['index', p.files, '--db', p.index, ...(force ? ['-f'] : [])], {onLine: note});
+      indexed = await run(this.binary, ['index', p.files, '--db', targetDb, ...(fullRebuild ? ['-f'] : [])], {onLine: note});
+    }
+
+    if (useStagingSwap) {
+      if (indexed.code === 0 && fs.existsSync(targetDb)) {
+        const backupDb = `${p.index}.prev-${process.pid}-${Date.now()}`;
+        try {
+          fs.renameSync(p.index, backupDb);
+          fs.renameSync(targetDb, p.index);
+          fs.rmSync(backupDb, {recursive: true, force: true});
+        } catch (err) {
+          // Restore previous index if swap failed midway
+          if (!fs.existsSync(p.index) && fs.existsSync(backupDb)) {
+            try { fs.renameSync(backupDb, p.index); } catch (_) {}
+          }
+          try { fs.rmSync(targetDb, {recursive: true, force: true}); } catch (_) {}
+          throw err;
+        }
+      } else {
+        // Keep the existing index intact when a rebuild fails so search stays available.
+        try { fs.rmSync(targetDb, {recursive: true, force: true}); } catch (_) {}
+      }
     }
     return indexed;
   }

@@ -112,6 +112,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const d = Number(opt.value);
       const def = d === 256 ? ' (default)' : '';
       opt.textContent = `${d}${def} — ${formatEstimateText(d, estimates, sections)}`;
+      const allowed = model === 'gtr-t5-base' ? d === 768 : model !== 'off';
+      opt.disabled = !allowed;
+      opt.hidden = model === 'gtr-t5-base' && d !== 768;
     }
     if (model === 'off') {
       if (embedDimsWrap) embedDimsWrap.hidden = true;
