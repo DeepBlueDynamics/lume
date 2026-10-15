@@ -16,6 +16,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const embedEstimate = $('lib-embed-estimate');
   const embedCurrent = $('lib-embed-current');
   const embedStatus = $('lib-embed-status');
+  const uploadPanel = $('lib-upload-panel');
+  const uploadDropzone = $('lib-upload-dropzone');
+  const uploadInput = $('lib-upload-input');
+  const uploadBookIndex = $('lib-upload-book-index');
+  const uploadStatus = $('lib-upload-status');
   const selected = new Set();
   let items = [];
   let seeded = false;
@@ -61,14 +66,24 @@ document.addEventListener('DOMContentLoaded', () => {
       if (q && !`${item.title} ${item.category} ${item.subcategory} ${item.publisher}`.toLowerCase().includes(q)) continue;
       (groups[item.category || 'Other'] ||= []).push(item);
     }
-    list.innerHTML = Object.keys(groups).sort().map(category => `
-      <details class="lib-group" ${q || groups[category].some(i => selected.has(i.id)) ? 'open' : ''}>
+    const orderedCategories = Object.keys(groups).sort((a, b) => {
+      if (a === 'Added by you') return -1;
+      if (b === 'Added by you') return 1;
+      return a.localeCompare(b);
+    });
+    list.innerHTML = orderedCategories.map(category => `
+      <details class="lib-group" ${category === 'Added by you' || q || groups[category].some(i => selected.has(i.id)) ? 'open' : ''}>
         <summary>${esc(category)} <span class="lib-count">${groups[category].length}</span></summary>
         ${groups[category].map(item => `
           <label class="lib-row">
-            <input type="checkbox" data-id="${item.id}" ${selected.has(item.id) ? 'checked' : ''}>
-            <span class="lib-title">${titleLink(item)}${item.default ? ' <span class="lib-default">default</span>' : ''}</span>
+            ${item.addedByYou
+              ? `<span class="lib-user-badge" title="Uploaded to library/files/user/">added by you</span>`
+              : `<input type="checkbox" data-id="${item.id}" ${selected.has(item.id) ? 'checked' : ''}>`}
+            <span class="lib-title">${titleLink(item)}${item.default ? ' <span class="lib-default">default</span>' : ''}${item.visionLabel ? ` <span class="lib-vision-badge lib-vision-${esc(item.visionStatus || 'none')}" title="${esc(item.visionError || '')}">${esc(item.visionLabel)}</span>` : ''}</span>
             <span class="lib-meta">${esc(item.format.toUpperCase())} · ${esc(item.publisher)}${item.bytes ? ` · ${kb(item.bytes)}` : ''}</span>
+            ${item.addedByYou && item.format === 'pdf'
+              ? `<button type="button" class="lib-state lib-pdf-page-btn" data-user-file="${esc(item.userFile)}" title="Describe an unreadable scanned page on demand">Describe page…</button>`
+              : ''}
             ${item.state === 'none' || item.state === 'failed'
               ? `<button type="button" class="lib-state lib-index-one" data-id="${item.id}" title="${esc(item.error || 'Download this document to the server and make it searchable')}">${item.state === 'failed' ? 'Retry?' : 'Index?'}</button>`
               : `<span class="lib-state lib-${item.state}" title="${esc(item.error || '')}">${stateLabel[item.state]}</span>`}
@@ -217,8 +232,37 @@ document.addEventListener('DOMContentLoaded', () => {
 
   indexBtn.addEventListener('click', () => startIndex(pending()));
 
-  // "Index?" on a row indexes just that document.
+  // "Index?" on a row indexes just that document; "Describe page…" describes a scanned PDF page on demand.
   list.addEventListener('click', async event => {
+    const pageBtn = event.target.closest && event.target.closest('.lib-pdf-page-btn');
+    if (pageBtn) {
+      event.preventDefault();
+      const userFile = pageBtn.dataset.userFile;
+      const rawPage = window.prompt(`Enter page number of "${userFile}" to describe with Ollama Cloud vision (only pages without extracted text call vision):`, '6');
+      if (!rawPage) return;
+      const page = Number(rawPage);
+      if (!Number.isInteger(page) || page < 1) return;
+      pageBtn.disabled = true;
+      const prevText = pageBtn.textContent;
+      pageBtn.textContent = `Page ${page}…`;
+      try {
+        const res = await getJson(`${base}/pdf-page`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({name: userFile, page}),
+        });
+        if (uploadStatus) {
+          uploadStatus.textContent = `${userFile} page ${page}: ${res.source === 'extracted-text' ? 'already has extracted text' : (res.cached ? 'loaded from per-page cache' : 'described and indexed')}.`;
+        }
+        await load();
+      } catch (err) {
+        if (uploadStatus) uploadStatus.textContent = err.message;
+      } finally {
+        pageBtn.disabled = false;
+        pageBtn.textContent = prevText;
+      }
+      return;
+    }
     const btn = event.target.closest && event.target.closest('.lib-index-one');
     if (!btn) return;
     event.preventDefault();
@@ -229,6 +273,71 @@ document.addEventListener('DOMContentLoaded', () => {
       btn.textContent = 'Index?';
     }
   });
+
+  async function uploadFiles(fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    const readBookIndex = Boolean(uploadBookIndex && uploadBookIndex.checked);
+    for (const file of files) {
+      if (uploadStatus) uploadStatus.textContent = `Uploading ${file.name}…`;
+      try {
+        const qs = new URLSearchParams({
+          name: file.name,
+          ...(readBookIndex ? {readBookIndex: '1'} : {}),
+        });
+        const res = await fetch(`${base}/upload?${qs.toString()}`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            'X-File-Name': file.name,
+          },
+          body: file,
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(body.error || `HTTP ${res.status}`);
+        }
+        const vNote = body.item && body.item.visionLabel ? ` (${body.item.visionLabel})` : '';
+        if (uploadStatus) uploadStatus.textContent = `Added ${body.item ? body.item.title : file.name}${vNote}.`;
+        await load();
+      } catch (err) {
+        if (uploadStatus) {
+          uploadStatus.textContent = /administrator/.test(err.message)
+            ? 'Uploading files needs a Signal K administrator login.'
+            : `Upload failed (${file.name}): ${err.message}`;
+        }
+      }
+    }
+    if (uploadInput) uploadInput.value = '';
+  }
+
+  if (uploadDropzone && uploadInput) {
+    uploadDropzone.addEventListener('click', () => uploadInput.click());
+    uploadDropzone.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        uploadInput.click();
+      }
+    });
+    uploadDropzone.addEventListener('dragover', event => {
+      event.preventDefault();
+      uploadDropzone.classList.add('dragover');
+    });
+    uploadDropzone.addEventListener('dragleave', () => {
+      uploadDropzone.classList.remove('dragover');
+    });
+    uploadDropzone.addEventListener('drop', event => {
+      event.preventDefault();
+      uploadDropzone.classList.remove('dragover');
+      if (event.dataTransfer && event.dataTransfer.files) {
+        uploadFiles(event.dataTransfer.files);
+      }
+    });
+    uploadInput.addEventListener('change', () => {
+      if (uploadInput.files) uploadFiles(uploadInput.files);
+    });
+  }
 
   // Open the copy on this server at the matching page; the original stays one click away.
   function hitHtml(hit) {
@@ -338,6 +447,7 @@ document.addEventListener('DOMContentLoaded', () => {
     .then(login => {
       if (login && login.authenticationRequired !== false && login.status === 'loggedIn' && login.userLevel && login.userLevel !== 'admin') {
         if (embedPanel) embedPanel.hidden = true;
+        if (uploadPanel) uploadPanel.hidden = true;
       }
     })
     .catch(() => {});

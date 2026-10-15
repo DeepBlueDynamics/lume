@@ -861,5 +861,46 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--pri
   display: flex;
   align-items: center;
 }
+.lib-upload-card {
+  margin: 0 0 1.25rem;
+}
+.lib-upload-dropzone {
+  margin: 0.75rem 0 0.6rem;
+  padding: 1.1rem 1rem;
+  border: 2px dashed var(--border);
+  border-radius: 8px;
+  background: var(--bg-input);
+  text-align: center;
+  cursor: pointer;
+  color: var(--text-dim);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.lib-upload-dropzone:hover,
+.lib-upload-dropzone.dragover {
+  border-color: var(--primary);
+  color: var(--text-main);
+}
+.lib-upload-options {
+  margin-bottom: 0.35rem;
+}
+.lib-user-badge,
+.lib-vision-badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.lib-vision-waiting_for_description {
+  border-color: var(--accent-amber);
+  color: var(--accent-amber);
+}
+.lib-vision-described {
+  border-color: var(--accent-green);
+  color: var(--accent-green);
+}
 
 
