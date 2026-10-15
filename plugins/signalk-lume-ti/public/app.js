@@ -108,6 +108,15 @@
         }
       });
     });
+    const shivvrPill = typeof document.getElementById === 'function' ? document.getElementById('shivvr-pill') : null;
+    if (shivvrPill && shivvrPill.addEventListener) {
+      shivvrPill.addEventListener('click', () => {
+        const statusTab = typeof document.querySelector === 'function'
+          ? document.querySelector('.tab-btn[data-tab="tab-status"]')
+          : null;
+        if (statusTab && typeof statusTab.click === 'function') statusTab.click();
+      });
+    }
   }
 
   // 2. Query Presets
@@ -463,6 +472,7 @@
       const store = data.store || {};
       const ingest = store.ingestStatus || {};
       updateSetupBanner(data);
+      updateShivvrStatus(data.shivvr || {});
 
       // Header Badge
       const badge = document.getElementById('supervisor-badge');
@@ -563,6 +573,71 @@
     }
     banner.innerHTML = html;
     banner.hidden = !html;
+  }
+
+  function updateShivvrStatus(shivvr) {
+    const state = shivvr && shivvr.state ? shivvr.state : 'offline';
+    const running = Boolean(shivvr && shivvr.running);
+    const online = Boolean(shivvr && shivvr.online);
+
+    const pill = typeof document.getElementById === 'function' ? document.getElementById('shivvr-pill') : null;
+    if (pill) {
+      const pillClass = state === 'online' ? 'online' : (state === 'degraded' ? 'degraded' : 'offline-grey');
+      pill.className = `badge shivvr-pill ${pillClass}`;
+      pill.textContent = 'Shivvr ●';
+      pill.title = running
+        ? `Shivvr ${state} (${shivvr.version || 'v?'}${shivvr.gpu === true ? ', GPU' : (shivvr.gpu === false ? ', CPU' : '')}) — click for details`
+        : 'Shivvr stopped (keyword-only search) — click for details and install steps';
+    }
+
+    const shivvrLight = typeof document.getElementById === 'function' ? document.getElementById('diag-shivvr-running') : null;
+    if (shivvrLight) {
+      shivvrLight.className = `status-light ${state === 'online' ? 'light-green' : (state === 'degraded' ? 'light-amber' : 'light-grey')}`;
+    }
+    setElem('diag-shivvr-state-text', running
+      ? (state === 'degraded' ? `running (${shivvr.error || 'degraded'})` : 'running')
+      : 'stopped');
+
+    const netLight = typeof document.getElementById === 'function' ? document.getElementById('diag-internet-online') : null;
+    if (netLight) {
+      netLight.className = `status-light ${online ? 'light-green' : 'light-grey'}`;
+    }
+    setElem('diag-internet-text', online ? 'online' : 'offline');
+
+    setElem('diag-shivvr-url', (shivvr && shivvr.url) || 'http://127.0.0.1:8085');
+    setElem('diag-shivvr-version', running ? (shivvr.version || 'unknown') : '--');
+    const activeModels = running && Array.isArray(shivvr.models)
+      ? shivvr.models.filter((m) => !m.status || m.status === 'active').map((m) => m.name).join(', ')
+      : '';
+    setElem('diag-shivvr-models', running ? (activeModels || 'none') : '--');
+    setElem('diag-shivvr-accel', running ? (shivvr.gpu === true ? 'GPU' : (shivvr.gpu === false ? 'CPU' : '--')) : '--');
+    setElem('diag-shivvr-checked', shivvr && shivvr.checked_at ? new Date(shivvr.checked_at).toLocaleTimeString() : '--');
+
+    const installBox = typeof document.getElementById === 'function' ? document.getElementById('shivvr-install-box') : null;
+    if (installBox) {
+      installBox.hidden = running;
+      const onHalos = Boolean((shivvr && shivvr.halos)
+        || (typeof location !== 'undefined' && (location.hostname === 'halos.local' || location.port === '4430')));
+      const halosWrap = typeof document.getElementById === 'function' ? document.getElementById('shivvr-halos-link-wrap') : null;
+      const halosLink = typeof document.getElementById === 'function' ? document.getElementById('shivvr-halos-link') : null;
+      if (halosWrap) halosWrap.hidden = !onHalos;
+      if (halosLink && onHalos && typeof location !== 'undefined' && location.hostname) {
+        halosLink.href = `https://${location.hostname}:9090`;
+      }
+    }
+
+    const meaningOn = state === 'online' && (!shivvr || shivvr.embedModel !== 'off');
+    for (const id of ['lib-search-mode', 'dash-search-mode']) {
+      const el = typeof document.getElementById === 'function' ? document.getElementById(id) : null;
+      if (el) {
+        el.textContent = meaningOn ? 'meaning search on' : 'keyword only';
+        el.className = meaningOn ? 'badge search-mode-badge online' : 'badge search-mode-badge';
+      }
+    }
+
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+      window.dispatchEvent(new CustomEvent('lume-shivvr-status', {detail: shivvr}));
+    }
   }
 
   function setElem(id, val) {
