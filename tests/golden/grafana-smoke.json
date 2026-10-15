@@ -20,7 +20,7 @@
     {
       "id": "showTables",
       "sql": "SELECT CASE WHEN quote_ident(table_schema) IN (\nSELECT CASE WHEN trim(s[i]) = '\"$user\"' THEN user ELSE trim(s[i]) END\nFROM generate_series(array_lower(string_to_array(current_setting('search_path'),','),1),array_upper(string_to_array(current_setting('search_path'),','),1)) as i,\nstring_to_array(current_setting('search_path'),',') s\n) THEN quote_ident(table_name) ELSE quote_ident(table_schema) || '.' || quote_ident(table_name) END AS \"table\"\nFROM information_schema.tables\nWHERE quote_ident(table_schema) NOT IN ('information_schema','pg_catalog','_timescaledb_cache','_timescaledb_catalog','_timescaledb_internal','_timescaledb_config','timescaledb_information','timescaledb_experimental')\nORDER BY CASE WHEN quote_ident(table_schema) IN (\nSELECT CASE WHEN trim(s[i]) = '\"$user\"' THEN user ELSE trim(s[i]) END\nFROM generate_series(array_lower(string_to_array(current_setting('search_path'),','),1),array_upper(string_to_array(current_setting('search_path'),','),1)) as i,\nstring_to_array(current_setting('search_path'),',') s\n) THEN 0 ELSE 1 END, 1",
-      "rows": 5
+      "rows": 6
     },
     {
       "id": "getSchema-0",

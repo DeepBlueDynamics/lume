@@ -730,6 +730,11 @@ fn handle_connection_with_auth(
     }
 
     #[cfg(feature = "ti")]
+    let _query_context = ti_sql::query_log::ThreadContext::enter(ti_sql::query_log::Context::new(
+        if path.starts_with("/ti/") { "http" } else { "mcp" },
+        auth.and_then(|auth| auth.principal(req_str)),
+    ));
+    #[cfg(feature = "ti")]
     if _ti.as_ref().is_some_and(|server| server.otlp_only())
         && !(method == "POST" && matches!(path.split('?').next(), Some("/v1/metrics" | "/v1/logs")))
     {

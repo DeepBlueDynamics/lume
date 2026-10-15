@@ -427,6 +427,11 @@ impl TiServer {
             .map(|engine| engine.session.catalog.width_seconds)
     }
     pub fn mcp(&self, name: &str, args: &Value) -> Result<String, String> {
+        let context = ti_sql::query_log::Context::current();
+        let _context = ti_sql::query_log::ThreadContext::enter(ti_sql::query_log::Context::new(
+            "mcp",
+            context.identity,
+        ));
         if !args.is_object() {
             return Err("arguments must be an object".into());
         }
@@ -996,6 +1001,11 @@ pub(crate) fn handle_authenticated(
     initial: &[u8],
     http_authenticated: bool,
 ) -> std::io::Result<()> {
+    let context = ti_sql::query_log::Context::current();
+    let _context = ti_sql::query_log::ThreadContext::enter(ti_sql::query_log::Context::new(
+        "http",
+        context.identity,
+    ));
     if method == "OPTIONS" {
         return Reply {
             status: 204,

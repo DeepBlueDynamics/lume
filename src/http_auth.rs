@@ -55,6 +55,27 @@ impl HttpBearer {
         Ok(auth)
     }
 
+    /// Return only a verified JWT subject, never the raw bearer credential.
+    #[cfg(feature = "ti")]
+    pub(crate) fn principal(&self, headers: &str) -> Option<String> {
+        let value = headers.lines().find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("authorization")
+                .then_some(value.trim())
+        })?;
+        let (scheme, token) = value.split_once(' ')?;
+        if !scheme.eq_ignore_ascii_case("bearer") {
+            return None;
+        }
+        if self
+            .token
+            .as_ref()
+            .is_some_and(|expected| constant_time_eq(token.trim().as_bytes(), expected.as_bytes()))
+        {
+            return None;
+        }
+        self.nuts.as_ref()?.principal(token.trim())
+    }
     pub(crate) fn public_health(&self) -> bool {
         self.nuts.is_some()
     }
