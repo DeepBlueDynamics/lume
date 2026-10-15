@@ -31,7 +31,8 @@ const MAX_WIDGETS = 60;
 /** The options each gauge type accepts, and their kinds. Anything else is dropped. */
 const OPTION_KINDS = {
   label: 'text', unit: 'text', min: 'number', max: 'number', decimals: 'int', scale: 'number',
-  capacity: 'number', warnBelow: 'number', color: 'color', vertical: 'bool', history: 'int', zones: 'zones', windowMinutes: 'int',
+  capacity: 'number', warnBelow: 'number', color: 'color', vertical: 'bool', history: 'int', zones: 'zones',
+  windowMinutes: 'int', staleSeconds: 'int',
 };
 
 function bad(message) {

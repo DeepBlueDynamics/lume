@@ -25,8 +25,8 @@ function lumeVersion(binary) {
   return new Promise(resolve => {
     execFile(binary, ['--version'], {timeout: 5000}, (err, stdout) => {
       if (err) return resolve(null);
-      const match = /lume\s+(\S+)/.exec(String(stdout));
-      resolve(match ? match[1] : String(stdout).trim().slice(0, 60) || null);
+      const match = /lume\s+([^\r\n]+)/.exec(String(stdout));
+      resolve(match ? match[1].trim() : String(stdout).trim().slice(0, 60) || null);
     });
   });
 }

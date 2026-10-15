@@ -758,11 +758,50 @@ input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--pri
 .lume-widget.size-1x2 { grid-row: span 2; }
 .lume-widget.size-2x2 { grid-column: span 2; grid-row: span 2; }
 .lume-gauge { width: 100%; height: 100%; }
-.lume-widget-head { position: absolute; top: 6px; left: 12px; right: 8px; display: flex; justify-content: space-between; align-items: center; }
-.lume-widget > .lume-widget-title, .lume-widget-head .lume-widget-title { position: absolute; top: 7px; left: 12px; font-size: 0.78rem; font-weight: 600; color: var(--text-dim); }
+.lume-widget-head { position: absolute; top: 6px; left: 10px; right: 8px; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.lume-widget-handle { cursor: grab; color: var(--text-dim); font-size: 0.78rem; letter-spacing: -1px; user-select: none; opacity: 0.65; }
+.lume-widget-handle:hover { opacity: 1; color: var(--primary); }
+.lume-widget > .lume-widget-title, .lume-widget-head .lume-widget-title { position: absolute; top: 7px; left: 12px; font-size: 0.78rem; font-weight: 600; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .lume-widget-head .lume-widget-title { position: static; }
+.lume-widget-actions { display: inline-flex; align-items: center; gap: 6px; }
+.lume-widget-stale { font-size: 0.68rem; font-weight: 700; color: var(--accent-amber); background: rgba(251, 191, 36, 0.14); border: 1px solid rgba(251, 191, 36, 0.45); border-radius: 999px; padding: 1px 6px; white-space: nowrap; }
+.lume-widget.is-stale { border-color: rgba(251, 191, 36, 0.55); }
+.lume-widget.is-stale .lume-gauge { opacity: 0.68; }
+.lume-widget[draggable="true"] { cursor: grab; transition: transform 0.12s ease, border-color 0.12s ease, opacity 0.12s ease; }
+.lume-widget.dragging { opacity: 0.45; cursor: grabbing; }
+.lume-widget.drag-over { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(19, 218, 235, 0.35); }
 .lume-widget-remove { background: none; border: none; color: var(--text-dim); font-size: 1.1rem; cursor: pointer; line-height: 1; padding: 0 4px; }
 .lume-widget-remove:hover { color: var(--accent-red); }
+.dash-header-controls { display: inline-flex; align-items: center; gap: 0.6rem; }
+.dash-night-btn[aria-pressed="true"] { background: #260505; color: #ff4d4d; border-color: #7f1d1d; }
+
+/* Bridge night mode: red-on-black palette to preserve dark adaptation */
+#tab-dashboard.night-mode, .lume-night-mode #tab-dashboard {
+  background: #030000;
+  color: #e11d48;
+  border-radius: 12px;
+  padding: 0.75rem;
+}
+#tab-dashboard.night-mode .lume-widget, .lume-dashboard.night-mode .lume-widget {
+  background: #080101;
+  border-color: #450a0a;
+  box-shadow: none;
+}
+#tab-dashboard.night-mode .lume-widget-title,
+#tab-dashboard.night-mode .lume-widget-handle,
+#tab-dashboard.night-mode .lume-widget-remove,
+#tab-dashboard.night-mode h3,
+#tab-dashboard.night-mode .lib-meta {
+  color: #dc2626;
+}
+#tab-dashboard.night-mode .lume-gauge text { fill: #ef4444 !important; }
+#tab-dashboard.night-mode .lume-gauge path,
+#tab-dashboard.night-mode .lume-gauge polyline,
+#tab-dashboard.night-mode .lume-gauge line,
+#tab-dashboard.night-mode .lume-gauge circle,
+#tab-dashboard.night-mode .lume-gauge rect {
+  filter: sepia(1) hue-rotate(-50deg) saturate(4) brightness(0.75);
+}
 .answer-widget { margin: 0.75rem 0; }
 .answer-widget-actions { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-top: 0.5rem; }
 @media (max-width: 520px) { .lume-widget.size-2x1, .lume-widget.size-2x2 { grid-column: span 1; } }
