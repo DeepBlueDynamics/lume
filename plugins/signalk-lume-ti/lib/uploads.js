@@ -659,7 +659,7 @@ async function inspectPdfPages(pdfPath, lumeBinary, {timeoutMs = PDF_WORKER_TIME
     const ok = extracted && extracted.Ok;
     if (ok && Array.isArray(ok.sections)) {
       for (const sec of ok.sections) {
-        const p = Number(sec.line);
+        const p = Number(sec.line_number ?? sec.line);
         const body = String(sec.body || '').trim();
         if (p > 0 && body.length > 0) {
           textByPage.set(p, body);
