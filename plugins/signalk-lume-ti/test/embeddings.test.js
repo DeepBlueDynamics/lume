@@ -73,7 +73,7 @@ test('estimateVectorStorage computes per-section and library storage estimates',
 
 test('inspectIndexVectors reads LUMEVEC1 binary header and generation pointers', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lume-vec-inspect-'));
-  const genDir = path.join(dir, 'gen-0001');
+  const genDir = path.join(dir, 'generations', 'gen-0001');
   fs.mkdirSync(genDir, {recursive: true});
   fs.writeFileSync(path.join(dir, 'index.json'), JSON.stringify({
     format_version: 4,

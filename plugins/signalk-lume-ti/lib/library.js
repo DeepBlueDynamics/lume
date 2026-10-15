@@ -177,6 +177,8 @@ function inspectIndexVectors(indexDir) {
 
   const candidates = [];
   if (generation) {
+    candidates.push(path.join(indexDir, 'generations', generation, 'local-vectors.bin'));
+    candidates.push(path.join(indexDir, 'generations', generation, 'local-vectors.json'));
     candidates.push(path.join(indexDir, generation, 'local-vectors.bin'));
     candidates.push(path.join(indexDir, generation, 'local-vectors.json'));
   }
@@ -222,15 +224,18 @@ function removeVectorFiles(indexDir) {
   for (const name of ['local-vectors.bin', 'local-vectors.json']) {
     try { fs.rmSync(path.join(indexDir, name), {force: true}); } catch (_) {}
   }
-  try {
-    for (const entry of fs.readdirSync(indexDir, {withFileTypes: true})) {
-      if (entry.isDirectory()) {
-        for (const name of ['local-vectors.bin', 'local-vectors.json']) {
-          try { fs.rmSync(path.join(indexDir, entry.name, name), {force: true}); } catch (_) {}
+  for (const sub of [indexDir, path.join(indexDir, 'generations')]) {
+    try {
+      if (!fs.existsSync(sub)) continue;
+      for (const entry of fs.readdirSync(sub, {withFileTypes: true})) {
+        if (entry.isDirectory()) {
+          for (const name of ['local-vectors.bin', 'local-vectors.json']) {
+            try { fs.rmSync(path.join(sub, entry.name, name), {force: true}); } catch (_) {}
+          }
         }
       }
-    }
-  } catch (_) {}
+    } catch (_) {}
+  }
 }
 
 function parseSearchCliOutput(stdout) {
