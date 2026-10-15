@@ -620,22 +620,42 @@ fn is_hyphen(c: char) -> bool {
     )
 }
 
+fn is_combining_mark(c: char) -> bool {
+    ('\u{0300}'..='\u{036F}').contains(&c)
+}
+
 /// ASCII-fold a single Unicode char into its lowercase ASCII form.
 /// Returns `None` for chars not in the fold table (caller treats them as
 /// separators).
 fn fold_latin(c: char) -> Option<&'static str> {
     Some(match c {
-        'À' | 'Á' | 'Â' | 'Ã' | 'Ä' | 'Å' | 'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' => "a",
+        'À' | 'Á' | 'Â' | 'Ã' | 'Ä' | 'Å' | 'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'Ā' | 'ā' | 'Ă'
+        | 'ă' | 'Ą' | 'ą' => "a",
         'Æ' | 'æ' => "ae",
-        'Ç' | 'ç' => "c",
-        'È' | 'É' | 'Ê' | 'Ë' | 'è' | 'é' | 'ê' | 'ë' => "e",
-        'Ì' | 'Í' | 'Î' | 'Ï' | 'ì' | 'í' | 'î' | 'ï' => "i",
-        'Ð' | 'ð' => "d",
-        'Ñ' | 'ñ' => "n",
-        'Ò' | 'Ó' | 'Ô' | 'Õ' | 'Ö' | 'Ø' | 'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' => "o",
+        'Ç' | 'ç' | 'Ć' | 'ć' | 'Ĉ' | 'ĉ' | 'Ċ' | 'ċ' | 'Č' | 'č' => "c",
+        'Ð' | 'ð' | 'Ď' | 'ď' | 'Đ' | 'đ' => "d",
+        'È' | 'É' | 'Ê' | 'Ë' | 'è' | 'é' | 'ê' | 'ë' | 'Ē' | 'ē' | 'Ĕ' | 'ĕ' | 'Ė' | 'ė' | 'Ę'
+        | 'ę' | 'Ě' | 'ě' => "e",
+        'Ĝ' | 'ĝ' | 'Ğ' | 'ğ' | 'Ġ' | 'ġ' | 'Ģ' | 'ģ' => "g",
+        'Ĥ' | 'ĥ' | 'Ħ' | 'ħ' => "h",
+        'Ì' | 'Í' | 'Î' | 'Ï' | 'ì' | 'í' | 'î' | 'ï' | 'Ĩ' | 'ĩ' | 'Ī' | 'ī' | 'Ĭ' | 'ĭ' | 'Į'
+        | 'į' | 'İ' | 'ı' => "i",
+        'Ĳ' | 'ĳ' => "ij",
+        'Ĵ' | 'ĵ' => "j",
+        'Ķ' | 'ķ' | 'ĸ' => "k",
+        'Ĺ' | 'ĺ' | 'Ļ' | 'ļ' | 'Ľ' | 'ľ' | 'Ŀ' | 'ŀ' | 'Ł' | 'ł' => "l",
+        'Ñ' | 'ñ' | 'Ń' | 'ń' | 'Ņ' | 'ņ' | 'Ň' | 'ň' | 'ŉ' | 'Ŋ' | 'ŋ' => "n",
+        'Ò' | 'Ó' | 'Ô' | 'Õ' | 'Ö' | 'Ø' | 'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' | 'Ō' | 'ō' | 'Ŏ'
+        | 'ŏ' | 'Ő' | 'ő' => "o",
         'Œ' | 'œ' => "oe",
-        'Ù' | 'Ú' | 'Û' | 'Ü' | 'ù' | 'ú' | 'û' | 'ü' => "u",
-        'Ý' | 'ý' | 'ÿ' => "y",
+        'Ŕ' | 'ŕ' | 'Ŗ' | 'ŗ' | 'Ř' | 'ř' => "r",
+        'Ś' | 'ś' | 'Ŝ' | 'ŝ' | 'Ş' | 'ş' | 'Š' | 'š' | 'Ș' | 'ș' => "s",
+        'Ţ' | 'ţ' | 'Ť' | 'ť' | 'Ŧ' | 'ŧ' | 'Ț' | 'ț' => "t",
+        'Ù' | 'Ú' | 'Û' | 'Ü' | 'ù' | 'ú' | 'û' | 'ü' | 'Ũ' | 'ũ' | 'Ū' | 'ū' | 'Ŭ' | 'ŭ' | 'Ů'
+        | 'ů' | 'Ű' | 'ű' | 'Ų' | 'ų' => "u",
+        'Ŵ' | 'ŵ' => "w",
+        'Ý' | 'ý' | 'ÿ' | 'Ÿ' | 'Ŷ' | 'ŷ' => "y",
+        'Ź' | 'ź' | 'Ż' | 'ż' | 'Ž' | 'ž' => "z",
         'Þ' | 'þ' => "th",
         'ß' => "ss",
         _ => return None,
@@ -646,10 +666,18 @@ fn fold_latin(c: char) -> Option<&'static str> {
 /// return one [`Folded`] per output byte, with offsets back into the
 /// original input.
 fn fold_text(text: &str) -> Vec<Folded> {
-    let mut out = Vec::with_capacity(text.len());
+    let mut out: Vec<Folded> = Vec::with_capacity(text.len());
     for (start, c) in text.char_indices() {
         let end = start + c.len_utf8();
         if is_hyphen(c) {
+            continue;
+        }
+        if is_combining_mark(c) {
+            if let Some(prev) = out.last_mut() {
+                if prev.ch.is_ascii_alphanumeric() {
+                    prev.src_end = end;
+                }
+            }
             continue;
         }
         if c.is_ascii_alphanumeric() {
@@ -683,9 +711,17 @@ fn fold_text_with_options(text: &str, keep_hyphens: bool) -> Vec<Folded> {
         return fold_text(text);
     }
     let chars: Vec<(usize, char)> = text.char_indices().collect();
-    let mut out = Vec::with_capacity(text.len());
+    let mut out: Vec<Folded> = Vec::with_capacity(text.len());
     for (i, &(start, c)) in chars.iter().enumerate() {
         let end = start + c.len_utf8();
+        if is_combining_mark(c) {
+            if let Some(prev) = out.last_mut() {
+                if prev.ch.is_ascii_alphanumeric() {
+                    prev.src_end = end;
+                }
+            }
+            continue;
+        }
         if is_hyphen(c) {
             let prev_alnum = if i > 0 {
                 chars[i - 1].1.is_alphanumeric()
@@ -797,6 +833,16 @@ pub fn tokenize_with_options(text: &str, stem: bool, keep_hyphens: bool) -> Vec<
 
 pub fn tokenize(text: &str) -> Vec<Token> {
     tokenize_with_options(text, false, false)
+}
+
+/// Normalize a phrase or entity name by folding accents, lowercasing, and
+/// joining folded tokens with single spaces (`"Edmond Dantès"` → `"edmond dantes"`).
+pub fn fold_ascii(text: &str) -> String {
+    tokenize(text)
+        .into_iter()
+        .map(|t| String::from_utf8_lossy(&t.bytes).into_owned())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Build the canonical FST key bytes for a phrase: folded tokens joined

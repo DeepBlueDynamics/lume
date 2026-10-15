@@ -518,8 +518,12 @@ fn lume_main() {
         "help" | "-h" | "--help" => {
             print_global_help();
         }
-        "version" | "-v" | "--version" => {
-            println!("lume {}", env!("CARGO_PKG_VERSION"));
+        "version" | "-v" | "-V" | "--version" => {
+            println!(
+                "lume {} ({})",
+                env!("CARGO_PKG_VERSION"),
+                env!("LUME_BUILD_COMMIT")
+            );
         }
         _ => {
             eprintln!("Unknown subcommand: {}", args[1]);
@@ -1088,7 +1092,9 @@ USAGE:"#
     println!("{}", lume::ti_parquet::USAGE);
     println!("{}", lume::ti_rules::USAGE);
     println!("lume ti ingest --signalk <url> --store <root> [--serve] [--otlp] [--pg <port>]   (ti ingest --help for every flag)");
-    println!("lume ti otlp --store <root> [--bind 127.0.0.1] [--port 4318] [--otlp-token-file <path>]");
+    println!(
+        "lume ti otlp --store <root> [--bind 127.0.0.1] [--port 4318] [--otlp-token-file <path>]"
+    );
     println!("lume ti sync --to <url> --store <root> [--token-file <path>]   (ti sync --help for every flag)");
     println!("lume ti verify (--fixture snapshot.json | --store <root>) --corpus tests/golden");
 }

@@ -498,10 +498,20 @@ pub fn correct_query(spelling: &SpellIndex, query: &str) -> String {
             words.push(word.to_string());
             continue;
         }
-        if spelling.vocab_set.contains(&clean) {
+        let folded = crate::fold_ascii(&clean);
+        let known_stemmed = crate::tokenize_with_options(word, true, false)
+            .iter()
+            .any(|tok| {
+                std::str::from_utf8(&tok.bytes).is_ok_and(|s| spelling.vocab_set.contains(s))
+            });
+        if spelling.vocab_set.contains(&clean)
+            || (!folded.is_empty() && spelling.vocab_set.contains(&folded))
+            || known_stemmed
+        {
             words.push(word.to_string());
         } else {
-            let suggestions = spelling.correct_word(&clean, 1);
+            let probe = if folded.is_empty() { &clean } else { &folded };
+            let suggestions = spelling.correct_word(probe, 1);
             if let Some((best, _)) = suggestions.first() {
                 words.push(best.clone());
             } else {

@@ -105,19 +105,29 @@ def main():
                 subprocess.run(command, env=env, stdout=output, stderr=subprocess.STDOUT, check=True)
             if calls:
                 raise RuntimeError("Index made upstream calls")
-        if (db / "manifest.json").exists():
+        gen_dir = None
+        if (db / "index.json").exists():
+            manifest = json.loads((db / "index.json").read_text())
+            sections = manifest.get("sections") or manifest["counts"]["sections"]
+            if "generation" in manifest:
+                gen_dir = db / "generations" / manifest["generation"]
+        elif (db / "manifest.json").exists():
             manifest = json.loads((db / "manifest.json").read_text())
-            sections = manifest["counts"]["sections"]
+            sections = manifest.get("sections") or manifest["counts"]["sections"]
+            if "generation" in manifest:
+                gen_dir = db / "generations" / manifest["generation"]
         else:
             state = json.loads((db / "state.json").read_text())
             sections = sum(len(row[1]) for row in state["cached_files"].values())
-        if (db / "local-vectors.bin").exists():
-            raw = (db / "local-vectors.bin").read_bytes()
+        vec_dir = gen_dir if gen_dir is not None and (gen_dir / "local-vectors.bin").exists() else db
+        if (vec_dir / "local-vectors.bin").exists():
+            raw = (vec_dir / "local-vectors.bin").read_bytes()
             model_len = int.from_bytes(raw[12:16], "little")
             doc_count = int.from_bytes(raw[20 + model_len:24 + model_len], "little")
             query_count = int.from_bytes(raw[24 + model_len:28 + model_len], "little")
         else:
-            vectors = json.loads((db / "local-vectors.json").read_text())
+            json_dir = gen_dir if gen_dir is not None and (gen_dir / "local-vectors.json").exists() else db
+            vectors = json.loads((json_dir / "local-vectors.json").read_text())
             doc_count = len(vectors["documents"])
             query_count = len(vectors["queries"])
         queries = list(csv.reader((root / dataset / "queries.tsv").open(), delimiter="\t"))
