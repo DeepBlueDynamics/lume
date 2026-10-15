@@ -33,6 +33,7 @@ fn command() -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_lume"));
     for key in [
         "LUME_INDEX_FORMAT",
+        "LUME_COMPRESS",
         "LUME_EMBED_MODEL",
         "LUME_EMBED_DIMENSIONS",
         "LUME_TIMING",
@@ -241,6 +242,30 @@ fn zstd_compressed_v4_index_matches_uncompressed_and_rejects_bad_flag() {
         out.stdout
     };
 
+    // Default (LUME_COMPRESS unset) writes zstd-compressed text.bin (kind = 10).
+    let default_index = command()
+        .args(["index", "-f"])
+        .arg(&source)
+        .arg("--db")
+        .arg(&shared)
+        .output()
+        .unwrap();
+    success(&default_index);
+    let default_manifest = lume::index_binary::generation::read_manifest(&shared).unwrap();
+    let default_text = std::fs::read(
+        shared
+            .join("generations")
+            .join(&default_manifest.generation)
+            .join("text.bin"),
+    )
+    .unwrap();
+    assert_eq!(
+        u16::from_le_bytes(default_text[8..10].try_into().unwrap()),
+        10
+    );
+    let zstd_reply = run_query(&shared);
+
+    // LUME_COMPRESS=none opts out and writes uncompressed text.bin (kind = 5).
     success(&index_with_compress(&shared, "none"));
     let plain_manifest = lume::index_binary::generation::read_manifest(&shared).unwrap();
     let plain_text = std::fs::read(
@@ -253,20 +278,18 @@ fn zstd_compressed_v4_index_matches_uncompressed_and_rejects_bad_flag() {
     assert_eq!(u16::from_le_bytes(plain_text[8..10].try_into().unwrap()), 5);
     let plain_reply = run_query(&shared);
 
-    success(&index_with_compress(&shared, "zstd"));
-    let zstd_manifest = lume::index_binary::generation::read_manifest(&shared).unwrap();
-    let zstd_text = std::fs::read(
-        shared
-            .join("generations")
-            .join(&zstd_manifest.generation)
-            .join("text.bin"),
-    )
-    .unwrap();
-    assert_eq!(u16::from_le_bytes(zstd_text[8..10].try_into().unwrap()), 10);
-    let zstd_reply = run_query(&shared);
-
     assert_eq!(plain_reply, zstd_reply);
 
     let bad = index_with_compress(&fixture.root.join("bad"), "lz4");
     assert!(!bad.status.success());
+
+    let ver = command().arg("--version").output().unwrap();
+    success(&ver);
+    let ver_str = String::from_utf8_lossy(&ver.stdout);
+    let trimmed = ver_str.trim();
+    assert!(
+        trimmed.starts_with(concat!("lume ", env!("CARGO_PKG_VERSION"), " ("))
+            && trimmed.ends_with(')'),
+        "unexpected --version output: {trimmed:?}"
+    );
 }

@@ -29,13 +29,13 @@ pub struct SectionText {
 pub fn compress_enabled() -> Result<bool, String> {
     match std::env::var("LUME_COMPRESS") {
         Ok(value) => match value.trim() {
-            "" | "0" | "false" | "none" | "off" => Ok(false),
-            "zstd" => Ok(true),
+            "" | "zstd" => Ok(true),
+            "0" | "false" | "none" | "off" => Ok(false),
             other => Err(format!(
                 "Unsupported LUME_COMPRESS={other:?}; expected 'zstd' or 'none'"
             )),
         },
-        Err(std::env::VarError::NotPresent) => Ok(false),
+        Err(std::env::VarError::NotPresent) => Ok(true),
         Err(_) => Err("Invalid LUME_COMPRESS".into()),
     }
 }

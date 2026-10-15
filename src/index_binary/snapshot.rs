@@ -236,6 +236,18 @@ fn publish_prepared(
         staged.write(crate::local_vectors::FILE, |output| {
             output.write_all(&bytes).map_err(|e| e.to_string())
         })?;
+    } else if present(root) {
+        let prev = generation::read_manifest(root)?;
+        let prev_dir = generation::generation_directory(root, &prev)?;
+        let prev_vectors = prev_dir.join(crate::local_vectors::FILE);
+        if prev_vectors.exists() {
+            crate::local_vectors::LocalVectors::open(&prev_dir, &bm25.sections)?;
+            staged.write(crate::local_vectors::FILE, |output| {
+                let mut file = std::fs::File::open(&prev_vectors).map_err(|e| e.to_string())?;
+                std::io::copy(&mut file, output).map_err(|e| e.to_string())?;
+                Ok(())
+            })?;
+        }
     }
     drop(bm25);
     staged.write("build-state.json", |output| {
@@ -257,7 +269,13 @@ fn publish_prepared(
         })?;
     }
     crate::index_timing::memory_checkpoint("v4.memory.publication_complete");
-    staged.finish()
+    let published = staged.finish()?;
+    for root_copy in [&vectors, &legacy_vectors] {
+        if root_copy.exists() {
+            let _ = std::fs::remove_file(root_copy);
+        }
+    }
+    Ok(published)
 }
 
 pub fn component<T: serde::de::DeserializeOwned>(root: &Path, name: &str) -> Result<T, String> {

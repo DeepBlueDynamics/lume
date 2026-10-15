@@ -908,6 +908,7 @@ impl Bm25Index {
         let mut entity_posting_lists: HashMap<String, MiniRoaring> = HashMap::new();
         let mut entity_kinds = HashMap::new();
         let mut entity_labels = HashMap::new();
+        let mut folded_entity_keys: HashMap<String, String> = HashMap::new();
         let stem = options.stemmed;
 
         for (doc_idx, sec) in sections.iter().enumerate() {
@@ -1026,8 +1027,13 @@ impl Bm25Index {
                 }
             }
             for ent in &sec.entities {
-                let ent_key = ent.trim().to_lowercase();
-                if !ent_key.is_empty() && ent_key != "__lume_processed__" {
+                let raw_key = ent.trim().to_lowercase();
+                let folded_key = crate::fold_ascii(&raw_key);
+                if !folded_key.is_empty() && raw_key != "__lume_processed__" {
+                    let ent_key = folded_entity_keys
+                        .entry(folded_key)
+                        .or_insert_with(|| raw_key.clone())
+                        .clone();
                     entity_posting_lists
                         .entry(ent_key.clone())
                         .or_default()
@@ -1036,7 +1042,12 @@ impl Bm25Index {
                         .entry(ent_key.clone())
                         .or_insert_with(|| "ollama".to_string());
                     entity_labels
-                        .entry(ent_key.clone())
+                        .entry(ent_key)
+                        .and_modify(|curr| {
+                            if curr.is_ascii() && !ent.is_ascii() {
+                                *curr = ent.clone();
+                            }
+                        })
                         .or_insert_with(|| ent.clone());
                 }
             }
@@ -1088,6 +1099,7 @@ impl Bm25Index {
         let mut entity_posting_lists: HashMap<String, MiniRoaring> = HashMap::new();
         let mut entity_kinds = HashMap::new();
         let mut entity_labels = HashMap::new();
+        let mut folded_entity_keys: HashMap<String, String> = HashMap::new();
         for (doc_idx, sec) in self.sections.iter().enumerate() {
             let doc_id = doc_idx as u32;
             let pf = &mut self.prime_filters[doc_idx];
@@ -1157,8 +1169,13 @@ impl Bm25Index {
                 }
             }
             for ent in &sec.entities {
-                let ent_key = ent.trim().to_lowercase();
-                if !ent_key.is_empty() && ent_key != "__lume_processed__" {
+                let raw_key = ent.trim().to_lowercase();
+                let folded_key = crate::fold_ascii(&raw_key);
+                if !folded_key.is_empty() && raw_key != "__lume_processed__" {
+                    let ent_key = folded_entity_keys
+                        .entry(folded_key)
+                        .or_insert_with(|| raw_key.clone())
+                        .clone();
                     entity_posting_lists
                         .entry(ent_key.clone())
                         .or_default()
@@ -1167,7 +1184,12 @@ impl Bm25Index {
                         .entry(ent_key.clone())
                         .or_insert_with(|| "ollama".to_string());
                     entity_labels
-                        .entry(ent_key.clone())
+                        .entry(ent_key)
+                        .and_modify(|curr| {
+                            if curr.is_ascii() && !ent.is_ascii() {
+                                *curr = ent.clone();
+                            }
+                        })
                         .or_insert_with(|| ent.clone());
                 }
             }

@@ -45,13 +45,13 @@ pub(super) fn compress_enabled() -> Result<bool> {
     }
     match std::env::var("LUME_COMPRESS") {
         Ok(value) => match value.trim() {
-            "" | "0" | "false" | "none" | "off" => Ok(false),
-            "zstd" => Ok(true),
+            "" | "zstd" => Ok(true),
+            "0" | "false" | "none" | "off" => Ok(false),
             other => Err(Error::InvalidInput(format!(
                 "unsupported LUME_COMPRESS={other:?}; expected 'zstd' or 'none'"
             ))),
         },
-        Err(std::env::VarError::NotPresent) => Ok(false),
+        Err(std::env::VarError::NotPresent) => Ok(true),
         Err(_) => Err(Error::InvalidInput("invalid LUME_COMPRESS".into())),
     }
 }
