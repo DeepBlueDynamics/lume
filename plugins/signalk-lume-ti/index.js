@@ -121,6 +121,68 @@ module.exports = function (app) {
       try { res.json(await library.search(String(req.query.q || ''), Number(req.query.limit) || 8)); }
       catch (error) { res.status(500).json({error: error.message}); }
     });
+    router.post('/api/library/upload', async (req, res) => {
+      const status = adminStatus(app, req);
+      if (status !== 200) {
+        try { if (typeof req.resume === 'function') req.resume(); } catch (_) {}
+        return res.status(status).json({error: 'Signal K administrator required'});
+      }
+      if (!library) {
+        try { if (typeof req.resume === 'function') req.resume(); } catch (_) {}
+        return libraryUnavailable(res);
+      }
+      try {
+        const rawName = String(req.query?.name || req.headers['x-file-name'] || '').trim();
+        const rawTitle = String(req.query?.title || req.headers['x-file-title'] || '').trim();
+        const readBookIndex = req.query?.readBookIndex === '1'
+          || req.query?.readBookIndex === 'true'
+          || req.headers['x-read-book-index'] === '1'
+          || req.headers['x-read-book-index'] === 'true';
+        const result = await library.upload(req, {name: rawName, title: rawTitle, readBookIndex});
+        res.json({
+          ...result,
+          items: library.items(),
+          shivvr: shivvr ? shivvr.status() : defaultOfflineStatus(pluginConfig.shivvrUrl),
+        });
+      } catch (error) {
+        res.status(error.status || 400).json({error: error.message, code: error.code || 'bad_upload'});
+      }
+    });
+    router.post('/api/library/pdf-page', async (req, res) => {
+      const status = adminStatus(app, req);
+      if (status !== 200) return res.status(status).json({error: 'Signal K administrator required'});
+      if (!library) return libraryUnavailable(res);
+      try {
+        const body = await readJson(req);
+        const result = await library.describePdfPageOnDemand(body.name, body.page);
+        res.json(result);
+      } catch (error) {
+        res.status(error.status || 400).json({error: error.message, code: error.code || 'bad_request'});
+      }
+    });
+    router.post('/api/library/pdf-book-index', async (req, res) => {
+      const status = adminStatus(app, req);
+      if (status !== 200) return res.status(status).json({error: 'Signal K administrator required'});
+      if (!library) return libraryUnavailable(res);
+      try {
+        const body = await readJson(req);
+        const result = await library.describePdfBookIndex(body.name);
+        res.json(result);
+      } catch (error) {
+        res.status(error.status || 400).json({error: error.message, code: error.code || 'bad_request'});
+      }
+    });
+    router.get('/api/library/file/user/:name', (req, res) => {
+      const file = library && library.userFile(req.params.name);
+      if (!file) return res.status(404).json({error: 'Not in the library'});
+      const base = path.basename(file);
+      const inline = /\.(pdf|png|jpe?g|webp)$/i.test(base);
+      const mime = library.userFileMime(base);
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Content-Type', mime);
+      res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${base}"`);
+      res.sendFile(file);
+    });
     // The downloaded copy, so search results open offline. PDFs open in the browser's
     // viewer (which honours #page=N); anything else downloads, so a fetched HTML page
     // can never run script on the Signal K origin.
@@ -310,9 +372,17 @@ module.exports = function (app) {
       log(`Starting Lume TI plugin. Data dir: ${dataDir}, Store dir: ${storeDir}`);
 
       if (shivvr) shivvr.stop();
+      let wasOnline = false;
       shivvr = new ShivvrMonitor({
         getUrl: () => pluginConfig.shivvrUrl || DEFAULT_SHIVVR_URL,
         getRequiredModel: () => pluginConfig.libraryEmbedModel || undefined,
+        onUpdate: st => {
+          const nowOnline = Boolean(st && st.online);
+          if (nowOnline && !wasOnline && library) {
+            library.retryPendingVision().catch(err => log(`Vision retry failed: ${err.message}`, true));
+          }
+          wasOnline = nowOnline;
+        },
       });
       shivvr.start();
 

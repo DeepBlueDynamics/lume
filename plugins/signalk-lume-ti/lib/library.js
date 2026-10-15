@@ -8,6 +8,23 @@ const http = require('node:http');
 const path = require('node:path');
 const {spawn} = require('node:child_process');
 const {DEFAULT_SHIVVR_URL, normalizeUrl} = require('./shivvr');
+const {
+  IMAGE_EXTENSIONS,
+  MIME_BY_EXT,
+  uploadError,
+  sanitizeUploadName,
+  userPaths,
+  readJsonSafe,
+  writeJsonAtomic,
+  streamUploadToDisk,
+  extractPdfPageImage,
+  inspectPdfPages,
+  resolveCloudVisionConfig,
+  callOllamaCloudVision,
+  buildImageSidecarMarkdown,
+  buildPdfSidecarMarkdown,
+  looksLikeBookIndexPage,
+} = require('./uploads');
 
 const LIST = path.join(__dirname, '..', 'library', 'cruiser_library.csv');
 const RULES = path.join(__dirname, '..', 'library', 'alert_references.json');
@@ -403,7 +420,477 @@ class Library {
     this.job = {running: false, phase: 'idle', ids: [], lines: [], startedAt: null, finishedAt: null, error: null};
   }
 
-  items() { return listWithState(this.dataDir, this.list); }
+  items() {
+    return [...this.userItems(), ...listWithState(this.dataDir, this.list)];
+  }
+
+  _readUserMeta() {
+    const u = userPaths(this.dataDir);
+    const parsed = readJsonSafe(u.metaFile, {items: {}});
+    return parsed && typeof parsed.items === 'object' && parsed.items ? parsed.items : {};
+  }
+
+  _writeUserMeta(itemsMap) {
+    const u = userPaths(this.dataDir);
+    writeJsonAtomic(u.metaFile, {items: itemsMap});
+  }
+
+  _readVisionCache(safeName) {
+    const u = userPaths(this.dataDir);
+    const cacheFile = path.join(u.cacheDir, `${safeName}.json`);
+    const parsed = readJsonSafe(cacheFile, {pages: {}});
+    return parsed && typeof parsed.pages === 'object' && parsed.pages ? parsed : {pages: {}};
+  }
+
+  _writeVisionCache(safeName, cacheObj) {
+    const u = userPaths(this.dataDir);
+    const cacheFile = path.join(u.cacheDir, `${safeName}.json`);
+    writeJsonAtomic(cacheFile, cacheObj);
+  }
+
+  userItems() {
+    const u = userPaths(this.dataDir);
+    if (!fs.existsSync(u.userDir)) return [];
+    const meta = this._readUserMeta();
+    let files = [];
+    try {
+      files = fs.readdirSync(u.userDir);
+    } catch (_) {
+      return [];
+    }
+    const fileSet = new Set(files);
+    const out = [];
+    for (const name of files.sort()) {
+      // Skip hidden temp files and .md vision sidecar files that belong to an original image or PDF.
+      if (name.startsWith('.') || name.endsWith('.part')) continue;
+      if (name.endsWith('.md') && fileSet.has(name.slice(0, -3))) continue;
+      let stat;
+      try {
+        stat = fs.statSync(path.join(u.userDir, name));
+        if (!stat.isFile()) continue;
+      } catch (_) {
+        continue;
+      }
+      const ext = path.extname(name).toLowerCase();
+      const entry = meta[name] || {};
+      const visionStatus = entry.visionStatus || (fileSet.has(`${name}.md`) ? 'described' : 'none');
+      const visionLabel = visionStatus === 'waiting_for_description'
+        ? 'waiting for a description'
+        : (visionStatus === 'described' ? 'described' : null);
+      out.push({
+        id: `user:${name}`,
+        userFile: name,
+        addedByYou: true,
+        title: entry.title || name,
+        category: 'Added by you',
+        subcategory: '',
+        publisher: 'Added by you',
+        format: ext.slice(1) || 'txt',
+        url: null,
+        localUrl: `/plugins/signalk-lume-ti/api/library/file/user/${encodeURIComponent(name)}`,
+        bytes: stat.size,
+        uploadedAt: entry.uploadedAt || stat.mtime.toISOString(),
+        state: entry.state || 'indexed',
+        error: entry.error || null,
+        visionStatus,
+        visionLabel,
+        visionError: entry.visionError || null,
+        totalPages: entry.totalPages || null,
+        describedPages: Array.isArray(entry.describedPages) ? entry.describedPages : [],
+        indexPages: Array.isArray(entry.indexPages) ? entry.indexPages : [],
+      });
+    }
+    return out;
+  }
+
+  userFile(name) {
+    let safeName;
+    try {
+      safeName = sanitizeUploadName(name);
+    } catch (_) {
+      return null;
+    }
+    const u = userPaths(this.dataDir);
+    const full = path.join(u.userDir, safeName);
+    return fs.existsSync(full) ? full : null;
+  }
+
+  userFileMime(name) {
+    const ext = path.extname(String(name || '')).toLowerCase();
+    return MIME_BY_EXT[ext] || 'application/octet-stream';
+  }
+
+  _visionOptions() {
+    const raw = typeof this.getEmbedOptions === 'function' ? (this.getEmbedOptions() || {}) : {};
+    return resolveCloudVisionConfig(raw, this.dataDir);
+  }
+
+  async _describePdfPageWithCache(safeName, pdfPath, pageNumber, cache, prompt) {
+    const key = String(pageNumber);
+    if (cache.pages && cache.pages[key] && cache.pages[key].text) {
+      return {text: cache.pages[key].text, cached: true, method: cache.pages[key].method || 'cache'};
+    }
+    const extracted = extractPdfPageImage(pdfPath, pageNumber);
+    if (!extracted || !extracted.buffer) {
+      throw uploadError(`Page ${pageNumber} has no embedded JPEG and pdftoppm is unavailable`, 422, 'no_page_image');
+    }
+    const vcfg = this._visionOptions();
+    const text = await callOllamaCloudVision({
+      ...vcfg,
+      imageBuffer: extracted.buffer,
+      prompt: prompt || `Transcribe and describe page ${pageNumber} of "${safeName}". Include all headings, tables, numbers, part numbers, and warnings verbatim.`,
+    });
+    cache.pages[key] = {
+      page: pageNumber,
+      text,
+      method: extracted.method,
+      model: vcfg.model,
+      at: new Date().toISOString(),
+    };
+    this._writeVisionCache(safeName, cache);
+    return {text, cached: false, method: extracted.method};
+  }
+
+  _syncPdfSidecar(safeName, title, cache) {
+    const u = userPaths(this.dataDir);
+    const pagesMap = new Map(Object.entries(cache.pages || {}));
+    if (pagesMap.size === 0) return;
+    const md = buildPdfSidecarMarkdown({safeName, title, pagesMap});
+    fs.writeFileSync(path.join(u.userDir, `${safeName}.md`), md, 'utf8');
+  }
+
+  async _readPdfBookIndexBackwards(safeName, pdfPath, {totalPages, textByPage, cache}) {
+    const indexPages = [];
+    let waitingOffline = false;
+    let offlineError = null;
+
+    for (let page = totalPages; page >= 1; page--) {
+      let pageText = textByPage.get(page) || null;
+      if (!pageText) {
+        try {
+          const res = await this._describePdfPageWithCache(
+            safeName,
+            pdfPath,
+            page,
+            cache,
+            `Transcribe page ${page} of "${safeName}" verbatim. If this page is part of the book's back-of-book alphabetical index, begin with [BOOK_INDEX_PAGE]; if it is normal book prose/chapters before the index, begin with [BOOK_TEXT_START].`
+          );
+          pageText = res.text;
+        } catch (err) {
+          if (err && err.offline) {
+            waitingOffline = true;
+            offlineError = err.message;
+          }
+          break;
+        }
+      }
+      if (looksLikeBookIndexPage(pageText)) {
+        indexPages.push(page);
+      } else {
+        // Stop walking backwards as soon as the back-of-book index ends and the book text starts.
+        break;
+      }
+    }
+    return {indexPages: indexPages.sort((a, b) => a - b), waitingOffline, offlineError};
+  }
+
+  async _processUploadVision(safeName, {readBookIndex = false} = {}) {
+    const u = userPaths(this.dataDir);
+    const fullPath = path.join(u.userDir, safeName);
+    const ext = path.extname(safeName).toLowerCase();
+    const meta = this._readUserMeta();
+    const entry = meta[safeName] || {name: safeName, title: safeName, uploadedAt: new Date().toISOString()};
+    entry.readBookIndex = Boolean(readBookIndex || entry.readBookIndex);
+
+    if (IMAGE_EXTENSIONS.has(ext)) {
+      const sidecarPath = path.join(u.userDir, `${safeName}.md`);
+      try {
+        const vcfg = this._visionOptions();
+        const imageBuffer = fs.readFileSync(fullPath);
+        const description = await callOllamaCloudVision({
+          ...vcfg,
+          imageBuffer,
+          prompt: `Describe this marine image ("${safeName}") and transcribe every visible label, gauge reading, serial number, wiring label, and warning verbatim.`,
+        });
+        fs.writeFileSync(sidecarPath, buildImageSidecarMarkdown({safeName, title: entry.title || safeName, description}), 'utf8');
+        entry.visionStatus = 'described';
+        entry.visionError = null;
+      } catch (err) {
+        if (err && err.offline) {
+          entry.visionStatus = 'waiting_for_description';
+          entry.visionError = err.message;
+        } else {
+          entry.visionStatus = 'waiting_for_description';
+          entry.visionError = err.message;
+          if (err && err.code === 'local_model_disallowed') {
+            meta[safeName] = entry;
+            this._writeUserMeta(meta);
+            throw err;
+          }
+        }
+      }
+      meta[safeName] = entry;
+      this._writeUserMeta(meta);
+      return entry;
+    }
+
+    if (ext === '.pdf') {
+      const {totalPages, textByPage} = await inspectPdfPages(fullPath, this.binary);
+      entry.totalPages = totalPages;
+      const cache = this._readVisionCache(safeName);
+      let waitingOffline = false;
+      let offlineError = null;
+      let neededVision = false;
+
+      // Describe the first 5 pages at index time when those pages have no extracted text.
+      const firstLimit = Math.min(5, totalPages);
+      for (let page = 1; page <= firstLimit; page++) {
+        if (textByPage.has(page)) continue;
+        neededVision = true;
+        try {
+          await this._describePdfPageWithCache(safeName, fullPath, page, cache);
+        } catch (err) {
+          if (err && err.offline) {
+            waitingOffline = true;
+            offlineError = err.message;
+            break;
+          }
+          if (err && err.code === 'local_model_disallowed') {
+            throw err;
+          }
+        }
+      }
+
+      if (!waitingOffline && entry.readBookIndex) {
+        neededVision = true;
+        const idxRes = await this._readPdfBookIndexBackwards(safeName, fullPath, {totalPages, textByPage, cache});
+        entry.indexPages = idxRes.indexPages;
+        if (idxRes.waitingOffline) {
+          waitingOffline = true;
+          offlineError = idxRes.offlineError;
+        }
+      }
+
+      this._syncPdfSidecar(safeName, entry.title || safeName, cache);
+      entry.describedPages = Object.keys(cache.pages || {}).map(Number).filter(n => n > 0).sort((a, b) => a - b);
+
+      if (waitingOffline) {
+        entry.visionStatus = 'waiting_for_description';
+        entry.visionError = offlineError || 'Waiting for Ollama cloud connection';
+      } else if (entry.describedPages.length > 0) {
+        entry.visionStatus = 'described';
+        entry.visionError = null;
+      } else if (neededVision) {
+        entry.visionStatus = 'waiting_for_description';
+        entry.visionError = 'No embedded page images available';
+      } else {
+        entry.visionStatus = 'none';
+        entry.visionError = null;
+      }
+
+      meta[safeName] = entry;
+      this._writeUserMeta(meta);
+      return entry;
+    }
+
+    entry.visionStatus = 'none';
+    entry.visionError = null;
+    meta[safeName] = entry;
+    this._writeUserMeta(meta);
+    return entry;
+  }
+
+  /**
+   * Stream an uploaded file to `<library>/files/user/<safeName>`, describe images / scanned PDFs
+   * with Ollama Cloud vision (keeping the original untouched and writing `<safeName>.md` beside it),
+   * and run an incremental `lume index` update.
+   */
+  async upload(req, {name, title, readBookIndex = false} = {}) {
+    const safeName = sanitizeUploadName(name);
+    const ext = path.extname(safeName).toLowerCase();
+    const u = userPaths(this.dataDir);
+    const destPath = path.join(u.userDir, safeName);
+    const {bytes} = await streamUploadToDisk(req, destPath, ext);
+
+    const meta = this._readUserMeta();
+    meta[safeName] = {
+      name: safeName,
+      title: String(title || safeName).trim() || safeName,
+      bytes,
+      uploadedAt: new Date().toISOString(),
+      state: 'fetched',
+      readBookIndex: Boolean(readBookIndex),
+      visionStatus: 'none',
+      visionError: null,
+      totalPages: null,
+      describedPages: [],
+      indexPages: [],
+    };
+    this._writeUserMeta(meta);
+
+    const entry = await this._processUploadVision(safeName, {readBookIndex});
+
+    const p = paths(this.dataDir);
+    fs.mkdirSync(p.files, {recursive: true});
+    const indexed = await this._runIndexStep(p, {force: false});
+    const updatedMeta = this._readUserMeta();
+    if (updatedMeta[safeName]) {
+      updatedMeta[safeName].state = indexed.code === 0 ? 'indexed' : 'fetched';
+      if (indexed.code !== 0) {
+        updatedMeta[safeName].error = `lume index exited ${indexed.code}`;
+      }
+      this._writeUserMeta(updatedMeta);
+    }
+
+    const item = this.userItems().find(i => i.userFile === safeName) || entry;
+    return {
+      ok: true,
+      item,
+      ...this.status(),
+    };
+  }
+
+  /**
+   * Describe a single PDF page on demand. Only calls Ollama Cloud vision when the page
+   * has no extracted text in the PDF and is not already in the per-page cache.
+   */
+  async describePdfPageOnDemand(rawName, pageNumber) {
+    const safeName = sanitizeUploadName(rawName);
+    if (path.extname(safeName).toLowerCase() !== '.pdf') {
+      throw uploadError('On-demand page description is only supported for PDF files', 400, 'not_pdf');
+    }
+    const pdfPath = this.userFile(safeName);
+    if (!pdfPath) {
+      throw uploadError(`PDF "${safeName}" not found in user uploads`, 404, 'not_found');
+    }
+    const page = Math.max(1, Number(pageNumber) | 0);
+    const cache = this._readVisionCache(safeName);
+    if (cache.pages && cache.pages[String(page)] && cache.pages[String(page)].text) {
+      return {
+        ok: true,
+        name: safeName,
+        page,
+        text: cache.pages[String(page)].text,
+        source: 'vision-cache',
+        cached: true,
+      };
+    }
+
+    const {totalPages, textByPage} = await inspectPdfPages(pdfPath, this.binary);
+    if (page > totalPages) {
+      throw uploadError(`Page ${page} exceeds PDF page count (${totalPages})`, 400, 'page_out_of_range');
+    }
+    if (textByPage.has(page)) {
+      return {
+        ok: true,
+        name: safeName,
+        page,
+        text: textByPage.get(page),
+        source: 'extracted-text',
+        cached: true,
+      };
+    }
+
+    const res = await this._describePdfPageWithCache(safeName, pdfPath, page, cache);
+    const meta = this._readUserMeta();
+    const entry = meta[safeName] || {name: safeName, title: safeName};
+    this._syncPdfSidecar(safeName, entry.title || safeName, cache);
+    entry.totalPages = totalPages;
+    entry.describedPages = Object.keys(cache.pages || {}).map(Number).filter(n => n > 0).sort((a, b) => a - b);
+    entry.visionStatus = 'described';
+    entry.visionError = null;
+    meta[safeName] = entry;
+    this._writeUserMeta(meta);
+
+    const p = paths(this.dataDir);
+    await this._runIndexStep(p, {force: false});
+
+    return {
+      ok: true,
+      name: safeName,
+      page,
+      text: res.text,
+      source: 'vision',
+      cached: res.cached,
+      method: res.method,
+    };
+  }
+
+  /**
+   * Read a scanned PDF's back-of-book index from the last page backwards until the index ends
+   * and normal book prose starts.
+   */
+  async describePdfBookIndex(rawName) {
+    const safeName = sanitizeUploadName(rawName);
+    if (path.extname(safeName).toLowerCase() !== '.pdf') {
+      throw uploadError('Back-of-book index scan is only supported for PDF files', 400, 'not_pdf');
+    }
+    const pdfPath = this.userFile(safeName);
+    if (!pdfPath) {
+      throw uploadError(`PDF "${safeName}" not found in user uploads`, 404, 'not_found');
+    }
+    const {totalPages, textByPage} = await inspectPdfPages(pdfPath, this.binary);
+    const cache = this._readVisionCache(safeName);
+    const idxRes = await this._readPdfBookIndexBackwards(safeName, pdfPath, {totalPages, textByPage, cache});
+
+    const meta = this._readUserMeta();
+    const entry = meta[safeName] || {name: safeName, title: safeName};
+    this._syncPdfSidecar(safeName, entry.title || safeName, cache);
+    entry.totalPages = totalPages;
+    entry.readBookIndex = true;
+    entry.indexPages = idxRes.indexPages;
+    entry.describedPages = Object.keys(cache.pages || {}).map(Number).filter(n => n > 0).sort((a, b) => a - b);
+    if (idxRes.waitingOffline) {
+      entry.visionStatus = 'waiting_for_description';
+      entry.visionError = idxRes.offlineError;
+    } else if (entry.describedPages.length > 0) {
+      entry.visionStatus = 'described';
+      entry.visionError = null;
+    }
+    meta[safeName] = entry;
+    this._writeUserMeta(meta);
+
+    const p = paths(this.dataDir);
+    await this._runIndexStep(p, {force: false});
+
+    return {
+      ok: true,
+      name: safeName,
+      totalPages,
+      indexPages: idxRes.indexPages,
+      describedPages: entry.describedPages,
+      visionStatus: entry.visionStatus,
+    };
+  }
+
+  /**
+   * Retry any user uploads marked `waiting_for_description` when internet connectivity returns.
+   */
+  async retryPendingVision() {
+    const meta = this._readUserMeta();
+    const pendingNames = Object.keys(meta).filter(name => meta[name]?.visionStatus === 'waiting_for_description');
+    if (pendingNames.length === 0) return {retried: 0, described: 0};
+
+    let described = 0;
+    for (const safeName of pendingNames) {
+      if (!this.userFile(safeName)) continue;
+      try {
+        const updated = await this._processUploadVision(safeName, {
+          readBookIndex: Boolean(meta[safeName]?.readBookIndex),
+        });
+        if (updated.visionStatus === 'described') {
+          described++;
+        }
+      } catch (_) {
+        // Keep waiting_for_description if still offline.
+      }
+    }
+    if (described > 0) {
+      const p = paths(this.dataDir);
+      await this._runIndexStep(p, {force: false});
+    }
+    return {retried: pendingNames.length, described};
+  }
 
   embedConfig() {
     const raw = typeof this.getEmbedOptions === 'function' ? (this.getEmbedOptions() || {}) : {};
@@ -597,9 +1084,49 @@ class Library {
       rows = Array.isArray(parsed) ? parsed : parsed.rows || [];
     }
 
-    const byFile = Object.fromEntries(this.items().map(i => [i.id, i]));
+    const allItems = this.items();
+    const byFile = Object.fromEntries(allItems.map(i => [i.id, i]));
+    const byUserFile = Object.fromEntries(allItems.filter(i => i.userFile).map(i => [i.userFile, i]));
     return {query: q, mode, via, hits: rows.map(r => {
-      const name = path.basename(String(r.file || ''));
+      const rawFile = String(r.file || '').replace(/\\/g, '/');
+      const name = path.basename(rawFile);
+      const isUserPath = /(?:^|\/)user\/[^/]+$/i.test(rawFile)
+        || Boolean(byUserFile[name])
+        || (name.endsWith('.md') && Boolean(byUserFile[name.slice(0, -3)]));
+
+      if (isUserPath) {
+        const originalName = (name.endsWith('.md') && byUserFile[name.slice(0, -3)])
+          ? name.slice(0, -3)
+          : name;
+        const userSource = byUserFile[originalName] || {};
+        const isPdf = /\.pdf$/i.test(originalName);
+        const isSidecarHit = name !== originalName;
+        let page = null;
+        if (isPdf) {
+          const titlePageMatch = /^Page\s+(\d+)\b/i.exec(String(r.title || '').trim());
+          if (titlePageMatch) {
+            page = Number(titlePageMatch[1]);
+          } else if (!isSidecarHit && Number.isInteger(r.line) && r.line > 0) {
+            page = r.line;
+          }
+        }
+        return {
+          title: userSource.title || originalName,
+          section: r.title,
+          line: r.line,
+          page,
+          score: r.score,
+          excerpt: String(r.excerpt || '').replace(/\s+/g, ' ').trim(),
+          url: null,
+          localUrl: this.userFile(originalName)
+            ? `/plugins/signalk-lume-ti/api/library/file/user/${encodeURIComponent(originalName)}`
+            : null,
+          publisher: userSource.publisher || 'Added by you',
+          category: userSource.category || 'Added by you',
+          addedByYou: true,
+        };
+      }
+
       const id = name.split('.')[0];
       const source = byFile[id] || {};
       // PDF sections are pages, numbered from 1, so the viewer can open at #page=N.
@@ -619,10 +1146,19 @@ class Library {
     let stored = [];
     try { stored = fs.readdirSync(paths(this.dataDir).files); } catch (_) {}
     const byId = new Map(stored.filter(n => /^[0-9a-f]{12}\./i.test(n)).map(n => [n.slice(0, 12), n]));
-    return this.items().filter(i => i.state === 'indexed' && byId.has(i.id)).map(i => ({
+    const bundled = listWithState(this.dataDir, this.list).filter(i => i.state === 'indexed' && byId.has(i.id)).map(i => ({
       file: byId.get(i.id), title: i.title, publisher: i.publisher || '', category: i.category || '',
       localUrl: `/plugins/signalk-lume-ti/api/library/file/${byId.get(i.id)}`, url: i.url || '',
     }));
+    const uploaded = this.userItems().filter(i => i.state === 'indexed').map(i => ({
+      file: `user/${i.userFile}`,
+      title: i.title,
+      publisher: 'Added by you',
+      category: 'Added by you',
+      localUrl: i.localUrl,
+      url: '',
+    }));
+    return [...uploaded, ...bundled];
   }
 
   /**

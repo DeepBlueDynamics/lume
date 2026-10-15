@@ -95,6 +95,25 @@
           <p id="lib-embed-status" class="lib-meta" role="status"></p>
         </div>
 
+        <div id="lib-upload-panel" class="card lib-upload-card">
+          <div class="schema-header">
+            <h3>Add files</h3>
+            <span class="lib-meta">PDF, Markdown, text, PNG, JPEG, WebP · up to 50 MB</span>
+          </div>
+          <p class="lib-meta">Drop manuals, wiring diagrams, or nameplate photos to add them to your Library under <strong>Added by you</strong>. Originals are always kept; images and scanned PDF pages are described with Ollama Cloud vision when online (or marked <em>waiting for a description</em> offline and retried automatically).</p>
+          <div id="lib-upload-dropzone" class="lib-upload-dropzone" tabindex="0" role="button" aria-label="Drop files here or click to choose files">
+            <input id="lib-upload-input" type="file" accept=".pdf,.md,.txt,.png,.jpg,.jpeg,.webp" multiple hidden>
+            <span class="lib-upload-prompt">Drop files here or <strong>click to browse</strong></span>
+          </div>
+          <div class="lib-upload-options">
+            <label class="pg-toggle">
+              <input id="lib-upload-book-index" type="checkbox">
+              <span>Also read the back-of-book index on scanned PDFs (from the last page backwards until book text starts)</span>
+            </label>
+          </div>
+          <p id="lib-upload-status" class="lib-meta" role="status"></p>
+        </div>
+
         <div class="schema-header">
           <h3>Cruiser library</h3>
           <span id="lib-counts" class="lib-meta"></span>
