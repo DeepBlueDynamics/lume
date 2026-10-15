@@ -10,7 +10,7 @@ const { Supervisor } = require('./lib/supervisor');
 const { collectStoreStatus } = require('./lib/status');
 const { createHistoryProvider } = require('./lib/history');
 const {pgOptions, writePgConfig, registerPgRoutes, adminStatus, readJson} = require('./lib/pg');
-const {Library, serverQuery} = require('./lib/library');
+const {Library, serverQuery, DEFAULT_EMBED_MODEL, DEFAULT_EMBED_DIMENSIONS, VALID_EMBED_DIMENSIONS, normalizeEmbedConfig} = require('./lib/library');
 const {ChatManager, registerChatRoutes} = require('./lib/chat');
 const versions = require('./lib/versions');
 const {Dashboard, registerDashboardRoutes} = require('./lib/dashboard');
@@ -43,7 +43,66 @@ module.exports = function (app) {
   function registerLibraryRoutes(router) {
     router.get('/api/library', (req, res) => {
       if (!library) return libraryUnavailable(res);
-      res.json({items: library.items(), ...library.status()});
+      res.json({
+        items: library.items(),
+        ...library.status(),
+        shivvr: shivvr ? shivvr.status() : defaultOfflineStatus(pluginConfig.shivvrUrl),
+      });
+    });
+    router.get('/api/library/embeddings', (req, res) => {
+      if (!library) return libraryUnavailable(res);
+      res.json({
+        ...library.vectorStatus(),
+        shivvr: shivvr ? shivvr.status() : defaultOfflineStatus(pluginConfig.shivvrUrl),
+      });
+    });
+    router.post('/api/library/embeddings', async (req, res) => {
+      const status = adminStatus(app, req);
+      if (status !== 200) return res.status(status).json({error: 'Signal K administrator required'});
+      if (!library) return libraryUnavailable(res);
+      try {
+        const body = await readJson(req);
+        const next = normalizeEmbedConfig({
+          model: body.model ?? body.libraryEmbedModel,
+          dimensions: body.dimensions ?? body.libraryEmbedDimensions,
+          shivvrUrl: pluginConfig.shivvrUrl,
+        }, {strict: true});
+        const current = library.embedConfig();
+        const vec = library.vectorStatus();
+        const counts = library.status().counts;
+        const hasContent = Boolean(vec.indexed || vec.present || counts.indexed > 0 || counts.fetched > 0);
+        const changed = next.model !== current.model
+          || (next.model !== 'off' && next.dimensions !== current.dimensions)
+          || (vec.present && (vec.model !== next.model || vec.dimensions !== next.dimensions));
+        if (hasContent && changed && body.confirmRebuild !== true) {
+          return res.status(409).json({
+            error: 'Changing the embedding model or vector size requires rebuilding the Library index. Confirm rebuild to proceed.',
+            needsRebuild: true,
+          });
+        }
+        const saved = typeof app.readPluginOptions === 'function' ? app.readPluginOptions() : null;
+        const baseCfg = saved?.configuration || pluginConfig;
+        const updated = {
+          ...baseCfg,
+          libraryEmbedModel: next.model,
+          libraryEmbedDimensions: next.dimensions,
+        };
+        pluginConfig = updated;
+        if (typeof app.savePluginOptions === 'function') {
+          await new Promise((resolve, reject) => {
+            app.savePluginOptions(updated, err => (err ? reject(err) : resolve()));
+          });
+        }
+        if (hasContent && (changed || body.confirmRebuild === true)) {
+          await library.rebuild();
+        }
+        res.json({
+          ...library.status(),
+          shivvr: shivvr ? shivvr.status() : defaultOfflineStatus(pluginConfig.shivvrUrl),
+        });
+      } catch (error) {
+        res.status(error.status || 400).json({error: error.message});
+      }
     });
     router.post('/api/library/index', async (req, res) => {
       const status = adminStatus(app, req);
@@ -198,6 +257,20 @@ module.exports = function (app) {
           default: DEFAULT_SHIVVR_URL,
           description: 'Local or LAN Shivvr URL for meaning-based Library search (default http://127.0.0.1:8085)',
         },
+        libraryEmbedModel: {
+          type: 'string',
+          title: 'Library Embedding Model',
+          default: DEFAULT_EMBED_MODEL,
+          enum: ['embeddinggemma-2', 'gtr-t5-base', 'off'],
+          description: 'Embedding model for meaning-based Library search (EmbeddingGemma 2 default, GTR-T5, or off for keyword-only)',
+        },
+        libraryEmbedDimensions: {
+          type: 'integer',
+          title: 'Library Embedding Dimensions',
+          default: DEFAULT_EMBED_DIMENSIONS,
+          enum: VALID_EMBED_DIMENSIONS,
+          description: 'Vector size for Library embeddings (default 256; 768, 512, 256, or 128 for EmbeddingGemma 2; GTR-T5 is fixed at 768)',
+        },
       },
     }),
 
@@ -257,7 +330,14 @@ module.exports = function (app) {
       versions.collect({app, binaryInfo: currentBinaryInfo})
         .then(v => log(`Versions: plugin ${v.plugin.version}, lume ${v.lume.version || 'unknown'}, Signal K ${v.signalk.version || 'unknown'}, Node ${v.node.version}`))
         .catch(err => log(`Version check failed: ${err.message}`, true));
-      library = new Library({binary: currentBinaryInfo.path, dataDir, servePort, log: line => log(line)});
+      library = new Library({
+        binary: currentBinaryInfo.path,
+        dataDir,
+        servePort,
+        log: line => log(line),
+        getEmbedOptions: () => pluginConfig,
+        getShivvrStatus: () => (shivvr ? shivvr.status() : null),
+      });
       chatManager = new ChatManager({
         binary: currentBinaryInfo.path,
         dataDir,
@@ -475,7 +555,12 @@ module.exports = function (app) {
           uiBuild: uiBuildStamp(),
           supervisor: supStatus,
           store: storeStatus,
-          shivvr: shivvr ? shivvr.status() : defaultOfflineStatus(pluginConfig.shivvrUrl),
+          shivvr: {
+            ...(shivvr ? shivvr.status() : defaultOfflineStatus(pluginConfig.shivvrUrl)),
+            embedModel: pluginConfig.libraryEmbedModel || DEFAULT_EMBED_MODEL,
+            embedDimensions: Number(pluginConfig.libraryEmbedDimensions) || DEFAULT_EMBED_DIMENSIONS,
+            vectors: library ? library.vectorStatus() : null,
+          },
           // Lets the page explain an empty store: waiting for access approval, or no data yet.
           access: tokenManager
             ? {token: Boolean(tokenManager.token), state: tokenManager.lastState || 'NONE'}

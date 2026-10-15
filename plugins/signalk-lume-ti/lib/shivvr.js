@@ -9,6 +9,7 @@ const https = require('node:https');
 const DEFAULT_SHIVVR_URL = 'http://127.0.0.1:8085';
 const DEFAULT_INTERNET_URL = 'https://ollama.com';
 const DEFAULT_REQUIRED_MODEL = 'embeddinggemma-2';
+const DEFAULT_INTERNET_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes (avoid polling metered satellite links every 30 s)
 
 const INSTALL_README_URL = 'https://github.com/DeepBlueDynamics/lume#shivvr-setup-semantic-search';
 const INSTALL_DOCKER_CPU = 'docker volume create shivvr-models && docker run --rm -v shivvr-models:/target deepbluedynamics/shivvr-models:int8 && docker run -d --name shivvr --restart unless-stopped -p 127.0.0.1:8085:8080 -v shivvr-models:/models:ro deepbluedynamics/shivvr:latest-cpu';
@@ -16,15 +17,24 @@ const INSTALL_DOCKER_GPU = 'docker run -d --name shivvr --restart unless-stopped
 
 function isHalosHost() {
   try {
-    return fs.existsSync('/var/lib/container-apps') || fs.existsSync('/etc/halos-release');
+    return Boolean(process.env.HALOS || process.env.HALOS_HOST)
+      || fs.existsSync('/var/lib/container-apps')
+      || fs.existsSync('/etc/halos-release');
   } catch (_) {
     return false;
   }
 }
 
 function normalizeUrl(raw, fallback = DEFAULT_SHIVVR_URL) {
-  const s = String(raw || '').trim();
-  return (s || fallback).replace(/\/+$/, '');
+  const s = String(raw || '').trim() || fallback;
+  try {
+    const parsed = new URL(s);
+    parsed.username = '';
+    parsed.password = '';
+    return parsed.toString().replace(/\/+$/, '');
+  } catch (_) {
+    return s.replace(/\/\/[^/@]+@/, '//').replace(/\/+$/, '');
+  }
 }
 
 function defaultOfflineStatus(shivvrUrl = DEFAULT_SHIVVR_URL) {
@@ -187,6 +197,7 @@ class ShivvrMonitor {
     internetUrl = DEFAULT_INTERNET_URL,
     getInternetUrl = null,
     intervalMs = 30000,
+    internetIntervalMs = DEFAULT_INTERNET_INTERVAL_MS,
     timeoutMs = 3000,
     getRequiredModel = () => DEFAULT_REQUIRED_MODEL,
     onUpdate = null,
@@ -194,25 +205,39 @@ class ShivvrMonitor {
     this.getUrl = typeof getUrl === 'function' ? () => normalizeUrl(getUrl()) : () => normalizeUrl(shivvrUrl);
     this.getInternetUrl = typeof getInternetUrl === 'function' ? getInternetUrl : () => internetUrl;
     this.intervalMs = intervalMs;
+    this.internetIntervalMs = internetIntervalMs;
     this.timeoutMs = timeoutMs;
     this.getRequiredModel = getRequiredModel;
     this.onUpdate = onUpdate;
     this.timer = null;
     this.inFlight = null;
+    this.lastInternetAt = 0;
+    this.lastInternetUrl = null;
     this.cached = defaultOfflineStatus(this.getUrl());
   }
 
-  async probe() {
+  async probe({forceInternet = false} = {}) {
     if (this.inFlight) return this.inFlight;
     const url = this.getUrl();
     const internetUrl = this.getInternetUrl();
     const requiredModel = typeof this.getRequiredModel === 'function'
       ? this.getRequiredModel()
       : DEFAULT_REQUIRED_MODEL;
+    const now = Date.now();
+    const shouldProbeInternet = forceInternet
+      || this.lastInternetAt === 0
+      || this.lastInternetUrl !== internetUrl
+      || (now - this.lastInternetAt) >= this.internetIntervalMs;
 
     this.inFlight = Promise.all([
       probeShivvr(url, {timeoutMs: this.timeoutMs, requiredModel}),
-      probeInternet(internetUrl, {timeoutMs: this.timeoutMs}),
+      shouldProbeInternet
+        ? probeInternet(internetUrl, {timeoutMs: this.timeoutMs}).then(ok => {
+          this.lastInternetAt = Date.now();
+          this.lastInternetUrl = internetUrl;
+          return ok;
+        })
+        : Promise.resolve(Boolean(this.cached.online)),
     ]).then(([health, online]) => {
       this.cached = {
         ...health,
