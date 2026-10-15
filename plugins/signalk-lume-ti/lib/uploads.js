@@ -736,8 +736,14 @@ function callOllamaCloudVision({url, model, apiKey, imageBuffer, prompt, timeout
       return reject(err);
     }
 
+    const effectiveModel = isOllamaCom
+      ? (model.replace(/:cloud$/i, '').toLowerCase() === 'glm-5.3'
+        ? 'glm-5.3-flash'
+        : model.replace(/:cloud$/i, ''))
+      : model;
+
     const payload = JSON.stringify({
-      model,
+      model: effectiveModel,
       stream: false,
       messages: [
         {
