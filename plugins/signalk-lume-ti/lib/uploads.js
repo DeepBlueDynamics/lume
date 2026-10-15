@@ -29,7 +29,7 @@ const MAX_PDF_REF_VISITS = 64;
 const PDF_WORKER_TIMEOUT_MS = 10000;
 const ALLOWED_EXTENSIONS = new Set(['.pdf', '.md', '.txt', '.png', '.jpg', '.jpeg', '.webp']);
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp']);
-const DEFAULT_VISION_MODEL = 'glm-5.3:cloud';
+const DEFAULT_VISION_MODEL = 'glm-5.3-flash';
 const DEFAULT_CLOUD_URL = 'https://ollama.com';
 
 const MIME_BY_EXT = {
@@ -697,7 +697,7 @@ function resolveCloudVisionConfig(options = {}, dataDir = '') {
   const cloudUrl = rawUrls.find(isOllamaCloudHost)
     || (options.visionOllamaUrl ? rawUrls[0] : DEFAULT_CLOUD_URL);
 
-  const model = String(options.visionModel || options.chatModel || DEFAULT_VISION_MODEL).trim();
+  const model = String(options.visionModel || DEFAULT_VISION_MODEL).trim();
   if (/^gemma4\b/i.test(model)) {
     throw uploadError('Local Gemma 4 is disabled for vision; use an Ollama cloud vision model', 400, 'local_model_disallowed');
   }
@@ -737,9 +737,7 @@ function callOllamaCloudVision({url, model, apiKey, imageBuffer, prompt, timeout
     }
 
     const effectiveModel = isOllamaCom
-      ? (model.replace(/:cloud$/i, '').toLowerCase() === 'glm-5.3'
-        ? 'glm-5.3-flash'
-        : model.replace(/:cloud$/i, ''))
+      ? model.replace(/:cloud$/i, '')
       : model;
 
     const payload = JSON.stringify({

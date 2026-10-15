@@ -170,7 +170,7 @@ describe('Image vision descriptions, offline queueing, and scanned PDFs', () => 
           return;
         }
         const parsed = JSON.parse(body);
-        assert.equal(parsed.model, 'glm-5.3:cloud');
+        assert.equal(parsed.model, 'glm-5.3-flash');
         assert.ok(Array.isArray(parsed.messages[0].images) && parsed.messages[0].images.length === 1);
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify({
@@ -190,7 +190,7 @@ describe('Image vision descriptions, offline queueing, and scanned PDFs', () => 
         getEmbedOptions: () => ({
           libraryEmbedModel: 'off',
           visionOllamaUrl: cloudUrl,
-          visionModel: 'glm-5.3:cloud',
+          visionModel: 'glm-5.3-flash',
         }),
       }));
 
@@ -275,7 +275,7 @@ describe('Image vision descriptions, offline queueing, and scanned PDFs', () => 
       // 2. Even if apiKey is passed directly to callOllamaCloudVision, non-ollama URL gets no Authorization header
       await callOllamaCloudVision({
         url: nonOllamaUrl,
-        model: 'glm-5.3:cloud',
+        model: 'glm-5.3-flash',
         apiKey: 'secret-boat-ollama-key-12345',
         imageBuffer: SAMPLE_JPEG,
       });
@@ -376,7 +376,7 @@ describe('Image vision descriptions, offline queueing, and scanned PDFs', () => 
         getEmbedOptions: () => ({
           libraryEmbedModel: 'off',
           visionOllamaUrl: cloudUrl,
-          visionModel: 'glm-5.3:cloud',
+          visionModel: 'glm-5.3-flash',
         }),
       }));
 
