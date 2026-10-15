@@ -17,9 +17,16 @@ const https = require('node:https');
 const os = require('node:os');
 const path = require('node:path');
 const {spawn, spawnSync} = require('node:child_process');
+const {Worker, isMainThread, parentPort, workerData} = require('node:worker_threads');
 const {looksLikeKey} = require('./chat');
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50 MB
+const MAX_PDF_SCAN_BYTES = MAX_UPLOAD_BYTES;
+const MAX_PDF_OBJECTS = 4096;
+const MAX_PDF_DICT_BYTES = 2 * 1024 * 1024;
+const MAX_PDF_OBJECT_HEADER_BYTES = 16384;
+const MAX_PDF_REF_VISITS = 64;
+const PDF_WORKER_TIMEOUT_MS = 10000;
 const ALLOWED_EXTENSIONS = new Set(['.pdf', '.md', '.txt', '.png', '.jpg', '.jpeg', '.webp']);
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp']);
 const DEFAULT_VISION_MODEL = 'glm-5.3:cloud';
@@ -252,78 +259,206 @@ function streamUploadToDisk(req, destPath, ext, {maxBytes = MAX_UPLOAD_BYTES} = 
 }
 
 /**
+ * Validate and slice a JPEG stream from known PDF stream bounds (`stream ... endstream` or `/Length`).
+ * Never scans blindly across the buffer: checks in O(1) that the bounded stream starts with
+ * SOI (`0xFF 0xD8 0xFF`) and ends with EOI (`0xFF 0xD9`).
+ */
+function isValidJpegSlice(slice) {
+  return (
+    Buffer.isBuffer(slice)
+    && slice.length >= 4
+    && slice[0] === 0xff
+    && slice[1] === 0xd8
+    && slice[2] === 0xff
+    && slice[slice.length - 2] === 0xff
+    && slice[slice.length - 1] === 0xd9
+  );
+}
+
+function findJpegInBuffer(buf, startOffset = 0, endOffset = buf.length, declaredLength = 0) {
+  if (!Buffer.isBuffer(buf)) return null;
+  const clampedStart = Math.max(0, Math.min(startOffset | 0, buf.length));
+  const clampedEnd = Math.max(clampedStart, Math.min(endOffset | 0, buf.length));
+  if (clampedEnd - clampedStart < 4) return null;
+
+  let s = clampedStart;
+  while (s < clampedEnd && s - clampedStart < 2 && (buf[s] === 0x0a || buf[s] === 0x0d || buf[s] === 0x20)) {
+    s++;
+  }
+  if (declaredLength > 0 && s + declaredLength <= clampedEnd) {
+    const byLen = buf.subarray(s, s + declaredLength);
+    if (isValidJpegSlice(byLen)) {
+      return byLen;
+    }
+  }
+  let e = clampedEnd;
+  while (e > s && clampedEnd - e < 2 && (buf[e - 1] === 0x0a || buf[e - 1] === 0x0d || buf[e - 1] === 0x20)) {
+    e--;
+  }
+  const bounded = buf.subarray(s, e);
+  return isValidJpegSlice(bounded) ? bounded : null;
+}
+
+/**
+ * Linearly scan a PDF buffer for indirect objects with strict caps on bytes scanned and
+ * objects visited. Never converts binary stream payloads to strings or runs regexes on streams.
+ */
+function scanPdfBufferLinear(buf, {
+  maxBytes = MAX_PDF_SCAN_BYTES,
+  maxObjects = MAX_PDF_OBJECTS,
+  maxDictBytes = MAX_PDF_DICT_BYTES,
+  includeShortTextStreams = false,
+} = {}) {
+  const scanLimit = Math.min(buf.length, maxBytes);
+  const objMap = new Map();
+  const pageObjs = [];
+  const dctStreams = [];
+  let pos = 0;
+  let objectsVisited = 0;
+  let dictBytesScanned = 0;
+
+  while (pos < scanLimit && objectsVisited < maxObjects && dictBytesScanned < maxDictBytes) {
+    const objTokenIdx = buf.indexOf(' obj', pos, 'latin1');
+    if (objTokenIdx === -1 || objTokenIdx >= scanLimit) break;
+    const afterObj = objTokenIdx + 4;
+    const nextByte = afterObj < scanLimit ? buf[afterObj] : 0;
+    if (
+      nextByte !== 0x0a && nextByte !== 0x0d && nextByte !== 0x20 && nextByte !== 0x09
+      && nextByte !== 0x3c && nextByte !== 0x5b && nextByte !== 0x2f
+    ) {
+      pos = afterObj;
+      continue;
+    }
+
+    const lookbackStart = Math.max(pos, objTokenIdx - 24);
+    const prefix = buf.subarray(lookbackStart, objTokenIdx).toString('latin1');
+    const idMatch = /(?:^|[\r\n\s])(\d+)\s+(\d+)$/.exec(prefix);
+    if (!idMatch) {
+      pos = afterObj;
+      continue;
+    }
+
+    objectsVisited++;
+    const objId = Number(idMatch[1]);
+    const bodyStart = afterObj;
+    const headerWindowEnd = Math.min(scanLimit, bodyStart + MAX_PDF_OBJECT_HEADER_BYTES);
+    const headerSlice = buf.subarray(bodyStart, headerWindowEnd);
+    const relEndObj = headerSlice.indexOf('endobj', 0, 'latin1');
+
+    // Find 'stream\n' or 'stream\r\n' within the object header window
+    let relStream = -1;
+    let streamHeaderLen = 0;
+    let searchFrom = 0;
+    while (searchFrom < headerSlice.length) {
+      const idx = headerSlice.indexOf('stream', searchFrom, 'latin1');
+      if (idx === -1 || (relEndObj !== -1 && idx >= relEndObj)) break;
+      const b1 = headerSlice[idx + 6];
+      const b2 = headerSlice[idx + 7];
+      if (b1 === 0x0d && b2 === 0x0a) {
+        relStream = idx;
+        streamHeaderLen = 8;
+        break;
+      }
+      if (b1 === 0x0a || b1 === 0x0d) {
+        relStream = idx;
+        streamHeaderLen = 7;
+        break;
+      }
+      searchFrom = idx + 6;
+    }
+
+    if (relStream !== -1) {
+      const dictBuf = headerSlice.subarray(0, relStream);
+      dictBytesScanned += dictBuf.length;
+      const dictText = dictBuf.toString('latin1');
+      const rawStart = bodyStart + relStream + streamHeaderLen;
+
+      // Prefer /Length when it is a direct integer (not an indirect `N 0 R` reference)
+      const lenMatch = /\/Length\s+(\d+)(?!\s+\d+\s+R\b)/.exec(dictText);
+      const declaredLength = lenMatch ? Number(lenMatch[1]) : 0;
+
+      let endStreamAbs = -1;
+      if (declaredLength > 0 && rawStart + declaredLength <= scanLimit) {
+        const probeStart = rawStart + declaredLength;
+        const probeEnd = Math.min(scanLimit, probeStart + 32);
+        const relEnd = buf.subarray(probeStart, probeEnd).indexOf('endstream', 0, 'latin1');
+        if (relEnd !== -1) {
+          endStreamAbs = probeStart + relEnd;
+        }
+      }
+      if (endStreamAbs === -1) {
+        endStreamAbs = buf.indexOf('endstream', rawStart, 'latin1');
+      }
+      if (endStreamAbs === -1 || endStreamAbs > scanLimit) break;
+
+      const rawEnd = endStreamAbs;
+      const entry = {id: objId, dictText, text: dictText, jpeg: null};
+      const isImageStream = /\/DCTDecode\b/.test(dictText) || /\/Subtype\s*\/Image\b/.test(dictText);
+      if (isImageStream) {
+        const jpeg = findJpegInBuffer(buf, rawStart, rawEnd, declaredLength);
+        if (jpeg) {
+          entry.jpeg = jpeg;
+          dctStreams.push(jpeg);
+        }
+      } else if (includeShortTextStreams && rawEnd - rawStart <= 8192) {
+        const streamText = buf.subarray(rawStart, rawEnd).toString('latin1');
+        dictBytesScanned += streamText.length;
+        entry.text = `${dictText}\n${streamText}`;
+      }
+
+      objMap.set(objId, entry);
+      if (/\/Type\s*\/Page\b(?!s)/.test(dictText)) {
+        pageObjs.push(entry);
+      }
+
+      const afterEndStream = endStreamAbs + 9;
+      const closeWindow = buf.subarray(afterEndStream, Math.min(scanLimit, afterEndStream + 64));
+      const relClose = closeWindow.indexOf('endobj', 0, 'latin1');
+      pos = relClose !== -1 ? afterEndStream + relClose + 6 : afterEndStream;
+    } else {
+      const endObjAbs = relEndObj !== -1
+        ? bodyStart + relEndObj
+        : buf.indexOf('endobj', bodyStart, 'latin1');
+      if (endObjAbs === -1 || endObjAbs > scanLimit) break;
+      const dictEnd = Math.min(endObjAbs, bodyStart + MAX_PDF_OBJECT_HEADER_BYTES);
+      const dictBuf = buf.subarray(bodyStart, dictEnd);
+      dictBytesScanned += dictBuf.length;
+      const dictText = dictBuf.toString('latin1');
+      const entry = {id: objId, dictText, text: dictText, jpeg: null};
+      objMap.set(objId, entry);
+      if (/\/Type\s*\/Page\b(?!s)/.test(dictText)) {
+        pageObjs.push(entry);
+      }
+      pos = endObjAbs + 6;
+    }
+  }
+
+  return {objMap, pageObjs, dctStreams, objectsVisited, dictBytesScanned};
+}
+
+/**
  * Extract the N-th page's embedded JPEG (`0xFF 0xD8 0xFF ... 0xFF 0xD9`) from a PDF file.
  * Scanned PDFs store one `/DCTDecode` JPEG stream per page. Prefers `/Type /Page` object order
  * when indirect XObject references exist, or stream order of `/DCTDecode` JPEG streams.
  * Falls back to `pdftoppm` when present on the system.
  */
-function findJpegInBuffer(buf, startOffset = 0, endOffset = buf.length) {
-  for (let i = startOffset; i + 3 < endOffset; i++) {
-    if (buf[i] === 0xff && buf[i + 1] === 0xd8 && buf[i + 2] === 0xff) {
-      // Find matching EOI (0xFF 0xD9) near the end of this stream.
-      let eoi = -1;
-      for (let j = i + 3; j + 1 < endOffset; j++) {
-        if (buf[j] === 0xff && buf[j + 1] === 0xd9) {
-          eoi = j + 2;
-        }
-      }
-      if (eoi > i + 4) {
-        return buf.subarray(i, eoi);
-      }
-    }
-  }
-  return null;
-}
-
-function extractEmbeddedPdfJpeg(pdfPath, pageNumber = 1) {
+function extractEmbeddedPdfJpeg(pdfPath, pageNumber = 1, scanOpts = {}) {
   const page = Math.max(1, Number(pageNumber) | 0);
-  const buf = fs.readFileSync(pdfPath);
-  const latin = buf.toString('latin1');
-
-  // Parse PDF indirect objects: `id gen obj ... endobj`
-  const objMap = new Map();
-  const pageObjs = [];
-  const dctStreams = [];
-  const objRe = /(\d+)\s+(\d+)\s+obj\b/g;
-  let match;
-  while ((match = objRe.exec(latin)) !== null) {
-    const objId = Number(match[1]);
-    const bodyStart = match.index + match[0].length;
-    const endIdx = latin.indexOf('endobj', bodyStart);
-    if (endIdx === -1) continue;
-    const sliceStr = latin.slice(bodyStart, endIdx);
-    const entry = {id: objId, start: bodyStart, end: endIdx, text: sliceStr};
-    objMap.set(objId, entry);
-
-    if (/\/Type\s*\/Page\b(?!s)/.test(sliceStr)) {
-      pageObjs.push(entry);
-    }
-    if (/\/DCTDecode\b/.test(sliceStr) || /\/Subtype\s*\/Image\b/.test(sliceStr)) {
-      const streamMatch = /stream\r?\n/.exec(sliceStr);
-      const endStreamIdx = sliceStr.lastIndexOf('endstream');
-      if (streamMatch && endStreamIdx > streamMatch.index) {
-        const rawStart = bodyStart + streamMatch.index + streamMatch[0].length;
-        const rawEnd = bodyStart + endStreamIdx;
-        const jpeg = findJpegInBuffer(buf, rawStart, rawEnd);
-        if (jpeg) {
-          entry.jpeg = jpeg;
-          dctStreams.push(jpeg);
-        }
-      }
-    }
-  }
+  const buf = Buffer.isBuffer(pdfPath) ? pdfPath : fs.readFileSync(pdfPath);
+  const {objMap, pageObjs, dctStreams} = scanPdfBufferLinear(buf, scanOpts);
 
   // 1. Try resolving via the N-th /Type /Page object's /XObject or /Resources references.
   if (page <= pageObjs.length) {
     const pageObj = pageObjs[page - 1];
     if (pageObj.jpeg) return pageObj.jpeg;
     const visited = new Set();
-    const queue = [pageObj.text];
-    while (queue.length > 0) {
+    const queue = [pageObj.dictText];
+    while (queue.length > 0 && visited.size < MAX_PDF_REF_VISITS) {
       const text = queue.shift();
       const refRe = /(\d+)\s+0\s+R\b/g;
       let rMatch;
       while ((rMatch = refRe.exec(text)) !== null) {
+        if (visited.size >= MAX_PDF_REF_VISITS) break;
         const refId = Number(rMatch[1]);
         if (visited.has(refId)) continue;
         visited.add(refId);
@@ -331,8 +466,8 @@ function extractEmbeddedPdfJpeg(pdfPath, pageNumber = 1) {
         if (!target) continue;
         if (target.jpeg) return target.jpeg;
         // Follow /Resources or /XObject dictionaries, but not other /Page objects.
-        if (!/\/Type\s*\/Page\b/.test(target.text) && target.text.length < 16384) {
-          queue.push(target.text);
+        if (!/\/Type\s*\/Page\b/.test(target.dictText) && target.dictText.length < MAX_PDF_OBJECT_HEADER_BYTES) {
+          queue.push(target.dictText);
         }
       }
     }
@@ -398,23 +533,117 @@ function extractPdfPageImage(pdfPath, pageNumber = 1) {
 }
 
 /**
- * Count PDF pages and check which pages already have extracted text via `lume __extract-document`
- * (or by inspecting the PDF structure when `lume` is a test stub).
+ * Count PDF pages and optionally extract simple `( ... ) Tj` literals using the bounded
+ * linear object scanner (never converting the entire PDF buffer to a string).
  */
-function countPdfPagesFromBuffer(buf) {
-  const latin = buf.toString('latin1');
-  const pageMatches = latin.match(/\/Type\s*\/Page\b(?!s)/g);
-  if (pageMatches && pageMatches.length > 0) return pageMatches.length;
-  const countMatches = [...latin.matchAll(/\/Count\s+(\d+)/g)].map(m => Number(m[1])).filter(n => n > 0);
-  return countMatches.length ? Math.max(...countMatches) : 1;
+function inspectPdfStructureSync(pdfPath, {includeTextFallback = false} = {}) {
+  const buf = Buffer.isBuffer(pdfPath) ? pdfPath : fs.readFileSync(pdfPath);
+  const {objMap, pageObjs} = scanPdfBufferLinear(buf, {
+    includeShortTextStreams: includeTextFallback,
+  });
+
+  let totalPages = pageObjs.length;
+  if (totalPages === 0) {
+    let maxCount = 0;
+    for (const entry of objMap.values()) {
+      const m = /\/Count\s+(\d+)\b/.exec(entry.dictText);
+      if (m) {
+        const n = Number(m[1]);
+        if (n > maxCount) maxCount = n;
+      }
+    }
+    totalPages = maxCount || 1;
+  }
+
+  const textEntries = [];
+  if (includeTextFallback) {
+    pageObjs.forEach((pObj, idx) => {
+      const pageNum = idx + 1;
+      let combined = pObj.text;
+      let visits = 0;
+      for (const ref of pObj.dictText.matchAll(/(\d+)\s+0\s+R\b/g)) {
+        if (++visits > MAX_PDF_REF_VISITS) break;
+        const refEntry = objMap.get(Number(ref[1]));
+        if (refEntry && !/\/Type\s*\/Page\b/.test(refEntry.dictText)) {
+          combined += '\n' + refEntry.text;
+        }
+      }
+      const literals = [...combined.matchAll(/\(([^()]{3,})\)\s*T[jJ]/g)]
+        .map(x => x[1].trim())
+        .filter(Boolean);
+      if (literals.length > 0) {
+        textEntries.push([pageNum, literals.join(' ')]);
+      }
+    });
+  }
+
+  return {totalPages: Math.max(1, totalPages), textEntries};
 }
 
-async function inspectPdfPages(pdfPath, lumeBinary) {
-  const buf = fs.readFileSync(pdfPath);
-  let totalPages = countPdfPagesFromBuffer(buf);
-  const textByPage = new Map();
+function runPdfWorkerTask(task, timeoutMs = PDF_WORKER_TIMEOUT_MS) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(__filename, {
+      workerData: {__lumePdfWorker: true, ...task},
+    });
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      worker.terminate();
+      reject(uploadError('PDF inspection timed out', 408, 'pdf_timeout'));
+    }, timeoutMs);
 
-  if (lumeBinary && path.basename(lumeBinary) !== 'node' && path.basename(lumeBinary) !== 'node.exe') {
+    worker.once('message', msg => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (msg && msg.ok) {
+        resolve(msg.result);
+      } else {
+        reject(uploadError((msg && msg.error) || 'PDF worker failed', 400, 'pdf_worker_error'));
+      }
+    });
+    worker.once('error', err => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(err);
+    });
+    worker.once('exit', code => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (code !== 0) {
+        reject(uploadError(`PDF worker exited with code ${code}`, 400, 'pdf_worker_exit'));
+      }
+    });
+  });
+}
+
+async function extractPdfPageImageAsync(pdfPath, pageNumber = 1, {timeoutMs = PDF_WORKER_TIMEOUT_MS} = {}) {
+  const res = await runPdfWorkerTask({op: 'extractPageImage', pdfPath, pageNumber}, timeoutMs);
+  if (!res || !res.buffer) return null;
+  return {
+    buffer: Buffer.isBuffer(res.buffer) ? res.buffer : Buffer.from(res.buffer),
+    method: res.method,
+  };
+}
+
+async function inspectPdfPages(pdfPath, lumeBinary, {timeoutMs = PDF_WORKER_TIMEOUT_MS} = {}) {
+  const useLumeExtractor = Boolean(
+    lumeBinary
+    && path.basename(lumeBinary) !== 'node'
+    && path.basename(lumeBinary) !== 'node.exe'
+  );
+
+  const workerInfo = await runPdfWorkerTask(
+    {op: 'inspect', pdfPath, includeTextFallback: !useLumeExtractor},
+    timeoutMs
+  );
+  let totalPages = workerInfo.totalPages;
+  const textByPage = new Map(workerInfo.textEntries || []);
+
+  if (useLumeExtractor) {
     const extracted = await new Promise(resolve => {
       const child = spawn(lumeBinary, ['__extract-document', pdfPath], {stdio: ['ignore', 'pipe', 'pipe']});
       let out = '';
@@ -439,43 +668,25 @@ async function inspectPdfPages(pdfPath, lumeBinary) {
       const sumPages = ok.sections.length + (Number(ok.skipped_units) || 0);
       if (sumPages > totalPages) totalPages = sumPages;
     }
-  } else {
-    // Lightweight fallback for test PDFs when lumeBinary is process.execPath (node):
-    // Check each /Type /Page object's content stream for parenthesized text `( ... ) Tj/TJ`.
-    const latin = buf.toString('latin1');
-    const objMap = new Map();
-    const pageObjs = [];
-    const objRe = /(\d+)\s+\d+\s+obj\b/g;
-    let m;
-    while ((m = objRe.exec(latin)) !== null) {
-      const id = Number(m[1]);
-      const start = m.index + m[0].length;
-      const end = latin.indexOf('endobj', start);
-      if (end === -1) continue;
-      const text = latin.slice(start, end);
-      objMap.set(id, text);
-      if (/\/Type\s*\/Page\b(?!s)/.test(text)) pageObjs.push(text);
-    }
-    pageObjs.forEach((pText, idx) => {
-      const pageNum = idx + 1;
-      let combined = pText;
-      for (const ref of pText.matchAll(/(\d+)\s+0\s+R\b/g)) {
-        const refBody = objMap.get(Number(ref[1]));
-        if (refBody && !/\/Type\s*\/Page\b/.test(refBody)) combined += '\n' + refBody;
-      }
-      const literals = [...combined.matchAll(/\(([^()]{3,})\)\s*T[jJ]/g)].map(x => x[1].trim()).filter(Boolean);
-      if (literals.length > 0) {
-        textByPage.set(pageNum, literals.join(' '));
-      }
-    });
   }
 
   return {totalPages: Math.max(1, totalPages), textByPage};
 }
 
+function isOllamaCloudHost(urlStr) {
+  try {
+    const h = new URL(/^[a-z]+:\/\//i.test(urlStr) ? urlStr : `https://${urlStr}`).hostname.toLowerCase();
+    return h === 'ollama.com' || h.endsWith('.ollama.com');
+  } catch (_) {
+    return false;
+  }
+}
+
 /**
  * Resolve the Ollama CLOUD endpoint and API key for vision descriptions.
  * Decisions #1: Images and scanned PDFs use an Ollama CLOUD vision model only (no local Gemma 4).
+ * Security rule (same as chat_sql with_ollama_auth): only attach/expose the boat's API key when
+ * the target host is `ollama.com` or `*.ollama.com`.
  */
 function resolveCloudVisionConfig(options = {}, dataDir = '') {
   const rawUrls = String(options.visionOllamaUrl || options.chatOllamaUrl || DEFAULT_CLOUD_URL)
@@ -483,14 +694,8 @@ function resolveCloudVisionConfig(options = {}, dataDir = '') {
     .map(u => u.trim())
     .filter(Boolean);
   // Pick the cloud endpoint (ollama.com, or an explicit test visionOllamaUrl). Never use local gemma4.
-  const cloudUrl = rawUrls.find(u => {
-    try {
-      const h = new URL(/^[a-z]+:\/\//i.test(u) ? u : `https://${u}`).hostname;
-      return h === 'ollama.com' || h.endsWith('.ollama.com');
-    } catch (_) {
-      return false;
-    }
-  }) || (options.visionOllamaUrl ? rawUrls[0] : DEFAULT_CLOUD_URL);
+  const cloudUrl = rawUrls.find(isOllamaCloudHost)
+    || (options.visionOllamaUrl ? rawUrls[0] : DEFAULT_CLOUD_URL);
 
   const model = String(options.visionModel || options.chatModel || DEFAULT_VISION_MODEL).trim();
   if (/^gemma4\b/i.test(model)) {
@@ -498,13 +703,15 @@ function resolveCloudVisionConfig(options = {}, dataDir = '') {
   }
 
   let apiKey = null;
-  const keyPath = (typeof options.chatApiKeyFile === 'string' && options.chatApiKeyFile.trim())
-    || (dataDir ? path.join(dataDir, 'ollama.key') : '');
-  if (keyPath && !looksLikeKey(keyPath) && fs.existsSync(keyPath)) {
-    try {
-      apiKey = fs.readFileSync(keyPath, 'utf8').trim() || null;
-    } catch (_) {
-      apiKey = null;
+  if (isOllamaCloudHost(cloudUrl)) {
+    const keyPath = (typeof options.chatApiKeyFile === 'string' && options.chatApiKeyFile.trim())
+      || (dataDir ? path.join(dataDir, 'ollama.key') : '');
+    if (keyPath && !looksLikeKey(keyPath) && fs.existsSync(keyPath)) {
+      try {
+        apiKey = fs.readFileSync(keyPath, 'utf8').trim() || null;
+      } catch (_) {
+        apiKey = null;
+      }
     }
   }
   return {url: cloudUrl.replace(/\/+$/, ''), model, apiKey};
@@ -521,7 +728,8 @@ function callOllamaCloudVision({url, model, apiKey, imageBuffer, prompt, timeout
     } catch (err) {
       return reject(new Error(`Invalid Ollama cloud URL: ${err.message}`));
     }
-    const isOllamaCom = target.hostname === 'ollama.com' || target.hostname.endsWith('.ollama.com');
+    const host = target.hostname.toLowerCase();
+    const isOllamaCom = host === 'ollama.com' || host.endsWith('.ollama.com');
     if (isOllamaCom && !apiKey) {
       const err = new Error('Waiting for Ollama cloud API key');
       err.offline = true;
@@ -545,7 +753,8 @@ function callOllamaCloudVision({url, model, apiKey, imageBuffer, prompt, timeout
       Accept: 'application/json',
       'Content-Length': Buffer.byteLength(payload),
     };
-    if (apiKey) {
+    // Never send the boat's API key to any host other than ollama.com or *.ollama.com.
+    if (isOllamaCom && apiKey) {
       headers.Authorization = `Bearer ${apiKey}`;
     }
 
@@ -630,8 +839,28 @@ function looksLikeBookIndexPage(text) {
   return indexEntryLines.length >= Math.max(2, Math.ceil(lines.length * 0.35));
 }
 
+if (!isMainThread && workerData && workerData.__lumePdfWorker && parentPort) {
+  try {
+    if (workerData.op === 'inspect') {
+      const result = inspectPdfStructureSync(workerData.pdfPath, {
+        includeTextFallback: Boolean(workerData.includeTextFallback),
+      });
+      parentPort.postMessage({ok: true, result});
+    } else if (workerData.op === 'extractPageImage') {
+      const result = extractPdfPageImage(workerData.pdfPath, workerData.pageNumber);
+      parentPort.postMessage({ok: true, result});
+    } else {
+      parentPort.postMessage({ok: false, error: `Unknown PDF worker op: ${workerData.op}`});
+    }
+  } catch (err) {
+    parentPort.postMessage({ok: false, error: err && err.message ? err.message : String(err)});
+  }
+}
+
 module.exports = {
   MAX_UPLOAD_BYTES,
+  MAX_PDF_SCAN_BYTES,
+  MAX_PDF_OBJECTS,
   ALLOWED_EXTENSIONS,
   IMAGE_EXTENSIONS,
   MIME_BY_EXT,
@@ -643,10 +872,14 @@ module.exports = {
   readJsonSafe,
   writeJsonAtomic,
   streamUploadToDisk,
+  findJpegInBuffer,
+  scanPdfBufferLinear,
   extractEmbeddedPdfJpeg,
   extractPdfPageImage,
+  extractPdfPageImageAsync,
   hasPdftoppm,
   inspectPdfPages,
+  isOllamaCloudHost,
   resolveCloudVisionConfig,
   callOllamaCloudVision,
   buildImageSidecarMarkdown,

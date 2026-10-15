@@ -100,7 +100,8 @@
             <h3>Add files</h3>
             <span class="lib-meta">PDF, Markdown, text, PNG, JPEG, WebP · up to 50 MB</span>
           </div>
-          <p class="lib-meta">Drop manuals, wiring diagrams, or nameplate photos to add them to your Library under <strong>Added by you</strong>. Originals are always kept; images and scanned PDF pages are described with Ollama Cloud vision when online (or marked <em>waiting for a description</em> offline and retried automatically).</p>
+          <p class="lib-meta" id="lib-upload-privacy">Images and scanned pages are sent to Ollama cloud to be described; the originals stay on the boat.</p>
+          <p class="lib-meta">Drop manuals, wiring diagrams, or nameplate photos to add them to your Library under <strong>Added by you</strong>. While offline, uploads are marked <em>waiting for a description</em> and retried automatically when back online.</p>
           <div id="lib-upload-dropzone" class="lib-upload-dropzone" tabindex="0" role="button" aria-label="Drop files here or click to choose files">
             <input id="lib-upload-input" type="file" accept=".pdf,.md,.txt,.png,.jpg,.jpeg,.webp" multiple hidden>
             <span class="lib-upload-prompt">Drop files here or <strong>click to browse</strong></span>

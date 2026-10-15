@@ -11,7 +11,11 @@ const {
   sanitizeUploadName,
   verifyMagicBytes,
   streamUploadToDisk,
+  findJpegInBuffer,
+  scanPdfBufferLinear,
   extractEmbeddedPdfJpeg,
+  resolveCloudVisionConfig,
+  callOllamaCloudVision,
 } = require('../lib/uploads');
 const {Library} = require('../lib/library');
 const createPlugin = require('../index');
@@ -238,6 +242,77 @@ describe('Image vision descriptions, offline queueing, and scanned PDFs', () => 
       await new Promise(resolve => cloudServer.close(resolve));
       fs.rmSync(tmpDir, {recursive: true, force: true});
     }
+  });
+
+  it('never sends the API key Authorization header to non-ollama.com hosts', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lume-upload-auth-'));
+    const keyFile = path.join(tmpDir, 'ollama.key');
+    fs.writeFileSync(keyFile, 'secret-boat-ollama-key-12345\n', 'utf8');
+
+    let receivedAuthHeader = 'uncalled';
+    const nonOllamaServer = http.createServer((req, res) => {
+      receivedAuthHeader = req.headers.authorization;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({message: {content: 'Test description'}}));
+    });
+    await new Promise(resolve => nonOllamaServer.listen(0, '127.0.0.1', resolve));
+    const nonOllamaUrl = `http://127.0.0.1:${nonOllamaServer.address().port}`;
+
+    try {
+      // 1. resolveCloudVisionConfig omits apiKey when URL host is not ollama.com / *.ollama.com
+      const cfgNonOllama = resolveCloudVisionConfig(
+        {visionOllamaUrl: nonOllamaUrl, chatApiKeyFile: keyFile},
+        tmpDir
+      );
+      assert.equal(cfgNonOllama.apiKey, null);
+
+      const cfgOllama = resolveCloudVisionConfig(
+        {visionOllamaUrl: 'https://ollama.com', chatApiKeyFile: keyFile},
+        tmpDir
+      );
+      assert.equal(cfgOllama.apiKey, 'secret-boat-ollama-key-12345');
+
+      // 2. Even if apiKey is passed directly to callOllamaCloudVision, non-ollama URL gets no Authorization header
+      await callOllamaCloudVision({
+        url: nonOllamaUrl,
+        model: 'glm-5.3:cloud',
+        apiKey: 'secret-boat-ollama-key-12345',
+        imageBuffer: SAMPLE_JPEG,
+      });
+      assert.equal(receivedAuthHeader, undefined);
+    } finally {
+      await new Promise(resolve => nonOllamaServer.close(resolve));
+      fs.rmSync(tmpDir, {recursive: true, force: true});
+    }
+  });
+
+  it('checks PDF stream bounds linearly (no O(n^2) SOI scan) and enforces object/byte caps', () => {
+    // 1 MB stream stuffed with 0xFF 0xD8 0xFF markers and NO EOI (0xFF 0xD9)
+    const manySoi = Buffer.alloc(1024 * 1024);
+    for (let i = 0; i + 2 < manySoi.length; i += 3) {
+      manySoi[i] = 0xff;
+      manySoi[i + 1] = 0xd8;
+      manySoi[i + 2] = 0xff;
+    }
+    const t0 = Date.now();
+    const res = findJpegInBuffer(manySoi, 0, manySoi.length);
+    const elapsedMs = Date.now() - t0;
+    assert.equal(res, null);
+    assert.ok(elapsedMs < 50, `Expected O(1) stream bound check (<50ms), took ${elapsedMs}ms`);
+
+    // Craft a PDF with 20 indirect objects and verify maxObjects cap stops early
+    const chunks = [Buffer.from('%PDF-1.4\n', 'latin1')];
+    for (let i = 1; i <= 20; i++) {
+      chunks.push(Buffer.from(`${i} 0 obj\n<< /Type /Page >>\nendobj\n`, 'latin1'));
+    }
+    chunks.push(Buffer.from('%%EOF\n', 'latin1'));
+    const capped = scanPdfBufferLinear(Buffer.concat(chunks), {maxObjects: 5});
+    assert.equal(capped.objectsVisited, 5);
+    assert.equal(capped.pageObjs.length, 5);
+
+    // Verify UI privacy notice in public/index.html
+    const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+    assert.match(html, /Images and scanned pages are sent to Ollama cloud to be described; the originals stay on the boat\./);
   });
 
   it('extracts embedded PDF page JPEGs, describes first 5 scanned pages at index time, reads book index backwards, and caches on-demand pages', async () => {

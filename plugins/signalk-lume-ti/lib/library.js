@@ -17,7 +17,7 @@ const {
   readJsonSafe,
   writeJsonAtomic,
   streamUploadToDisk,
-  extractPdfPageImage,
+  extractPdfPageImageAsync,
   inspectPdfPages,
   resolveCloudVisionConfig,
   callOllamaCloudVision,
@@ -530,7 +530,7 @@ class Library {
     if (cache.pages && cache.pages[key] && cache.pages[key].text) {
       return {text: cache.pages[key].text, cached: true, method: cache.pages[key].method || 'cache'};
     }
-    const extracted = extractPdfPageImage(pdfPath, pageNumber);
+    const extracted = await extractPdfPageImageAsync(pdfPath, pageNumber);
     if (!extracted || !extracted.buffer) {
       throw uploadError(`Page ${pageNumber} has no embedded JPEG and pdftoppm is unavailable`, 422, 'no_page_image');
     }
