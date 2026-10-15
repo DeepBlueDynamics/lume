@@ -61,9 +61,32 @@ pub(crate) async fn dispatch(
     name: &str,
     args: &Value,
 ) -> Result<Value, String> {
-    let mut reply = dispatch_inner(engine, name, args).await?;
-    add_argument_notes(&mut reply, name, args);
-    Ok(reply)
+    if let Some(sql) = args
+        .get("sql")
+        .and_then(Value::as_str)
+        .filter(|_| matches!(name, "ti_query" | "ti_explain"))
+    {
+        let mut event = engine
+            .query_log
+            .start(sql, ti_sql::query_log::Context::current());
+        let result = ti_sql::query_log::without_record(dispatch_inner(engine, name, args)).await;
+        let result = result.map(|mut reply| {
+            add_argument_notes(&mut reply, name, args);
+            reply
+        });
+        if let Ok(reply) = &result {
+            event.progress(
+                reply["row_count"].as_u64().unwrap_or(0),
+                serde_json::to_vec(reply).map_or(0, |b| b.len() as u64),
+            );
+        }
+        event.finish(result.as_ref().err().cloned());
+        result
+    } else {
+        let mut reply = dispatch_inner(engine, name, args).await?;
+        add_argument_notes(&mut reply, name, args);
+        Ok(reply)
+    }
 }
 async fn dispatch_inner(
     engine: &ti_sql::TiEngine,
@@ -230,12 +253,18 @@ pub(crate) fn call(name: &str, args: Value) -> Result<String, String> {
             as std::sync::Arc<dyn ti_contracts::DocumentIndex>)
     };
     let runtime = ti_sql::surface_runtime().map_err(|e| e.to_string())?;
-    let result = runtime.block_on(async {
+    let context = ti_sql::query_log::Context::current();
+    let context = if context.source == "cli" {
+        ti_sql::query_log::Context::new("mcp", None)
+    } else {
+        context
+    };
+    let result = runtime.block_on(ti_sql::query_log::scoped(context, async {
         let engine = ti_sql::TiEngine::open(std::path::Path::new(root), width, Some(&factory))
             .await
             .map_err(|e| e.to_string())?;
         dispatch(&engine, name, &args).await
-    })?;
+    }))?;
     serde_json::to_string(&result).map_err(|e| e.to_string())
 }
 #[cfg(test)]
@@ -270,7 +299,7 @@ mod tests {
                 assert!(q.get(key).is_some());
             }
             let schema = dispatch(&engine, "ti_schema", &json!({})).await.unwrap();
-            assert_eq!(schema["tables"].as_array().unwrap().len(), 5);
+            assert_eq!(schema["tables"].as_array().unwrap().len(), 6);
             assert!(schema.get("time_coverage").is_some());
             assert_eq!(schema["width_seconds"], 10);
             let explain = dispatch(&engine, "ti_explain", &json!({"sql":"SELECT 1"}))

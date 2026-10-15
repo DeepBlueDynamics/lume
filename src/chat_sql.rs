@@ -494,6 +494,8 @@ fn execute_chat_tool(
     ti_store: Option<&str>,
     docs_index: Option<&str>,
 ) -> Result<String, String> {
+    let _query_context =
+        ti_sql::query_log::ThreadContext::enter(ti_sql::query_log::Context::new("chat", None));
     match name {
         "ti_schema" | "ti_query" | "ti_explain" => {
             if let Some(store) = ti_store {

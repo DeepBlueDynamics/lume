@@ -86,6 +86,30 @@ impl Server {
         docs: bool,
         format: &str,
     ) -> Self {
+        Self::start_with_log_flag(
+            bind,
+            pg,
+            verifier,
+            history,
+            pg_bind,
+            external_auth,
+            docs,
+            format,
+            false,
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn start_with_log_flag(
+        bind: Option<&str>,
+        pg: bool,
+        verifier: Option<&str>,
+        history: bool,
+        pg_bind: Option<&str>,
+        external_auth: bool,
+        docs: bool,
+        format: &str,
+        disabled: bool,
+    ) -> Self {
         let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!(
             "http-{}-{}",
             std::process::id(),
@@ -230,6 +254,10 @@ impl Server {
             .env("LUME_DEBUG", "1")
             .args(["serve", "--port", "0", "--ti-store"])
             .arg(&store_root);
+        if disabled {
+            command.arg("--no-query-log");
+        }
+        command.env_remove("LUME_TI_QUERY_LOG");
         if docs {
             command.arg("--docs-index").arg(root.join("index"));
         }
@@ -449,7 +477,7 @@ fn http_shared_engine_arrow_json_schema_explain_status_and_read_only() {
             .unwrap();
     assert_eq!(reader.map(|b| b.unwrap().num_rows()).sum::<usize>(), 0);
     let schema = server.get("/ti/schema");
-    assert_eq!(schema["tables"].as_array().unwrap().len(), 5);
+    assert_eq!(schema["tables"].as_array().unwrap().len(), 6);
     assert_eq!(schema["width_seconds"], 10);
     let explain: Value = server
         .post("/ti/explain", json!({"sql":sql}), true)
@@ -674,4 +702,134 @@ fn mcp_schema_guidance_and_recoverable_errors() {
         .as_str()
         .unwrap()
         .contains("Ignored unknown argument unknown"));
+}
+
+#[test]
+fn query_log_http_get_post_mcp_failure_and_utf8_truncation() {
+    let server = Server::start_with(Some("127.0.0.1"), true);
+    let post = "SELECT 42 AS logged_http";
+    assert_eq!(
+        server
+            .post(
+                "/ti/query",
+                json!({"sql":post, "password":"not-recorded"}),
+                true
+            )
+            .unwrap()
+            .status(),
+        200
+    );
+    let get = "SELECT 43 AS logged_get";
+    let response = ureq::get(&format!(
+        "{}/ti/query?sql=SELECT+43+AS+logged_get",
+        server.url
+    ))
+    .set("Accept", "application/json")
+    .call()
+    .unwrap();
+    assert_eq!(response.status(), 200);
+    let mcp = "SELECT 44 AS logged_mcp";
+    let response: Value = server.post("/mcp", json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ti_query","arguments":{"sql":mcp}}}), true).unwrap().into_json().unwrap();
+    assert!(response.get("error").is_none(), "{response}");
+    let failure = "SELECT * FROM logged_missing";
+    assert!(server
+        .post("/ti/query", json!({"sql":failure}), true)
+        .is_err());
+    let long = format!("SELECT 45 AS logged_long /*{}*/", "é".repeat(2500));
+    server.post("/ti/query", json!({"sql":long}), true).unwrap();
+    let runtime = ti_sql::surface_runtime().unwrap();
+    let (client, connection) = runtime
+        .block_on(tokio_postgres::connect(
+            &format!(
+                "host=127.0.0.1 port={} user=lume dbname=lume",
+                server.pg.rsplit(':').next().unwrap()
+            ),
+            tokio_postgres::NoTls,
+        ))
+        .unwrap();
+    runtime.spawn(async move {
+        connection.await.unwrap();
+    });
+    runtime
+        .block_on(client.simple_query("SELECT 46 AS logged_pg"))
+        .unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let reply: Value = server
+            .post(
+                "/ti/query",
+                json!({"sql":"SELECT * FROM query_log WHERE sql LIKE '%logged_%' ORDER BY ts"}),
+                true,
+            )
+            .unwrap()
+            .into_json()
+            .unwrap();
+        let rows = reply["rows"].as_array().unwrap();
+        let events: Vec<_> = rows
+            .iter()
+            .filter(|r| !r["sql"].as_str().unwrap().contains("query_log"))
+            .collect();
+        if events.len() == 6 {
+            for (sql, source) in [
+                (post, "http"),
+                (get, "http"),
+                (mcp, "mcp"),
+                ("SELECT 46 AS logged_pg", "pg"),
+            ] {
+                let found: Vec<_> = events.iter().filter(|r| r["sql"] == sql).collect();
+                assert_eq!(found.len(), 1, "{sql}");
+                assert_eq!(found[0]["source"], source);
+                if source == "pg" {
+                    assert_eq!(found[0]["identity"], "lume");
+                }
+                assert_eq!(found[0]["rows"], 1);
+                assert!(found[0]["elapsed_ms"].as_f64().unwrap() >= 0.0);
+                assert!(found[0]["bytes"].as_u64().unwrap() > 0);
+                assert!(found[0]["error"].is_null());
+            }
+            assert!(
+                events.iter().find(|r| r["sql"] == failure).unwrap()["error"]
+                    .as_str()
+                    .unwrap()
+                    .contains("logged_missing")
+            );
+            let truncated = events.iter().find(|r| r["sql_truncated"] == true).unwrap();
+            assert!(truncated["sql"].as_str().unwrap().len() <= 4096);
+            assert!(!serde_json::to_string(&events)
+                .unwrap()
+                .contains("not-recorded"));
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "{reply}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+#[test]
+fn query_log_off_flag_leaves_empty_queryable_table() {
+    let server = Server::start_with_log_flag(
+        Some("127.0.0.1"),
+        false,
+        None,
+        false,
+        None,
+        false,
+        false,
+        "json",
+        true,
+    );
+    server
+        .post("/ti/query", json!({"sql":"SELECT 42"}), true)
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    let reply: Value = server
+        .post(
+            "/ti/query",
+            json!({"sql":"SELECT count(*) AS n FROM query_log"}),
+            true,
+        )
+        .unwrap()
+        .into_json()
+        .unwrap();
+    assert_eq!(reply["rows"][0]["n"], 0);
+    assert!(!server.root.join("store/query-log").exists());
 }

@@ -27,6 +27,7 @@ pub struct TiEngine {
     pub session: SqlSession,
     root: PathBuf,
     skipped_stores: Vec<String>,
+    pub query_log: Arc<crate::query_log::QueryLog>,
 }
 fn invalid(message: impl Into<String>) -> DataFusionError {
     DataFusionError::Plan(message.into())
@@ -187,17 +188,30 @@ impl TiEngine {
             let catalog = crate::build_sql_catalog(&store, 10)?;
             session.register_store_table("telemetry_agents", Arc::new(store), catalog)?;
         }
-        Ok(Self {
-            session,
-            root: root.into(),
-            skipped_stores,
-        })
+        Ok(Self::with_log(session, root.into(), skipped_stores))
     }
     pub fn from_session(session: SqlSession, root: PathBuf) -> Self {
+        Self::with_log(session, root, Vec::new())
+    }
+    fn with_log(session: SqlSession, root: PathBuf, skipped_stores: Vec<String>) -> Self {
+        let config = std::fs::read_to_string(root.join("ti.toml"))
+            .ok()
+            .and_then(|s| ti_contracts::TiConfig::from_toml(&s).ok())
+            .map(|c| c.query_log)
+            .unwrap_or_default();
+        let query_log = crate::query_log::QueryLog::open(&root, &config);
+        session
+            .context
+            .register_table(
+                "query_log",
+                Arc::new(crate::query_log::LogTable(query_log.clone())),
+            )
+            .expect("query_log registration in fresh session");
         Self {
             session,
             root,
-            skipped_stores: Vec::new(),
+            skipped_stores,
+            query_log,
         }
     }
     /// Benchmark controls for the default physical store's immutable cache.
@@ -225,39 +239,83 @@ impl TiEngine {
     /// Streaming result admission: collect at most max_rows+1 rows and 64 KiB
     /// including metadata. Stop reading once either cap is reached.
     pub async fn query(&self, sql: &str, max_rows: usize) -> Result<Value> {
-        Ok(self.query_batches(sql, max_rows).await?.0)
+        let mut event = self
+            .query_log
+            .start(sql, crate::query_log::Context::current());
+        let result = self.query_batches(sql, max_rows).await;
+        if let Some((reply, _, _)) = result.as_ref().ok().filter(|_| event.active()) {
+            event.progress(
+                reply["row_count"].as_u64().unwrap_or(0),
+                serde_json::to_vec(reply).map_or(0, |b| b.len() as u64),
+            );
+        }
+        event.finish(result.as_ref().err().map(ToString::to_string));
+        Ok(result?.0)
     }
     pub async fn query_arrow(&self, sql: &str, max_rows: usize) -> Result<(Vec<u8>, usize, bool)> {
-        let (reply, mut batches, schema) = self.query_batches(sql, max_rows).await?;
-        let mut count = reply["row_count"].as_u64().unwrap_or(0) as usize;
-        let mut truncated = reply["truncated"] == true;
-        loop {
-            let mut body = Vec::new();
-            {
-                let mut writer =
-                    datafusion::arrow::ipc::writer::StreamWriter::try_new(&mut body, &schema)?;
-                for batch in &batches {
-                    writer.write(batch)?;
+        let mut event = self
+            .query_log
+            .start(sql, crate::query_log::Context::current());
+        let result: Result<(Vec<u8>, usize, bool)> = async {
+            let (reply, mut batches, schema) = self.query_batches(sql, max_rows).await?;
+            let mut count = reply["row_count"].as_u64().unwrap_or(0) as usize;
+            let mut truncated = reply["truncated"] == true;
+            loop {
+                let mut body = Vec::new();
+                {
+                    let mut writer =
+                        datafusion::arrow::ipc::writer::StreamWriter::try_new(&mut body, &schema)?;
+                    for batch in &batches {
+                        writer.write(batch)?;
+                    }
+                    writer.finish()?;
                 }
-                writer.finish()?;
+                if body.len() <= MAX_BYTES {
+                    return Ok((body, count, truncated));
+                }
+                let Some(last) = batches.pop() else {
+                    return Err(invalid("Arrow schema exceeds 64 KiB; select fewer columns"));
+                };
+                if last.num_rows() > 1 {
+                    batches.push(last.slice(0, last.num_rows() - 1));
+                }
+                count -= 1;
+                truncated = true;
             }
-            if body.len() <= MAX_BYTES {
-                return Ok((body, count, truncated));
-            }
-            let Some(last) = batches.pop() else {
-                return Err(invalid("Arrow schema exceeds 64 KiB; select fewer columns"));
-            };
-            if last.num_rows() > 1 {
-                batches.push(last.slice(0, last.num_rows() - 1));
-            }
-            count -= 1;
-            truncated = true;
         }
+        .await;
+        if let Ok((body, rows, _)) = &result {
+            event.progress(*rows as u64, body.len() as u64);
+        }
+        event.finish(result.as_ref().err().map(ToString::to_string));
+        result
     }
     async fn query_batches(&self, sql: &str, max_rows: usize) -> Result<QueryBatches> {
-        self.query_with_parameters(sql, max_rows, vec![]).await
+        self.query_with_parameters_inner(sql, max_rows, vec![])
+            .await
     }
     pub async fn query_with_parameters(
+        &self,
+        sql: &str,
+        max_rows: usize,
+        parameters: Vec<datafusion::common::ScalarValue>,
+    ) -> Result<QueryBatches> {
+        let mut event = self
+            .query_log
+            .start(sql, crate::query_log::Context::current());
+        let result = self
+            .query_with_parameters_inner(sql, max_rows, parameters)
+            .await;
+        if let Some((reply, _, _)) = result.as_ref().ok().filter(|_| event.active()) {
+            event.progress(
+                reply["row_count"].as_u64().unwrap_or(0),
+                serde_json::to_vec(reply).map_or(0, |b| b.len() as u64),
+            );
+        }
+        event.finish(result.as_ref().err().map(ToString::to_string));
+        result
+    }
+    async fn query_with_parameters_inner(
         &self,
         sql: &str,
         max_rows: usize,
@@ -463,6 +521,7 @@ impl TiEngine {
             "paths".to_string(),
             "vessels".to_string(),
             "shards".to_string(),
+            "query_log".to_string(),
         ];
         if let Ok(extras) = self.session.extra_catalogs.lock() {
             for extra_name in extras.keys() {
@@ -680,6 +739,7 @@ impl TiEngine {
         }
         let skipped_magnitude_total: u64 = skipped_magnitudes.values().sum();
         let mut res = json!({
+            "query_log_dropped": self.query_log.dropped(),
             "store": self.root, "width_seconds": self.session.catalog.width_seconds,
             "documents": alerts["document_count"], "alerts": alerts["alert_count"],
             "active_alert_count": alerts["active_alert_count"], "active_alerts": alerts["active_alerts"],

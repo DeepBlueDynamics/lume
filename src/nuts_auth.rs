@@ -226,6 +226,17 @@ impl NutsAuth {
         }
     }
 
+    #[cfg(feature = "ti")]
+    pub(crate) fn principal(&self, token: &str) -> Option<String> {
+        if token.len() > 8192 {
+            return None;
+        }
+        if token.starts_with("ahp_") {
+            self.verify(&self.exchanged(token)?).map(|c| c.sub)
+        } else {
+            self.verify(token).map(|c| c.sub)
+        }
+    }
     fn verify(&self, token: &str) -> Option<Claims> {
         let header = decode_header(token).ok()?;
         if header.alg != Algorithm::RS256 {
