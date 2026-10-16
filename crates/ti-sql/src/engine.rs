@@ -455,7 +455,66 @@ impl TiEngine {
             json!({"plan":self.session.explain(sql).await?, "pushdown":"See Conjunct classes and execution details in plan", "units":self.units(), "elapsed_ms":started.elapsed().as_millis() as u64}),
         )
     }
+    async fn docs_kinds(&self) -> Vec<Value> {
+        let sql = "SELECT kind, title, count(*) AS count, min(ts_start) AS first_ts, max(ts_start) AS last_ts \
+                   FROM docs GROUP BY kind, title ORDER BY count DESC, kind ASC, title ASC LIMIT 50";
+        match self.session.query(sql).await {
+            Ok(batches) => rows_json(&batches)
+                .unwrap_or_default()
+                .into_iter()
+                .map(Value::Object)
+                .collect(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    async fn docs_title_or_kind_hint(&self, candidate: &str) -> Option<String> {
+        let escaped = candidate.replace('\'', "''");
+        let title_sql = format!("SELECT count(*) AS n FROM docs WHERE title = '{escaped}'");
+        if let Ok(batches) = self.session.query(&title_sql).await {
+            if let Ok(rows) = rows_json(&batches) {
+                if rows
+                    .first()
+                    .and_then(|r| r.get("n"))
+                    .and_then(Value::as_i64)
+                    .unwrap_or(0)
+                    > 0
+                {
+                    return Some(format!(
+                        "it is a docs title: SELECT title, body, ts_start FROM docs WHERE title = '{escaped}' ORDER BY ts_start DESC LIMIT 10"
+                    ));
+                }
+            }
+        }
+        let kind_sql = format!("SELECT count(*) AS n FROM docs WHERE kind = '{escaped}'");
+        if let Ok(batches) = self.session.query(&kind_sql).await {
+            if let Ok(rows) = rows_json(&batches) {
+                if rows
+                    .first()
+                    .and_then(|r| r.get("n"))
+                    .and_then(Value::as_i64)
+                    .unwrap_or(0)
+                    > 0
+                {
+                    return Some(format!(
+                        "it is a docs kind: SELECT title, body, ts_start FROM docs WHERE kind = '{escaped}' ORDER BY ts_start DESC LIMIT 10"
+                    ));
+                }
+            }
+        }
+        None
+    }
+
     pub async fn schema(&self, prefix: Option<&str>, kind: Option<&str>) -> Result<Value> {
+        self.schema_with_table(None, prefix, kind).await
+    }
+
+    pub async fn schema_with_table(
+        &self,
+        table: Option<&str>,
+        prefix: Option<&str>,
+        kind: Option<&str>,
+    ) -> Result<Value> {
         let mut tables = Vec::new();
         let mut table_names = vec![
             "telemetry".to_string(),
@@ -471,15 +530,47 @@ impl TiEngine {
                 }
             }
         }
-        let prefix = prefix.filter(|p| !p.is_empty());
-        let table_filter = prefix.and_then(|p| {
-            let short = p.rsplit('.').next().unwrap_or(p);
+        let resolve_table_name = |raw: &str| -> Option<String> {
+            let short = raw
+                .strip_prefix("datafusion.public.")
+                .or_else(|| raw.strip_prefix("public."))
+                .unwrap_or(raw);
             table_names
                 .iter()
                 .find(|name| name.as_str() == short)
                 .cloned()
-        });
-        let column_prefix = if table_filter.is_some() { None } else { prefix };
+        };
+        let table = table.filter(|t| !t.is_empty());
+        let prefix = prefix.filter(|p| !p.is_empty());
+        if let Some(raw_table) = table {
+            if resolve_table_name(raw_table).is_none() {
+                let mut message =
+                    format!("no table '{raw_table}'. Tables: {}", table_names.join(", "));
+                if let Some(doc_hint) = self.docs_title_or_kind_hint(raw_table).await {
+                    message.push_str(&format!(" — {doc_hint}"));
+                }
+                let docs_kinds = self.docs_kinds().await;
+                return Ok(json!({
+                    "error": message,
+                    "hint": message,
+                    "tables": [],
+                    "docs_kinds": docs_kinds,
+                    "width_seconds": self.session.catalog.width_seconds,
+                    "units": self.units(),
+                    "column_count": 0,
+                    "matching_column_count": 0,
+                    "returned_column_count": 0,
+                    "truncated": false
+                }));
+            }
+        }
+        let effective_prefix = table.or(prefix);
+        let table_filter = effective_prefix.and_then(resolve_table_name);
+        let column_prefix = if table_filter.is_some() {
+            None
+        } else {
+            effective_prefix
+        };
         let mut total_columns = 0usize;
         let mut matched_columns = 0usize;
         let mut returned_columns = 0usize;
@@ -543,6 +634,29 @@ impl TiEngine {
             tables.push(json!({"name": name, "column_count": column_count,
                 "matching_column_count": matching_column_count, "columns": columns}));
         }
+        if matched_columns == 0 {
+            if let Some(raw_prefix) = column_prefix {
+                if let Some(doc_hint) = self.docs_title_or_kind_hint(raw_prefix).await {
+                    let message = format!(
+                        "no table '{raw_prefix}'. Tables: {} — {doc_hint}",
+                        table_names.join(", ")
+                    );
+                    let docs_kinds = self.docs_kinds().await;
+                    return Ok(json!({
+                        "error": message,
+                        "hint": message,
+                        "tables": [],
+                        "docs_kinds": docs_kinds,
+                        "width_seconds": self.session.catalog.width_seconds,
+                        "units": self.units(),
+                        "column_count": total_columns,
+                        "matching_column_count": 0,
+                        "returned_column_count": 0,
+                        "truncated": false
+                    }));
+                }
+            }
+        }
         let coverage: Vec<_> = self
             .session
             .catalog
@@ -550,21 +664,42 @@ impl TiEngine {
             .values()
             .map(|v| json!({"vessel": v.urn, "from": v.first_seen, "to": v.last_seen}))
             .collect();
+        let include_docs_kinds = (effective_prefix.is_none() && kind.is_none())
+            || table_filter.as_deref() == Some("docs")
+            || matched_columns == 0;
+        let docs_kinds = if include_docs_kinds {
+            Some(self.docs_kinds().await)
+        } else {
+            None
+        };
         let truncated = returned_columns < matched_columns;
         let hint = if matched_columns == 0 {
             format!("no columns match prefix {}; {total_columns} columns exist, e.g. {}. Use a table name such as telemetry, or a Signal K path prefix such as environment.wind.",
-                prefix.unwrap_or("(none)"), examples.join(", "))
+                effective_prefix.unwrap_or("(none)"), examples.join(", "))
         } else if truncated {
             format!("Returned {returned_columns} of {matched_columns} matching columns; narrow prefix or select a table.")
+        } else if docs_kinds.as_ref().is_some_and(|k| !k.is_empty()) {
+            "Quote Signal K column names in SQL; for docs titles in docs_kinds, run: SELECT title, body, ts_start FROM docs WHERE title = '<title>' ORDER BY ts_start DESC LIMIT 5".into()
         } else {
             "Quote Signal K column names in SQL; call ti_resolve to find paths and vessels.".into()
         };
-        Ok(
-            json!({"tables": tables, "width_seconds": self.session.catalog.width_seconds,
-            "time_coverage": coverage, "units": self.units(), "column_count": total_columns,
-            "matching_column_count": matched_columns, "returned_column_count": returned_columns,
-            "truncated": truncated, "hint": hint}),
-        )
+        let mut out = serde_json::Map::new();
+        if let Some(kinds) = docs_kinds {
+            out.insert("docs_kinds".into(), json!(kinds));
+        }
+        out.insert("hint".into(), json!(hint));
+        out.insert("tables".into(), json!(tables));
+        out.insert(
+            "width_seconds".into(),
+            json!(self.session.catalog.width_seconds),
+        );
+        out.insert("time_coverage".into(), json!(coverage));
+        out.insert("units".into(), json!(self.units()));
+        out.insert("column_count".into(), json!(total_columns));
+        out.insert("matching_column_count".into(), json!(matched_columns));
+        out.insert("returned_column_count".into(), json!(returned_columns));
+        out.insert("truncated".into(), json!(truncated));
+        Ok(Value::Object(out))
     }
     pub async fn status(&self) -> Result<Value> {
         let shards = rows_json(&self.session.query("SELECT * FROM shards").await?)?;

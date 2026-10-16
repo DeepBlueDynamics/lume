@@ -55,13 +55,17 @@ impl HttpBearer {
         Ok(auth)
     }
 
-    pub(crate) fn public_health(&self) -> bool {
-        self.nuts.is_some()
-    }
-
     #[cfg(test)]
     pub(crate) fn accepts(&self, headers: &str, override_token: Option<&str>) -> bool {
         self.accepts_scope(headers, override_token, "read")
+    }
+
+    pub(crate) fn matches_bearer_header(headers: &str, expected: &str) -> bool {
+        let dummy = Self {
+            token: None,
+            nuts: None,
+        };
+        dummy.accepts_scope(headers, Some(expected), "read")
     }
 
     pub(crate) fn accepts_scope(

@@ -1,6 +1,6 @@
 Searching corpus: docs/monte_cristo (1926 sections, db: /workspace/lume/.lanes/search/tests/search_golden/.scratch_db)
 [SKG walk] seeds: Danglars, Fernand → neighbors: Mercédès (0.38), Eugénie (0.36), Caderousse (0.35), Edmond Dantès (0.35), Monte Cristo (0.19)
-[⚠️] Semantic search unavailable for this index (no semantic session — index with -s); falling back to lexical BM25.
+[⚠️] Semantic search unavailable for this index (no vectors — reindex with --embed-model embeddinggemma-2, Shivvr at --shivvr-url, default http://localhost:8085); falling back to lexical BM25.
 Executing lexical BM25 search (graph=0.4)...
 [1] Score: 11.6615 [SKG: 0.88] | Chapter 4. Conspiracy (Part 6/11) (File: docs/monte_cristo/book.md, Line: 1628)
 “Yes, yes, Dantès’ good health!” said Caderousse, emptying his glass,

@@ -207,6 +207,10 @@ impl TiServer {
         self.otlp_only
     }
 
+    pub(crate) fn has_otlp(&self) -> bool {
+        self.otlp.is_some()
+    }
+
     /// Register an ordinary index; an absent index starts with an empty sections table.
     pub fn with_docs_index(mut self, root: &Path) -> Result<Self, String> {
         self.docs_index = Some(Mutex::new(crate::ti_docs_index::DocsIndex::new(root)));
@@ -804,7 +808,7 @@ impl TiServer {
         }
         let args: Value = if path == "/ti/resolve" {
             resolve_args(query)?
-        } else if path == "/ti/query" && method == "GET" {
+        } else if (path == "/ti/query" || path == "/ti/schema") && method == "GET" {
             query_args(query)?
         } else if method == "POST" {
             serde_json::from_slice(body).map_err(|e| e.to_string())?

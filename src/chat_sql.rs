@@ -297,7 +297,18 @@ pub fn run_chat_loop(
             .into_json()
             .map_err(|e| format!("Failed to parse Ollama response JSON: {}", e))?;
 
-        let assistant_msg = chat_res.message;
+        let mut assistant_msg = chat_res.message;
+        if assistant_msg
+            .tool_calls
+            .as_ref()
+            .is_none_or(|tc| tc.is_empty())
+        {
+            if let Some(synthesized) =
+                synthesize_unexecuted_sql_tool_call(&assistant_msg.content, &executed_sql, ti_store)
+            {
+                assistant_msg.tool_calls = Some(synthesized);
+            }
+        }
 
         if verbose && !json_output {
             println!(
@@ -488,6 +499,36 @@ pub fn run_chat_loop(
     }
 }
 
+fn synthesize_unexecuted_sql_tool_call(
+    content: &str,
+    executed_sql: &[String],
+    ti_store: Option<&str>,
+) -> Option<Vec<AgentToolCall>> {
+    for part in content.split("```sql").skip(1) {
+        if let Some(end) = part.find("```") {
+            let sql_snippet = part[..end].trim().trim_end_matches(';').trim();
+            if !sql_snippet.is_empty()
+                && !executed_sql
+                    .iter()
+                    .any(|s| s.trim_end_matches(';').trim() == sql_snippet)
+            {
+                let tool_name = if ti_store.is_some() {
+                    "ti_query"
+                } else {
+                    "lume_sql"
+                };
+                return Some(vec![AgentToolCall {
+                    function: AgentFunctionCall {
+                        name: tool_name.to_string(),
+                        arguments: json!({ "sql": sql_snippet }),
+                    },
+                }]);
+            }
+        }
+    }
+    None
+}
+
 fn execute_chat_tool(
     name: &str,
     mut args: Value,
@@ -498,9 +539,8 @@ fn execute_chat_tool(
         "ti_schema" | "ti_query" | "ti_explain" => {
             if let Some(store) = ti_store {
                 if let Some(obj) = args.as_object_mut() {
-                    if !obj.contains_key("store") {
-                        obj.insert("store".to_string(), json!(store));
-                    }
+                    obj.insert("store".to_string(), json!(store));
+                    obj.remove("width_seconds");
                 }
             }
             crate::ti_mcp::call(name, args)
@@ -519,7 +559,7 @@ fn finish_agent(
     tool_calls: Vec<ToolCallRecord>,
     json_output: bool,
 ) -> Result<(), String> {
-    for part in content.split("```sql") {
+    for part in content.split("```sql").skip(1) {
         if let Some(end) = part.find("```") {
             let sql_snippet = part[..end].trim();
             if !sql_snippet.is_empty() && !executed_sql.contains(&sql_snippet.to_string()) {
@@ -555,13 +595,15 @@ CRITICAL RULES:\n\
    - Dotted column names must be double-quoted, e.g. \"navigation.speedOverGround\", \"navigation.speedOverGround@max\", \"environment.wind.speedTrue\".\n\
    - Time buckets: use date_bin(INTERVAL '1 hour', ts) or date_bin(INTERVAL '10 minutes', ts) for time aggregations.\n\
    - Vessel filter: filter by vessel URN or MMSI where appropriate (e.g. vessel = '...').\n\
-   - Documents & full-text search:\n\
-     * match(body, 'words') is a Boolean filter for WHERE only. Never compare it (> 0), select it as a number, or aggregate it (sum).\n\
-     * Relevance is the score column. It is filled when the WHERE clause uses match(); use ORDER BY score DESC.\n\
+   - Documents & full-text search (examples show syntax only; never copy placeholder words):\n\
+     * docs hold logs and notes; kinds and titles (e.g. radio.weather) are listed by ti_schema. They are values in docs.title/kind, not table names. For the latest entry: ORDER BY ts_start DESC.\n\
+     * JSON fields in docs.body can be extracted with json_str(body, '<key>') and json_num(body, '<key>'), or read directly from body.\n\
+     * The TI docs table (ti_sql) has docs(vessel, id, kind, title, body, ts_start, ts_end, score). Query by title from docs_kinds and order by ts_start DESC (do not use match() or LIKE on body when querying by a known docs title, because radio transcripts contain phonetic spelling errors):\n\
+       Example: SELECT title, body, ts_start FROM docs WHERE title = '<title_from_docs_kinds>' ORDER BY ts_start DESC LIMIT 5;\n\
+     * Full-text search: match(body, '<key words from the question>') is a Boolean filter for WHERE only when searching across unknown titles or library sections. Never compare it (> 0), select it as a number, or aggregate it (sum). Relevance is the score column; it is filled when the WHERE clause uses match(); use ORDER BY score DESC.\n\
+       Example: SELECT vessel, kind, title, body, score FROM docs WHERE match(body, '<key words from the question>') ORDER BY score DESC LIMIT 10;\n\
      * The library index (lume_sql) has table sections(id, file, title, line, body, score). Group or identify documents by file (there is no doc column), and use line for position.\n\
-       Example: SELECT file, title, line, score FROM sections WHERE match(body, 'engine repair') ORDER BY score DESC LIMIT 10;\n\
-     * The TI docs table (ti_sql) has docs(vessel, id, kind, title, body, ts_start, ts_end, score), with the same match() rules.\n\
-       Example: SELECT vessel, kind, title, body, score FROM docs WHERE match(body, 'generator maintenance') ORDER BY score DESC LIMIT 10;\n\
+       Example: SELECT file, title, line, score FROM sections WHERE match(body, '<key words from the question>') ORDER BY score DESC LIMIT 10;\n\
    - Geospatial & intervals: use intervals() for time ranges, and within_nm(lat, lon, target_lat, target_lon, nm) or in_bbox(lat, lon, min_lat, min_lon, max_lat, max_lon) for geographic queries.\n\
 3. RETRY ON ERROR: If a SQL query fails with an error, analyze the error message, correct the SQL query, and retry (up to 3 times).\n\
 4. FINAL ANSWER: Do not paste SQL queries into your final answer unless the user explicitly asks for them (the UI already displays executed queries in dedicated cards). Provide a direct, factual answer and cite the source file and line for document references.\n\
@@ -625,17 +667,53 @@ mod endpoint_tests {
     #[test]
     fn system_prompt_includes_document_match_semantics_and_examples() {
         let prompt = build_system_prompt(Some("/path/to/ti"), Some("/path/to/docs"), ".lume-index");
-        assert!(prompt.contains("match(body, 'words') is a Boolean filter for WHERE only"));
+        assert!(prompt.contains(
+            "docs hold logs and notes; kinds and titles (e.g. radio.weather) are listed by ti_schema. They are values in docs.title/kind, not table names. For the latest entry: ORDER BY ts_start DESC."
+        ));
+        assert!(prompt.contains(
+            "match(body, '<key words from the question>') is a Boolean filter for WHERE only"
+        ));
         assert!(prompt.contains("Never compare it (> 0)"));
         assert!(prompt.contains("Relevance is the score column"));
         assert!(prompt.contains("ORDER BY score DESC"));
         assert!(prompt.contains("sections(id, file, title, line, body, score)"));
         assert!(prompt.contains("docs(vessel, id, kind, title, body, ts_start, ts_end, score)"));
-        assert!(prompt.contains("SELECT file, title, line, score FROM sections WHERE match(body, 'engine repair') ORDER BY score DESC LIMIT 10;"));
-        assert!(prompt.contains("SELECT vessel, kind, title, body, score FROM docs WHERE match(body, 'generator maintenance') ORDER BY score DESC LIMIT 10;"));
+        assert!(prompt.contains("SELECT title, body, ts_start FROM docs WHERE title = '<title_from_docs_kinds>' ORDER BY ts_start DESC LIMIT 5;"));
+        assert!(prompt.contains("SELECT file, title, line, score FROM sections WHERE match(body, '<key words from the question>') ORDER BY score DESC LIMIT 10;"));
+        assert!(prompt.contains("SELECT vessel, kind, title, body, score FROM docs WHERE match(body, '<key words from the question>') ORDER BY score DESC LIMIT 10;"));
+        assert!(!prompt.contains("generator maintenance"));
+        assert!(!prompt.contains("engine repair"));
         assert!(prompt.contains(
             "Do not paste SQL queries into your final answer unless the user explicitly asks"
         ));
         assert!(prompt.contains("cite the source file and line"));
+    }
+
+    #[test]
+    fn fenced_sql_synthesis_runs_at_most_once_and_skips_already_executed_sql() {
+        // (a) Executes at most once per turn even when multiple ```sql blocks appear.
+        let two_blocks = "Let's run:\n```sql\nSELECT 1;\n```\nand then:\n```sql\nSELECT 2;\n```";
+        let calls = synthesize_unexecuted_sql_tool_call(two_blocks, &[], Some("/tmp/ti")).unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].function.name, "ti_query");
+        assert_eq!(calls[0].function.arguments["sql"], "SELECT 1");
+
+        // (b) SQL already executed isn't re-run; advances to the next unexecuted block.
+        let executed = vec!["SELECT 1".to_string()];
+        let calls_after_first =
+            synthesize_unexecuted_sql_tool_call(two_blocks, &executed, None).unwrap();
+        assert_eq!(calls_after_first.len(), 1);
+        assert_eq!(calls_after_first[0].function.name, "lume_sql");
+        assert_eq!(calls_after_first[0].function.arguments["sql"], "SELECT 2");
+
+        // (c) A final answer that only quotes already-executed SQL returns None so the loop ends.
+        let final_answer = "The temperature was 89°F.\n```sql\nSELECT title, body FROM docs WHERE title = 'radio.weather' ORDER BY ts_start DESC LIMIT 1;\n```";
+        let prev = vec![
+            "SELECT title, body FROM docs WHERE title = 'radio.weather' ORDER BY ts_start DESC LIMIT 1"
+                .to_string(),
+        ];
+        assert!(
+            synthesize_unexecuted_sql_tool_call(final_answer, &prev, Some("/tmp/ti")).is_none()
+        );
     }
 }

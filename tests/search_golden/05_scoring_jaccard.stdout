@@ -1,6 +1,6 @@
 Searching corpus: docs/monte_cristo (1926 sections, db: /workspace/lume/.lanes/search/tests/search_golden/.scratch_db)
 [SKG walk] seeds: Mercédès → neighbors: Fernand (0.13), Edmond Dantès (0.11), Caderousse (0.06), Marseilles (0.06)
-[⚠️] Semantic search unavailable for this index (no semantic session — index with -s); falling back to lexical BM25.
+[⚠️] Semantic search unavailable for this index (no vectors — reindex with --embed-model embeddinggemma-2, Shivvr at --shivvr-url, default http://localhost:8085); falling back to lexical BM25.
 Executing lexical BM25 search (graph=0.6)...
 [1] Score: 11.7921 [SKG: 1.00] | Chapter 5. The Marriage Feast (Part 6/22) (File: docs/monte_cristo/book.md, Line: 1962)
 The bride blushed, while Fernand, restless and uneasy, seemed to start

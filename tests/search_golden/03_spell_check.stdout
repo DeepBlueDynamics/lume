@@ -1,7 +1,7 @@
 Searching corpus: docs/monte_cristo (1926 sections, db: /workspace/lume/.lanes/search/tests/search_golden/.scratch_db)
 Corrected query to: captain
 [SKG walk] no query entities resolved — no graph boost
-[⚠️] Semantic search unavailable for this index (no semantic session — index with -s); falling back to lexical BM25.
+[⚠️] Semantic search unavailable for this index (no vectors — reindex with --embed-model embeddinggemma-2, Shivvr at --shivvr-url, default http://localhost:8085); falling back to lexical BM25.
 Executing lexical BM25 search (graph=0.4)...
 [1] Score: 5.5245 | Chapter 114. Peppino (Part 13/15) (File: docs/monte_cristo/book.md, Line: 59910)
 “Who comes there?” he cried.

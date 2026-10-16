@@ -541,6 +541,8 @@ fn register_functions(
         }),
     ));
     context.register_udf(crate::docs::match_udf());
+    context.register_udf(crate::docs::json_str_udf());
+    context.register_udf(crate::docs::json_num_udf());
     for (name, arity) in [("in_bbox", 4), ("within_nm", 3)] {
         context.register_udf(crate::geo::marker(name, arity));
     }

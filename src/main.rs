@@ -261,6 +261,11 @@ fn lume_main() {
                 eprintln!("{error}");
                 std::process::exit(2);
             });
+            lume::agent::configure_discovery_from_args(&args).unwrap_or_else(|error| {
+                eprintln!("{error}");
+                std::process::exit(2);
+            });
+            lume::agent::register_serve_shutdown_signals();
             let docs_index = args.iter().position(|a| a == "--docs-index").map(|pos| {
                 args.get(pos + 1)
                     .filter(|s| !s.starts_with("--"))
@@ -518,8 +523,12 @@ fn lume_main() {
         "help" | "-h" | "--help" => {
             print_global_help();
         }
-        "version" | "-v" | "--version" => {
-            println!("lume {}", env!("CARGO_PKG_VERSION"));
+        "version" | "-v" | "-V" | "--version" => {
+            println!(
+                "lume {} ({})",
+                env!("CARGO_PKG_VERSION"),
+                env!("LUME_BUILD_COMMIT")
+            );
         }
         _ => {
             eprintln!("Unknown subcommand: {}", args[1]);
@@ -620,6 +629,15 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
                     .ok_or("--http-token-file requires a path")?;
                 i += 2;
             }
+            "--discovery-file" => {
+                args.get(i + 1)
+                    .filter(|s| !s.starts_with("--"))
+                    .ok_or("--discovery-file requires a path")?;
+                i += 2;
+            }
+            "--no-discovery-file" => {
+                i += 1;
+            }
             "--serve" => {
                 serve = true;
                 i += 1;
@@ -717,6 +735,13 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
     }
     if args
         .iter()
+        .any(|arg| arg == "--discovery-file" || arg == "--no-discovery-file")
+        && !serve
+    {
+        return Err("--discovery-file and --no-discovery-file require --serve".into());
+    }
+    if args
+        .iter()
         .any(|arg| arg == "--nuts-auth" || arg == "--nuts-allow")
         && !serve
     {
@@ -745,6 +770,7 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
     let store_path = PathBuf::from(&store_root_str);
     let http_auth = lume::http_auth::HttpBearer::from_server_args(args, &store_path)?;
     if serve {
+        lume::agent::configure_discovery_from_args(args)?;
         lume::http_auth::validate_bind(
             bind.as_deref().unwrap_or("127.0.0.1"),
             http_auth.is_some(),
@@ -861,9 +887,13 @@ fn handle_ti_ingest(args: &[String]) -> Result<(), String> {
         "Starting live Signal K ingestion from {} into {}",
         service.config.signal_k.url, store_root_str
     );
-    service
+    let run_res = service
         .run()
-        .map_err(|e| format!("Ingest service error: {e}"))?;
+        .map_err(|e| format!("Ingest service error: {e}"));
+    if serve {
+        lume::agent::cleanup_active_discovery_file();
+    }
+    run_res?;
     println!("Ingest service shut down cleanly.");
     Ok(())
 }
@@ -4120,6 +4150,10 @@ OPTIONS:
                       Plain serve ROOT is .lume-index; non-loopback requires auth
   --otlp               Enable OTLP HTTP/JSON /v1/metrics and /v1/logs (requires --ti-store)
   --otlp-token-file <PATH> OTLP bearer; required off loopback without an HTTP bearer
+  --discovery-file <PATH> Write serve.json discovery metadata to <PATH> [default: ~/.lume/serve.json]
+                      If multiple servers use the default path, the last started wins; on Windows
+                      Ctrl-C leaves a stale file—clients should check pid liveness or probe /health
+  --no-discovery-file  Disable writing the serve.json discovery file
   --pg <PORT>          Enable read-only Postgres; requires --ti-store [off by default]
   --pg-bind <IP>       Postgres bind only [defaults to --bind]
   --pg-auth-config <PATH>  Private ti.toml: auth replaces store auth, no merging;

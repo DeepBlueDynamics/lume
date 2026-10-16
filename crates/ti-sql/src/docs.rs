@@ -8,7 +8,7 @@
 //!   direct docs filter, which is an error rather than a silent substring fallback.
 
 use async_trait::async_trait;
-use datafusion::arrow::array::{BooleanArray, StringArray};
+use datafusion::arrow::array::{Array, BooleanArray, Float64Array, StringArray};
 use datafusion::arrow::compute::filter_record_batch;
 use datafusion::arrow::datatypes::{DataType, SchemaRef};
 use datafusion::arrow::record_batch::RecordBatch;
@@ -52,6 +52,108 @@ pub(crate) fn match_udf() -> ScalarUDF {
                  (or use match(notes|logbook|alerts, 'q') on telemetry)"
                     .into(),
             ))
+        }),
+    )
+}
+
+fn json_lookup<'a>(val: &'a serde_json::Value, key: &str) -> Option<&'a serde_json::Value> {
+    let obj = val.as_object()?;
+    if let Some(found) = obj.get(key) {
+        return Some(found);
+    }
+    if key.contains('.') {
+        let mut cur = val;
+        for part in key.split('.') {
+            cur = cur.as_object()?.get(part)?;
+        }
+        return Some(cur);
+    }
+    None
+}
+
+fn extract_json_str(raw: &str, key: &str) -> Option<String> {
+    let parsed: serde_json::Value = serde_json::from_str(raw).ok()?;
+    match json_lookup(&parsed, key)? {
+        serde_json::Value::String(s) => Some(s.clone()),
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        serde_json::Value::Bool(b) => Some(b.to_string()),
+        _ => None,
+    }
+}
+
+fn extract_json_num(raw: &str, key: &str) -> Option<f64> {
+    let parsed: serde_json::Value = serde_json::from_str(raw).ok()?;
+    match json_lookup(&parsed, key)? {
+        serde_json::Value::Number(n) => n.as_f64().filter(|f| f.is_finite()),
+        serde_json::Value::String(s) => s.trim().parse::<f64>().ok().filter(|f| f.is_finite()),
+        _ => None,
+    }
+}
+
+/// `json_str(body, 'key') -> Utf8`: extracts a string (or scalar number/boolean as text)
+/// from a JSON object string, returning NULL if missing, null, or non-scalar.
+pub(crate) fn json_str_udf() -> ScalarUDF {
+    create_udf(
+        "json_str",
+        vec![DataType::Utf8, DataType::Utf8],
+        DataType::Utf8,
+        Volatility::Immutable,
+        Arc::new(|args: &[ColumnarValue]| {
+            let arrays = ColumnarValue::values_to_arrays(args)?;
+            let bodies = datafusion::arrow::compute::cast(&arrays[0], &DataType::Utf8)?;
+            let keys = datafusion::arrow::compute::cast(&arrays[1], &DataType::Utf8)?;
+            let bodies = bodies
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .ok_or_else(|| DataFusionError::Execution("json_str body must be Utf8".into()))?;
+            let keys = keys
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .ok_or_else(|| DataFusionError::Execution("json_str key must be Utf8".into()))?;
+            let out: Vec<Option<String>> = (0..bodies.len())
+                .map(|row| {
+                    if bodies.is_null(row) || keys.is_null(row) {
+                        None
+                    } else {
+                        extract_json_str(bodies.value(row), keys.value(row))
+                    }
+                })
+                .collect();
+            Ok(ColumnarValue::Array(Arc::new(StringArray::from(out))))
+        }),
+    )
+}
+
+/// `json_num(body, 'key') -> Float64`: extracts a finite number (or numeric string)
+/// from a JSON object string, returning NULL if missing or non-numeric.
+pub(crate) fn json_num_udf() -> ScalarUDF {
+    create_udf(
+        "json_num",
+        vec![DataType::Utf8, DataType::Utf8],
+        DataType::Float64,
+        Volatility::Immutable,
+        Arc::new(|args: &[ColumnarValue]| {
+            let arrays = ColumnarValue::values_to_arrays(args)?;
+            let bodies = datafusion::arrow::compute::cast(&arrays[0], &DataType::Utf8)?;
+            let keys = datafusion::arrow::compute::cast(&arrays[1], &DataType::Utf8)?;
+            let bodies = bodies
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .ok_or_else(|| DataFusionError::Execution("json_num body must be Utf8".into()))?;
+            let keys = keys
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .ok_or_else(|| DataFusionError::Execution("json_num key must be Utf8".into()))?;
+            let out: Vec<Option<f64>> = (0..bodies.len())
+                .map(|row| {
+                    if bodies.is_null(row) || keys.is_null(row) {
+                        None
+                    } else {
+                        extract_json_num(bodies.value(row), keys.value(row))
+                    }
+                })
+                .collect();
+            Ok(ColumnarValue::Array(Arc::new(Float64Array::from(out))))
         }),
     )
 }
