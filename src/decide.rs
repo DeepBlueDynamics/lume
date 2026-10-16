@@ -22,10 +22,13 @@ pub const RETENTION_DAYS: u64 = 30;
 pub const EXAMPLES_MAX_DAYS: u64 = 90;
 pub const EXAMPLES_MAX_LINES: usize = 2000;
 pub const EXAMPLES_TOP_K: usize = 3;
+pub const EXAMPLES_MIN_BM25_SCORE: f64 = 1.35;
 
 /// Configuration for Addita / Ollaya SQL judging, run logging, and example injection.
 #[derive(Debug, Clone)]
 pub struct DecideConfig {
+    /// Explicit opt-in to `~/.addita/serve.json` discovery (`--decide`).
+    pub decide: bool,
     pub decide_url: Option<String>,
     pub decide_model: String,
     pub decide_token_file: Option<PathBuf>,
@@ -46,6 +49,7 @@ impl Default for DecideConfig {
             .filter(|&v| v > 0)
             .unwrap_or(DEFAULT_DECIDE_TIMEOUT_SECS);
         Self {
+            decide: false,
             decide_url: std::env::var("LUME_DECIDE_URL")
                 .ok()
                 .map(|s| s.trim().to_string())
@@ -123,10 +127,18 @@ pub fn read_addita_discovery(path: &Path) -> Option<AdditaServeDiscovery> {
 }
 
 impl DecideConfig {
-    /// Resolves `(base_url, token_file)` from explicit CLI/env settings or `~/.addita/serve.json`.
-    pub fn resolve_endpoint_and_token_file(&self) -> Option<(String, Option<PathBuf>)> {
+    /// Resolves `(base_url, token_file)` when judging is opted in via `--decide-url`,
+    /// `LUME_DECIDE_URL`, or `--decide` (`~/.addita/serve.json`).
+    ///
+    /// Discovery (`~/.addita/serve.json`) is consulted ONLY when `self.decide` is `true`
+    /// and no explicit `decide_url` is set. When using discovery, only loopback,
+    /// `host.docker.internal`, or LAN URLs are accepted, and `serve.json`'s `token_file`
+    /// is sent only to that validated discovery URL.
+    pub fn resolve_endpoint_and_token_file(
+        &self,
+    ) -> Result<Option<(String, Option<PathBuf>)>, String> {
         if self.no_decide {
-            return None;
+            return Ok(None);
         }
         if let Some(raw) = self
             .decide_url
@@ -134,27 +146,65 @@ impl DecideConfig {
             .map(str::trim)
             .filter(|s| !s.is_empty())
         {
-            return Some((normalize_base_url(raw), self.decide_token_file.clone()));
+            return Ok(Some((
+                normalize_base_url(raw),
+                self.decide_token_file.clone(),
+            )));
         }
-        let disc_path = self
+        if !self.decide {
+            return Ok(None);
+        }
+        let Some(disc_path) = self
             .discovery_file
             .clone()
-            .or_else(default_addita_discovery_path)?;
-        let disc = read_addita_discovery(&disc_path)?;
-        let url = normalize_base_url(disc.url.as_deref()?);
+            .or_else(default_addita_discovery_path)
+        else {
+            return Ok(None);
+        };
+        let Some(disc) = read_addita_discovery(&disc_path) else {
+            return Ok(None);
+        };
+        let Some(raw_url) = disc.url.as_deref().map(str::trim).filter(|s| !s.is_empty()) else {
+            return Ok(None);
+        };
+        if !is_allowed_discovery_url(raw_url) {
+            return Err(format!(
+                "refusing Addita discovery URL '{}' from '{}': only loopback, host.docker.internal, or LAN URLs are allowed",
+                raw_url,
+                disc_path.display()
+            ));
+        }
+        let url = normalize_base_url(raw_url);
         let token_file = self.decide_token_file.clone().or_else(|| {
             disc.token_file
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .map(PathBuf::from)
         });
-        Some((url, token_file))
+        Ok(Some((url, token_file)))
     }
 
-    /// Returns the normalized decide endpoint URL if judging is enabled.
+    /// Returns the normalized decide endpoint URL if judging is enabled and valid.
     pub fn effective_decide_url(&self) -> Option<String> {
-        self.resolve_endpoint_and_token_file().map(|(url, _)| url)
+        self.resolve_endpoint_and_token_file()
+            .ok()
+            .flatten()
+            .map(|(url, _)| url)
     }
+}
+
+pub fn is_allowed_discovery_url(raw: &str) -> bool {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    if trimmed.contains("://")
+        && !trimmed.starts_with("http://")
+        && !trimmed.starts_with("https://")
+    {
+        return false;
+    }
+    is_local_or_lan_host(trimmed)
 }
 
 pub fn normalize_base_url(raw: &str) -> String {
@@ -416,17 +466,29 @@ pub fn discover_is_addita(base_url: &str, token: Option<&str>, timeout: Duration
     false
 }
 
-/// Returns `true` if `raw_host` is loopback or private/local LAN (not a cloud endpoint).
+/// Returns `true` if `raw_host` is loopback, `host.docker.internal`, or private/local LAN (not a cloud endpoint).
 pub fn is_local_or_lan_host(raw_host: &str) -> bool {
     let trimmed = raw_host.trim();
     if trimmed.is_empty() {
-        return true;
+        return false;
+    }
+    if trimmed.contains("://")
+        && !trimmed.starts_with("http://")
+        && !trimmed.starts_with("https://")
+    {
+        return false;
     }
     let without_scheme = trimmed
         .strip_prefix("http://")
         .or_else(|| trimmed.strip_prefix("https://"))
         .unwrap_or(trimmed);
-    let authority = without_scheme.split('/').next().unwrap_or(without_scheme);
+    let authority = without_scheme
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or(without_scheme);
+    if authority.contains('@') {
+        return false;
+    }
     let host = if let Some(bracketed) = authority.strip_prefix('[') {
         bracketed.split(']').next().unwrap_or(bracketed)
     } else if authority.matches(':').count() == 1 {
@@ -436,7 +498,7 @@ pub fn is_local_or_lan_host(raw_host: &str) -> bool {
     };
     let lower = host.trim().to_ascii_lowercase();
     if lower.is_empty() {
-        return true;
+        return false;
     }
     if matches!(
         lower.as_str(),
@@ -587,7 +649,11 @@ pub fn decide_block_from_http_error(status_code: u16, raw_body: &str) -> DecideL
 
 /// Returns a one-line stderr notice (`"judged by cloud teacher <model>"`) when `teacher_host` is non-loopback/non-LAN.
 pub fn cloud_teacher_notice(block: &DecideLogBlock) -> Option<String> {
-    let host = block.teacher_host.as_deref()?;
+    let host = block
+        .teacher_host
+        .as_deref()
+        .map(str::trim)
+        .filter(|h| !h.is_empty())?;
     if is_local_or_lan_host(host) {
         return None;
     }
@@ -713,8 +779,18 @@ pub fn evaluate_decide_response(body: &Value, threshold: f64) -> Result<DecideLo
 
 /// Performs discovery (`GET /health` or `/api/version`) and a single `POST /api/decide` call (no retry).
 pub fn judge_run(config: &DecideConfig, run_ref: &str, state: &DecideState) -> DecideLogBlock {
-    let Some((base_url, token_path)) = config.resolve_endpoint_and_token_file() else {
-        return DecideLogBlock::default();
+    let (base_url, token_path) = match config.resolve_endpoint_and_token_file() {
+        Ok(Some(resolved)) => resolved,
+        Ok(None) => return DecideLogBlock::default(),
+        Err(err) => {
+            eprintln!("Error: {err}");
+            return DecideLogBlock {
+                judged: json!(false),
+                good: false,
+                error: Some(err),
+                ..Default::default()
+            };
+        }
     };
 
     let token = match token_path.as_deref() {
@@ -1169,36 +1245,25 @@ pub fn select_top_sql_examples_on_date(
         .collect();
 
     let bm25 = Bm25Index::build(sections, None);
-    let hits = bm25.search_quiet(
-        question,
-        SearchVariant::Classic,
-        &Bm25Params::default(),
-        None,
-    );
+    let params = Bm25Params {
+        coord_floor: 0.0,
+        ..Bm25Params::default()
+    };
+    let hits = bm25.search_quiet(question, SearchVariant::Classic, &params, None);
 
     let mut selected: Vec<SqlExample> = Vec::with_capacity(EXAMPLES_TOP_K);
     let mut seen_sql: HashSet<String> = HashSet::new();
 
     for hit in hits {
+        if hit.score < EXAMPLES_MIN_BM25_SCORE {
+            continue;
+        }
         if let Some(ex) = good_runs.get(hit.section_index) {
             let norm_sql = normalize_sql_for_dedup(&ex.sql);
             if seen_sql.insert(norm_sql) {
                 selected.push(ex.clone());
                 if selected.len() >= EXAMPLES_TOP_K {
                     return selected;
-                }
-            }
-        }
-    }
-
-    // If BM25 found no lexical token overlap, fall back to the most recent GOOD runs on this store.
-    if selected.is_empty() {
-        for ex in good_runs {
-            let norm_sql = normalize_sql_for_dedup(&ex.sql);
-            if seen_sql.insert(norm_sql) {
-                selected.push(ex);
-                if selected.len() >= EXAMPLES_TOP_K {
-                    break;
                 }
             }
         }
@@ -1272,11 +1337,7 @@ pub fn finish_run_decide_and_log(
         answer,
     );
 
-    let decide_block = if config.effective_decide_url().is_some() {
-        judge_run(config, &run_ref, &state)
-    } else {
-        DecideLogBlock::default()
-    };
+    let decide_block = judge_run(config, &run_ref, &state);
 
     if !config.no_agent_log {
         if let Some(store_root) = resolve_run_log_store_dir(ti_store, docs_index, db_dir) {
@@ -1560,7 +1621,7 @@ mod tests {
     }
 
     #[test]
-    fn addita_serve_json_discovery_fallback_and_token_precedence() {
+    fn addita_serve_json_opt_in_only_and_discovery_safety() {
         let dir = TempDir::new("serve-disc");
         let disc_path = dir.path.join("serve.json");
         let disc_token = dir.path.join("disc.token");
@@ -1582,25 +1643,115 @@ mod tests {
         )
         .unwrap();
 
-        let cfg_from_disc = DecideConfig {
+        // 1. OPT-IN ONLY: serve.json alone never enables judging unless --decide, --decide-url, or LUME_DECIDE_URL is given
+        let cfg_default = DecideConfig {
+            decide: false,
             decide_url: None,
             decide_token_file: None,
             discovery_file: Some(disc_path.clone()),
             ..Default::default()
         };
-        let (url, tok) = cfg_from_disc.resolve_endpoint_and_token_file().unwrap();
+        assert_eq!(cfg_default.resolve_endpoint_and_token_file(), Ok(None));
+        assert_eq!(cfg_default.effective_decide_url(), None);
+
+        // 2. With --decide (decide: true), loopback / host.docker.internal / LAN URLs in serve.json are accepted
+        let cfg_from_disc = DecideConfig {
+            decide: true,
+            decide_url: None,
+            decide_token_file: None,
+            discovery_file: Some(disc_path.clone()),
+            ..Default::default()
+        };
+        let (url, tok) = cfg_from_disc
+            .resolve_endpoint_and_token_file()
+            .unwrap()
+            .unwrap();
         assert_eq!(url, "http://127.0.0.1:11345");
         assert_eq!(tok.as_deref(), Some(disc_token.as_path()));
 
-        // Explicit --decide-token-file overrides serve.json token_file
+        // 3. Explicit --decide-token-file overrides serve.json token_file when --decide is set
         let cfg_override_tok = DecideConfig {
+            decide: true,
             decide_url: None,
             decide_token_file: Some(explicit_token.clone()),
-            discovery_file: Some(disc_path),
+            discovery_file: Some(disc_path.clone()),
             ..Default::default()
         };
-        let (_, tok2) = cfg_override_tok.resolve_endpoint_and_token_file().unwrap();
+        let (_, tok2) = cfg_override_tok
+            .resolve_endpoint_and_token_file()
+            .unwrap()
+            .unwrap();
         assert_eq!(tok2.as_deref(), Some(explicit_token.as_path()));
+
+        // 4. DISCOVERY SAFETY: serve.json token_file is NEVER sent when --decide-url points elsewhere
+        let cfg_explicit_url = DecideConfig {
+            decide: true,
+            decide_url: Some("https://remote.example.com:11345".to_string()),
+            decide_token_file: None,
+            discovery_file: Some(disc_path.clone()),
+            ..Default::default()
+        };
+        let (url_explicit, tok_explicit) = cfg_explicit_url
+            .resolve_endpoint_and_token_file()
+            .unwrap()
+            .unwrap();
+        assert_eq!(url_explicit, "https://remote.example.com:11345");
+        assert!(
+            tok_explicit.is_none(),
+            "serve.json token_file must never be sent to a non-discovery URL"
+        );
+
+        // 5. DISCOVERY SAFETY: non-loopback/non-LAN URLs in serve.json are refused with a clear message
+        for bad_url in [
+            "https://evil.example.com:11345",
+            "http://8.8.8.8:11345",
+            "http://localhost@evil.example.com:11345",
+            "ftp://127.0.0.1:11345",
+        ] {
+            let bad_disc_path = dir.path.join("serve-bad.json");
+            fs::write(
+                &bad_disc_path,
+                serde_json::to_string(&json!({
+                    "service": "addita",
+                    "url": bad_url,
+                    "token_file": disc_token.to_str().unwrap()
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+            let cfg_bad = DecideConfig {
+                decide: true,
+                decide_url: None,
+                decide_token_file: None,
+                discovery_file: Some(bad_disc_path),
+                ..Default::default()
+            };
+            let err = cfg_bad.resolve_endpoint_and_token_file().unwrap_err();
+            assert!(
+                err.contains("refusing Addita discovery URL")
+                    && err.contains("only loopback, host.docker.internal, or LAN URLs are allowed"),
+                "unexpected error message for {bad_url}: {err}"
+            );
+            assert_eq!(cfg_bad.effective_decide_url(), None);
+
+            let state = build_bounded_state(
+                "q",
+                "SELECT 1",
+                &["SELECT 1".to_string()],
+                &[],
+                false,
+                None,
+                "a",
+            );
+            let block = judge_run(&cfg_bad, "lume-run-refused", &state);
+            assert_eq!(block.judged, json!(false));
+            assert!(!block.good);
+            assert!(block
+                .error
+                .as_deref()
+                .unwrap_or("")
+                .contains("refusing Addita discovery URL"));
+        }
     }
 
     #[test]
@@ -1647,20 +1798,27 @@ mod tests {
                 true,
             ),
             make_rec(
-                "What was the wind speed on the weather broadcast?",
-                "SELECT json_num(body, 'wind_kts') FROM docs WHERE title = 'radio.weather'",
+                "What was the high temperature in New Braunfels weather broadcast?",
+                "SELECT json_num(body, 'temp_high_f') FROM docs WHERE title = 'radio.weather'",
                 json!(true),
                 true,
             ),
             make_rec(
-                "What was the barometric pressure on the weather broadcast?",
-                "SELECT json_num(body, 'pressure_mb') FROM docs WHERE title = 'radio.weather'",
+                "What was the low temperature in New Braunfels weather broadcast?",
+                "SELECT json_num(body, 'temp_low_f') FROM docs WHERE title = 'radio.weather'",
                 json!(true),
                 true,
             ),
             make_rec(
-                "What was the humidity on the weather broadcast?",
-                "SELECT json_num(body, 'humidity_pct') FROM docs WHERE title = 'radio.weather'",
+                "What was the dewpoint temperature in New Braunfels weather broadcast?",
+                "SELECT json_num(body, 'dewpoint_f') FROM docs WHERE title = 'radio.weather'",
+                json!(true),
+                true,
+            ),
+            // Unrelated GOOD run on a different topic (generator maintenance)
+            make_rec(
+                "When was the latest generator maintenance logged?",
+                "SELECT ts_start, body FROM docs WHERE match('generator maintenance')",
                 json!(true),
                 true,
             ),
@@ -1734,6 +1892,30 @@ mod tests {
             assert!(!ex.sql.contains("wrong_col"));
             assert!(!ex.sql.contains("pending_col"));
             assert!(!ex.sql.contains("secret_store_b"));
+            assert!(!ex.sql.contains("generator maintenance"));
         }
+
+        // No BM25 overlap -> MUST return empty (no fallback to most recent GOOD runs!)
+        let unrelated = select_top_sql_examples_on_date(
+            &store_a.path,
+            "What was our speed over ground at noon?",
+            today,
+        );
+        assert!(
+            unrelated.is_empty(),
+            "no BM25 overlap must return no examples, got: {unrelated:?}"
+        );
+
+        // Weak one-word match ("latest" shared with "When was the latest generator maintenance logged?")
+        // -> MUST score below EXAMPLES_MIN_BM25_SCORE and return empty
+        let weak_one_word = select_top_sql_examples_on_date(
+            &store_a.path,
+            "What was the latest wind speed?",
+            today,
+        );
+        assert!(
+            weak_one_word.is_empty(),
+            "weak one-word match must be below EXAMPLES_MIN_BM25_SCORE and return no examples, got: {weak_one_word:?}"
+        );
     }
 }

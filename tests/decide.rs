@@ -220,7 +220,77 @@ fn real_addita_contract_run_log_and_system_prompt_example_injection() {
         "--no-examples must suppress example injection"
     );
 
-    // 4. Verify --no-decide and --no-agent-log in finish_run_decide_and_log
+    // 3b. Verify unrelated questions and weak one-word matches do NOT inject examples
+    let sys_prompt_unrelated = lume::chat_sql::build_system_prompt_with_examples(
+        Some(store_str),
+        None,
+        ".lume-index",
+        "When was the generator maintenance performed?",
+        false,
+    );
+    assert!(
+        !sys_prompt_unrelated.contains("Past questions on this store answered with working SQL"),
+        "unrelated questions with no BM25 overlap must not inject examples"
+    );
+    let sys_prompt_weak_one_word = lume::chat_sql::build_system_prompt_with_examples(
+        Some(store_str),
+        None,
+        ".lume-index",
+        "What was the ground tackle chain length?",
+        false,
+    );
+    assert!(
+        !sys_prompt_weak_one_word
+            .contains("Past questions on this store answered with working SQL"),
+        "weak one-word match ('ground') must be below EXAMPLES_MIN_BM25_SCORE and not inject examples"
+    );
+
+    // 4. Verify opt-in only, discovery safety, --no-decide, and --no-agent-log
+    let disc_file = fixture.root.join("serve.json");
+    let disc_token = fixture.root.join("disc.token");
+    fs::write(&disc_token, "disc-secret-token\n").unwrap();
+    fs::write(
+        &disc_file,
+        serde_json::to_string(&json!({
+            "service": "addita",
+            "url": "http://127.0.0.1:11345",
+            "token_file": disc_token.to_str().unwrap()
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let cfg_no_opt_in = DecideConfig {
+        decide: false,
+        decide_url: None,
+        discovery_file: Some(disc_file.clone()),
+        ..Default::default()
+    };
+    assert_eq!(
+        cfg_no_opt_in.resolve_endpoint_and_token_file(),
+        Ok(None),
+        "serve.json alone must never enable judging without --decide, --decide-url, or LUME_DECIDE_URL"
+    );
+
+    let bad_disc_file = fixture.root.join("serve-remote.json");
+    fs::write(
+        &bad_disc_file,
+        serde_json::to_string(&json!({
+            "service": "addita",
+            "url": "https://evil.example.com:11345",
+            "token_file": disc_token.to_str().unwrap()
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let cfg_bad_disc = DecideConfig {
+        decide: true,
+        decide_url: None,
+        discovery_file: Some(bad_disc_file),
+        ..Default::default()
+    };
+    let err_msg = cfg_bad_disc.resolve_endpoint_and_token_file().unwrap_err();
+    assert!(err_msg.contains("refusing Addita discovery URL"));
+
     let lines_before = fs::read_to_string(&log_file).unwrap().lines().count();
     let cfg_opt_out = DecideConfig {
         decide_url: Some("http://127.0.0.1:11345".to_string()),
@@ -351,6 +421,7 @@ fn cli_help_and_flag_validation() {
     assert!(help.status.success());
     let stdout = String::from_utf8_lossy(&help.stdout);
     for flag in [
+        "--decide",
         "--decide-url",
         "--decide-model",
         "--decide-token-file",
