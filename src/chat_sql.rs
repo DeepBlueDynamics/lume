@@ -156,6 +156,34 @@ pub fn run_chat_loop(
     json_output: bool,
     events: bool,
 ) -> Result<(), String> {
+    let decide = crate::decide::current_decide_config();
+    run_chat_loop_with_decide(
+        question,
+        ollama_url,
+        ollama_model,
+        db_dir,
+        verbose,
+        ti_store,
+        docs_index,
+        json_output,
+        &decide,
+        events,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_chat_loop_with_decide(
+    question: &str,
+    ollama_url: &str,
+    ollama_model: &str,
+    db_dir: &str,
+    verbose: bool,
+    ti_store: Option<&str>,
+    docs_index: Option<&str>,
+    json_output: bool,
+    decide: &crate::decide::DecideConfig,
+    events: bool,
+) -> Result<(), String> {
     let base = match select_ollama_endpoint(ollama_url, ollama_model) {
         Ok(base) => base,
         Err(message) if json_output => {
@@ -171,7 +199,17 @@ pub fn run_chat_loop(
     };
     let url = format!("{base}/api/chat");
 
-    let system_prompt = build_system_prompt(ti_store, docs_index, db_dir);
+    let system_prompt = build_system_prompt_with_examples(
+        ti_store,
+        docs_index,
+        db_dir,
+        question,
+        decide.no_examples,
+    );
+
+    if verbose && !json_output {
+        println!("[Agent] System prompt:\n{}", system_prompt);
+    }
 
     let mut messages = vec![
         AgentMessage {
@@ -232,6 +270,10 @@ pub fn run_chat_loop(
     let mut executed_sql: Vec<String> = Vec::new();
     let mut recorded_tool_calls: Vec<ToolCallRecord> = Vec::new();
     let mut sql_error_counts: HashMap<String, usize> = HashMap::new();
+    let mut last_successful_sql: Option<String> = None;
+    let mut last_successful_rows: Vec<Value> = Vec::new();
+    let mut last_successful_truncated = false;
+    let mut last_sql_error: Option<String> = None;
 
     let max_turns = 10;
     for turn in 1..=max_turns {
@@ -339,6 +381,16 @@ pub fn run_chat_loop(
                         executed_sql,
                         recorded_tool_calls,
                         json_output,
+                        decide,
+                        question,
+                        last_successful_sql.as_deref(),
+                        &last_successful_rows,
+                        last_successful_truncated,
+                        last_sql_error.as_deref(),
+                        ollama_model,
+                        ti_store,
+                        docs_index,
+                        db_dir,
                     );
                 }
             } else {
@@ -360,10 +412,15 @@ pub fn run_chat_loop(
                         );
                     }
 
-                    if let Some(s) = tool_args.get("sql").and_then(|v| v.as_str()) {
-                        let trimmed = s.trim();
-                        if !trimmed.is_empty() && !executed_sql.contains(&trimmed.to_string()) {
-                            executed_sql.push(trimmed.to_string());
+                    let current_sql = tool_args
+                        .get("sql")
+                        .and_then(|v| v.as_str())
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string);
+                    if let Some(ref trimmed) = current_sql {
+                        if !executed_sql.contains(trimmed) {
+                            executed_sql.push(trimmed.clone());
                         }
                     }
 
@@ -387,6 +444,19 @@ pub fn run_chat_loop(
                                             .map(|a| a.len())
                                     });
                                 truncated = parsed.get("truncated").and_then(|v| v.as_bool());
+                                if let Some(ref sql_str) = current_sql {
+                                    last_successful_sql = Some(sql_str.clone());
+                                    last_successful_rows = parsed
+                                        .get("rows")
+                                        .and_then(|v| v.as_array())
+                                        .cloned()
+                                        .unwrap_or_default();
+                                    last_successful_truncated = truncated.unwrap_or(false);
+                                }
+                            } else if let Some(ref sql_str) = current_sql {
+                                last_successful_sql = Some(sql_str.clone());
+                                last_successful_rows.clear();
+                                last_successful_truncated = false;
                             }
 
                             if events {
@@ -421,6 +491,9 @@ pub fn run_chat_loop(
                             });
                         }
                         Err(err) => {
+                            if current_sql.is_some() {
+                                last_sql_error = Some(err.clone());
+                            }
                             if events {
                                 emit_event(&json!({
                                     "event": "tool_result",
@@ -476,6 +549,16 @@ pub fn run_chat_loop(
                 executed_sql,
                 recorded_tool_calls,
                 json_output,
+                decide,
+                question,
+                last_successful_sql.as_deref(),
+                &last_successful_rows,
+                last_successful_truncated,
+                last_sql_error.as_deref(),
+                ollama_model,
+                ti_store,
+                docs_index,
+                db_dir,
             );
         }
     }
@@ -553,11 +636,22 @@ fn execute_chat_tool(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn finish_agent(
     content: String,
     mut executed_sql: Vec<String>,
     tool_calls: Vec<ToolCallRecord>,
     json_output: bool,
+    decide: &crate::decide::DecideConfig,
+    question: &str,
+    last_successful_sql: Option<&str>,
+    last_successful_rows: &[Value],
+    last_successful_truncated: bool,
+    last_sql_error: Option<&str>,
+    ollama_model: &str,
+    ti_store: Option<&str>,
+    docs_index: Option<&str>,
+    db_dir: &str,
 ) -> Result<(), String> {
     for part in content.split("```sql").skip(1) {
         if let Some(end) = part.find("```") {
@@ -570,15 +664,53 @@ fn finish_agent(
 
     if json_output {
         let out = AgentJsonOutput {
-            answer: content,
-            sql: executed_sql,
+            answer: content.clone(),
+            sql: executed_sql.clone(),
             tool_calls,
         };
         println!("{}", serde_json::to_string(&out).unwrap_or_default());
     } else {
         println!("\n[Agent Final Answer]\n{}", content);
     }
+    let _ = std::io::Write::flush(&mut std::io::stdout());
+
+    crate::decide::finish_run_decide_and_log(
+        decide,
+        question,
+        &executed_sql,
+        last_successful_sql,
+        last_successful_rows,
+        last_successful_truncated,
+        last_sql_error,
+        &content,
+        ollama_model,
+        ti_store,
+        docs_index,
+        db_dir,
+    );
+
     Ok(())
+}
+
+pub fn build_system_prompt_with_examples(
+    ti_store: Option<&str>,
+    docs_index: Option<&str>,
+    db_dir: &str,
+    question: &str,
+    no_examples: bool,
+) -> String {
+    let mut p = build_system_prompt(ti_store, docs_index, db_dir);
+    if !no_examples {
+        if let Some(store_root) =
+            crate::decide::resolve_run_log_store_dir(ti_store, docs_index, db_dir)
+        {
+            let examples = crate::decide::select_top_sql_examples(&store_root, question);
+            if let Some(block) = crate::decide::format_examples_for_prompt(&examples) {
+                p.push_str(&block);
+            }
+        }
+    }
+    p
 }
 
 pub fn build_system_prompt(

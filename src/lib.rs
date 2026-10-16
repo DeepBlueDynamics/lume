@@ -67,6 +67,7 @@ pub mod bm25;
 pub mod chat_sql;
 pub mod crawl;
 pub mod crawl_list;
+pub mod decide;
 pub mod document_extract;
 pub mod eval;
 pub mod fast_retrieval;
