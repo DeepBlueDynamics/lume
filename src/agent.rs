@@ -715,16 +715,33 @@ fn handle_connection_with_auth(
         #[cfg(not(feature = "ti"))]
         let otlp = false;
         #[cfg(feature = "ti")]
-        let otlp_auth = _ti.as_ref().is_some_and(|server| server.has_otlp_token());
+        let otlp_token = _ti
+            .as_ref()
+            .and_then(|server| server.route_http_token("/v1/logs"));
         #[cfg(not(feature = "ti"))]
-        let otlp_auth = false;
-        let body = serde_json::to_string(&json!({
-            "service": "lume",
-            "version": crate::build_version(),
-            "otlp": otlp,
-            "auth": auth.is_some() || otlp_auth,
-        }))
-        .unwrap_or_default();
+        let otlp_token: Option<&str> = None;
+        let auth_required = auth.is_some() || otlp_token.is_some();
+        let has_valid_bearer = !auth_required
+            || auth.is_some_and(|a| {
+                a.accepts_scope(req_str, None, "read") || a.accepts_scope(req_str, None, "otlp")
+            })
+            || otlp_token.is_some_and(|tok| {
+                crate::http_auth::HttpBearer::matches_bearer_header(req_str, tok)
+            });
+        let payload = if has_valid_bearer {
+            json!({
+                "service": "lume",
+                "version": crate::build_version(),
+                "otlp": otlp,
+                "auth": auth_required,
+            })
+        } else {
+            json!({
+                "service": "lume",
+                "auth": true,
+            })
+        };
+        let body = serde_json::to_string(&payload).unwrap_or_default();
         let response = if method == "HEAD" {
             format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -2117,6 +2134,73 @@ mod http_limits_tests {
         assert!(response.starts_with("HTTP/1.1 200"));
         assert!(response.contains(r#""facets""#));
         assert!(response.contains(r#""facet_queries""#));
+    }
+
+    #[test]
+    fn health_returns_minimal_body_when_unauthenticated_and_full_when_authenticated() {
+        let unconfigured = request(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n", true);
+        assert!(unconfigured.starts_with("HTTP/1.1 200 OK"));
+        let (_, body) = unconfigured.split_once("\r\n\r\n").unwrap();
+        let val: serde_json::Value = serde_json::from_str(body).unwrap();
+        assert_eq!(val["service"], "lume");
+        assert_eq!(val["version"], crate::build_version());
+        assert_eq!(val["otlp"], false);
+        assert_eq!(val["auth"], false);
+
+        let token_file = std::env::temp_dir().join(format!("lume-health-tok-{}", crate::uuid_v4()));
+        std::fs::write(&token_file, "top-secret-bearer\n").unwrap();
+        let bearer = crate::http_auth::HttpBearer::from_file(&token_file).unwrap();
+        let _ = std::fs::remove_file(&token_file);
+
+        let req_with_auth = |raw_req: &[u8]| -> String {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let addr = listener.local_addr().unwrap();
+            let bearer_clone = bearer.clone();
+            let handler = std::thread::spawn(move || {
+                let (stream, _) = listener.accept().unwrap();
+                #[cfg(feature = "ti")]
+                let ti: TiState = None;
+                #[cfg(not(feature = "ti"))]
+                let ti: TiState = ();
+                handle_connection_with_auth(
+                    stream,
+                    &ti,
+                    Duration::from_millis(100),
+                    Some(&bearer_clone),
+                )
+                .unwrap();
+            });
+            let mut client = TcpStream::connect(addr).unwrap();
+            client
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            client.write_all(raw_req).unwrap();
+            client.shutdown(Shutdown::Write).unwrap();
+            let mut resp = String::new();
+            client.read_to_string(&mut resp).unwrap();
+            handler.join().unwrap();
+            resp
+        };
+
+        let unauth_resp = req_with_auth(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n");
+        assert!(unauth_resp.starts_with("HTTP/1.1 200 OK"));
+        let (_, unauth_body) = unauth_resp.split_once("\r\n\r\n").unwrap();
+        let unauth_val: serde_json::Value = serde_json::from_str(unauth_body).unwrap();
+        assert_eq!(unauth_val, json!({"service": "lume", "auth": true}));
+
+        let head_unauth = req_with_auth(b"HEAD /health HTTP/1.1\r\nHost: localhost\r\n\r\n");
+        assert!(head_unauth.starts_with("HTTP/1.1 200 OK"));
+
+        let auth_resp = req_with_auth(
+            b"GET /health HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer top-secret-bearer\r\n\r\n",
+        );
+        assert!(auth_resp.starts_with("HTTP/1.1 200 OK"));
+        let (_, auth_body) = auth_resp.split_once("\r\n\r\n").unwrap();
+        let auth_val: serde_json::Value = serde_json::from_str(auth_body).unwrap();
+        assert_eq!(auth_val["service"], "lume");
+        assert_eq!(auth_val["version"], crate::build_version());
+        assert_eq!(auth_val["otlp"], false);
+        assert_eq!(auth_val["auth"], true);
     }
 
     #[test]

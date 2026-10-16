@@ -36,6 +36,7 @@ To receive VHF/NOAA radio logs and agent telemetry from `hertz` over OTLP:
 2. Lume TI creates `<plugin-config-data>/signalk-lume-ti/otlp.token` (32 random bytes hex, mode `0600`) if missing and writes `<plugin-config-data>/signalk-lume-ti/serve.json` on bind.
 3. The **Status & Diagnostics** tab shows **OTLP receiver: on / off** and the token file path (never the token contents).
 4. **HaLOS / container caveat:** `lume` binds loopback (`127.0.0.1:5863`) inside the Signal K container. When `hertz` runs in a separate container, use host networking (or the container gateway bind) and mount the token file (`otlp.token`) into the `hertz` container.
+5. **Discovery file notes:** If two standalone `lume serve` processes run on one machine without `--discovery-file <path>`, both write `~/.lume/serve.json` and the last one started wins; on Windows Ctrl-C has no signal handler and leaves a stale file. Clients reading `serve.json` should check that `pid` is alive or probe `/health`.
 
 ## More
 

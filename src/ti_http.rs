@@ -211,10 +211,6 @@ impl TiServer {
         self.otlp.is_some()
     }
 
-    pub(crate) fn has_otlp_token(&self) -> bool {
-        self.otlp_token.is_some()
-    }
-
     /// Register an ordinary index; an absent index starts with an empty sections table.
     pub fn with_docs_index(mut self, root: &Path) -> Result<Self, String> {
         self.docs_index = Some(Mutex::new(crate::ti_docs_index::DocsIndex::new(root)));

@@ -4151,6 +4151,8 @@ OPTIONS:
   --otlp               Enable OTLP HTTP/JSON /v1/metrics and /v1/logs (requires --ti-store)
   --otlp-token-file <PATH> OTLP bearer; required off loopback without an HTTP bearer
   --discovery-file <PATH> Write serve.json discovery metadata to <PATH> [default: ~/.lume/serve.json]
+                      If multiple servers use the default path, the last started wins; on Windows
+                      Ctrl-C leaves a stale file—clients should check pid liveness or probe /health
   --no-discovery-file  Disable writing the serve.json discovery file
   --pg <PORT>          Enable read-only Postgres; requires --ti-store [off by default]
   --pg-bind <IP>       Postgres bind only [defaults to --bind]

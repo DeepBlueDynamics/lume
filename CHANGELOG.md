@@ -6,7 +6,7 @@
 
 - **OTLP log body and attributes unwrap `AnyValue` wrappers** (`stringValue`, `intValue`, `doubleValue`, `boolValue`, `arrayValue`, `kvlistValue`, `bytesValue`) into plain JSON values in `docs.body` (e.g., `{"body":"…","channel":"WX3","freq_mhz":162.475,"signal_db":-9.2}`). Note: only newly ingested OTLP log rows are unwrapped; previously stored rows retain their original shape.
 - **SQL JSON helpers `json_str(body, 'key')` and `json_num(body, 'key')`** extract string and numeric fields from JSON strings in `docs.body`.
-- **`GET /health` and `serve.json` discovery** expose service identity, version/commit, OTLP status, and token-file path (never the token itself) for `hertz` and companion services.
+- **`GET /health` and `serve.json` discovery** expose service identity, version/commit, OTLP status, and token-file path (never the token itself) for `hertz` and companion services. When authentication is configured (`--http-token-file`, `--nuts-auth`, or `--otlp-token-file`), unauthenticated `GET /health` returns only `{"service":"lume","auth":true}` and returns the full `version`/`otlp` payload only with a valid bearer (`HEAD /health` stays `200`). If two `lume serve` processes share the default `~/.lume/serve.json` path, the last one started wins (override with `--discovery-file <path>`); on Windows Ctrl-C has no signal handler and leaves a stale file, so clients should verify `pid` is alive or probe `/health`.
 
 ## 0.16.3 — 2026-10-14
 

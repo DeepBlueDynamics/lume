@@ -528,8 +528,17 @@ fn health_identity_discovery_file_and_hertz_weather_roundtrip() {
         assert_eq!(mode, 0o600);
     }
 
-    // 2. GET /health and HEAD /health return 200 without auth and report service/version/otlp/auth.
-    let health_resp = ureq::get(&format!("{url}/health")).call().unwrap();
+    // 2. Unauthenticated GET /health returns only {"service":"lume","auth":true} when auth is required;
+    //    authenticated GET /health returns the full service/version/otlp/auth body; HEAD stays 200.
+    let unauth_health_resp = ureq::get(&format!("{url}/health")).call().unwrap();
+    assert_eq!(unauth_health_resp.status(), 200);
+    let unauth_health: Value = unauth_health_resp.into_json().unwrap();
+    assert_eq!(unauth_health, json!({"service": "lume", "auth": true}));
+
+    let health_resp = ureq::get(&format!("{url}/health"))
+        .set("Authorization", &format!("Bearer {secret}"))
+        .call()
+        .unwrap();
     assert_eq!(health_resp.status(), 200);
     let health: Value = health_resp.into_json().unwrap();
     assert_eq!(health["service"], "lume");

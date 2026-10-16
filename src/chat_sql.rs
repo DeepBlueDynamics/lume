@@ -303,31 +303,9 @@ pub fn run_chat_loop(
             .as_ref()
             .is_none_or(|tc| tc.is_empty())
         {
-            let mut synthesized = Vec::new();
-            for part in assistant_msg.content.split("```sql").skip(1) {
-                if let Some(end) = part.find("```") {
-                    let sql_snippet = part[..end].trim().trim_end_matches(';').trim();
-                    if !sql_snippet.is_empty()
-                        && !executed_sql
-                            .iter()
-                            .any(|s| s.trim_end_matches(';').trim() == sql_snippet)
-                    {
-                        let tool_name = if ti_store.is_some() {
-                            "ti_query"
-                        } else {
-                            "lume_sql"
-                        };
-                        synthesized.push(AgentToolCall {
-                            function: AgentFunctionCall {
-                                name: tool_name.to_string(),
-                                arguments: json!({ "sql": sql_snippet }),
-                            },
-                        });
-                        break;
-                    }
-                }
-            }
-            if !synthesized.is_empty() {
+            if let Some(synthesized) =
+                synthesize_unexecuted_sql_tool_call(&assistant_msg.content, &executed_sql, ti_store)
+            {
                 assistant_msg.tool_calls = Some(synthesized);
             }
         }
@@ -521,6 +499,36 @@ pub fn run_chat_loop(
     }
 }
 
+fn synthesize_unexecuted_sql_tool_call(
+    content: &str,
+    executed_sql: &[String],
+    ti_store: Option<&str>,
+) -> Option<Vec<AgentToolCall>> {
+    for part in content.split("```sql").skip(1) {
+        if let Some(end) = part.find("```") {
+            let sql_snippet = part[..end].trim().trim_end_matches(';').trim();
+            if !sql_snippet.is_empty()
+                && !executed_sql
+                    .iter()
+                    .any(|s| s.trim_end_matches(';').trim() == sql_snippet)
+            {
+                let tool_name = if ti_store.is_some() {
+                    "ti_query"
+                } else {
+                    "lume_sql"
+                };
+                return Some(vec![AgentToolCall {
+                    function: AgentFunctionCall {
+                        name: tool_name.to_string(),
+                        arguments: json!({ "sql": sql_snippet }),
+                    },
+                }]);
+            }
+        }
+    }
+    None
+}
+
 fn execute_chat_tool(
     name: &str,
     mut args: Value,
@@ -679,5 +687,33 @@ mod endpoint_tests {
             "Do not paste SQL queries into your final answer unless the user explicitly asks"
         ));
         assert!(prompt.contains("cite the source file and line"));
+    }
+
+    #[test]
+    fn fenced_sql_synthesis_runs_at_most_once_and_skips_already_executed_sql() {
+        // (a) Executes at most once per turn even when multiple ```sql blocks appear.
+        let two_blocks = "Let's run:\n```sql\nSELECT 1;\n```\nand then:\n```sql\nSELECT 2;\n```";
+        let calls = synthesize_unexecuted_sql_tool_call(two_blocks, &[], Some("/tmp/ti")).unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].function.name, "ti_query");
+        assert_eq!(calls[0].function.arguments["sql"], "SELECT 1");
+
+        // (b) SQL already executed isn't re-run; advances to the next unexecuted block.
+        let executed = vec!["SELECT 1".to_string()];
+        let calls_after_first =
+            synthesize_unexecuted_sql_tool_call(two_blocks, &executed, None).unwrap();
+        assert_eq!(calls_after_first.len(), 1);
+        assert_eq!(calls_after_first[0].function.name, "lume_sql");
+        assert_eq!(calls_after_first[0].function.arguments["sql"], "SELECT 2");
+
+        // (c) A final answer that only quotes already-executed SQL returns None so the loop ends.
+        let final_answer = "The temperature was 89°F.\n```sql\nSELECT title, body FROM docs WHERE title = 'radio.weather' ORDER BY ts_start DESC LIMIT 1;\n```";
+        let prev = vec![
+            "SELECT title, body FROM docs WHERE title = 'radio.weather' ORDER BY ts_start DESC LIMIT 1"
+                .to_string(),
+        ];
+        assert!(
+            synthesize_unexecuted_sql_tool_call(final_answer, &prev, Some("/tmp/ti")).is_none()
+        );
     }
 }
