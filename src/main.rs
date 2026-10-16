@@ -464,6 +464,7 @@ fn lume_main() {
             let mut db_dir = String::from(".lume-index");
             let mut ti_store: Option<String> = None;
             let mut docs_index: Option<String> = None;
+            let mut decide = lume::decide::DecideConfig::default();
             let mut question_parts = Vec::new();
 
             let mut idx = 2;
@@ -484,6 +485,70 @@ fn lume_main() {
                 } else if arg == "--docs-index" && idx + 1 < args.len() {
                     docs_index = Some(args[idx + 1].clone());
                     idx += 2;
+                } else if arg == "--decide" {
+                    decide.decide = true;
+                    idx += 1;
+                } else if arg == "--decide-url" && idx + 1 < args.len() {
+                    decide.decide_url = Some(args[idx + 1].clone());
+                    idx += 2;
+                } else if arg == "--decide-model" && idx + 1 < args.len() {
+                    decide.decide_model = args[idx + 1].clone();
+                    idx += 2;
+                } else if arg == "--decide-token-file" && idx + 1 < args.len() {
+                    decide.decide_token_file = Some(std::path::PathBuf::from(&args[idx + 1]));
+                    idx += 2;
+                } else if arg == "--decide-threshold" && idx + 1 < args.len() {
+                    match args[idx + 1].parse::<f64>() {
+                        Ok(v) if (0.0..=1.0).contains(&v) => {
+                            decide.decide_threshold = v;
+                        }
+                        _ => {
+                            eprintln!(
+                                "Error: Invalid --decide-threshold '{}' (expected 0.0..=1.0)",
+                                args[idx + 1]
+                            );
+                            std::process::exit(1);
+                        }
+                    }
+                    idx += 2;
+                } else if arg == "--decide-preset" {
+                    if idx + 2 < args.len()
+                        && !args[idx + 1].starts_with('-')
+                        && !args[idx + 1].contains(' ')
+                    {
+                        decide.decide_preset = Some(args[idx + 1].clone());
+                        idx += 2;
+                    } else {
+                        decide.decide_preset =
+                            Some(lume::decide::DEFAULT_DECIDE_PRESET.to_string());
+                        idx += 1;
+                    }
+                } else if let Some(preset_val) = arg.strip_prefix("--decide-preset=") {
+                    decide.decide_preset = Some(preset_val.to_string());
+                    idx += 1;
+                } else if arg == "--decide-timeout" && idx + 1 < args.len() {
+                    match args[idx + 1].parse::<u64>() {
+                        Ok(secs) if secs > 0 => {
+                            decide.timeout = std::time::Duration::from_secs(secs);
+                        }
+                        _ => {
+                            eprintln!(
+                                "Error: Invalid --decide-timeout '{}' (expected positive integer seconds)",
+                                args[idx + 1]
+                            );
+                            std::process::exit(1);
+                        }
+                    }
+                    idx += 2;
+                } else if arg == "--no-decide" {
+                    decide.no_decide = true;
+                    idx += 1;
+                } else if arg == "--no-agent-log" {
+                    decide.no_agent_log = true;
+                    idx += 1;
+                } else if arg == "--no-examples" {
+                    decide.no_examples = true;
+                    idx += 1;
                 } else if arg == "--json" {
                     json_output = true;
                     idx += 1;
@@ -505,6 +570,7 @@ fn lume_main() {
                 std::process::exit(1);
             }
 
+            lume::decide::set_cli_decide_config(decide);
             if let Err(e) = lume::agent::run_agent_loop(lume::agent::AgentLoopArgs {
                 question: &question,
                 ollama_url: &ollama_url,
@@ -1118,7 +1184,9 @@ USAGE:"#
     println!("{}", lume::ti_parquet::USAGE);
     println!("{}", lume::ti_rules::USAGE);
     println!("lume ti ingest --signalk <url> --store <root> [--serve] [--otlp] [--pg <port>]   (ti ingest --help for every flag)");
-    println!("lume ti otlp --store <root> [--bind 127.0.0.1] [--port 4318] [--otlp-token-file <path>]");
+    println!(
+        "lume ti otlp --store <root> [--bind 127.0.0.1] [--port 4318] [--otlp-token-file <path>]"
+    );
     println!("lume ti sync --to <url> --store <root> [--token-file <path>]   (ti sync --help for every flag)");
     println!("lume ti verify (--fixture snapshot.json | --store <root>) --corpus tests/golden");
 }
@@ -4177,18 +4245,28 @@ USAGE:
   lume agent [OPTIONS] <QUESTION>
 
 OPTIONS:
-  --db <DIR>                Path to the persisted index database [default: .lume-index]
-  --ti-store <ROOT>         Path to the TI store root directory
-  --docs-index <INDEX>      Path to documentation index for lume_sql
-  --json                    Emit structured JSON output
-  --events                  Emit live NDJSON events to stderr (thinking, tool_call, tool_result)
-  --ollama-url <URL>        Ollama API URL [default: http://localhost:11434]
-  --ollama-model <MODEL>    Ollama model name [default: gemma4:31b-cloud]
-  -v, --verbose             Print verbose reasoning and tool logs
-  -h, --help                Prints help information
+  --db <DIR>                  Path to the persisted index database [default: .lume-index]
+  --ti-store <ROOT>           Path to the TI store root directory
+  --docs-index <INDEX>        Path to documentation index for lume_sql
+  --json                      Emit structured JSON output
+  --events                    Emit live NDJSON events to stderr (thinking, tool_call, tool_result)
+  --ollama-url <URL>          Ollama API URL [default: http://localhost:11434]
+  --ollama-model <MODEL>      Ollama model name [default: gemma4:31b-cloud]
+  --decide                    Enable post-answer SQL judging using ~/.addita/serve.json discovery
+  --decide-url <URL>          Enable post-answer SQL judging against <URL> (or env LUME_DECIDE_URL)
+  --decide-model <MODEL>      Decide model name [default: laya]
+  --decide-token-file <PATH>  Bearer token file for decide requests (env LUME_DECIDE_TOKEN_FILE; never on argv or logged)
+  --decide-threshold <VAL>    Noul threshold (0..=1) when no addita.final block is returned [default: 0.8]
+  --decide-preset             Send preset "lume.sql_judge" instead of inline questions
+  --decide-timeout <SECS>     Timeout in seconds for POST /api/decide (env LUME_DECIDE_TIMEOUT) [default: 30]
+  --no-decide                 Disable post-answer decide judging even when LUME_DECIDE_URL or --decide is set
+  --no-agent-log              Disable writing run records to <store>/agent_runs/YYYY-MM-DD.jsonl
+  --no-examples               Disable injecting past GOOD SQL runs from <store>/agent_runs/ into the prompt
+  -v, --verbose               Print verbose reasoning and tool logs
+  -h, --help                  Prints help information
 
 ARGS:
-  <QUESTION>                The query or question to research
+  <QUESTION>                  The query or question to research
 "#
     );
 }
