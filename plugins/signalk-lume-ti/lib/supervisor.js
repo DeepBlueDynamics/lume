@@ -3,8 +3,42 @@
 const fs = require('fs');
 const path = require('path');
 const net = require('net');
+const crypto = require('crypto');
 const { spawn } = require('child_process');
 const {ensureLastDefault} = require('./store-config');
+
+/**
+ * Ensure the OTLP bearer token file exists with 32 random bytes (hex, mode 0600).
+ * Never logs or returns the token value — only its file path.
+ *
+ * @param {string} dataDir
+ * @param {string} [configuredPath]
+ * @returns {string}
+ */
+function ensureOtlpTokenFile(dataDir, configuredPath) {
+  const custom = configuredPath ? String(configuredPath).trim() : '';
+  const filePath = custom || path.join(dataDir, 'otlp.token');
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  let needsWrite = true;
+  try {
+    const existing = fs.readFileSync(filePath, 'utf8').trim();
+    if (existing.length > 0) {
+      needsWrite = false;
+    }
+  } catch (_) {
+    needsWrite = true;
+  }
+  if (needsWrite) {
+    const token = `${crypto.randomBytes(32).toString('hex')}\n`;
+    fs.writeFileSync(filePath, token, { mode: 0o600 });
+  }
+  try {
+    fs.chmodSync(filePath, 0o600);
+  } catch (_) {
+    // Ignore on platforms without POSIX permissions
+  }
+  return filePath;
+}
 
 /**
  * Check if an IP address string is a loopback address (IPv4 127.0.0.0/8 or IPv6 ::1).
@@ -98,6 +132,7 @@ class Supervisor {
 
     this.otlpEnabled = options.otlpEnabled === true;
     this.otlpTokenFile = options.otlpTokenFile ? String(options.otlpTokenFile).trim() : null;
+    this.discoveryFile = options.discoveryFile ? String(options.discoveryFile).trim() : null;
     this.otlpError = null;
 
     this.backoffInitialMs = options.backoffInitialMs || 1000;
@@ -175,6 +210,9 @@ class Supervisor {
         args.push('--otlp');
         if (this.otlpTokenFile) {
           args.push('--otlp-token-file', this.otlpTokenFile);
+        }
+        if (this.discoveryFile) {
+          args.push('--discovery-file', this.discoveryFile);
         }
       }
     } else {
@@ -432,6 +470,9 @@ class Supervisor {
       storeDir: this.storeDir,
       servePort: this.servePort,
       serveBind: this.serveBind,
+      otlpEnabled: this.otlpEnabled,
+      otlpTokenFile: this.otlpEnabled ? this.otlpTokenFile : null,
+      discoveryFile: this.otlpEnabled ? this.discoveryFile : null,
     };
   }
 }
@@ -440,4 +481,5 @@ module.exports = {
   Supervisor,
   isLoopback,
   validateBind,
+  ensureOtlpTokenFile,
 };

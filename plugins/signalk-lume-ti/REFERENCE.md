@@ -285,9 +285,11 @@ The plugin webapp includes an **Ask** tab (`lume chat`) enabling natural languag
 - **Key security**: The plugin reads `chatApiKeyFile` (mode 0600 on the host) at spawn and passes `OLLAMA_API_KEY` in the child process environment only. The key is never placed on argv, in logs, or in configuration files (SETUP §13).
 - **Fallbacks**: Local Pi Ollama (`http://127.0.0.1:11434`) or a laptop on the LAN are supported via the comma-separated `chatOllamaUrl` setting.
 
-## OTLP Agent Telemetry Receiver
+## OTLP Agent Telemetry Receiver & Connect hertz
 
-When enabled, the supervisor passes `--otlp` to expose OpenTelemetry HTTP/JSON endpoints (`/v1/metrics`, `/v1/logs`) directly on the supervisor query server (`127.0.0.1:5863`):
-- **`otlpEnabled`** (boolean, default `false`): enables the OTLP receiver.
-- **`otlpTokenFile`** (string path, optional): optional bearer token file path (mode 0600).
-- **Loopback enforcement**: The supervisor query server is strictly pinned to `127.0.0.1`, ignoring any `serveBind` configuration, to prevent unauthenticated network exposure.
+When enabled, the supervisor passes `--otlp --otlp-token-file <dataDir>/otlp.token --discovery-file <dataDir>/serve.json` to expose OpenTelemetry HTTP/JSON endpoints (`/v1/metrics`, `/v1/logs`) directly on the supervisor query server (`127.0.0.1:5863`):
+- **`otlpEnabled`** (boolean, default `false`, `"Accept radio and agent logs from hertz (OTLP)"`): enables the OTLP receiver.
+- **`otlpTokenFile`** (string path, optional): bearer token file path (mode `0600`). When `otlpEnabled` is on and `otlpTokenFile` is blank, the plugin creates `<dataDir>/otlp.token` (32 random bytes hex, mode `0600`) if missing. The token is never logged or placed on `argv` or in plugin config.
+- **Discovery file (`serve.json`)**: Written atomically on bind (`0600` on Unix) with `service`, `url`, `port`, `pid`, `version`, `otlp`, `token_file`, and `started` (never the token string), and removed on clean shutdown when `pid` matches.
+- **HaLOS caveat**: `lume` binds loopback inside the Signal K container (`127.0.0.1:5863`). If `hertz` runs in another container, it needs host networking or the gateway bind plus mounting the token file.
+- **SQL JSON helpers**: OTLP log `AnyValue` fields are unwrapped into `docs.body`. Query them with `match(body, 'words')`, `json_str(body, 'key') -> Utf8` (numbers/booleans rendered as text, `NULL` if missing/non-scalar), and `json_num(body, 'key') -> Float64` (parses numbers and numeric strings, `NULL` if missing/non-numeric).

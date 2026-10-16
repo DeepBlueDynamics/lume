@@ -55,10 +55,6 @@ impl HttpBearer {
         Ok(auth)
     }
 
-    pub(crate) fn public_health(&self) -> bool {
-        self.nuts.is_some()
-    }
-
     #[cfg(test)]
     pub(crate) fn accepts(&self, headers: &str, override_token: Option<&str>) -> bool {
         self.accepts_scope(headers, override_token, "read")

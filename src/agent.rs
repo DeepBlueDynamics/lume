@@ -709,10 +709,36 @@ fn handle_connection_with_auth(
     let method = parts[0];
     let path = parts[1];
 
-    if method == "GET" && path.split('?').next() == Some("/health")
-        && auth.is_none_or(|auth| auth.public_health())
-    {
-        stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")?;
+    if (method == "GET" || method == "HEAD") && path.split('?').next() == Some("/health") {
+        #[cfg(feature = "ti")]
+        let otlp = _ti.as_ref().is_some_and(|server| server.has_otlp());
+        #[cfg(not(feature = "ti"))]
+        let otlp = false;
+        #[cfg(feature = "ti")]
+        let otlp_auth = _ti.as_ref().is_some_and(|server| server.has_otlp_token());
+        #[cfg(not(feature = "ti"))]
+        let otlp_auth = false;
+        let body = serde_json::to_string(&json!({
+            "service": "lume",
+            "version": crate::build_version(),
+            "otlp": otlp,
+            "auth": auth.is_some() || otlp_auth,
+        }))
+        .unwrap_or_default();
+        let response = if method == "HEAD" {
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            )
+        } else {
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+        };
+        stream.write_all(response.as_bytes())?;
+        stream.flush()?;
         return Ok(());
     }
 
@@ -1056,6 +1082,241 @@ pub fn serve_with_ti_server_pg_http_options(
         .transpose()?;
     serve_configured(port, Some(ti), http_bind, auth)
 }
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum DiscoveryMode {
+    #[default]
+    DefaultPath,
+    Custom(std::path::PathBuf),
+    Disabled,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct DiscoveryConfig {
+    pub mode: DiscoveryMode,
+    pub token_file: Option<String>,
+}
+
+impl DiscoveryConfig {
+    pub fn from_args(args: &[String]) -> Result<Self, String> {
+        let no_discovery = args.iter().any(|a| a == "--no-discovery-file");
+        let mut custom = None;
+        let mut i = 0;
+        while i < args.len() {
+            if args[i] == "--discovery-file" {
+                if custom.is_some() {
+                    return Err("--discovery-file must be specified only once".into());
+                }
+                let path = args
+                    .get(i + 1)
+                    .filter(|s| !s.starts_with("--"))
+                    .ok_or("--discovery-file requires a path")?;
+                custom = Some(std::path::PathBuf::from(path));
+                i += 2;
+            } else {
+                i += 1;
+            }
+        }
+        if no_discovery && custom.is_some() {
+            return Err(
+                "--discovery-file and --no-discovery-file cannot be used together".into(),
+            );
+        }
+        let mode = if no_discovery {
+            DiscoveryMode::Disabled
+        } else if let Some(path) = custom {
+            DiscoveryMode::Custom(path)
+        } else {
+            DiscoveryMode::DefaultPath
+        };
+        let token_file = args
+            .iter()
+            .position(|a| a == "--otlp-token-file")
+            .and_then(|pos| args.get(pos + 1))
+            .filter(|s| !s.starts_with("--"))
+            .cloned()
+            .or_else(|| {
+                args.iter()
+                    .position(|a| a == "--http-token-file")
+                    .and_then(|pos| args.get(pos + 1))
+                    .filter(|s| !s.starts_with("--"))
+                    .cloned()
+            });
+        Ok(Self { mode, token_file })
+    }
+
+    pub fn resolved_path(&self) -> Option<std::path::PathBuf> {
+        match &self.mode {
+            DiscoveryMode::Disabled => None,
+            DiscoveryMode::Custom(path) => Some(path.clone()),
+            DiscoveryMode::DefaultPath => std::env::var_os("HOME")
+                .or_else(|| std::env::var_os("USERPROFILE"))
+                .map(std::path::PathBuf::from)
+                .map(|home| home.join(".lume").join("serve.json")),
+        }
+    }
+}
+
+fn discovery_config_cell() -> &'static std::sync::Mutex<DiscoveryConfig> {
+    static CELL: std::sync::OnceLock<std::sync::Mutex<DiscoveryConfig>> =
+        std::sync::OnceLock::new();
+    CELL.get_or_init(|| std::sync::Mutex::new(DiscoveryConfig::default()))
+}
+
+fn active_discovery_file_cell() -> &'static std::sync::Mutex<Option<(std::path::PathBuf, u32)>> {
+    static CELL: std::sync::OnceLock<std::sync::Mutex<Option<(std::path::PathBuf, u32)>>> =
+        std::sync::OnceLock::new();
+    CELL.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+pub fn configure_discovery_from_args(args: &[String]) -> Result<DiscoveryConfig, String> {
+    let config = DiscoveryConfig::from_args(args)?;
+    *discovery_config_cell().lock().unwrap() = config.clone();
+    Ok(config)
+}
+
+fn rfc3339_now() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let days = (secs / 86_400) as i64;
+    let rem = secs % 86_400;
+    let hour = rem / 3600;
+    let minute = (rem % 3600) / 60;
+    let second = rem % 60;
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+    let y = (yoe as i64) + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if m <= 2 { y + 1 } else { y };
+    format!("{year:04}-{m:02}-{d:02}T{hour:02}:{minute:02}:{second:02}Z")
+}
+
+pub fn write_discovery_file(
+    path: &std::path::Path,
+    bind_addr: std::net::SocketAddr,
+    otlp: bool,
+    token_file: Option<&str>,
+) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                format!(
+                    "Failed to create discovery directory {}: {e}",
+                    parent.display()
+                )
+            })?;
+        }
+    }
+    let pid = std::process::id();
+    let payload = json!({
+        "service": "lume",
+        "url": format!("http://{bind_addr}"),
+        "port": bind_addr.port(),
+        "pid": pid,
+        "version": crate::build_version(),
+        "otlp": otlp,
+        "token_file": token_file,
+        "started": rfc3339_now(),
+    });
+    let bytes = serde_json::to_vec(&payload).map_err(|e| e.to_string())?;
+    let file_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("serve.json");
+    let tmp_path = path.with_file_name(format!(".{file_name}.tmp.{pid}.{}", crate::uuid_v4()));
+    {
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        let mut file = opts
+            .open(&tmp_path)
+            .map_err(|e| format!("Failed to open {}: {e}", tmp_path.display()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = file.set_permissions(std::fs::Permissions::from_mode(0o600));
+        }
+        file.write_all(&bytes)
+            .map_err(|e| format!("Failed to write {}: {e}", tmp_path.display()))?;
+        let _ = file.sync_all();
+    }
+    std::fs::rename(&tmp_path, path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp_path);
+        format!(
+            "Failed to rename {} to {}: {e}",
+            tmp_path.display(),
+            path.display()
+        )
+    })?;
+    Ok(())
+}
+
+pub fn remove_discovery_file_if_pid_matches(path: &std::path::Path, expected_pid: u32) {
+    let Ok(contents) = std::fs::read_to_string(path) else {
+        return;
+    };
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(&contents) else {
+        return;
+    };
+    if val.get("pid").and_then(|v| v.as_u64()) == Some(u64::from(expected_pid)) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+pub fn cleanup_active_discovery_file() {
+    if let Some((path, pid)) = active_discovery_file_cell().lock().unwrap().take() {
+        remove_discovery_file_if_pid_matches(&path, pid);
+    }
+}
+
+struct DiscoveryGuard {
+    path: std::path::PathBuf,
+    pid: u32,
+}
+
+impl Drop for DiscoveryGuard {
+    fn drop(&mut self) {
+        remove_discovery_file_if_pid_matches(&self.path, self.pid);
+    }
+}
+
+static SERVE_SHUTDOWN_REQUESTED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+static SERVE_SHUTDOWN_ARMED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(unix)]
+extern "C" fn handle_serve_shutdown_signal(_: std::os::raw::c_int) {
+    SERVE_SHUTDOWN_REQUESTED.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn register_serve_shutdown_signals() {
+    SERVE_SHUTDOWN_ARMED.store(true, std::sync::atomic::Ordering::Relaxed);
+    #[cfg(unix)]
+    {
+        extern "C" {
+            fn signal(
+                sig: std::os::raw::c_int,
+                handler: extern "C" fn(std::os::raw::c_int),
+            ) -> usize;
+        }
+        unsafe {
+            signal(2, handle_serve_shutdown_signal);
+            signal(15, handle_serve_shutdown_signal);
+        }
+    }
+}
+
 struct ActiveConnection(std::sync::Arc<std::sync::atomic::AtomicUsize>);
 
 impl Drop for ActiveConnection {
@@ -1076,20 +1337,55 @@ fn serve_configured(
     let otlp_only = _ti.as_ref().is_some_and(|server| server.otlp_only());
     #[cfg(feature = "ti")]
     let route_authenticated = otlp_only
-        && _ti.as_ref().is_some_and(|server| server.route_http_token("/v1/logs").is_some());
+        && _ti
+            .as_ref()
+            .is_some_and(|server| server.route_http_token("/v1/logs").is_some());
     #[cfg(not(feature = "ti"))]
     let route_authenticated = false;
     crate::http_auth::validate_bind(&bind.to_string(), auth.is_some() || route_authenticated)?;
     let address = std::net::SocketAddr::new(bind, port);
     let listener =
         TcpListener::bind(address).map_err(|e| format!("Failed to bind to {address}: {e}"))?;
-    crate::say!(
-        "Lume MCP HTTP server listening on http://{}",
-        listener.local_addr().map_err(|e| e.to_string())?
-    );
+    let local_addr = listener.local_addr().map_err(|e| e.to_string())?;
+    let discovery_cfg = discovery_config_cell().lock().unwrap().clone();
+    #[cfg(feature = "ti")]
+    let otlp_enabled = _ti.as_ref().is_some_and(|server| server.has_otlp());
+    #[cfg(not(feature = "ti"))]
+    let otlp_enabled = false;
+    let _discovery_guard = if let Some(disc_path) = discovery_cfg.resolved_path() {
+        let write_res = write_discovery_file(
+            &disc_path,
+            local_addr,
+            otlp_enabled,
+            discovery_cfg.token_file.as_deref(),
+        );
+        if matches!(discovery_cfg.mode, DiscoveryMode::Custom(_)) {
+            write_res?;
+        }
+        let pid = std::process::id();
+        *active_discovery_file_cell().lock().unwrap() = Some((disc_path.clone(), pid));
+        Some(DiscoveryGuard {
+            path: disc_path,
+            pid,
+        })
+    } else {
+        None
+    };
+    if SERVE_SHUTDOWN_ARMED.load(Ordering::Relaxed) {
+        std::thread::spawn(move || {
+            while !SERVE_SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+            let _ = TcpStream::connect_timeout(&local_addr, std::time::Duration::from_millis(200));
+        });
+    }
+    crate::say!("Lume MCP HTTP server listening on http://{local_addr}");
 
     let active = Arc::new(AtomicUsize::new(0));
     for stream in listener.incoming() {
+        if SERVE_SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
+            break;
+        }
         match stream {
             Ok(mut stream) => {
                 stream

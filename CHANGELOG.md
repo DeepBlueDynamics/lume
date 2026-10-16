@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### OTLP log `AnyValue` unwrapping, SQL JSON helpers, and service discovery
+
+- **OTLP log body and attributes unwrap `AnyValue` wrappers** (`stringValue`, `intValue`, `doubleValue`, `boolValue`, `arrayValue`, `kvlistValue`, `bytesValue`) into plain JSON values in `docs.body` (e.g., `{"body":"…","channel":"WX3","freq_mhz":162.475,"signal_db":-9.2}`). Note: only newly ingested OTLP log rows are unwrapped; previously stored rows retain their original shape.
+- **SQL JSON helpers `json_str(body, 'key')` and `json_num(body, 'key')`** extract string and numeric fields from JSON strings in `docs.body`.
+- **`GET /health` and `serve.json` discovery** expose service identity, version/commit, OTLP status, and token-file path (never the token itself) for `hertz` and companion services.
+
 ## 0.16.3 — 2026-10-14
 
 **Lume 0.16.3 squeezes the text and shows up properly in the Signal K App Store.** Opt-in zstd shrinks binary indexes by a third, the visualizer lets you pick your Ask model, and every release is now tested on Linux, Mac and Windows by Signal K's own plugin CI.

@@ -25,7 +25,7 @@ fn data_model_guide(width: Option<u64>) -> String {
     let width = width
         .map(|w| format!("{w} s"))
         .unwrap_or_else(|| "reported by ti_schema".into());
-    format!("Read-only SQL (500 rows, 64 KiB). ti_schema lists tables and columns with types/units; filter by table or column prefix. telemetry is wide: one row per vessel per bucket. Quote Signal K paths: \"environment.depth.belowTransducer@min\"; suffixes @min/@max/@mean/@last; bare = mean, or count for configured count_paths. ts is TIMESTAMP UTC at bucket start; store bucket width: {width}. vessel is a URN such as 'vessels.urn:mrn:imo:mmsi:367000000'; ti_resolve maps names/MMSIs and phrases to paths. docs(kind in notes/alerts/logbook, body, ts_start, ts_end, vessel); use match(body,'words'). Use date_bin(INTERVAL '1 hour', ts) for time buckets. Example: SELECT max(\"environment.depth.belowTransducer@max\") FROM telemetry WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-01 12:00:00' AND ts < TIMESTAMP '2026-05-01 13:00:00'. Omit store/width_seconds for the served store.")
+    format!("Read-only SQL (500 rows, 64 KiB). ti_schema lists tables, columns, and docs_kinds; filter by table or column prefix. telemetry is wide: one row per vessel per bucket. Quote Signal K paths: \"environment.depth.belowTransducer@min\"; suffixes @min/@max/@mean/@last; bare = mean, or count for configured count_paths. ts is TIMESTAMP UTC at bucket start; store bucket width: {width}. vessel is a URN such as 'vessels.urn:mrn:imo:mmsi:367000000'; ti_resolve maps names/MMSIs and phrases to paths. docs(kind in notes/alerts/logbook, title, body, ts_start, ts_end, vessel); query by title (SELECT title, body, ts_start FROM docs WHERE title='<title>' ORDER BY ts_start DESC LIMIT 5), or json_str(body,'key'), json_num(body,'key'), match(body,'words'). Use date_bin(INTERVAL '1 hour', ts) for time buckets. Example: SELECT max(\"environment.depth.belowTransducer@max\") FROM telemetry WHERE vessel='vessels.urn:mrn:imo:mmsi:367000000' AND ts >= TIMESTAMP '2026-05-01 12:00:00' AND ts < TIMESTAMP '2026-05-01 13:00:00'. Omit store/width_seconds for the served store.")
 }
 pub(crate) fn ignored_arguments(name: &str, args: &Value) -> Vec<String> {
     let extra: &[&str] = match name {
@@ -158,10 +158,11 @@ async fn dispatch_inner(
             Ok(result)
         }
         "ti_schema" => {
-            let prefix = string("table")?.or(string("prefix")?);
+            let table = string("table")?;
+            let prefix = string("prefix")?;
             let kind = string("type")?.filter(|k| *k != "table");
             let mut reply = engine
-                .schema(prefix, kind)
+                .schema_with_table(table, prefix, kind)
                 .await
                 .map_err(|e| e.to_string())?;
             add_argument_notes(&mut reply, name, args);
@@ -470,5 +471,117 @@ mod tests {
                 .iter()
                 .any(|c| c["units"] == "m/s"));
         });
+    }
+
+    #[test]
+    fn schema_reports_docs_kinds_and_unknown_table_hints_plus_json_udfs() {
+        let root = std::env::temp_dir().join(format!("ti-mcp-docs-{}", crate::uuid_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let store = ti_store::Store::open_or_create(&root, 10).unwrap();
+        drop(store);
+        let mut docs = ti_store::DocStore::open(&root).unwrap();
+        docs.upsert_all([
+            ti_contracts::Document {
+                id: "otlp:1".into(),
+                vessel: "agent.urn:hertz".into(),
+                kind: "logbook".into(),
+                ts_start: ti_contracts::EPOCH + 100,
+                ts_end: None,
+                title: "radio.weather".into(),
+                body: r#"{"body":"…New Braunfels sunny 89…","channel":"WX3","freq_mhz":162.475,"signal_db":-9.2}"#.into(),
+            },
+            ti_contracts::Document {
+                id: "otlp:2".into(),
+                vessel: "agent.urn:hertz".into(),
+                kind: "logbook".into(),
+                ts_start: ti_contracts::EPOCH + 200,
+                ts_end: None,
+                title: "radio.weather".into(),
+                body: r#"{"body":"…Newbrand Fulls clear 91…","channel":"WX3","freq_mhz":162.475,"signal_db":-8.5}"#.into(),
+            },
+            ti_contracts::Document {
+                id: "otlp:3".into(),
+                vessel: "agent.urn:hertz".into(),
+                kind: "logbook".into(),
+                ts_start: ti_contracts::EPOCH + 150,
+                ts_end: None,
+                title: "radio.squelch".into(),
+                body: r#"{"channel":"16","signal_db":-12.0}"#.into(),
+            },
+        ])
+        .unwrap();
+        let factory = |r: &std::path::Path, s: &ti_store::Store, w: u64| {
+            Ok(
+                std::sync::Arc::new(crate::ti_text::LumeText::open(r, s.catalog().clone(), w)?)
+                    as std::sync::Arc<dyn ti_contracts::DocumentIndex>,
+            )
+        };
+        let runtime = ti_sql::surface_runtime().unwrap();
+        runtime.block_on(async {
+            let engine = ti_sql::TiEngine::open(&root, Some(10), Some(&factory))
+                .await
+                .unwrap();
+            for args in [json!({}), json!({"table": "docs"})] {
+                let schema = dispatch(&engine, "ti_schema", &args).await.unwrap();
+                let kinds = schema["docs_kinds"].as_array().unwrap();
+                assert_eq!(kinds.len(), 2);
+                assert_eq!(kinds[0]["kind"], "logbook");
+                assert_eq!(kinds[0]["title"], "radio.weather");
+                assert_eq!(kinds[0]["count"], 2);
+                assert!(kinds[0]["first_ts"].is_string());
+                assert!(kinds[0]["last_ts"].is_string());
+            }
+
+            let bad_title = dispatch(&engine, "ti_schema", &json!({"table": "radio.weather"}))
+                .await
+                .unwrap();
+            assert_eq!(bad_title["tables"], json!([]));
+            let hint = bad_title["hint"].as_str().unwrap();
+            assert!(hint.contains("no table 'radio.weather'. Tables: telemetry, docs, paths, vessels, shards"));
+            assert!(hint.contains(
+                "it is a docs title: SELECT title, body, ts_start FROM docs WHERE title = 'radio.weather' ORDER BY ts_start DESC LIMIT 10"
+            ));
+
+            let bad_unknown = dispatch(&engine, "ti_schema", &json!({"table": "no_such_table"}))
+                .await
+                .unwrap();
+            assert_eq!(bad_unknown["tables"], json!([]));
+            assert!(bad_unknown["hint"]
+                .as_str()
+                .unwrap()
+                .contains("no table 'no_such_table'. Tables: telemetry, docs, paths, vessels, shards"));
+
+            let sql_res = dispatch(
+                &engine,
+                "ti_query",
+                &json!({
+                    "sql": "SELECT json_num(body,'signal_db') AS sig, json_str(body,'channel') AS ch FROM docs WHERE title='radio.weather' ORDER BY ts_start ASC"
+                }),
+            )
+            .await
+            .unwrap();
+            assert_eq!(sql_res["row_count"], 2);
+            assert_eq!(sql_res["rows"][0]["sig"], -9.2);
+            assert_eq!(sql_res["rows"][0]["ch"], "WX3");
+            assert_eq!(sql_res["rows"][1]["sig"], -8.5);
+            assert_eq!(sql_res["rows"][1]["ch"], "WX3");
+
+            let matched = dispatch(
+                &engine,
+                "ti_query",
+                &json!({
+                    "sql": "SELECT title, json_str(body,'body') AS text FROM docs WHERE match(body,'Braunfels')"
+                }),
+            )
+            .await
+            .unwrap();
+            assert_eq!(matched["row_count"], 1);
+            assert_eq!(matched["rows"][0]["title"], "radio.weather");
+            assert!(matched["rows"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("New Braunfels sunny 89"));
+        });
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

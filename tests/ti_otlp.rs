@@ -43,7 +43,9 @@ impl Server {
         } else {
             drop(ti_store::Store::open_or_create(&store, 10).unwrap());
             std::fs::write(store.join("ti.toml"), "width_seconds=10\n").unwrap();
-            command.env("LUME_DEBUG", "1").args(["serve", "--ti-store"]);
+            command
+                .env("LUME_DEBUG", "1")
+                .args(["serve", "--no-discovery-file", "--ti-store"]);
         }
         command.arg(&store).args(["--port", "0"]);
         if enabled && !standalone {
@@ -463,4 +465,162 @@ fn acked_logs_survive_kill_before_the_next_group() {
             "acked {marker} missing after kill; have {titles:?}"
         );
     }
+}
+
+#[test]
+fn health_identity_discovery_file_and_hertz_weather_roundtrip() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!(
+        "otlp-discovery-{}-{}",
+        std::process::id(),
+        lume::uuid_v4()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let store = root.join("store");
+    drop(ti_store::Store::open_or_create(&store, 10).unwrap());
+    std::fs::write(store.join("ti.toml"), "width_seconds=10\n").unwrap();
+    let token_path = root.join("otlp.token");
+    let secret = "super-secret-otlp-token-999";
+    std::fs::write(&token_path, format!("{secret}\n")).unwrap();
+    let discovery_path = root.join("custom-serve.json");
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_lume"))
+        .env("LUME_DEBUG", "1")
+        .args(["serve", "--ti-store"])
+        .arg(&store)
+        .args(["--port", "0", "--otlp", "--otlp-token-file"])
+        .arg(&token_path)
+        .arg("--discovery-file")
+        .arg(&discovery_path)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .unwrap();
+    let pid = child.id();
+    let mut output = BufReader::new(child.stdout.take().unwrap());
+    let mut line = String::new();
+    output.read_line(&mut line).unwrap();
+    let url = line.split_whitespace().last().unwrap().to_string();
+    assert!(url.starts_with("http://127.0.0.1:"), "{line}");
+
+    // 1. Discovery file exists on bind, has expected JSON fields, and NEVER contains the token.
+    let disc_raw = std::fs::read_to_string(&discovery_path).unwrap();
+    assert!(
+        !disc_raw.contains(secret),
+        "discovery file leaked secret: {disc_raw}"
+    );
+    let disc: Value = serde_json::from_str(&disc_raw).unwrap();
+    assert_eq!(disc["service"], "lume");
+    assert_eq!(disc["url"], url);
+    assert!(disc["port"].as_u64().unwrap() > 0);
+    assert_eq!(disc["pid"], u64::from(pid));
+    assert_eq!(disc["version"], lume::build_version());
+    assert_eq!(disc["otlp"], true);
+    assert_eq!(disc["token_file"], token_path.to_str().unwrap());
+    assert!(disc["started"].as_str().unwrap().ends_with('Z'));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&discovery_path)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    // 2. GET /health and HEAD /health return 200 without auth and report service/version/otlp/auth.
+    let health_resp = ureq::get(&format!("{url}/health")).call().unwrap();
+    assert_eq!(health_resp.status(), 200);
+    let health: Value = health_resp.into_json().unwrap();
+    assert_eq!(health["service"], "lume");
+    assert_eq!(health["version"], lume::build_version());
+    assert_eq!(health["otlp"], true);
+    assert_eq!(health["auth"], true);
+
+    let head_resp = ureq::head(&format!("{url}/health")).call().unwrap();
+    assert_eq!(head_resp.status(), 200);
+
+    // 3. POST hertz radio.weather log and query with match(), json_str(), json_num(), and /ti/schema?table=docs.
+    let hertz_payload = json!({
+        "resourceLogs": [{
+            "resource": {
+                "attributes": [
+                    {"key": "service.name", "value": {"stringValue": "hertz"}}
+                ]
+            },
+            "scopeLogs": [{
+                "logRecords": [{
+                    "timeUnixNano": "1760500000000000000",
+                    "eventName": "radio.weather",
+                    "body": {"stringValue": "…New Braunfels sunny 89…"},
+                    "attributes": [
+                        {"key": "channel", "value": {"stringValue": "WX3"}},
+                        {"key": "freq_mhz", "value": {"doubleValue": 162.475}},
+                        {"key": "signal_db", "value": {"doubleValue": -9.2}}
+                    ]
+                }]
+            }]
+        }]
+    });
+    ureq::post(&format!("{url}/v1/logs"))
+        .set("Content-Type", "application/json")
+        .set("Authorization", &format!("Bearer {secret}"))
+        .send_string(&hertz_payload.to_string())
+        .unwrap();
+
+    let match_res: Value = ureq::post(&format!("{url}/ti/query"))
+        .set("Content-Type", "application/json")
+        .set("Accept", "application/json")
+        .send_string(
+            &json!({
+                "sql": "SELECT body, json_num(body,'signal_db') AS sig, json_str(body,'channel') AS ch FROM docs WHERE match(body,'Braunfels')"
+            })
+            .to_string(),
+        )
+        .unwrap()
+        .into_json()
+        .unwrap();
+    assert_eq!(match_res["row_count"], 1);
+    assert_eq!(
+        match_res["rows"][0]["body"],
+        r#"{"body":"…New Braunfels sunny 89…","channel":"WX3","freq_mhz":162.475,"signal_db":-9.2}"#
+    );
+    assert_eq!(match_res["rows"][0]["sig"], -9.2);
+    assert_eq!(match_res["rows"][0]["ch"], "WX3");
+
+    let schema_res: Value = ureq::get(&format!("{url}/ti/schema?table=docs"))
+        .call()
+        .unwrap()
+        .into_json()
+        .unwrap();
+    assert_eq!(schema_res["docs_kinds"][0]["kind"], "logbook");
+    assert_eq!(schema_res["docs_kinds"][0]["title"], "radio.weather");
+    assert_eq!(schema_res["docs_kinds"][0]["count"], 1);
+
+    // 4. Verify PID-matching removal on clean shutdown.
+    lume::agent::remove_discovery_file_if_pid_matches(&discovery_path, pid + 99999);
+    assert!(
+        discovery_path.exists(),
+        "discovery file must remain when PID does not match"
+    );
+
+    #[cfg(unix)]
+    {
+        let _ = Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .status();
+        let _ = child.wait();
+        assert!(
+            !discovery_path.exists(),
+            "discovery file should be removed on clean SIGTERM shutdown"
+        );
+    }
+    #[cfg(not(unix))]
+    {
+        lume::agent::remove_discovery_file_if_pid_matches(&discovery_path, pid);
+        assert!(!discovery_path.exists());
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    let _ = std::fs::remove_dir_all(&root);
 }

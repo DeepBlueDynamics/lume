@@ -500,6 +500,10 @@
       setElem('diag-binary', sup.binaryPath || '--');
       setElem('diag-source', data.binary ? data.binary.source : '--');
       setElem('diag-port', sup.servePort || 5863);
+      const otlpOn = Boolean((data.otlp && data.otlp.enabled) || sup.otlpEnabled);
+      const otlpTokenPath = (data.otlp && data.otlp.tokenFile) || sup.otlpTokenFile || '--';
+      setElem('diag-otlp-state', otlpOn ? 'on' : 'off');
+      setElem('diag-otlp-token-file', otlpOn ? otlpTokenPath : '--');
 
       setElem('diag-store-dir', store.exists ? sup.storeDir : `${sup.storeDir} (not initialized)`);
       setElem('diag-disk-bytes', store.diskHuman || '0 B');

@@ -151,18 +151,84 @@ fn number(v: &Value) -> Result<f64> {
     }
     Ok(n)
 }
+fn unwrap_any_value(v: &Value) -> Value {
+    let Some(obj) = v.as_object() else {
+        return v.clone();
+    };
+    if obj.len() != 1 {
+        return v.clone();
+    }
+    let Some((key, inner)) = obj.iter().next() else {
+        return v.clone();
+    };
+    match key.as_str() {
+        "stringValue" | "bytesValue" => inner
+            .as_str()
+            .map_or_else(|| inner.clone(), |s| Value::String(s.to_string())),
+        "boolValue" => inner.as_bool().map_or_else(|| inner.clone(), Value::Bool),
+        "intValue" => {
+            if inner.is_number() {
+                inner.clone()
+            } else if let Some(s) = inner.as_str() {
+                if let Ok(i) = s.parse::<i64>() {
+                    Value::from(i)
+                } else if let Ok(u) = s.parse::<u64>() {
+                    Value::from(u)
+                } else {
+                    inner.clone()
+                }
+            } else {
+                inner.clone()
+            }
+        }
+        "doubleValue" => {
+            if inner.is_number() {
+                inner.clone()
+            } else if let Some(s) = inner.as_str() {
+                s.parse::<f64>()
+                    .ok()
+                    .and_then(serde_json::Number::from_f64)
+                    .map_or_else(|| inner.clone(), Value::Number)
+            } else {
+                inner.clone()
+            }
+        }
+        "arrayValue" => {
+            if let Some(arr_obj) = inner.as_object() {
+                if let Some(values) = arr_obj.get("values").and_then(Value::as_array) {
+                    return Value::Array(values.iter().map(unwrap_any_value).collect());
+                }
+                if arr_obj.is_empty() {
+                    return Value::Array(Vec::new());
+                }
+            }
+            inner.clone()
+        }
+        "kvlistValue" => {
+            if let Some(kv_obj) = inner.as_object() {
+                if let Some(values) = kv_obj.get("values").and_then(Value::as_array) {
+                    let mut map = serde_json::Map::new();
+                    for item in values {
+                        if let Some(k) = item.get("key").and_then(Value::as_str) {
+                            let val = item.get("value").map_or(Value::Null, unwrap_any_value);
+                            map.insert(k.to_string(), val);
+                        }
+                    }
+                    return Value::Object(map);
+                }
+                if kv_obj.is_empty() {
+                    return Value::Object(serde_json::Map::new());
+                }
+            }
+            inner.clone()
+        }
+        _ => inner.clone(),
+    }
+}
 fn attributes(attrs: &[Attribute]) -> BTreeMap<String, Value> {
     attrs
         .iter()
-        .map(|a| {
-            let v = a
-                .value
-                .as_object()
-                .and_then(|o| o.values().next())
-                .cloned()
-                .unwrap_or_else(|| a.value.clone());
-            (a.key.clone(), v)
-        })
+        .map(|a| (a.key.clone(), unwrap_any_value(&a.value)))
         .collect()
 }
 fn entity(resource: &Resource) -> Result<String> {
@@ -1308,7 +1374,7 @@ fn prepare_logs(bytes: &[u8]) -> Result<PreparedLogs> {
                 let ts = timestamp(time)?;
                 let mut attrs = attributes(&record.attributes);
                 if let Some(body) = record.body {
-                    attrs.insert("body".into(), body);
+                    attrs.insert("body".into(), unwrap_any_value(&body));
                 }
                 let body = serde_json::to_string(&attrs).map_err(|e| invalid(e.to_string()))?;
                 let title = if record.event_name.is_empty() {
@@ -2039,5 +2105,62 @@ mod tests {
             );
         }
         AgentStore::open(root.path()).unwrap();
+    }
+
+    #[test]
+    fn prepare_logs_unwraps_otlp_any_value_body_and_attributes() {
+        let payload = json!({
+            "resourceLogs": [{
+                "resource": {
+                    "attributes": [
+                        {"key": "service.name", "value": {"stringValue": "hertz"}}
+                    ]
+                },
+                "scopeLogs": [{
+                    "logRecords": [{
+                        "timeUnixNano": "1760500000000000000",
+                        "eventName": "radio.weather",
+                        "body": {"stringValue": "…New Braunfels sunny 89…"},
+                        "attributes": [
+                            {"key": "channel", "value": {"stringValue": "WX3"}},
+                            {"key": "freq_mhz", "value": {"doubleValue": 162.475}},
+                            {"key": "signal_db", "value": {"doubleValue": -9.2}}
+                        ]
+                    }]
+                }]
+            }]
+        });
+        let prepared = prepare_logs(payload.to_string().as_bytes()).unwrap();
+        assert_eq!(prepared.docs.len(), 1);
+        let doc = &prepared.docs[0];
+        assert_eq!(doc.kind, "logbook");
+        assert_eq!(doc.title, "radio.weather");
+        assert_eq!(
+            doc.body,
+            r#"{"body":"…New Braunfels sunny 89…","channel":"WX3","freq_mhz":162.475,"signal_db":-9.2}"#
+        );
+
+        let nested = json!({
+            "kvlistValue": {
+                "values": [
+                    {"key": "count", "value": {"intValue": "42"}},
+                    {"key": "active", "value": {"boolValue": true}},
+                    {"key": "raw", "value": {"bytesValue": "YWJj"}},
+                    {"key": "tags", "value": {"arrayValue": {"values": [
+                        {"stringValue": "noaa"},
+                        {"intValue": 7}
+                    ]}}}
+                ]
+            }
+        });
+        assert_eq!(
+            unwrap_any_value(&nested),
+            json!({
+                "count": 42,
+                "active": true,
+                "raw": "YWJj",
+                "tags": ["noaa", 7]
+            })
+        );
     }
 }

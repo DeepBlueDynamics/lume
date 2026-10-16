@@ -30,6 +30,16 @@ pub mod console {
     }
 }
 
+/// Package version with the short git commit from `build.rs` (matches `lume --version`).
+pub fn build_version() -> &'static str {
+    concat!(
+        env!("CARGO_PKG_VERSION"),
+        " (",
+        env!("LUME_BUILD_COMMIT"),
+        ")"
+    )
+}
+
 /// `println!` unless [`console::quiet`].
 #[macro_export]
 macro_rules! say {

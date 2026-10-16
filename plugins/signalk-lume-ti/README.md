@@ -28,6 +28,15 @@ Or with npm, as the Signal K user: `cd ~/.signalk && npm install signalk-lume-ti
 
 Needs 64-bit Linux (Raspberry Pi arm64 or x64 PC), Signal K 2.31+ and Node 18+. npm pulls in the one ~35 MB `lume` program your machine needs; there's no compiler and no install script. On HaLOS, see [Install Lume on HaLOS](https://github.com/DeepBlueDynamics/lume/blob/main/docs/HALOS.md).
 
+## Connect hertz
+
+To receive VHF/NOAA radio logs and agent telemetry from `hertz` over OTLP:
+
+1. In **Server → Plugin Config → Lume TI**, enable **Accept radio and agent logs from hertz (OTLP)** (`otlpEnabled`) and press **Submit**.
+2. Lume TI creates `<plugin-config-data>/signalk-lume-ti/otlp.token` (32 random bytes hex, mode `0600`) if missing and writes `<plugin-config-data>/signalk-lume-ti/serve.json` on bind.
+3. The **Status & Diagnostics** tab shows **OTLP receiver: on / off** and the token file path (never the token contents).
+4. **HaLOS / container caveat:** `lume` binds loopback (`127.0.0.1:5863`) inside the Signal K container. When `hertz` runs in a separate container, use host networking (or the container gateway bind) and mount the token file (`otlp.token`) into the `hertz` container.
+
 ## More
 
 - [Troubleshooting](https://github.com/DeepBlueDynamics/lume/blob/main/docs/HALOS.md#8-troubleshooting)

@@ -6,7 +6,7 @@ const http = require('http');
 
 const { resolveLumeBinary } = require('./lib/resolver');
 const { TokenManager } = require('./lib/auth');
-const { Supervisor } = require('./lib/supervisor');
+const { Supervisor, ensureOtlpTokenFile } = require('./lib/supervisor');
 const { collectStoreStatus } = require('./lib/status');
 const { createHistoryProvider } = require('./lib/history');
 const {pgOptions, writePgConfig, registerPgRoutes, adminStatus, readJson} = require('./lib/pg');
@@ -120,9 +120,9 @@ module.exports = function (app) {
         },
         otlpEnabled: {
           type: 'boolean',
-          title: 'Enable OTLP Receiver',
+          title: 'Accept radio and agent logs from hertz (OTLP)',
           default: false,
-          description: 'Enable OTLP HTTP/JSON receiver on the query server (/v1/metrics and /v1/logs)',
+          description: 'Accept radio and agent logs from hertz (OTLP) on the query server (/v1/metrics and /v1/logs)',
         },
         otlpTokenFile: {
           type: 'string',
@@ -323,7 +323,10 @@ module.exports = function (app) {
       // plugin-config bind must not expose it. LAN OTLP needs `lume ti otlp` with a token.
       const serveBind = '127.0.0.1';
       const otlpEnabled = pluginConfig.otlpEnabled === true;
-      const otlpTokenFile = pluginConfig.otlpTokenFile ? String(pluginConfig.otlpTokenFile).trim() : null;
+      const otlpTokenFile = otlpEnabled
+        ? ensureOtlpTokenFile(dataDir, pluginConfig.otlpTokenFile)
+        : (pluginConfig.otlpTokenFile ? String(pluginConfig.otlpTokenFile).trim() : null);
+      const discoveryFile = otlpEnabled ? path.join(dataDir, 'serve.json') : null;
 
       supervisor = new Supervisor({
         binaryPath: currentBinaryInfo.path,
@@ -333,6 +336,7 @@ module.exports = function (app) {
         serveBind,
         otlpEnabled,
         otlpTokenFile,
+        discoveryFile,
         pgPort: pg.enablePg ? pg.pgPort : null,
         pgBind: pg.pgBind,
         pgAuthConfig,
@@ -474,6 +478,11 @@ module.exports = function (app) {
           // Newest change to the page's own files; an open page that sees it change offers a reload.
           uiBuild: uiBuildStamp(),
           supervisor: supStatus,
+          otlp: {
+            enabled: Boolean(supStatus.otlpEnabled),
+            tokenFile: supStatus.otlpEnabled ? (supStatus.otlpTokenFile || null) : null,
+            discoveryFile: supStatus.otlpEnabled ? (supStatus.discoveryFile || null) : null,
+          },
           store: storeStatus,
           shivvr: shivvr ? shivvr.status() : defaultOfflineStatus(pluginConfig.shivvrUrl),
           // Lets the page explain an empty store: waiting for access approval, or no data yet.
