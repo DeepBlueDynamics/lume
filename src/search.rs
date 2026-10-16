@@ -769,9 +769,9 @@ pub fn search(
 
         if !has_session {
             if opts.mode == SearchMode::HybridStrict {
-                return Err("Semantic search unavailable for this index (no semantic session — index with -s).".to_string());
+                return Err("Semantic search unavailable for this index (no vectors — reindex with --embed-model embeddinggemma-2, Shivvr at --shivvr-url, default http://localhost:8085)".to_string());
             }
-            warnings.push("[⚠️] Semantic search unavailable for this index (no semantic session — index with -s); falling back to lexical BM25.".to_string());
+            warnings.push("[⚠️] Semantic search unavailable for this index (no vectors — reindex with --embed-model embeddinggemma-2, Shivvr at --shivvr-url, default http://localhost:8085); falling back to lexical BM25.".to_string());
         } else if token_opt.is_none() && index.local_vectors.is_none() {
             if opts.mode == SearchMode::HybridStrict {
                 return Err("Semantic search unavailable (no NUTS_SERVICES_TOKEN and shivvr endpoint is not local).".to_string());
@@ -1308,10 +1308,9 @@ mod tests {
 
         let results = search(&index, "captain", &opts).expect("Search should fall back to lexical");
         assert_eq!(results.executed_mode, SearchMode::LexicalOnly);
-        assert!(results
-            .warnings
-            .iter()
-            .any(|w| w.contains("Semantic search unavailable")));
+        assert!(results.warnings.iter().any(|w| w.contains(
+            "Semantic search unavailable for this index (no vectors — reindex with --embed-model embeddinggemma-2, Shivvr at --shivvr-url, default http://localhost:8085); falling back to lexical BM25."
+        )));
         assert_eq!(results.hits.len(), 1);
         assert_eq!(results.hits[0].title, "Chapter 1");
     }
@@ -1352,10 +1351,13 @@ mod tests {
             ..Default::default()
         };
 
-        let res = search(&index, "captain", &opts);
+        let err = search(&index, "captain", &opts)
+            .expect_err("HybridStrict must error when semantic session is missing");
         assert!(
-            res.is_err(),
-            "HybridStrict must error when semantic session is missing"
+            err.contains(
+                "Semantic search unavailable for this index (no vectors — reindex with --embed-model embeddinggemma-2, Shivvr at --shivvr-url, default http://localhost:8085)"
+            ),
+            "unexpected error: {err}"
         );
     }
 

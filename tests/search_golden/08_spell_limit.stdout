@@ -1,7 +1,7 @@
 Searching corpus: docs/monte_cristo (1926 sections, db: /workspace/lume/.lanes/search/tests/search_golden/.scratch_db)
 Corrected query to: Morrel pharo
 [SKG walk] seeds: Morrel → neighbors: Maximilian (0.39), Valentine (0.32), Marseilles (0.28), Noirtier (0.27), Villefort (0.17), Monte Cristo (0.14)
-[⚠️] Semantic search unavailable for this index (no semantic session — index with -s); falling back to lexical BM25.
+[⚠️] Semantic search unavailable for this index (no vectors — reindex with --embed-model embeddinggemma-2, Shivvr at --shivvr-url, default http://localhost:8085); falling back to lexical BM25.
 Executing lexical BM25 search (graph=0.4)...
 [1] Score: 10.1124 [SKG: 0.56] | Chapter 29. The House of Morrel & Son (Part 10/18) (File: docs/monte_cristo/book.md, Line: 13288)
 “Come in, come in,” said Morrel, “for I presume you are all at the
